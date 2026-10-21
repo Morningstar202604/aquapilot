@@ -17,6 +17,7 @@ const ORDER: (keyof Omit<ControlSettings, 'aiEnabled'>)[] = [
   'internalRecirc',
   'rasRatio',
   'wasRatio',
+  'stepFeed',
   'pacDose',
   'carbonDose',
   'alkDose',
