@@ -319,6 +319,17 @@ export function decide(context: DecisionContext): Recommendation {
 
   candidates.sort((a, b) => b.score - a.score);
   const best = candidates[0];
+
+  /**
+   * 备选去重：不同幅度的同类调节（如「提高溶解氧」与「大幅提高溶解氧」）
+   * 在界面上会显示成重复项，让用户无法区分。这里按标签保留得分最高的一条。
+   */
+  const seenLabels = new Set<string>([best.label]);
+  const deduped = candidates.filter((c) => {
+    if (seenLabels.has(c.label)) return false;
+    seenLabels.add(c.label);
+    return true;
+  });
   const hold = candidates.find((c) => c.label === CANDIDATE_NAMES.hold) ?? best;
 
   const tweaks: Recommendation['tweaks'] = [];
@@ -367,7 +378,7 @@ export function decide(context: DecisionContext): Recommendation {
     summary,
     rationale,
     chosens: best,
-    alternatives: candidates.slice(1, 4),
+    alternatives: deduped.slice(0, 3),
     predictedEffluent: best.predictedEffluent,
     predictedScore,
     horizonMin,
