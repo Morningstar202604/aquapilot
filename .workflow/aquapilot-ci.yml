@@ -1,0 +1,101 @@
+# Gitee Go 流水线（Gitee 原生 CI）
+# 用途：在 Gitee 上真实执行与 GitHub Actions 等价的门禁。
+# 说明：.github/workflows/ci.yml 只在 GitHub 生效；本文件是 Gitee 的实现。
+version: '1.0'
+name: aquapilot-ci
+displayName: AquaPilot CI
+
+triggers:
+  push:
+    branches:
+      include:
+        - master
+        - main
+  pull_request:
+    branches:
+      include:
+        - master
+        - main
+
+variables:
+  NODE_VERSION: '22'
+
+stages:
+  - stage:
+      name: verify
+      displayName: Verify
+      steps:
+        - step: setup
+          name: setup
+          displayName: Setup Node
+          script: |
+            set -e
+            node --version
+            npm ci
+
+        - step: typecheck
+          name: typecheck
+          displayName: Type check
+          script: |
+            set -e
+            npm run typecheck
+
+        - step: test
+          name: test
+          displayName: Unit tests
+          script: |
+            set -e
+            npx vitest run --reporter=json --outputFile=test-results.json
+            node -e "const r=require('./test-results.json');if(r.numFailedTests>0){console.error('failed:'+r.numFailedTests);process.exit(1)}if(r.numTotalTests<160){console.error('too few tests:'+r.numTotalTests);process.exit(1)}console.log('tests '+r.numPassedTests+'/'+r.numTotalTests)"
+            rm -f test-results.json
+
+        - step: build
+          name: build
+          displayName: Build
+          script: |
+            set -e
+            npm run build
+            test -f dist/client/index.html
+            test -f dist/server/index.mjs
+
+        - step: smoke
+          name: smoke
+          displayName: Smoke test
+          script: |
+            set -e
+            PORT=5181 node dist/server/index.mjs &
+            PID=$!
+            ok=0
+            for i in $(seq 1 30); do
+              if curl -sf http://127.0.0.1:5181/api/snapshot > /dev/null; then ok=1; break; fi
+              sleep 1
+            done
+            if [ "$ok" -ne 1 ]; then echo "server not ready"; kill $PID 2>/dev/null || true; exit 1; fi
+            curl -sf http://127.0.0.1:5181/api/snapshot | grep -q '"effluent"'
+            curl -sf http://127.0.0.1:5181/api/topology | grep -q '"topology"'
+            kill $PID 2>/dev/null || true
+            echo "smoke ok"
+
+  - stage:
+      name: quality
+      displayName: Quality gate
+      steps:
+        - step: secrets
+          name: secrets
+          displayName: Secret scan
+          script: |
+            set -e
+            if git grep -nIE '(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})' -- . ':(exclude)package-lock.json'; then
+              echo "secret found"; exit 1
+            fi
+            echo "no secrets"
+
+        - step: artifacts
+          name: artifacts
+          displayName: Artifact scan
+          script: |
+            set -e
+            if [ -n "$(git ls-files dist out node_modules | head -1)" ]; then
+              echo "build artifacts committed"; exit 1
+            fi
+            echo "clean"
