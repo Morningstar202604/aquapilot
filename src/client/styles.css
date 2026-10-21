@@ -224,8 +224,10 @@ button {
 }
 
 .stage {
+  /* 工艺图天然宽扁（约 3.2:1），给它过高的区域只会留白；
+     把更多高度分配给趋势图，信息密度更高。 */
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) 224px;
+  grid-template-rows: auto minmax(0, 1.15fr) minmax(224px, 0.85fr);
   min-height: 0;
   /* 关键：min-width:0 允许 grid 子项收缩，否则内部 SVG 的固有宽度会把整列撑开 */
   min-width: 0;
@@ -1192,10 +1194,20 @@ button {
   .topbar-meta {
     order: 3;
     width: 100%;
-    gap: 16px;
+    gap: 10px 16px;
     flex-wrap: wrap;
-    padding-top: 6px;
+    padding-top: 8px;
     border-top: 1px solid var(--line-soft);
+  }
+  /* 每个 meta 项都不能被压成竖排：给出最小宽度并允许换行 */
+  .meta-item {
+    min-width: 130px;
+    flex: 1 1 auto;
+  }
+  .meta-value {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .meta-value {
     font-size: 11px;
@@ -1217,18 +1229,31 @@ button {
     grid-template-rows: auto auto auto;
     border-right: none;
   }
-  .process-panel {
-    height: 400px;
+  /* 移动端不做整厂缩放（19% 时完全不可读），改为可横向滑动，文字保持可辨 */
+  .canvas-wrap {
     overflow-x: auto;
     overflow-y: hidden;
   }
-  .flow-svg {
-    min-width: 900px;
+  .canvas-wrap .plant-canvas {
+    min-width: 1200px;
     height: 100%;
   }
-  .process-head {
-    position: sticky;
-    left: 0;
+  .canvas-viewport {
+    height: 300px;
+  }
+  /* 移动端把画布压到可用高度，避免大片空白 */
+  .canvas-wrap {
+    max-height: 300px;
+  }
+  .canvas-zoom-controls {
+    right: 6px;
+    top: 4px;
+    padding: 2px 3px;
+    font-size: 9px;
+  }
+  .canvas-zoom-controls button {
+    min-width: 18px;
+    height: 18px;
   }
   .kpi-strip {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1947,4 +1972,49 @@ button {
 
 .canvas-scaler {
   flex: none;
+}
+
+/* 缩放控件：当前生效的模式高亮 */
+.canvas-zoom-controls button[data-active='true'] {
+  color: var(--water);
+  background: rgba(62, 224, 181, 0.12);
+}
+
+.canvas-zoom-controls button[data-active='true']:hover {
+  background: rgba(62, 224, 181, 0.2);
+}
+
+/* 全览模式下不应产生滚动条 */
+.canvas-wrap[data-fit='true'] {
+  overflow: hidden;
+}
+
+/* 全览模式下的关键数值：用更大字号抵消缩放，保证缩到 60% 仍可辨认 */
+.unit-value-lg {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 500;
+  fill: var(--text);
+}
+
+.unit-title-lg {
+  font-size: 12.5px;
+  fill: var(--text);
+  font-family: var(--sans);
+}
+
+/* 编排视图：让画布视口撑满编辑器主区，避免下方大片空白 */
+.editor-canvas > .canvas-viewport {
+  height: 100%;
+  min-height: 0;
+}
+
+.editor-canvas > .canvas-viewport > .canvas-wrap {
+  flex: 1;
+  min-height: 0;
+}
+
+.editor-stage {
+  height: 100%;
+  min-height: 0;
 }
