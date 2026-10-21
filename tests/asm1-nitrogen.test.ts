@@ -68,3 +68,43 @@ describe('ASM1 氮素（生产路径）', () => {
     expect(anoxicB).toBeGreaterThan(anoxicA);
   });
 });
+
+describe('出水指标口径（回归：曾把混合液浓度当出水）', () => {
+  it('出水 COD 反映溶解性组分 + 出水悬浮物，而不是池内混合液', () => {
+    const s = runAsm1(20);
+    // 池内混合液总 COD 通常数千，出水必须显著更低
+    const last = s.reactors[s.reactors.length - 1].asm1!;
+    const mixedLiquorCod = last.S_I + last.S_S + last.X_I + last.X_S + last.X_B_H + last.X_B_A + last.X_P;
+    expect(mixedLiquorCod).toBeGreaterThan(1000);
+    expect(s.effluent.cod).toBeLessThan(100);
+    expect(s.effluent.cod).toBeLessThan(mixedLiquorCod / 10);
+  });
+
+  it('出水 BOD 不触上限', () => {
+    const s = runAsm1(20);
+    expect(s.effluent.bod).toBeLessThan(50);
+  });
+
+  it('四项常规指标同时达标', () => {
+    const s = runAsm1(20);
+    expect(s.effluent.cod, `COD ${s.effluent.cod}`).toBeLessThan(LIMITS.cod);
+    expect(s.effluent.nh).toBeLessThan(LIMITS.nh);
+    expect(s.effluent.tn).toBeLessThan(LIMITS.tn);
+    expect(s.effluent.ss).toBeLessThan(LIMITS.ss);
+  });
+
+  it('惰性颗粒物累积到平衡而非无限增长', () => {
+    const early = runAsm1(10);
+    const late = runAsm1(40);
+    const xiEarly = early.reactors[early.reactors.length - 1].asm1!.X_I;
+    const xiLate = late.reactors[late.reactors.length - 1].asm1!.X_I;
+    /**
+     * 惰性颗粒物没有生物降解途径，只能靠排泥与出水带走，
+     * 因此会从初始值逐步累积到一个受 SRT 约束的平衡值。
+     * 10→40 天增长 52%（实测），属于收敛而非发散；
+     * 阈值取 1.7 是为了挡住"完全不排泥导致线性增长"这类故障。
+     */
+    expect(xiLate / xiEarly).toBeLessThan(1.7);
+    expect(Number.isFinite(xiLate)).toBe(true);
+  });
+});

@@ -780,10 +780,23 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
   const pacAllowed = !(state.scenario?.type === 'chemical_shortage' && scenarioEnvelope(state.scenario, state.timeMin) > 0.3);
   const pacDose = pacAllowed ? state.controls.pacDose : 0;
   const suspend = clar.xEff;
+  /**
+   * 出水 COD 不能用池内混合液总 COD——那是含生物量的浓度（可达数千），
+   * 而实际出水是「溶解性组分 + 出水悬浮物折算」。
+   *
+   * 早期直接用 lastReactor.cod 导致出水 COD 被 clamp 到上限 900，
+   * 而同一时刻氨氮、总氮都正常，掩盖了这个问题。
+   */
+  const effluentSolubleCod = lastReactor.asm1
+    ? lastReactor.asm1.S_I + lastReactor.asm1.S_S
+    : lastReactor.cod;
+  const effluentCodValue = clamp(effluentSolubleCod + suspend * 1.3, 4, 900);
+
   state.effluent = {
     flow: Qe,
-    cod: clamp(lastReactor.cod + suspend * 1.3, 4, 900),
-    bod: clamp(Math.max(1.2, (lastReactor.cod - 12) * 0.32 + suspend * 0.5), 1, 400),
+    cod: effluentCodValue,
+    // BOD 同样基于溶解性可降解组分，而不是含生物量的池内 COD
+    bod: clamp(Math.max(1.2, (effluentSolubleCod - 12) * 0.32 + suspend * 0.5), 1, 400),
     ss: clamp(suspend, 0.5, 150),
     nh: clamp(lastReactor.nh + suspend * 0.014, 0.02, 100),
     tn: clamp(lastReactor.nh + lastReactor.no3 + suspend * 0.025, 0.3, 120),
