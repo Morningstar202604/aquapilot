@@ -24,10 +24,8 @@ const warm = spinUp(createInitialState({ seed: 1 }), 5);
 {
   const N = 10;
   const t0 = performance.now();
-  let count = 0;
   for (let i = 0; i < N; i++) {
-    const rec = decide({ model: legacyModel(warm, forecast), horizonMin: 240 });
-    count = 1 + rec.alternatives.length;
+    decide({ model: legacyModel(warm, forecast), horizonMin: 240 });
   }
   const per = (performance.now() - t0) / N;
   console.log(`单次决策: ${per.toFixed(2)} ms（含 ~17 个候选 × 4h 预测）`);
@@ -36,7 +34,7 @@ const warm = spinUp(createInitialState({ seed: 1 }), 5);
 
 {
   const t0 = performance.now();
-  const s = spinUp(createInitialState({ seed: 2 }), 30);
+  spinUp(createInitialState({ seed: 2 }), 30);
   console.log(`30 天预热(spinUp): ${(performance.now() - t0).toFixed(0)} ms`);
 }
 

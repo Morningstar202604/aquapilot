@@ -83,7 +83,6 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
     if (!instance) return;
     const trend = snap.trends.slice(-260);
     const times = trend.map((p) => p.t);
-    const base = trend.length ? trend[trend.length - 1].t : snap.timeMin;
     const xData = times.map((t) => `${Math.floor(t / 60)}h${String(Math.floor(t % 60)).padStart(2, '0')}`);
 
     const series: LineSeriesOption[] = spec.series.map((s) => ({

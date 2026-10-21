@@ -4,11 +4,9 @@ import { compileNetwork, resolveFlows } from '../src/sim/network';
 import {
   createNetworkState,
   networkModel,
-  qualityScoreOf,
   spinUpNetwork,
   stepNetwork,
 } from '../src/sim/networkEngine';
-import { PLANT } from '../src/sim/config';
 
 const clone = (): ProcessTopology => JSON.parse(JSON.stringify(PLANT_TOPOLOGY));
 

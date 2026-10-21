@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { answer, decide } from '../src/ai/agent';
-import { CONTROL_BOUNDS, DEFAULT_CONTROLS, LIMITS } from '../src/sim/config';
+import { CONTROL_BOUNDS, LIMITS } from '../src/sim/config';
 import { createInitialState, forecast, spinUp, startScenario, step } from '../src/sim/engine';
 import { legacyModel } from '../src/sim/plantModel';
 
@@ -40,18 +40,18 @@ describe('AI decision guardrails', () => {
     for (let i = 0; i < 120; i++) step(s, 1);
     const rec = decide({ model: legacyModel(s, forecast), horizonMin: 240 });
     expect(rec.chosens.controls.doSetpoint).toBeGreaterThanOrEqual(2.4);
-    expect(rec.severity).toMatch(/watch|critical|normal/);
+    expect(['normal', 'watch', 'critical']).toContain(rec.severity);
     expect(rec.rationale.length).toBeGreaterThan(0);
   });
 
-  it('prefers a compliant candidate over one that predicts violations', () => {
+  it('选择的方案不劣于任意备选（真实比较，不把自己算进上界）', () => {
     const s = steadyState();
     startScenario(s, 'blower_failure', { durationMin: 240, magnitude: 0.35 });
     for (let i = 0; i < 60; i++) step(s, 1);
     const rec = decide({ model: legacyModel(s, forecast), horizonMin: 240 });
-    expect(rec.chosens.violations).toBeLessThanOrEqual(
-      Math.max(...rec.alternatives.map((a) => a.violations), rec.chosens.violations),
-    );
+    for (const alt of rec.alternatives) {
+      expect(rec.chosens.score).toBeGreaterThanOrEqual(alt.score - 1e-9);
+    }
   });
 
   it('reports confidence inside a bounded range', () => {
@@ -118,7 +118,7 @@ describe('AI conversational answers', () => {
 });
 
 describe('closed loop safety', () => {
-  it('keeps the plant compliant through a storm when the AI is in control', () => {
+  it('暴雨闭环下出水悬浮物不失控（收紧到 1.5 倍限值）', () => {
     const s = steadyState(2026);
     startScenario(s, 'storm', { durationMin: 360 });
     for (let cycle = 0; cycle < 8; cycle++) {
@@ -126,7 +126,8 @@ describe('closed loop safety', () => {
       s.controls = { ...rec.chosens.controls, aiEnabled: true };
       for (let m = 0; m < 30; m++) step(s, 1);
     }
-    expect(s.effluent.ss).toBeLessThan(LIMITS.ss * 2);
+    expect(s.effluent.ss).toBeLessThan(LIMITS.ss * 1.5);
+    expect(s.effluent.cod).toBeLessThan(LIMITS.cod * 2);
     expect(Number.isFinite(s.effluent.cod)).toBe(true);
   });
 

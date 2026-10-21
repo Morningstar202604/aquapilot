@@ -2,10 +2,9 @@ import {
   CONTROL_BOUNDS,
   ControlSettings,
   LIMITS,
-  TARIFF,
 } from '../sim/config';
 import type { EffluentState } from '../sim/plantTypes';
-import { estimateMargin, qualityScore, clampControls } from '../sim/metrics';
+import { qualityScore, clampControls } from '../sim/metrics';
 import { PlantModel, PlantSnapshotForAi } from '../sim/plantModel';
 import { ScenarioType } from '../sim/scenarios';
 
@@ -357,7 +356,7 @@ export function decide(context: DecisionContext): Recommendation {
 
   const rationale = [...buildRationale(state, best, hold), ...scenarioHints(state, (state.scenario?.type as ScenarioType | null) ?? null)];
   const risks = buildRisks(state, best);
-  const confidence = computeConfidence(state, best, candidates);
+  const confidence = computeConfidence(best, candidates);
 
   return {
     action,
@@ -433,11 +432,7 @@ function buildRisks(state: PlantSnapshotForAi, best: DecisionCandidate): string[
   return risks;
 }
 
-function computeConfidence(
-  state: PlantSnapshotForAi,
-  best: DecisionCandidate,
-  candidates: DecisionCandidate[],
-): number {
+function computeConfidence(best: DecisionCandidate, candidates: DecisionCandidate[]): number {
   const sorted = [...candidates].sort((a, b) => b.score - a.score);
   const second = sorted[1]?.score ?? best.score;
   const gap = best.score - second;

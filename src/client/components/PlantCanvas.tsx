@@ -51,10 +51,6 @@ const STREAM_DASH: Record<StreamKind, string | undefined> = {
   sludge_cake: '4 4',
 };
 
-function ratio(v: number, limit: number) {
-  return Math.max(0, Math.min(1.4, v / limit));
-}
-
 export function PlantCanvas({
   snap,
   topo = PLANT_TOPOLOGY,

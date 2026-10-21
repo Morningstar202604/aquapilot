@@ -1,6 +1,6 @@
-import { PLANT_TOPOLOGY, ProcessTopology, findUnit } from '../src/model/topology';
+import { PLANT_TOPOLOGY, ProcessTopology } from '../src/model/topology';
 import { compileNetwork } from '../src/sim/network';
-import { createNetworkState, spinUpNetwork, stepNetwork, qualityScoreOf } from '../src/sim/networkEngine';
+import { createNetworkState, spinUpNetwork, qualityScoreOf } from '../src/sim/networkEngine';
 
 const clone = (): ProcessTopology => JSON.parse(JSON.stringify(PLANT_TOPOLOGY));
 

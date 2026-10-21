@@ -3,9 +3,9 @@ import { mulberry32 } from './rng';
 import { ScenarioSpec, SCENARIOS } from './scenarios';
 import { CompiledNetwork, compileNetwork, resolveFlows } from './network';
 import { networkSnapshot, PlantModel } from './plantModel';
-import { qualityScore } from './metrics';
-import { KINETICS, DESIGN_MLSS, TARIFF } from './kinetics';
-import { BSM1_SETTLER, SettlerState, createSettler, sludgeBlanketHeight, stepSettler } from './takacs';
+import { clampControls, qualityScore } from './metrics';
+import { KINETICS, DESIGN_MLSS } from './kinetics';
+import { BSM1_SETTLER, SettlerState, createSettler, stepSettler } from './takacs';
 import {
   ASM1_COMPONENTS,
   ASM1_PARAMS,
@@ -160,11 +160,13 @@ export function createNetworkState(
    * 同样的排泥量会导致 MLSS 持续上升。因此网络引擎使用独立的基准值。
    * 显式传入 controls.wasRatio 时以传入为准。
    */
-  const networkDefaults: ControlSettings = {
-    ...DEFAULT_CONTROLS,
-    wasRatio: options.controls?.wasRatio ?? 0.022,
-  };
-  const controls: ControlSettings = { ...networkDefaults };
+  /**
+   * 网络引擎的排泥基准与参考实现不同（Takács 截留率更高，需要更大排泥量），
+   * 但**必须让调用方传入的所有控制量生效**——早先只采纳 wasRatio，
+   * 其余被静默丢弃，导致"改 DO 设定"之类的测试实际测的是默认值（假通过）。
+   */
+  const networkDefaults: ControlSettings = { ...DEFAULT_CONTROLS, wasRatio: 0.022 };
+  const controls: ControlSettings = clampControls({ ...networkDefaults, ...options.controls });
   const clarifier = topo.units.find((u) => u.kind === 'clarifier');
   const area = clarifier?.area ?? PLANT.clarifier.area;
   const depth = clarifier?.depth ?? PLANT.clarifier.depth;
@@ -421,7 +423,6 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
   for (const id of orderedReactorIds) {
     const reactor = byId.get(id);
     if (!reactor) continue;
-    const comp = net.reactors.find((r) => r.id === id)!;
 
     // 入流构成
     const incoming = net.edges.filter((e) => e.to === id);

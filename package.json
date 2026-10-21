@@ -14,14 +14,15 @@
     "test:watch": "vitest",
     "start": "node dist/server/index.mjs",
     "harness": "tsx scripts/harness.ts",
-    "verify": "npm run typecheck && npm run test && npm run build"
+    "verify": "npm run typecheck && npm run test && npm run build",
+    "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
+    "ci": "bash scripts/ci-gate.sh"
   },
   "dependencies": {
     "echarts": "6.1.0",
-    "lucide-react": "1.59.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "ws": "8.18.3"
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/node": "26.6.5",
@@ -54,5 +55,8 @@
     "digital-twin",
     "ai-agents",
     "process-control"
-  ]
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  }
 }

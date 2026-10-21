@@ -163,7 +163,7 @@ export function layoutTopology(
     if (nodes.length) laneY[layer] = nodes[0].y;
   }
 
-  const edges = topo.connections.map((conn) => placeEdge(conn, nodeMap, topo));
+  const edges = topo.connections.map((conn) => placeEdge(conn, nodeMap));
 
   const maxX = Math.max(...[...nodeMap.values()].map((n) => n.x + n.w), mainWidth + PAD);
   const maxY = Math.max(bottom, ...edges.map((e) => e.labelY + 10));
@@ -236,7 +236,7 @@ function isRecycleStream(conn: Connection): boolean {
   );
 }
 
-function placeEdge(conn: Connection, nodes: Map<string, PlacedNode>, topo: ProcessTopology): PlacedEdge {
+function placeEdge(conn: Connection, nodes: Map<string, PlacedNode>): PlacedEdge {
   const from = nodes.get(conn.from.unit);
   const to = nodes.get(conn.to.unit);
   if (!from || !to) {

@@ -47,7 +47,13 @@ export function useSimulation() {
         ws.send(JSON.stringify({ type: 'hello' } satisfies ClientMessage));
       };
       ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data as string) as ServerMessage;
+        let msg: ServerMessage;
+        try {
+          msg = JSON.parse(event.data as string) as ServerMessage;
+        } catch {
+          // 服务端发来非 JSON（或连接被中途截断）时忽略该帧，不要让异常冒泡
+          return;
+        }
         switch (msg.type) {
           case 'snapshot':
             setSnapshot(msg.data);

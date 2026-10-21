@@ -14,14 +14,12 @@
 
 import {
   BIO_VOLUME,
-  CONTROL_BOUNDS,
   ControlSettings,
   DEFAULT_CONTROLS,
   INFLUENT_DESIGN,
   LIMITS,
   PLANT,
   TankConfig,
-  TankKind,
 } from './config';
 import { mulberry32 } from './rng';
 import { ScenarioSpec, SCENARIOS } from './scenarios';
@@ -399,8 +397,6 @@ export function step(state: SimState, dtMin = 1): SimState {
       o2Rate = hetero * KINETICS.o2PerCod + -nhRate * KINETICS.o2PerNh;
     }
 
-    const codBefore = tank.cod;
-    const nhBefore = tank.nh;
     const no3Before = tank.no3;
 
     tank.cod = Math.max(2, (tank.cod + dtH * (qOverV * codIn + codRate)) / (1 + dtH * qOverV));

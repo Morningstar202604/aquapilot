@@ -1,5 +1,4 @@
 import {
-  Connection,
   ProcessTopology,
   StreamKind,
   UnitSpec,

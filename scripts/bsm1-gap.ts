@@ -1,5 +1,5 @@
-import { createInitialState, spinUp, step, forecast } from '../src/sim/engine';
-import { DEFAULT_CONTROLS, PLANT } from '../src/sim/config';
+import { createInitialState, spinUp } from '../src/sim/engine';
+import { PLANT } from '../src/sim/config';
 
 /**
  * 探查：把当前引擎按 BSM1 的几何与进水运行，看稳态出水离 BSM1 Table 6 有多远。
@@ -28,8 +28,6 @@ const BSM1 = {
   },
 };
 
-const BASE_COD = 350;
-const codScale = BSM1.influent.cod / BASE_COD;
 
 const s = spinUp(createInitialState({ seed: 2026 }), 40);
 console.log('=== 当前引擎：设计工况（现值） ===');
@@ -55,7 +53,6 @@ const bsm1HRT = BSM1.tanks.reduce((a, b) => a + b, 0) / BSM1.flow;
 console.log(`HRT：当前 ${currentHRT.toFixed(2)} h  vs BSM1 ${bsm1HRT.toFixed(2)} h  → 比值 ${(currentHRT / bsm1HRT).toFixed(2)}`);
 
 // 现有引擎在降低负荷（BSM1 平均流量仅为设计的 38%）下的表现
-const low = spinUp(createInitialState({ seed: 2026 }), 40);
 console.log('\n=== 关键差异检查 ===');
 console.log('1. ASM1 无磷：BSM1 对照无法覆盖 TP，需保留化学除磷兜底（路线图 §6.2 已验证）');
 console.log('2. 组分不可直接映射：BSM1 的 X_S(202) 与 X_I(51) 在当前引擎里都只是"SS"，无法区分可降解/惰性，导致 SRT 与产泥率无法对照');

@@ -110,8 +110,8 @@ jobs:
           COUNT=$(node -e "const r=require('./test-results.json'); console.log(r.numTotalTests)")
           PASSED=$(node -e "const r=require('./test-results.json'); console.log(r.numPassedTests)")
           echo "测试数量: $COUNT（通过 $PASSED）"
-          if [ "$COUNT" -lt 140 ]; then
-            echo "::error::测试数量低于下限 140（当前 $COUNT），可能有测试被删除"
+          if [ "$COUNT" -lt 160 ]; then
+            echo "::error::测试数量低于下限 160（当前 $COUNT），可能有测试被删除"
             exit 1
           fi
           if [ "$PASSED" -ne "$COUNT" ]; then

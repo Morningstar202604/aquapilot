@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DESIGN_MLSS, KINETICS, TARIFF } from '../src/sim/kinetics';
 import { PLANT_TOPOLOGY, ProcessTopology } from '../src/model/topology';
-import { createNetworkState, spinUpNetwork, stepNetwork } from '../src/sim/networkEngine';
+import { createNetworkState, spinUpNetwork } from '../src/sim/networkEngine';
 import { createInitialState, spinUp, step } from '../src/sim/engine';
 import { INFLUENT_DESIGN } from '../src/sim/config';
 

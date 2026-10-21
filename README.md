@@ -6,8 +6,8 @@
 
 AquaPilot is a working prototype of a new interaction model for process simulation: instead of an engineer reading curves and turning knobs, an AI operator watches the plant, forecasts, decides, and acts — while the human asks questions and sets boundaries.
 
-![tests](https://img.shields.io/badge/tests-142%20passing-brightgreen)
-![typescript](https://img.shields.io/badge/TypeScript-strict-blue)
+![tests](https://img.shields.io/badge/tests-157%20passing-brightgreen)
+![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
 ---
@@ -48,10 +48,11 @@ npm run dev        # client on :5174, server on :5173
 Verify:
 
 ```bash
-npm run typecheck  # TypeScript strict, no errors
-npm run test       # 142 tests
+npm run typecheck  # TypeScript strict + noUnusedLocals/Parameters
+npm run test       # 157 tests
 npm run build      # client bundle + server bundle
 npm run verify     # all three in order
+npm run ci         # full gate: deps, types, tests, build, smoke, secret scan
 ```
 
 ## Architecture
@@ -76,7 +77,8 @@ src/
   server/        WebSocket simulation loop, REST snapshot, static hosting
   client/        Control-room UI (React + ECharts + SVG flowsheet)
   shared/        Client/server protocol
-tests/           142 tests: physics, conservation, guardrails, topology, cross-engine
+tests/           157 tests: physics, conservation, guardrails, topology, cross-engine,
+                 input validation and crash-boundary regressions
 ```
 
 ### The three-layer contract
@@ -105,11 +107,24 @@ Measured on this repository:
 
 This is a **simulation prototype**, not a system that can take over a real plant.
 
-Verified:
-- Topology-driven reactor count and ordering
-- ASM1 conservation laws (exact), kinetics sanity (generation times in literature range)
-- Takács effluent and underflow against BSM1-scale operating points
-- 142 tests, TypeScript strict, CI green
+Verified **on this machine** by `npm run ci` (7/7 steps green):
+- Dependency install, TypeScript strict (0 errors, including unused-code checks)
+- 157 tests, all passing
+- Client + server build, production bundle
+- Smoke test: three endpoints respond under a real server
+- Secret scan and artifact scan
+
+CI configuration is provided for all three hosts (`.github/workflows/ci.yml`,
+`.workflow/aquapilot-ci.yml` for Gitee Go, `.gitcode/pipeline.yml`).
+**These are configuration files. Whether they execute depends on enabling CI in
+each platform's web console, which cannot be provisioned from the repository.**
+The claim above is about the local gate, not about a hosted badge.
+
+Hardening added after an independent engineering audit (which reproduced nine
+remotely-triggerable crashes in an earlier revision): runtime validation on every
+client message, path-traversal rejection, WebSocket origin allowlist and payload
+cap, heartbeat, crash boundaries around the tick loop and message handler,
+and a bounded integrator in the settler.
 
 Known gaps (tracked in `docs/QUALITY-ROADMAP.md`):
 - The ten-layer settler does not build a strong concentration gradient in the thickening zone, so underflow concentration is lower than reality
@@ -117,6 +132,9 @@ Known gaps (tracked in `docs/QUALITY-ROADMAP.md`):
 - No automated comparison against the official BSM1 Table 6 values (those numbers were not available when this was built)
 - ASM1 has no phosphorus; TP relies on chemical precipitation
 - Single-user, in-memory state; no persistence or history replay
+- No authentication: the server binds to localhost and is not hardened for public
+  exposure. Origin allowlisting and payload caps reduce, but do not replace, a
+  reverse proxy with auth
 
 ## Documentation
 

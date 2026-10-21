@@ -1,10 +1,10 @@
 import { createServer, IncomingMessage } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { extname, join, normalize, resolve } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { answer, decide, Recommendation } from '../ai/agent';
-import { CONTROL_BOUNDS, DEFAULT_CONTROLS, LIMITS, PLANT } from '../sim/config';
+import { CONTROL_BOUNDS, LIMITS, PLANT } from '../sim/config';
 import { SCENARIOS, ScenarioType } from '../sim/scenarios';
 import { NetworkSimState, networkModel, qualityScoreOf, stepNetwork } from '../sim/networkEngine';
 import { CompiledNetwork } from '../sim/network';
@@ -12,7 +12,15 @@ import { estimateMargin } from '../sim/metrics';
 import type { ClientMessage, PlantSnapshot, ServerMessage, TrendPoint } from '../shared/protocol';
 import { PLANT_TOPOLOGY, ProcessTopology, validateTopology } from '../model/topology';
 import { applyTopology, checkRunReadiness, createRuntime } from './topologyRuntime';
-import { compileNetwork } from '../sim/network';
+import {
+  VALID_SCENARIOS,
+  sanitizeBoolean,
+  sanitizeChatText,
+  sanitizeControlPatch,
+  sanitizeMessage,
+  sanitizeRange,
+  sanitizeSpeed,
+} from './validation';
 
 const PORT = Number(process.env.PORT ?? 5173);
 const TICK_MS = Number(process.env.TICK_MS ?? 1000);
@@ -240,13 +248,21 @@ function advance(): void {
 }
 
 function handleClientMessage(ws: WebSocket, raw: string): void {
-  let msg: ClientMessage;
+  let parsed: unknown;
   try {
-    msg = JSON.parse(raw) as ClientMessage;
+    parsed = JSON.parse(raw);
   } catch {
     ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '消息格式错误' } satisfies ServerMessage));
     return;
   }
+
+  // 形状校验：JSON.parse 的结果是任意值，null/数组/缺 type 都必须挡在这里
+  const shaped = sanitizeMessage(parsed);
+  if (!shaped) {
+    ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '消息结构不合法' } satisfies ServerMessage));
+    return;
+  }
+  const msg = shaped as unknown as ClientMessage;
 
   switch (msg.type) {
     case 'hello': {
@@ -265,25 +281,42 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       break;
     }
     case 'chat': {
-      const contextual = answer(msg.text, networkModel(runtime.topology, runtime.net), runtime.recommendation);
-      ws.send(JSON.stringify({ type: 'chat', question: msg.text, answer: contextual } satisfies ServerMessage));
+      const text = sanitizeChatText((msg as { text?: unknown }).text);
+      if (text === null) {
+        ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '问题为空或过长（上限 2000 字）' } satisfies ServerMessage));
+        break;
+      }
+      const contextual = answer(text, networkModel(runtime.topology, runtime.net), runtime.recommendation);
+      ws.send(JSON.stringify({ type: 'chat', question: text, answer: contextual } satisfies ServerMessage));
       break;
     }
     case 'control': {
-      const patch = { ...msg.patch };
-      if (patch.aiEnabled !== undefined) delete patch.aiEnabled;
-      runtime.net.controls = { ...runtime.net.controls, ...patch, aiEnabled: runtime.net.controls.aiEnabled };
+      const result = sanitizeControlPatch((msg as { patch?: unknown }).patch);
+      if (!result.ok) {
+        ws.send(JSON.stringify({ type: 'notice', level: 'error', text: `控制参数非法：${result.error}` } satisfies ServerMessage));
+        break;
+      }
+      runtime.net.controls = {
+        ...runtime.net.controls,
+        ...result.value,
+        aiEnabled: runtime.net.controls.aiEnabled,
+      };
       runAiCycle(true);
       broadcastSnapshot();
       break;
     }
     case 'aiEnabled': {
-      runtime.net.controls.aiEnabled = msg.enabled;
+      const enabled = sanitizeBoolean((msg as { enabled?: unknown }).enabled);
+      if (enabled === null) {
+        ws.send(JSON.stringify({ type: 'notice', level: 'error', text: 'aiEnabled 必须是布尔值' } satisfies ServerMessage));
+        break;
+      }
+      runtime.net.controls.aiEnabled = enabled;
       ws.send(
         JSON.stringify({
           type: 'notice',
           level: 'info',
-          text: msg.enabled ? 'AI 自动值守已启用，将自动执行控制调节。' : 'AI 已切换为建议模式，控制调节需人工确认。',
+          text: enabled ? 'AI 自动值守已启用，将自动执行控制调节。' : 'AI 已切换为建议模式，控制调节需人工确认。',
         } satisfies ServerMessage),
       );
       broadcastSnapshot();
@@ -302,12 +335,16 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         runtime.net.controls = { ...runtime.net.controls, stormStore: 0 };
         broadcast({ type: 'notice', level: 'info', text: '已清除场景，回到常态工况。' });
       } else {
-        const meta = SCENARIOS[msg.scenario as ScenarioType];
-        if (!meta) return;
+        const scenarioType = (msg as { scenario?: unknown }).scenario;
+        if (typeof scenarioType !== 'string' || !VALID_SCENARIOS.has(scenarioType)) {
+          ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '未知的场景类型' } satisfies ServerMessage));
+          break;
+        }
+        const meta = SCENARIOS[scenarioType as ScenarioType];
         runtime.net.scenario = {
-          type: msg.scenario,
-          durationMin: msg.durationMin ?? meta.defaultDurationMin,
-          magnitude: msg.magnitude ?? meta.defaultMagnitude,
+          type: scenarioType as ScenarioType,
+          durationMin: sanitizeRange((msg as { durationMin?: unknown }).durationMin, 10, 10080, meta.defaultDurationMin),
+          magnitude: sanitizeRange((msg as { magnitude?: unknown }).magnitude, 0, 30, meta.defaultMagnitude),
           startedAt: runtime.net.timeMin,
         };
         broadcast({ type: 'notice', level: 'warn', text: `已注入场景：${meta.label}` });
@@ -333,7 +370,12 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       break;
     }
     case 'speed': {
-      runtime.speed = Math.min(8, Math.max(0.25, msg.value));
+      const speed = sanitizeSpeed((msg as { value?: unknown }).value);
+      if (speed === null) {
+        ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '速度必须是 0.25–8 之间的数值' } satisfies ServerMessage));
+        break;
+      }
+      runtime.speed = speed;
       broadcast({ type: 'simState', paused: runtime.paused, speed: runtime.speed });
       break;
     }
@@ -348,7 +390,11 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         break;
       }
       if (msg.action === 'apply') {
-        const incoming = msg.topology;
+        const incoming = (msg as { topology?: unknown }).topology;
+        if (!incoming || typeof incoming !== 'object' || !Array.isArray((incoming as { units?: unknown }).units)) {
+          ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '拓扑结构不合法' } satisfies ServerMessage));
+          break;
+        }
         const rt = {
           topology: runtime.topology,
           compiled: runtime.compiled,
@@ -356,7 +402,14 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
           revision: runtime.topologyRevision,
           net: runtime.net,
         };
-        const result = applyTopology(rt, incoming);
+        let result: ReturnType<typeof applyTopology>;
+        try {
+          result = applyTopology(rt, incoming as ProcessTopology);
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          ws.send(JSON.stringify({ type: 'notice', level: 'error', text: `拓扑应用失败：${reason}` } satisfies ServerMessage));
+          break;
+        }
         if (!result.ok) {
           ws.send(
             JSON.stringify({
@@ -371,7 +424,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         // applyTopology 内部会重建 net，必须把新状态接回来，否则只是改了拓扑对象
         runtime.net = rt.net;
         runtime.compiled = rt.compiled;
-        runtime.topology = incoming;
+        runtime.topology = incoming as ProcessTopology;
         runtime.topologyRevision += 1;
         runtime.recommendation = null;
         runtime.trend = [];
@@ -401,10 +454,29 @@ const MIME: Record<string, string> = {
 
 async function serveStatic(req: IncomingMessage, res: import('node:http').ServerResponse): Promise<void> {
   const clientDir = resolve(process.cwd(), 'dist/client');
-  const urlPath = decodeURIComponent((req.url ?? '/').split('?')[0]);
+
+  let urlPath: string;
+  try {
+    urlPath = decodeURIComponent((req.url ?? '/').split('?')[0]);
+  } catch {
+    // 畸形百分号编码（如 /%E0%A4%A）会让 decodeURIComponent 抛 URIError
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('bad request');
+    return;
+  }
+
+  // 拒绝空字节与路径穿越片段
+  if (urlPath.includes(' ')) {
+    res.writeHead(400);
+    res.end('bad request');
+    return;
+  }
+
   let filePath = normalize(join(clientDir, urlPath === '/' ? 'index.html' : urlPath));
 
-  if (!filePath.startsWith(clientDir)) {
+  // 前缀校验必须带分隔符，否则 dist/clientX 会通过 startsWith('dist/client')
+  const withSep = clientDir.endsWith(sep) ? clientDir : clientDir + sep;
+  if (filePath !== clientDir && !filePath.startsWith(withSep)) {
     res.writeHead(403);
     res.end('forbidden');
     return;
@@ -455,19 +527,69 @@ async function main(): Promise<void> {
       res.end(JSON.stringify(buildSnapshot()));
       return;
     }
-    void serveStatic(req, res);
+    serveStatic(req, res).catch((err) => {
+      console.error('static handler error', err);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('internal error');
+      } else {
+        res.end();
+      }
+    });
   });
 
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  const wss = new WebSocketServer({
+    server,
+    path: '/ws',
+    // 限制单帧大小，避免恶意大包打满内存（ws 的 DoS 公告与此相关）
+    maxPayload: 1024 * 512,
+    // Origin 白名单：仅允许同源与本地开发来源，缓解跨站 WebSocket 劫持
+    verifyClient: (info: { origin?: string; req: IncomingMessage }) => {
+      const origin = info.origin;
+      if (!origin) return true; // 非浏览器客户端（curl / 测试）
+      try {
+        const host = new URL(origin).hostname;
+        return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+      } catch {
+        return false;
+      }
+    },
+  });
+
   wss.on('connection', (ws) => {
     runtime.clients.add(ws);
-    ws.on('message', (data) => handleClientMessage(ws, data.toString()));
+    ws.on('message', (data) => {
+      // 单条消息的处理绝不能冒泡到进程级
+      try {
+        handleClientMessage(ws, data.toString());
+      } catch (err) {
+        console.error('ws message handler error', err);
+        try {
+          ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '请求处理失败' }));
+        } catch {
+          /* 客户端可能已断开 */
+        }
+      }
+    });
     ws.on('close', () => runtime.clients.delete(ws));
     ws.on('error', () => runtime.clients.delete(ws));
+    // heartbeat：清理半开连接，避免 clients 集合泄漏
+    const ping = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) ws.ping();
+    }, 30000);
+    ws.on('close', () => clearInterval(ping));
   });
 
   setInterval(() => {
-    if (!runtime.paused) advance();
+    if (runtime.paused) return;
+    try {
+      advance();
+    } catch (err) {
+      // 仿真步进失败不应终止服务：暂停并广播，等待人工介入
+      console.error('simulation tick failed', err);
+      runtime.paused = true;
+      broadcast({ type: 'notice', level: 'error', text: '仿真步进异常，已暂停。请检查参数或重置。' });
+    }
   }, TICK_MS);
 
   pushTrend(runtime.net, runtime.trend);

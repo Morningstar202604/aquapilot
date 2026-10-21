@@ -135,8 +135,7 @@ export function legacyModel(state: import('./engine').SimState, forecastFn: type
       base.scenario = { type: scenario as never, durationMin: 360, magnitude: 1, startedAt: base.timeMin };
     }
     const fc = forecastFn(base, controls, horizonMin, sampleEvery);
-    const last = fc.points[fc.points.length - 1];
-    return {
+      return {
       points: fc.points.map((p) => ({
         minute: p.minute,
         effluent: p.effluent,

@@ -12,8 +12,6 @@ import {
 } from '../src/sim/asm1';
 import { BSM1_INFLUENT, runCstr } from '../src/sim/asm1Cstr';
 
-const TOL = 1e-9;
-
 describe('ASM1 组分与过程完整性', () => {
   it('恰好 13 个组分、8 个过程（与 IWA ASM1 一致）', () => {
     expect(ASM1_COMPONENTS).toHaveLength(13);

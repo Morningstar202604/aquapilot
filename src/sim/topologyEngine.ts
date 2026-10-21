@@ -14,7 +14,6 @@ import {
   hydraulicRetention,
   totalTrainVolume,
 } from '../model/topology';
-import { mulberry32 } from '../sim/rng';
 import { SCENARIOS, ScenarioSpec } from '../sim/scenarios';
 
 /**
@@ -105,8 +104,6 @@ const K = {
   doSat20: 9.1,
   biomassSeed: 3400,
 };
-
-const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
 function extrasOf(u: UnitSpec): Record<string, number> {
   if (u.kind === 'clarifier') return { blanketM: 1.0, xRas: 8600, xEff: 4, slr: 3.4, sludgeMassKg: 22000, underflowM3h: 1600 };

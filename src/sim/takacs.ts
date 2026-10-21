@@ -94,15 +94,31 @@ export function stepSettler(
   const vUp = Qe / cfg.area; // m/d
   const vDn = Qu / cfg.area; // m/d
 
-  // CFL：v0_max·dt/z < 0.4
-  const maxDt = (0.4 * z) / Math.max(1e-6, cfg.v0Max);
-  const subSteps = Math.max(1, Math.ceil(dtDays / maxDt));
+  /**
+   * CFL 条件 + 硬上限。
+   *
+   * 必须同时限制子步数：若 geometry 非法（depth=0 导致 z=0），
+   * maxDt 会变成 0，subSteps 变成 Infinity，循环永不结束——那是挂死而不是报错。
+   * 这里把层高与子步数都夹到安全区间，非法输入退化为"不推进"而非死循环。
+   */
+  const safeZ = Math.max(1e-3, z);
+  const maxDt = (0.4 * safeZ) / Math.max(1e-6, cfg.v0Max);
+  const rawSubSteps = dtDays / Math.max(1e-9, maxDt);
+  const subSteps = Number.isFinite(rawSubSteps) ? Math.max(1, Math.min(2000, Math.ceil(rawSubSteps))) : 2000;
   const dt = dtDays / subSteps;
+
+  if (!Number.isFinite(cfg.area) || cfg.area <= 0 || !Number.isFinite(cfg.depth) || cfg.depth <= 0) {
+    return {
+      state,
+      xEffluent: state.x[0] ?? 0,
+      xUnderflow: state.x[state.x.length - 1] ?? 0,
+      solidsLoading: 0,
+    };
+  }
 
   let xs = [...state.x];
 
   for (let step = 0; step < subSteps; step++) {
-    const J = xs.map((v) => settlingVelocity(v, cfg) * v); // g/(m²·d)
     const next = new Array<number>(n).fill(0);
 
     /**
