@@ -13,6 +13,7 @@ import type { ClientMessage, PlantSnapshot, ServerMessage, SnapshotPatch, TrendP
 import { PLANT_TOPOLOGY, ProcessTopology, validateTopology } from '../model/topology';
 import { applyTopology, checkRunReadiness, createRuntime } from './topologyRuntime';
 import { Store } from './store';
+import { authRequired, authorize } from './auth';
 import {
   VALID_SCENARIOS,
   sanitizeBoolean,
@@ -670,6 +671,20 @@ async function main(): Promise<void> {
   await store.open();
 
   const server = createServer((req, res) => {
+    // 启用访问控制时，除健康检查外的所有请求都要带令牌
+    if (!req.url?.startsWith('/api/health')) {
+      const decision = authorize(req);
+      if (!decision.allowed) {
+        res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: decision.reason, authRequired: true }));
+        return;
+      }
+    }
+    if (req.url?.startsWith('/api/health')) {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: true, authRequired: authRequired() }));
+      return;
+    }
     if (req.url?.startsWith('/api/limits')) {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ limits: LIMITS, bounds: CONTROL_BOUNDS, plant: PLANT }));
@@ -754,8 +769,15 @@ async function main(): Promise<void> {
     maxPayload: 1024 * 512,
     // Origin 白名单：仅允许同源与本地开发来源，缓解跨站 WebSocket 劫持
     verifyClient: (info: { origin?: string; req: IncomingMessage }) => {
+      // 访问控制优先：令牌不对直接拒绝，不再看 Origin
+      const subprotocol = info.req.headers['sec-websocket-protocol'];
+      const protoToken =
+        typeof subprotocol === 'string' ? subprotocol.split(',').map((x) => x.trim()).find((x) => x.startsWith('token.'))?.slice(6) : null;
+      if (!authorize(info.req, protoToken).allowed) return false;
+
       const origin = info.origin;
       if (!origin) return true; // 非浏览器客户端（curl / 测试）
+      if (authRequired()) return true; // 已通过令牌校验，允许跨主机使用
       try {
         const host = new URL(origin).hostname;
         return host === 'localhost' || host === '127.0.0.1' || host === '::1';
