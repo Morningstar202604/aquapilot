@@ -18,6 +18,29 @@ export interface LinkState {
   error: string | null;
 }
 
+/**
+ * 快照形状校验。
+ *
+ * 服务端与客户端是独立部署单元，协议漂移是现实风险：
+ * 一个缺失的数值字段会让下游 .toFixed() 抛错，整页崩溃。
+ * ErrorBoundary 只能兜底，不能防止；这里在入口处拒收不完整数据。
+ */
+function isUsableSnapshot(v: unknown): v is PlantSnapshot {
+  if (!v || typeof v !== 'object') return false;
+  const s = v as Record<string, unknown>;
+  const num = (x: unknown) => typeof x === 'number' && Number.isFinite(x);
+  if (!num(s.timeMin)) return false;
+  if (!Array.isArray(s.tanks) || s.tanks.length === 0) return false;
+  if (!Array.isArray(s.trends)) return false;
+  const e = s.effluent as Record<string, unknown> | undefined;
+  if (!e || !num(e.cod) || !num(e.nh) || !num(e.ss)) return false;
+  const c = s.clarifier as Record<string, unknown> | undefined;
+  if (!c || !num(c.blanketM)) return false;
+  const en = s.energy as Record<string, unknown> | undefined;
+  if (!en || !num(en.totalKw)) return false;
+  return true;
+}
+
 export function useSimulation() {
   const [snapshot, setSnapshot] = useState<PlantSnapshot | null>(null);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
@@ -56,13 +79,19 @@ export function useSimulation() {
         }
         switch (msg.type) {
           case 'snapshot':
-            setSnapshot(msg.data);
+            // 拒收不完整快照：宁可保留上一帧可用数据，也不进入崩溃态
+            if (isUsableSnapshot(msg.data)) setSnapshot(msg.data);
+            else console.warn('discarded malformed snapshot from server');
             break;
           case 'snapshotPatch':
             // 增量合并：只覆盖变化字段，趋势追加新点
             setSnapshot((prev) => {
               if (!prev) return prev;
               const p = msg.data;
+              if (!p || typeof p.timeMin !== 'number' || !p.effluent || !Array.isArray(p.tanks)) {
+                console.warn('discarded malformed snapshot patch');
+                return prev;
+              }
               return {
                 ...prev,
                 timeMin: p.timeMin,
