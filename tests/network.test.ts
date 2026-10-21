@@ -308,3 +308,46 @@ describe('回归：成本按日重置', () => {
     expect(s.costToday.energy + s.costToday.chemical + s.costToday.sludge).toBeCloseTo(s.costToday.total, 6);
   });
 });
+
+describe('plantModel 适配器', () => {
+  it('legacyModel 的 snapshot 反映真实状态', async () => {
+    const { legacyModel } = await import('../src/sim/plantModel');
+    const { createInitialState, forecast } = await import('../src/sim/engine');
+    const s = createInitialState({ seed: 5 });
+    const m = legacyModel(s, forecast);
+    const snap = m.snapshot();
+    expect(snap.timeMin).toBe(s.timeMin);
+    expect(snap.reactorCount).toBe(s.tanks.length);
+    expect(snap.controls.doSetpoint).toBe(s.controls.doSetpoint);
+    expect(snap.mlss).toBeGreaterThan(0);
+  });
+
+  it('legacyModel 预测与假设推演都返回结构', async () => {
+    const { legacyModel } = await import('../src/sim/plantModel');
+    const { createInitialState, forecast } = await import('../src/sim/engine');
+    const m = legacyModel(createInitialState({ seed: 5 }), forecast);
+    const p1 = m.predict({ ...createInitialState().controls }, 120, 30);
+    expect(p1.points.length).toBe(4);
+    const p2 = m.predictWithScenario(createInitialState().controls, 120, 30, 'storm');
+    expect(p2.points.length).toBe(4);
+  });
+});
+
+describe('plantModel 空状态边界', () => {
+  it('无反应器时 snapshot 不崩溃', async () => {
+    const { networkSnapshot } = await import('../src/sim/plantModel');
+    const s = createNetworkState(PLANT_TOPOLOGY, { seed: 1 });
+    s.reactors = [];
+    const snap = networkSnapshot(s);
+    expect(snap.lastDo).toBe(0);
+    expect(snap.reactorCount).toBe(0);
+    expect(Number.isFinite(snap.mlss)).toBe(true);
+  });
+
+  it('blankStats 返回零值结构', async () => {
+    const { blankStats } = await import('../src/sim/plantModel');
+    const b = blankStats();
+    expect(b.flow).toBe(0);
+    expect(b.ph).toBe(7);
+  });
+});
