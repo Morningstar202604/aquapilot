@@ -41,6 +41,7 @@ async function loadSqlite(): Promise<(new (path: string) => DatabaseLike) | null
 const DB_PATH = resolve(process.env.AQUAPILOT_DB ?? 'data/aquapilot.db');
 
 export interface DecisionRow {
+  runId?: string;
   atMin: number;
   action: string;
   severity: string;
@@ -59,6 +60,7 @@ export interface AlarmRow {
 }
 
 export interface SnapshotRow {
+  runId?: string;
   atMin: number;
   effluentCod: number;
   effluentNh: number;
@@ -98,7 +100,7 @@ export class Store {
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS decisions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          at_min REAL NOT NULL, action TEXT, severity TEXT, summary TEXT,
+          run_id TEXT, at_min REAL NOT NULL, action TEXT, severity TEXT, summary TEXT,
           tweaks TEXT, predicted_score REAL, separation REAL
         );
         CREATE TABLE IF NOT EXISTS alarms (
@@ -107,13 +109,22 @@ export class Store {
         );
         CREATE TABLE IF NOT EXISTS snapshots (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          at_min REAL NOT NULL, cod REAL, nh REAL, tn REAL, tp REAL, ss REAL,
+          run_id TEXT, at_min REAL NOT NULL, cod REAL, nh REAL, tn REAL, tp REAL, ss REAL,
           mlss REAL, srt REAL, energy_kw REAL, score REAL
         );
         CREATE INDEX IF NOT EXISTS idx_decisions_at ON decisions(at_min);
         CREATE INDEX IF NOT EXISTS idx_snapshots_at ON snapshots(at_min);
+        CREATE INDEX IF NOT EXISTS idx_snapshots_run ON snapshots(run_id);
       `);
-      this.db.prepare('INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)').run('schema_version', '1');
+      // 迁移：给旧表补 run_id 列（SQLite 不支持 IF NOT EXISTS 加列，用 try 包裹）
+      for (const table of ['decisions', 'snapshots']) {
+        try {
+          this.db.exec(`ALTER TABLE ${table} ADD COLUMN run_id TEXT`);
+        } catch {
+          /* 已存在 */
+        }
+      }
+      this.db.prepare('INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)').run('schema_version', '2');
       this.flushTimer = setInterval(() => this.flush(), 5000);
     } catch (err) {
       console.error('persistence disabled: cannot open database', err);
@@ -151,18 +162,18 @@ export class Store {
     try {
       this.db.exec('BEGIN');
       const insD = this.db.prepare(
-        'INSERT INTO decisions(at_min,action,severity,summary,tweaks,predicted_score,separation) VALUES(?,?,?,?,?,?,?)',
+        'INSERT INTO decisions(run_id,at_min,action,severity,summary,tweaks,predicted_score,separation) VALUES(?,?,?,?,?,?,?,?)',
       );
-      for (const r of d) insD.run(r.atMin, r.action, r.severity, r.summary, r.tweaks, r.predictedScore, r.separation);
+      for (const r of d) insD.run(r.runId ?? null, r.atMin, r.action, r.severity, r.summary, r.tweaks, r.predictedScore, r.separation);
 
       const insA = this.db.prepare('INSERT INTO alarms(alarm_id,at_min,severity,code,message) VALUES(?,?,?,?,?)');
       for (const r of a) insA.run(r.id, r.atMin, r.severity, r.code, r.message);
 
       const insS = this.db.prepare(
-        'INSERT INTO snapshots(at_min,cod,nh,tn,tp,ss,mlss,srt,energy_kw,score) VALUES(?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO snapshots(run_id,at_min,cod,nh,tn,tp,ss,mlss,srt,energy_kw,score) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
       );
       for (const r of s) {
-        insS.run(r.atMin, r.effluentCod, r.effluentNh, r.effluentTn, r.effluentTp, r.effluentSs, r.mlss, r.srtDays, r.energyKw, r.score);
+        insS.run(r.runId ?? null, r.atMin, r.effluentCod, r.effluentNh, r.effluentTn, r.effluentTp, r.effluentSs, r.mlss, r.srtDays, r.energyKw, r.score);
       }
       this.db.exec('COMMIT');
       this.writeBuffer = { decisions: [], alarms: [], snapshots: [] };
@@ -180,20 +191,52 @@ export class Store {
   recentDecisions(limit = 50): DecisionRow[] {
     if (!this.db) return [];
     return this.db
-      .prepare('SELECT at_min as atMin, action, severity, summary, tweaks, predicted_score as predictedScore, separation FROM decisions ORDER BY at_min DESC LIMIT ?')
+      .prepare('SELECT run_id as runId, at_min as atMin, action, severity, summary, tweaks, predicted_score as predictedScore, separation FROM decisions ORDER BY id DESC LIMIT ?')
       .all(limit) as unknown as DecisionRow[];
   }
 
   /** 读取时间窗口内的快照，用于趋势回放 */
-  snapshotsBetween(fromMin: number, toMin: number): SnapshotRow[] {
+  /**
+   * 时间窗口内的快照。
+   *
+   * 必须限定 run_id：仿真时钟在每次重启时归零，
+   * 不同run 的 at_min 会重叠，不加限制会得到锯齿状的假曲线。
+   * 默认只返回最近一次运行。
+   */
+  snapshotsBetween(fromMin: number, toMin: number, runId?: string): SnapshotRow[] {
+    if (!this.db) return [];
+    const latest = this.latestRunId();
+    const useRun = runId ?? latest;
+    const sql = useRun
+      ? `SELECT run_id as runId, at_min as atMin, cod as effluentCod, nh as effluentNh, tn as effluentTn,
+                tp as effluentTp, ss as effluentSs, mlss, srt as srtDays, energy_kw as energyKw, score
+         FROM snapshots WHERE at_min BETWEEN ? AND ? AND run_id = ? ORDER BY at_min ASC`
+      : `SELECT run_id as runId, at_min as atMin, cod as effluentCod, nh as effluentNh, tn as effluentTn,
+                tp as effluentTp, ss as effluentSs, mlss, srt as srtDays, energy_kw as energyKw, score
+         FROM snapshots WHERE at_min BETWEEN ? AND ? ORDER BY at_min ASC`;
+    return this.db
+      .prepare(sql)
+      .all(...(useRun ? [fromMin, toMin, useRun] : [fromMin, toMin])) as unknown as SnapshotRow[];
+  }
+
+  /** 最近一次运行的标识 */
+  latestRunId(): string | null {
+    if (!this.db) return null;
+    const row = this.db
+      .prepare("SELECT run_id as runId FROM snapshots WHERE run_id IS NOT NULL ORDER BY id DESC LIMIT 1")
+      .get() as unknown as { runId: string } | undefined;
+    return row?.runId ?? null;
+  }
+
+  /** 所有运行时段，用于回放时选择 */
+  listRuns(): { runId: string; fromMin: number; toMin: number; points: number }[] {
     if (!this.db) return [];
     return this.db
       .prepare(
-        `SELECT at_min as atMin, cod as effluentCod, nh as effluentNh, tn as effluentTn, tp as effluentTp,
-                ss as effluentSs, mlss, srt as srtDays, energy_kw as energyKw, score
-         FROM snapshots WHERE at_min BETWEEN ? AND ? ORDER BY at_min ASC`,
+        `SELECT run_id as runId, MIN(at_min) as fromMin, MAX(at_min) as toMin, COUNT(*) as points
+         FROM snapshots WHERE run_id IS NOT NULL GROUP BY run_id ORDER BY MAX(id) DESC LIMIT 20`,
       )
-      .all(fromMin, toMin) as unknown as SnapshotRow[];
+      .all() as unknown as { runId: string; fromMin: number; toMin: number; points: number }[];
   }
 
   count(): { decisions: number; alarms: number; snapshots: number } {
