@@ -645,7 +645,7 @@ async function main(): Promise<void> {
   runtime.net.controls.aiEnabled = true;
 
   server.listen(PORT, () => {
-    console.log(`HYDRA 仿真台已启动：http://127.0.0.1:${PORT}`);
+    console.log(`AquaPilot 仿真服务已启动：http://127.0.0.1:${PORT}`);
     console.log(`WebSocket: ws://127.0.0.1:${PORT}/ws | 速度 ${runtime.speed}x | 每 tick ${SIM_MINUTES_PER_TICK} 仿真分钟`);
   });
 }
