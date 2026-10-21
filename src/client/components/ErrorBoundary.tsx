@@ -7,6 +7,8 @@ interface Props {
 interface State {
   hasError: boolean;
   message: string;
+  /** 自动恢复尝试次数，用于避免坏帧导致无限重试 */
+  retries: number;
 }
 
 /**
@@ -17,9 +19,18 @@ interface State {
  * 用户既看不到错误也做不了操作。这里退化成可读的故障页 + 重试入口。
  */
 export class ErrorBoundary extends Component<Props, State> {
-  override state: State = { hasError: false, message: '' };
+  override state: State = { hasError: false, message: '', retries: 0 };
 
-  static getDerivedStateFromError(error: unknown): State {
+  /**
+   * 自动恢复：坏帧导致崩溃后，给一次机会用后续正常数据重建。
+   *
+   * 为什么需要：之前边界一旦触发就永久闩锁——服务端随后发来完全正常的
+   * 快照，界面仍停在错误页，只能手动刷新；若坏帧持续存在，刷新会变成循环。
+   * 这里限制自动恢复次数，超过则保持在错误页并提示。
+   */
+  private autoRecoverTimer: ReturnType<typeof setTimeout> | null = null;
+
+  static getDerivedStateFromError(error: unknown): Partial<State> {
     return {
       hasError: true,
       message: error instanceof Error ? error.message : String(error),
@@ -28,11 +39,21 @@ export class ErrorBoundary extends Component<Props, State> {
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error('UI render error:', error, info.componentStack);
+
+    if (this.state.retries >= 3) return;
+    if (this.autoRecoverTimer) clearTimeout(this.autoRecoverTimer);
+    this.autoRecoverTimer = setTimeout(() => {
+      this.setState((prev) => ({ hasError: false, message: '', retries: prev.retries + 1 }));
+    }, 3000);
   }
 
-  private reload = (): void => {
-    this.setState({ hasError: false, message: '' });
-    window.location.reload();
+  override componentWillUnmount(): void {
+    if (this.autoRecoverTimer) clearTimeout(this.autoRecoverTimer);
+  }
+
+  private retry = (): void => {
+    // 软重试：不刷新页面，直接重新渲染，保留已收到的数据
+    this.setState((prev) => ({ hasError: false, message: '', retries: prev.retries + 1 }));
   };
 
   override render(): ReactNode {
@@ -71,7 +92,7 @@ export class ErrorBoundary extends Component<Props, State> {
             {this.state.message}
           </pre>
           <button
-            onClick={this.reload}
+            onClick={this.retry}
             style={{
               height: 32,
               padding: '0 14px',
@@ -82,8 +103,13 @@ export class ErrorBoundary extends Component<Props, State> {
               fontSize: 12,
             }}
           >
-            重新加载
+            重试渲染
           </button>
+          {this.state.retries > 0 && (
+            <p style={{ fontSize: 11, color: '#5f7d78', margin: '12px 0 0' }}>
+              已自动恢复 {this.state.retries} 次。若持续失败，说明数据协议与服务端不一致。
+            </p>
+          )}
         </div>
       </div>
     );

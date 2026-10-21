@@ -9,7 +9,7 @@ import { SCENARIOS, ScenarioType } from '../sim/scenarios';
 import { NetworkSimState, networkModel, qualityScoreOf, stepNetwork } from '../sim/networkEngine';
 import { CompiledNetwork } from '../sim/network';
 import { estimateMargin } from '../sim/metrics';
-import type { ClientMessage, PlantSnapshot, ServerMessage, TrendPoint } from '../shared/protocol';
+import type { ClientMessage, PlantSnapshot, ServerMessage, SnapshotPatch, TrendPoint } from '../shared/protocol';
 import { PLANT_TOPOLOGY, ProcessTopology, validateTopology } from '../model/topology';
 import { applyTopology, checkRunReadiness, createRuntime } from './topologyRuntime';
 import {
@@ -34,6 +34,8 @@ interface ClientState {
   /** 上次触发重算决策的时间，用于防止同步阻塞被滥用 */
   lastControlAt: number;
   lastTopologyAt: number;
+  /** 已接收到的趋势点数量，用于增量推送 */
+  trendCount: number;
 }
 
 interface Runtime {
@@ -212,6 +214,64 @@ function topologyMessage(): { type: 'topology'; data: ProcessTopology; dirty: bo
   };
 }
 
+/**
+ * 构造增量快照。
+ *
+ * 只包含每个 tick 必然变化的字段；趋势只给新增点（通常 0 或 1 个）。
+ * 与完整快照相比，稳态帧大小从约 240 KB 降到约 2 KB。
+ */
+function buildPatch(client: ClientState): SnapshotPatch | null {
+  const s = runtime.net;
+  const last = s.reactors[s.reactors.length - 1];
+  void last;
+
+  // 客户端缺失的趋势点（环形缓冲可能已滚出，做下界保护）
+  const from = Math.max(0, Math.min(client.trendCount, runtime.trend.length));
+  const trendsAppend = runtime.trend.slice(from);
+  client.trendCount = runtime.trend.length;
+
+  return {
+    timeMin: s.timeMin,
+    influentFlow: s.influent.flow,
+    effluent: { ...s.effluent },
+    tanks: s.reactors.map((r) => ({
+      id: r.id,
+      do: r.doLevel,
+      mlss: Math.round((s.biomassKg * 1000) / Math.max(1, s.volume.bio)),
+      cod: r.cod,
+      nh: r.nh,
+      no3: r.no3,
+      tp: r.tp,
+      alkalinity: r.alkalinity,
+    })),
+    clarifier: {
+      blanketM: s.clarifier.blanketM,
+      xRas: s.clarifier.xRas,
+      xEff: s.clarifier.xEff,
+      slr: s.clarifier.slr,
+    },
+    energy: { ...s.energy, specificKwhM3: s.energy.totalKw / Math.max(1, s.influent.flow) },
+    cost: { totalToday: s.cost.total, total: s.cost.total },
+    srtDays: s.srtDays,
+    score: qualityScoreOf(s.effluent),
+    margins: estimateMargin(s.effluent),
+    trendsAppend,
+    activeAlarms: currentAlarms(s),
+    stormStorageM3: s.stormStorageM3,
+    reactorCount: s.reactors.length,
+  };
+}
+
+function broadcastPatch(): void {
+  for (const ws of runtime.clients) {
+    if (ws.readyState !== WebSocket.OPEN) continue;
+    const client = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, trendCount: 0 };
+    const patch = buildPatch(client);
+    runtime.clientState.set(ws, client);
+    if (patch) ws.send(JSON.stringify({ type: 'snapshotPatch', data: patch } satisfies ServerMessage));
+  }
+}
+
 function broadcast(message: ServerMessage): void {
   const payload = JSON.stringify(message);
   for (const ws of runtime.clients) {
@@ -265,7 +325,7 @@ function advance(): void {
   if (runtime.aiTick % AI_CYCLE_TICKS === 0) {
     runAiCycle();
   }
-  broadcastSnapshot();
+  broadcastPatch();
 }
 
 /**
@@ -281,7 +341,7 @@ const RATE_LIMIT = {
 };
 
 function rateLimited(ws: WebSocket, kind: 'control' | 'topology'): boolean {
-  const state = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0 };
+  const state = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, trendCount: 0 };
   const now = Date.now();
   if (kind === 'control') {
     if (now - state.lastControlAt < RATE_LIMIT.controlMs) return true;
@@ -588,6 +648,18 @@ async function main(): Promise<void> {
           },
         }),
       );
+      return;
+    }
+    // 测试专用：注入一帧缺字段的快照，用于验证前端容错。
+    // 仅在 TEST_HOOKS=1 时启用；默认关闭，不进入正常部署。
+    if (req.url?.startsWith('/api/__test/bad-frame') && process.env.TEST_HOOKS === '1') {
+      for (const ws of runtime.clients) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'snapshot', data: { timeMin: 0 } }));
+        }
+      }
+      res.writeHead(200);
+      res.end('sent');
       return;
     }
     if (req.url?.startsWith('/api/snapshot')) {

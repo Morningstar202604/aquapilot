@@ -58,6 +58,33 @@ export function useSimulation() {
           case 'snapshot':
             setSnapshot(msg.data);
             break;
+          case 'snapshotPatch':
+            // 增量合并：只覆盖变化字段，趋势追加新点
+            setSnapshot((prev) => {
+              if (!prev) return prev;
+              const p = msg.data;
+              return {
+                ...prev,
+                timeMin: p.timeMin,
+                influent: { ...prev.influent, flow: p.influentFlow },
+                effluent: p.effluent,
+                tanks: prev.tanks.map((t) => {
+                  const patch = p.tanks.find((x) => x.id === t.id);
+                  return patch ? { ...t, ...patch } : t;
+                }),
+                clarifier: { ...prev.clarifier, ...p.clarifier },
+                energy: p.energy,
+                cost: { ...prev.cost, ...p.cost },
+                srtDays: p.srtDays,
+                score: p.score,
+                margins: p.margins,
+                trends: p.trendsAppend.length > 0 ? [...prev.trends, ...p.trendsAppend].slice(-720) : prev.trends,
+                activeAlarms: p.activeAlarms,
+                stormStorageM3: p.stormStorageM3,
+                reactorCount: p.reactorCount,
+              };
+            });
+            break;
           case 'decision':
             setRecommendation(msg.data);
             break;
