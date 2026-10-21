@@ -57,7 +57,6 @@ interface Runtime {
 }
 
 const store = new Store();
-store.open();
 
 const boot = createRuntime(PLANT_TOPOLOGY, 20261019);
 
@@ -657,6 +656,9 @@ async function serveStatic(req: IncomingMessage, res: import('node:http').Server
 }
 
 async function main(): Promise<void> {
+  // 在开始服务前完成持久化初始化（Node 20 上会自动降级为不持久化）
+  await store.open();
+
   const server = createServer((req, res) => {
     if (req.url?.startsWith('/api/limits')) {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
