@@ -6,7 +6,7 @@
 
 AquaPilot is a working prototype of a new interaction model for process simulation: instead of an engineer reading curves and turning knobs, an AI operator watches the plant, forecasts, decides, and acts — while the human asks questions and sets boundaries.
 
-![tests](https://img.shields.io/badge/tests-197%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-205%20passing-brightgreen)
 ![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
@@ -49,10 +49,14 @@ Verify:
 
 ```bash
 npm run typecheck  # TypeScript strict + noUnusedLocals/Parameters
-npm run test       # 197 tests
+npm run test       # 205 tests
 npm run build      # client bundle + server bundle
 npm run verify     # all three in order
 npm run ci         # full gate: deps, types, tests, build, smoke, secret scan
+
+# Optional access control (off by default, for LAN or shared deployments)
+AQUAPILOT_TOKEN=your-secret npm start
+# then send Authorization: Bearer your-secret, or ?token= for WebSocket
 ```
 
 ## Architecture
@@ -77,7 +81,7 @@ src/
   server/        WebSocket simulation loop, REST snapshot, static hosting
   client/        Control-room UI (React + ECharts + SVG flowsheet)
   shared/        Client/server protocol
-tests/           197 tests: physics, conservation, guardrails, topology, cross-engine,
+tests/           205 tests: physics, conservation, guardrails, topology, cross-engine,
                  input validation and crash-boundary regressions
 ```
 
@@ -109,7 +113,7 @@ This is a **simulation prototype**, not a system that can take over a real plant
 
 Verified **on this machine** by `npm run ci` (7/7 steps green):
 - Dependency install, TypeScript strict (0 errors, including unused-code checks)
-- 197 tests, all passing
+- 205 tests, all passing
 - Client + server build, production bundle
 - Smoke test: three endpoints respond under a real server
 - Secret scan and artifact scan
@@ -132,9 +136,9 @@ Known gaps (tracked in `docs/QUALITY-ROADMAP.md`):
 - No automated comparison against the official BSM1 Table 6 values (those numbers were not available when this was built)
 - ASM1 has no phosphorus; TP relies on chemical precipitation
 - Single-user, in-memory state; no persistence or history replay
-- No authentication: the server binds to localhost and is not hardened for public
-  exposure. Origin allowlisting and payload caps reduce, but do not replace, a
-  reverse proxy with auth
+- Access control is opt-in: set AQUAPILOT_TOKEN to require a bearer token on HTTP
+  and WebSocket. It is a single shared secret, not per-user accounts, and is not
+  a substitute for TLS and a reverse proxy in production
 
 ## Documentation
 
