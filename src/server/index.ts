@@ -58,6 +58,14 @@ interface Runtime {
 
 const store = new Store();
 
+/**
+ * 本次运行的标识。
+ *
+ * 仿真时钟每次启动都从 0 开始，若不区分 run，
+ * 多次运行的快照会在 at_min 上重叠，回放曲线呈现假锯齿。
+ */
+const RUN_ID = `run-${Date.now().toString(36)}`;
+
 const boot = createRuntime(PLANT_TOPOLOGY, 20261019);
 
 const runtime: Runtime = {
@@ -310,6 +318,7 @@ function runAiCycle(force = false): Recommendation {
   broadcast({ type: 'decision', data: rec });
 
   store.recordDecision({
+    runId: RUN_ID,
     atMin: runtime.net.timeMin,
     action: rec.action,
     severity: rec.severity,
@@ -339,6 +348,7 @@ function advance(): void {
   if (runtime.tick % 10 === 0) {
     const e = s.effluent;
     store.recordSnapshot({
+      runId: RUN_ID,
       atMin: s.timeMin,
       effluentCod: e.cod,
       effluentNh: e.nh,
@@ -699,6 +709,21 @@ async function main(): Promise<void> {
     if (req.url?.startsWith('/api/history/decisions')) {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ enabled: store.enabled, decisions: store.recentDecisions(100) }));
+      return;
+    }
+    if (req.url?.startsWith('/api/history/snapshots')) {
+      const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
+      const from = Number(url.searchParams.get('from') ?? 0);
+      const to = Number(url.searchParams.get('to') ?? Number.MAX_SAFE_INTEGER);
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(
+        JSON.stringify({
+          enabled: store.enabled,
+          runId: store.latestRunId(),
+          runs: store.listRuns(),
+          snapshots: Number.isFinite(from) && Number.isFinite(to) ? store.snapshotsBetween(from, to) : [],
+        }),
+      );
       return;
     }
     if (req.url?.startsWith('/api/history/stats')) {
