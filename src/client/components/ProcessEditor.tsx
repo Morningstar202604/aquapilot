@@ -11,7 +11,6 @@ import {
   deriveTrain,
 } from '../../model/topology';
 import { checkRunReadiness } from '../../sim/topologyEngine';
-import { layoutTopology } from '../../model/layout';
 import { PlantCanvas } from './PlantCanvas';
 import type { PlantSnapshot } from '../../shared/protocol';
 
@@ -194,11 +193,9 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty }: Prop
   const [selected, setSelected] = useState<string | null>(null);
   const [pane, setPane] = useState<'inspector' | 'connections' | 'check'>('inspector');
   const [connectMode, setConnectMode] = useState<{ fromUnit: string; port: string; stream: StreamKind } | null>(null);
-  const [zoom, setZoom] = useState(1);
 
   const issues = useMemo(() => validateTopology(topology), [topology]);
   const readiness = useMemo(() => checkRunReadiness(topology, snap.influent.flow), [topology, snap.influent.flow]);
-  const layout = useMemo(() => layoutTopology(topology, { compact: true }), [topology]);
 
   const selectedUnit = selected ? findUnit(topology, selected) : undefined;
   const errors = issues.filter((i) => i.severity === 'error');
@@ -322,18 +319,7 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty }: Prop
               </button>
             </span>
           )}
-          <div className="pill" role="group" aria-label="缩放">
-            <button onClick={() => setZoom((z) => Math.max(0.5, Number((z - 0.15).toFixed(2))))} style={{ padding: '0 5px', color: 'inherit' }} aria-label="缩小">
-              −
-            </button>
-            <span style={{ fontFamily: 'var(--mono)', minWidth: 34, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
-            <button onClick={() => setZoom((z) => Math.min(2, Number((z + 0.15).toFixed(2))))} style={{ padding: '0 5px', color: 'inherit' }} aria-label="放大">
-              +
-            </button>
-            <button onClick={() => setZoom(1)} style={{ padding: '0 5px', color: 'inherit' }} aria-label="重置缩放">
-              1:1
-            </button>
-          </div>
+          
           <button className="pill" onClick={() => onChange(PLANT_TOPOLOGY)}>
             恢复标准厂
           </button>
@@ -357,9 +343,6 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty }: Prop
             connectMode={connectMode}
             onCancelConnect={() => setConnectMode(null)}
             invalidIds={new Set(errors.map((e) => e.unitId).filter(Boolean) as string[])}
-            layoutWidth={layout.width}
-            layoutHeight={layout.height}
-            zoom={zoom}
           />
         </div>
       </div>
@@ -593,9 +576,6 @@ function EditorCanvas({
   connectMode,
   onCancelConnect,
   invalidIds,
-  layoutWidth,
-  layoutHeight,
-  zoom,
 }: {
   topology: ProcessTopology;
   snap: PlantSnapshot;
@@ -604,29 +584,10 @@ function EditorCanvas({
   connectMode: { fromUnit: string; port: string; stream: StreamKind } | null;
   onCancelConnect: () => void;
   invalidIds: Set<string>;
-  layoutWidth: number;
-  layoutHeight: number;
-  zoom: number;
 }) {
   return (
-    <div
-      className="editor-stage"
-      style={{
-        position: 'relative',
-        width: Math.max(1100, layoutWidth) * zoom,
-        height: Math.max(420, layoutHeight) * zoom,
-      }}
-    >
-      <div
-        style={{
-          width: Math.max(1100, layoutWidth),
-          height: Math.max(420, layoutHeight),
-          transform: `scale(${zoom})`,
-          transformOrigin: 'top left',
-        }}
-      >
-        <PlantCanvas snap={snap} topo={topology} selected={selected} onSelect={onSelect} compact fit="flow" />
-      </div>
+    <div className="editor-stage">
+      <PlantCanvas snap={snap} topo={topology} selected={selected} onSelect={onSelect} compact fit="adaptive" />
       {invalidIds.size > 0 && (
         <div className="draft-banner" style={{ position: 'absolute', left: 8, top: 8 }}>
           {invalidIds.size} 个单元存在拓扑错误（红框），点「校验」查看原因

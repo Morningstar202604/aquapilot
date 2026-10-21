@@ -488,7 +488,7 @@ export function answer(question: string, model: PlantModel, recommendation: Reco
   if (intent === 'status') {
     return {
       title: '当前全厂运行状态',
-      body: `全厂进水 ${state.influent.flow.toFixed(0)} m³/h，出水 COD ${state.effluent.cod.toFixed(1)}、NH₃-N ${state.effluent.nh.toFixed(2)}、TP ${state.effluent.tp.toFixed(3)} mg/L；最紧约束是 ${tight.metric}，已用掉限值的 ${(tight.ratio * 100).toFixed(0)}%。`,
+      body: `截至仿真第 ${Math.floor(state.timeMin / 60)}h${String(Math.floor(state.timeMin % 60)).padStart(2, '0')}m，全厂进水 ${state.influent.flow.toFixed(0)} m³/h，出水 COD ${state.effluent.cod.toFixed(1)}、NH₃-N ${state.effluent.nh.toFixed(2)}、TP ${state.effluent.tp.toFixed(3)} mg/L；最紧约束是 ${tight.metric}，已用掉限值的 ${(tight.ratio * 100).toFixed(0)}%。`,
       bullets: [
         `出水水质评分 ${qualityScore(state.effluent)}/100`,
         `当前能耗 ${state.energy.totalKw.toFixed(0)} kW（${state.energy.specificKwhM3.toFixed(3)} kWh/m³）`,
