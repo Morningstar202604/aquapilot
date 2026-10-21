@@ -1,6 +1,30 @@
-import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+
+/**
+ * node:sqlite 是 Node 22+ 的内置模块；Node 20 上不存在。
+ *
+ * 因此这里做条件加载：拿不到就自动降级为「不持久化」，
+ * 而不是让整个服务启动失败。持久化是增强项，不是运行前提。
+ * （CI 在 Node 20 上失败过一次，就是因为静态 import 直接抛错。）
+ */
+type DatabaseLike = {
+  exec(sql: string): void;
+  prepare(sql: string): { run(...args: unknown[]): unknown; all(...args: unknown[]): unknown[]; get(...args: unknown[]): unknown };
+  close(): void;
+};
+
+async function loadSqlite(): Promise<(new (path: string) => DatabaseLike) | null> {
+  try {
+    // 动态 import：Node 20 上该模块不存在，catch 后降级而不是崩溃
+    const mod = (await import('node:sqlite')) as unknown as {
+      DatabaseSync?: new (path: string) => DatabaseLike;
+    };
+    return mod.DatabaseSync ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * 持久化层。
@@ -48,7 +72,7 @@ export interface SnapshotRow {
 }
 
 export class Store {
-  private db: DatabaseSync | null = null;
+  private db: DatabaseLike | null = null;
   private writeBuffer: { decisions: DecisionRow[]; alarms: AlarmRow[]; snapshots: SnapshotRow[] } = {
     decisions: [],
     alarms: [],
@@ -58,8 +82,13 @@ export class Store {
 
   constructor(private readonly path: string = DB_PATH) {}
 
-  open(): void {
+  async open(): Promise<void> {
     if (process.env.AQUAPILOT_PERSIST === '0') return;
+    const DatabaseSync = await loadSqlite();
+    if (!DatabaseSync) {
+      console.warn('persistence disabled: node:sqlite unavailable on this Node version');
+      return;
+    }
     try {
       mkdirSync(dirname(this.path), { recursive: true });
       this.db = new DatabaseSync(this.path);
