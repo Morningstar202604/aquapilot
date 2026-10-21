@@ -12,6 +12,7 @@ import { estimateMargin } from '../sim/metrics';
 import type { ClientMessage, PlantSnapshot, ServerMessage, SnapshotPatch, TrendPoint } from '../shared/protocol';
 import { PLANT_TOPOLOGY, ProcessTopology, validateTopology } from '../model/topology';
 import { applyTopology, checkRunReadiness, createRuntime } from './topologyRuntime';
+import { Store } from './store';
 import {
   VALID_SCENARIOS,
   sanitizeBoolean,
@@ -54,6 +55,9 @@ interface Runtime {
   /** 人工调整后的优先期截止（仿真分钟）；期内 AI 只建议不覆盖 */
   manualOverrideUntil: number;
 }
+
+const store = new Store();
+store.open();
 
 const boot = createRuntime(PLANT_TOPOLOGY, 20261019);
 
@@ -305,6 +309,17 @@ function runAiCycle(force = false): Recommendation {
     });
   }
   broadcast({ type: 'decision', data: rec });
+
+  store.recordDecision({
+    atMin: runtime.net.timeMin,
+    action: rec.action,
+    severity: rec.severity,
+    summary: rec.summary,
+    tweaks: JSON.stringify(rec.tweaks),
+    predictedScore: rec.predictedScore,
+    separation: rec.separation,
+  });
+
   return rec;
 }
 
@@ -321,6 +336,23 @@ function advance(): void {
     s.scenario = null;
     broadcast({ type: 'notice', level: 'info', text: '场景窗口结束，恢复正常工况监视。' });
   }
+  // 每 10 个 tick 抽一个快照点（约每 20 仿真分钟），用于回放
+  if (runtime.tick % 10 === 0) {
+    const e = s.effluent;
+    store.recordSnapshot({
+      atMin: s.timeMin,
+      effluentCod: e.cod,
+      effluentNh: e.nh,
+      effluentTn: e.tn,
+      effluentTp: e.tp,
+      effluentSs: e.ss,
+      mlss: (s.biomassKg * 1000) / Math.max(1, s.volume.bio),
+      srtDays: s.srtDays,
+      energyKw: s.energy.totalKw,
+      score: qualityScoreOf(e),
+    });
+  }
+
   runtime.aiTick += 1;
   if (runtime.aiTick % AI_CYCLE_TICKS === 0) {
     runAiCycle();
@@ -662,6 +694,16 @@ async function main(): Promise<void> {
       res.end('sent');
       return;
     }
+    if (req.url?.startsWith('/api/history/decisions')) {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ enabled: store.enabled, decisions: store.recentDecisions(100) }));
+      return;
+    }
+    if (req.url?.startsWith('/api/history/stats')) {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ enabled: store.enabled, counts: store.count() }));
+      return;
+    }
     if (req.url?.startsWith('/api/snapshot')) {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(buildSnapshot()));
@@ -747,6 +789,15 @@ async function main(): Promise<void> {
     console.log(`WebSocket: ws://127.0.0.1:${PORT}/ws | 速度 ${runtime.speed}x | 每 tick ${SIM_MINUTES_PER_TICK} 仿真分钟`);
   });
 }
+
+process.on('SIGINT', () => {
+  store.close();
+  process.exit(0);
+});
+process.on('SIGTERM', () => {
+  store.close();
+  process.exit(0);
+});
 
 main().catch((err) => {
   console.error('server failed', err);
