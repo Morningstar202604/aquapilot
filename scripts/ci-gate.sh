@@ -6,7 +6,7 @@ step() { printf '\n\033[1;36m▶ %s\033[0m\n' "$1"; }
 pass() { printf '\033[1;32m  PASS\033[0m %s\n' "$1"; }
 fail() { printf '\033[1;31m  FAIL\033[0m %s\n' "$1"; exit 1; }
 
-step "1/8 依赖一致性 (package-lock)"
+step "1/9 依赖一致性 (package-lock)"
 [ -f package-lock.json ] || fail "缺少 package-lock.json"
 CI_OUT=$(npm ci --prefer-offline --no-audit --no-fund 2>&1) && pass "依赖安装成功" || {
   printf '%s
@@ -21,27 +21,31 @@ CI_OUT=$(npm ci --prefer-offline --no-audit --no-fund 2>&1) && pass "依赖安�
   fail "npm ci 失败（见上方输出）"
 }
 
-step "2/8 TypeScript 严格检查"
+step "2/9 TypeScript 严格检查"
 npm run typecheck > /dev/null 2>&1 && pass "0 错误" || fail "类型检查失败"
 
-step "3/8 严格未使用检查"
+step "3/9 严格未使用检查"
 npx tsc --noEmit --noUnusedLocals --noUnusedParameters > /dev/null 2>&1 && pass "无未使用代码" || fail "存在未使用变量/导入"
 
-step "4/8 单元测试"
-npx vitest run --reporter=json --outputFile=test-results.json > /dev/null 2>&1 || true
+step "4/9 单元测试 + 覆盖率"
+npx vitest run --coverage --reporter=json --outputFile=test-results.json > /tmp/coverage.log 2>&1 || {
+  tail -20 /tmp/coverage.log
+  fail "测试或覆盖率未达标"
+}
+grep -E "All files" /tmp/coverage.log | head -1
 TOTAL=$(node -e "console.log(require('./test-results.json').numTotalTests)")
 PASSED=$(node -e "console.log(require('./test-results.json').numPassedTests)")
 rm -f test-results.json
 [ "$PASSED" -eq "$TOTAL" ] && pass "$PASSED/$TOTAL 通过" || fail "$PASSED/$TOTAL，存在失败"
 [ "$TOTAL" -ge 165 ] && pass "测试数量 $TOTAL ≥ 165" || fail "测试数量 $TOTAL 低于下限 165"
 
-step "5/8 构建"
+step "5/9 构建"
 npm run build > /dev/null 2>&1 && pass "客户端与服务端构建成功" || fail "构建失败"
 [ -f dist/client/index.html ] || fail "缺少客户端产物"
 [ -f dist/server/index.mjs ] || fail "缺少服务端产物"
 pass "产物齐全"
 
-step "6/8 生产服务器冒烟测试"
+step "6/9 生产服务器冒烟测试"
 PORT=5180 node dist/server/index.mjs > /tmp/ci-smoke.log 2>&1 &
 SMOKE_PID=$!
 trap 'kill $SMOKE_PID 2>/dev/null || true' EXIT
@@ -58,7 +62,7 @@ kill $SMOKE_PID 2>/dev/null || true
 trap - EXIT
 pass "三个端点均正常"
 
-step "7/8 密钥与产物扫描"
+step "7/9 密钥与产物扫描"
 # 排除定义扫描规则的文件（否则规则字符串会命中自己）
 if git grep -qIE '(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})' -- .      ':(exclude)package-lock.json'      ':(exclude).github/workflows/ci.yml'      ':(exclude)scripts/ci-gate.sh'      ':(exclude).workflow/aquapilot-ci.yml' 2>/dev/null; then
   fail "源码中发现疑似令牌"
@@ -69,7 +73,21 @@ if [ -n "$(git ls-files dist out node_modules 2>/dev/null | head -1)" ]; then
 fi
 pass "构建产物未入库"
 
-step "8/8 工程卫生"
+step "8/9 依赖安全审计"
+# 镜像源（npmmirror）不实现 audit 接口，会返回 NOT_IMPLEMENTED。
+# 这里显式指定官方源；若网络不可达，则明确标记"未审计"而不是假装通过。
+if AUDIT_OUT=$(npm audit --registry=https://registry.npmjs.org --audit-level=high 2>&1); then
+  pass "0 高危漏洞"
+elif printf '%s' "$AUDIT_OUT" | grep -qE "ENOTFOUND|ETIMEDOUT|ECONNREFUSED|network"; then
+  printf '[1;33m  SKIP[0m 依赖审计（官方源不可达，未验证）
+'
+else
+  printf '%s
+' "$AUDIT_OUT" | tail -10
+  fail "存在高危依赖漏洞"
+fi
+
+step "9/9 工程卫生"
 [ -f LICENSE ] || fail "缺少 LICENSE"
 [ -f README.md ] || fail "缺少 README.md"
 [ -f README.zh-CN.md ] || fail "缺少中文 README"
