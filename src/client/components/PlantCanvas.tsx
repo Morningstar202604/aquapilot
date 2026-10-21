@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { layoutTopology, PlacedEdge, PlacedNode } from '../../model/layout';
 import { PLANT_TOPOLOGY, StreamKind, UnitKind, ProcessTopology } from '../../model/topology';
 import type { PlantSnapshot } from '../../shared/protocol';
@@ -12,7 +12,7 @@ interface Props {
   showRecycle?: boolean;
   compact?: boolean;
   /** 'fill'：撑满容器（监视视图）；'flow'：按图纸尺寸绘制，由外层滚动（编排视图） */
-  fit?: 'fill' | 'flow';
+  fit?: 'fill' | 'flow' | 'adaptive';
 }
 
 const STREAM_COLOR: Record<StreamKind, string> = {
@@ -61,17 +61,66 @@ export function PlantCanvas({
   compact,
   fit = 'fill',
 }: Props) {
-  const layout = useMemo(
-    () => layoutTopology(topo, { compact, laneGap: compact ? 88 : 150 }),
-    [topo, compact],
-  );
-  /**
-   * 缩放状态。
-   *
-   * 不再把整厂压缩进容器宽度——那样池子一多字号会掉到 4px（实测 27 池时）。
-   * 改为 1:1 绘制 + 可调缩放 + 横向滚动，保证文字始终可读。
-   */
   const [zoom, setZoom] = useState(1);
+  /**
+   * 默认全览。
+   *
+   * 首屏的第一诉求是"知道全厂长什么样"，而不是"读清某个池的数字"。
+   * 1:1 模式保留为细读手段：点「1:1」即可，且可横向滚动。
+   */
+  /**
+   * 默认全览，但窄屏除外。
+   *
+   * 手机上全览会把整厂压到 19%，文字完全不可读；
+   * 窄屏改为 1:1 + 横向滑动，至少能看清当前单元。
+   */
+  const [fitToWindow, setFitToWindow] = useState(() =>
+    typeof window === 'undefined' ? true : window.innerWidth > 900,
+  );
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [wrapSize, setWrapSize] = useState({ w: 0, h: 0 });
+
+  /**
+   * 泳道间距随容器高度自适应。
+   *
+   * 工艺图天然是宽扁的（约 3.2:1），而容器约 2:1，直接放进全览会:
+   * 要么留出大片底部空白，要么把文字压到 5px。
+   * 适当拉开三条泳道的垂直间距，可以让图形更接近容器比例，
+   * 从而在同样的容器里获得更大的有效字号。
+   */
+  const adaptiveLaneGap = useMemo(() => {
+    // 实测结论：拉开泳道间距并不能改善全览字号——缩放受宽度约束，
+    // 增加高度只会让整图更大、缩放比更低。保留固定间距最稳。
+    return compact ? 88 : 132;
+  }, [compact]);
+
+  const layout = useMemo(
+    () =>
+      layoutTopology(topo, {
+        compact,
+        laneGap: adaptiveLaneGap,
+        // 不折行：折行后跨行连线会横穿整张图，比裁切更难读（实测对比后放弃）。
+        maxRowWidth: undefined,
+      }),
+    [topo, compact, adaptiveLaneGap],
+  );
+
+  useEffect(() => {
+    const node = wrapRef.current;
+    if (!node) return;
+    const ro = new ResizeObserver(() => {
+      setWrapSize({ w: node.clientWidth, h: node.clientHeight });
+    });
+    ro.observe(node);
+    setWrapSize({ w: node.clientWidth, h: node.clientHeight });
+    return () => ro.disconnect();
+  }, []);
+
+  const fitScale =
+    wrapSize.w > 0 && wrapSize.h > 0
+      ? Math.min(wrapSize.w / layout.width, wrapSize.h / layout.height, 1)
+      : 1;
+  const effectiveZoom = fitToWindow ? fitScale : zoom;
   const unitState = useMemo(() => Object.fromEntries(snap.tanks.map((t) => [t.id, t])), [snap.tanks]);
 
   const visibleEdges = layout.edges.filter((e) => showRecycle || !e.connection.recycle);
@@ -80,28 +129,57 @@ export function PlantCanvas({
   return (
     <div className="canvas-viewport">
       <div className="canvas-zoom-controls" role="group" aria-label="画布缩放">
-        <button onClick={() => setZoom((z) => Math.max(0.5, Number((z - 0.1).toFixed(2))))} aria-label="缩小">
+        <button
+          onClick={() => {
+            setFitToWindow(false);
+            setZoom((z) => Math.max(0.5, Number((z - 0.1).toFixed(2))));
+          }}
+          aria-label="缩小"
+        >
           −
         </button>
-        <span>{Math.round(zoom * 100)}%</span>
-        <button onClick={() => setZoom((z) => Math.min(2, Number((z + 0.1).toFixed(2))))} aria-label="放大">
+        <span>{Math.round(effectiveZoom * 100)}%</span>
+        <button
+          onClick={() => {
+            setFitToWindow(false);
+            setZoom((z) => Math.min(2, Number((z + 0.1).toFixed(2))));
+          }}
+          aria-label="放大"
+        >
           +
         </button>
-        <button onClick={() => setZoom(1)} aria-label="重置为 100%">
+        <button
+          onClick={() => {
+            setFitToWindow(false);
+            setZoom(1);
+          }}
+          aria-label="实际尺寸"
+          data-active={!fitToWindow}
+        >
           1:1
         </button>
+        <button
+          onClick={() => {
+            setFitToWindow(true);
+            setZoom(1);
+          }}
+          aria-label="适应窗口"
+          data-active={fitToWindow}
+        >
+          全览
+        </button>
       </div>
-      <div className="canvas-wrap">
+      <div className="canvas-wrap" ref={wrapRef} data-fit={fitToWindow ? "true" : "false"}>
         <div
           className="canvas-scaler"
           style={{
-            transform: `scale(${zoom})`,
+            transform: `scale(${effectiveZoom})`,
             transformOrigin: 'top left',
             width: layout.width,
             height: layout.height,
             // 缩放后占位尺寸随之变化，滚动区域才能正确覆盖整张图
-            marginRight: `${(zoom - 1) * layout.width}px`,
-            marginBottom: `${(zoom - 1) * layout.height}px`,
+            marginRight: `${(effectiveZoom - 1) * layout.width}px`,
+            marginBottom: `${(effectiveZoom - 1) * layout.height}px`,
           }}
         >
       <div className={fit === 'flow' ? 'canvas-legend canvas-legend-flow' : 'canvas-legend'}>
@@ -121,7 +199,12 @@ export function PlantCanvas({
         width={fit === 'flow' ? layout.width : undefined}
         height={fit === 'flow' ? layout.height : undefined}
         viewBox={`0 0 ${layout.width} ${layout.height}`}
-        preserveAspectRatio="xMinYMid meet"
+        /**
+ * 全览模式贴顶对齐：图形按宽度缩放后会留出上下空白，
+ * 贴顶能把这部分空白推到下方（视觉上更接近"图在上、字在下"的阅读习惯），
+ * 同时避免内容被垂直居中后与图例/缩放控件重叠。
+ */
+preserveAspectRatio={fitToWindow ? 'xMidYMin meet' : 'xMinYMin meet'}
         role="img"
         aria-label={`${topo.name} 工艺流程实时图，共 ${topo.units.length} 个工艺单元、${topo.connections.length} 条物流连接`}
       >
@@ -171,6 +254,7 @@ export function PlantCanvas({
             onSelect={onSelect}
             showLabel={showLabels}
             liveTank={unitState[node.unit.id]}
+            compactView={fitToWindow || compact === true}
           />
         ))}
       </svg>
@@ -253,6 +337,7 @@ function Node({
   onSelect,
   showLabel,
   liveTank,
+  compactView,
 }: {
   node: PlacedNode;
   snap: PlantSnapshot;
@@ -260,6 +345,7 @@ function Node({
   onSelect: (id: string | null) => void;
   showLabel: boolean;
   liveTank?: { do: number; mlss: number; cod: number; nh: number; no3: number; tp: number; alkalinity: number; kind: string };
+  compactView: boolean;
 }) {
   const { unit, x, y, w, h } = node;
   const bad = isUnitAlarming(unit.kind, unit.id, snap);
@@ -282,11 +368,13 @@ function Node({
     >
       <rect x={x} y={y} width={w} height={h} rx="2" fill={fillFor(unit.kind, liveTank)} stroke={stroke} strokeWidth={strokeWidth} />
       <rect x={x} y={y} width={w} height="20" rx="2" fill="rgba(6,16,15,0.66)" />
-      <text x={x + 7} y={y + 14} className="unit-title">
+      <text x={x + 7} y={y + 15} className={compactView ? 'unit-title-lg' : 'unit-title'}>
         {unit.name}
       </text>
 
-      {showLabel && <UnitBody unit={unit} x={x} y={y} w={w} h={h} snap={snap} liveTank={liveTank} />}
+      {showLabel && (
+        <UnitBody unit={unit} x={x} y={y} w={w} h={h} snap={snap} liveTank={liveTank} compact={compactView} />
+      )}
 
       {bad && <circle cx={x + w - 9} cy={y + 10} r="3.4" fill="var(--alarm)" />}
     </g>
@@ -312,6 +400,7 @@ function UnitBody({
   h,
   snap,
   liveTank,
+  compact,
 }: {
   unit: UnitSpecOnNode;
   x: number;
@@ -320,6 +409,8 @@ function UnitBody({
   h: number;
   snap: PlantSnapshot;
   liveTank?: { do: number; mlss: number; cod: number; nh: number; no3: number; tp: number; alkalinity: number };
+  /** 全览模式：只画最重要的一项数值，字号更大，保证缩小时仍可辨认 */
+  compact?: boolean;
 }) {
   const lx = x + 7;
   let ly = y + 36;
@@ -334,6 +425,18 @@ function UnitBody({
   };
 
   if (liveTank) {
+    if (compact) {
+      return (
+        <g>
+          <text x={lx} y={y + 46} className="unit-value-lg">
+            {unit.kind === 'aerobic' ? `DO ${liveTank.do.toFixed(1)}` : `NH₄ ${liveTank.nh.toFixed(0)}`}
+          </text>
+          <text x={lx} y={y + 64} className="unit-sub">
+            MLSS {Math.round(liveTank.mlss)}
+          </text>
+        </g>
+      );
+    }
     return (
       <g>
         {line(unit.role)}
