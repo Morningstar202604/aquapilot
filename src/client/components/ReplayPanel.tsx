@@ -36,9 +36,18 @@ export function ReplayPanel() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      // 启用访问控制时，所有 API 需带令牌
+      const token = (() => {
+        try {
+          return window.sessionStorage.getItem('aquapilot_token');
+        } catch {
+          return null;
+        }
+      })();
+      const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
       const [sRes, dRes] = await Promise.all([
-        fetch('/api/history/snapshots'),
-        fetch('/api/history/decisions'),
+        fetch('/api/history/snapshots', { headers }),
+        fetch('/api/history/decisions', { headers }),
       ]);
       const sJson = (await sRes.json()) as { enabled: boolean; snapshots: SnapshotRow[] };
       const dJson = (await dRes.json()) as { enabled: boolean; decisions: DecisionRow[] };
