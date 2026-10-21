@@ -69,6 +69,18 @@ export const ASM1_PARAMS = {
   /** 硝化/反硝化/氨化的碱度换算：每 g N 对应多少 mol HCO3 */
   ALK_PER_N: 1 / 14,
   /**
+   * 温度修正（Arrhenius / van't Hoff 形式）：k(T) = k(20) · θ^(T−20)
+   * IWA ASM1 只对生长与衰减速率给温度系数；水解与氨化沿用异养系数近似。
+   */
+  theta_mu_H: 1.07,
+  theta_b_H: 1.07,
+  theta_mu_A: 1.12,
+  theta_b_A: 1.12,
+  theta_k_h: 1.07,
+  theta_k_a: 1.07,
+  /** 参考温度 ℃ */
+  T_REF: 20,
+  /**
    * ASM1 标准参数表的动力学常数单位是 d⁻¹（每日），不是 h⁻¹。
    * 本项目的时间步以小时推进，因此速率表达式输出前需要乘这个换算因子。
    * 漏掉它会让所有反应速率放大 24 倍——这是最容易犯且最难察觉的量纲错误。
@@ -159,18 +171,32 @@ export function buildStoichiometry(p = ASM1_PARAMS): Record<Asm1Process, Stoich>
   };
 }
 
-/** 速率表达式（g/m³/h）；X_S/X_B_H 比值项需要防止除零 */
-export function buildRates(p = ASM1_PARAMS) {
+/**
+ * 速率表达式（g/m³/h）；X_S/X_B_H 比值项需要防止除零。
+ *
+ * 温度修正通过第二个参数传入：缺省 20 ℃ 时系数为 1，行为与不修正一致。
+ */
+export function buildRates(p = ASM1_PARAMS, temperatureC = p.T_REF) {
   const eps = 1e-6;
+  const dT = temperatureC - p.T_REF;
+  const fMuH = Math.pow(p.theta_mu_H, dT);
+  const fBH = Math.pow(p.theta_b_H, dT);
+  const fMuA = Math.pow(p.theta_mu_A, dT);
+  const fBA = Math.pow(p.theta_b_A, dT);
+  const fKh = Math.pow(p.theta_k_h, dT);
+  const fKa = Math.pow(p.theta_k_a, dT);
+
   return {
     aerobic_growth_heterotrophs: (s: Asm1State) =>
       p.mu_H *
+      fMuH *
       (s.S_S / (p.K_S + s.S_S)) *
       (s.S_O / (p.K_O_H + s.S_O)) *
       s.X_B_H,
 
     anoxic_growth_heterotrophs: (s: Asm1State) =>
       p.mu_H *
+      fMuH *
       p.eta_g *
       (s.S_S / (p.K_S + s.S_S)) *
       (p.K_O_H / (p.K_O_H + s.S_O)) *
@@ -178,20 +204,20 @@ export function buildRates(p = ASM1_PARAMS) {
       s.X_B_H,
 
     aerobic_growth_autotrophs: (s: Asm1State) =>
-      p.mu_A * (s.S_NH / (p.K_NH + s.S_NH)) * (s.S_O / (p.K_O_A + s.S_O)) * s.X_B_A,
+      p.mu_A * fMuA * (s.S_NH / (p.K_NH + s.S_NH)) * (s.S_O / (p.K_O_A + s.S_O)) * s.X_B_A,
 
-    decay_heterotrophs: (s: Asm1State) => p.b_H * s.X_B_H,
+    decay_heterotrophs: (s: Asm1State) => p.b_H * fBH * s.X_B_H,
 
-    decay_autotrophs: (s: Asm1State) => p.b_A * s.X_B_A,
+    decay_autotrophs: (s: Asm1State) => p.b_A * fBA * s.X_B_A,
 
-    ammonification: (s: Asm1State) => p.k_a * s.S_ND * s.X_B_H,
+    ammonification: (s: Asm1State) => p.k_a * fKa * s.S_ND * s.X_B_H,
 
     hydrolysis_organics: (s: Asm1State) => {
       const ratio = s.X_S / Math.max(eps, s.X_B_H);
       const sat = ratio / (p.K_X + ratio);
       const electronAcceptor =
         s.S_O / (p.K_O_H + s.S_O) + p.eta_h * (p.K_O_H / (p.K_O_H + s.S_O)) * (s.S_NO / (p.K_NO + s.S_NO));
-      return p.k_h * sat * electronAcceptor * s.X_B_H;
+      return p.k_h * fKh * sat * electronAcceptor * s.X_B_H;
     },
 
     hydrolysis_organic_N: (s: Asm1State) => {
@@ -200,15 +226,15 @@ export function buildRates(p = ASM1_PARAMS) {
       const electronAcceptor =
         s.S_O / (p.K_O_H + s.S_O) + p.eta_h * (p.K_O_H / (p.K_O_H + s.S_O)) * (s.S_NO / (p.K_NO + s.S_NO));
       const ndRatio = s.X_ND / Math.max(eps, s.X_S);
-      return p.k_h * sat * electronAcceptor * s.X_B_H * ndRatio;
+      return p.k_h * fKh * sat * electronAcceptor * s.X_B_H * ndRatio;
     },
   } satisfies Record<Asm1Process, (s: Asm1State) => number>;
 }
 
 /** 反应速率总和：dr/dt（不含进出水输运） */
-export function reactionRates(state: Asm1State, p = ASM1_PARAMS): Asm1State {
+export function reactionRates(state: Asm1State, p = ASM1_PARAMS, temperatureC = p.T_REF): Asm1State {
   const stoich = buildStoichiometry(p);
-  const rates = buildRates(p);
+  const rates = buildRates(p, temperatureC);
   const out = Object.fromEntries(ASM1_COMPONENTS.map((c) => [c, 0])) as Asm1State;
   for (const proc of ASM1_PROCESSES) {
     // 速率常数以 d⁻¹ 给出，这里换算到 h⁻¹ 以匹配步长

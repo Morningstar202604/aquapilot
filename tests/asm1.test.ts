@@ -285,3 +285,35 @@ describe('ASM1 CSTR 稳态（真跑）', () => {
     expect(a.state.X_B_A).toBeCloseTo(b.state.X_B_A, 8);
   });
 });
+
+describe('ASM1 温度修正（Arrhenius）', () => {
+  const sample = () =>
+    emptyAsm1State({ S_S: 50, X_S: 100, X_B_H: 2500, X_B_A: 150, S_O: 2, S_NO: 3, S_NH: 25, S_ND: 4, X_ND: 8 });
+
+  it('20℃ 为参考温度，系数为 1', () => {
+    const p = ASM1_PARAMS;
+    const at20 = buildRates(p, 20).aerobic_growth_autotrophs(sample());
+    const atRef = buildRates(p, p.T_REF).aerobic_growth_autotrophs(sample());
+    expect(at20).toBeCloseTo(atRef, 12);
+  });
+
+  it('低温按 θ^ΔT 抑制硝化', () => {
+    const p = ASM1_PARAMS;
+    const at20 = buildRates(p, 20).aerobic_growth_autotrophs(sample());
+    const at10 = buildRates(p, 10).aerobic_growth_autotrophs(sample());
+    expect(at10 / at20).toBeCloseTo(Math.pow(p.theta_mu_A, -10), 6);
+    expect(at10).toBeLessThan(at20 * 0.5);
+  });
+
+  it('高温增强异养与自养速率', () => {
+    const p = ASM1_PARAMS;
+    const at20 = buildRates(p, 20).aerobic_growth_heterotrophs(sample());
+    const at30 = buildRates(p, 30).aerobic_growth_heterotrophs(sample());
+    expect(at30).toBeGreaterThan(at20);
+    expect(at30 / at20).toBeCloseTo(Math.pow(p.theta_mu_H, 10), 6);
+  });
+
+  it('自养菌对温度更敏感（θ 更大）', () => {
+    expect(ASM1_PARAMS.theta_mu_A).toBeGreaterThan(ASM1_PARAMS.theta_mu_H);
+  });
+});
