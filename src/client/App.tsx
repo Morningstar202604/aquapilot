@@ -9,9 +9,10 @@ import { DecisionPanel } from './components/DecisionPanel';
 import { ControlPanel } from './components/ControlPanel';
 import { AlarmsPanel } from './components/AlarmsPanel';
 import { InsightsPanel } from './components/InsightsPanel';
+import { ReplayPanel } from './components/ReplayPanel';
 import { PLANT } from '../sim/config';
 
-type Tab = 'chat' | 'decision' | 'control' | 'alarms' | 'insights';
+type Tab = 'chat' | 'decision' | 'control' | 'alarms' | 'insights' | 'replay';
 type View = 'plant' | 'editor';
 
 export default function App() {
@@ -225,6 +226,15 @@ export default function App() {
             >
               效益
             </button>
+            <button
+              className="side-tab"
+              role="tab"
+              aria-selected={tab === 'replay'}
+              data-active={tab === 'replay'}
+              onClick={() => setTab('replay')}
+            >
+              回放
+            </button>
           </nav>
 
           {tab === 'chat' && <ChatPanel chat={sim.chat} onAsk={sim.ask} connected={sim.link.connected} />}
@@ -249,6 +259,7 @@ export default function App() {
           )}
           {tab === 'alarms' && <AlarmsPanel snap={snap} />}
           {tab === 'insights' && <InsightsPanel snap={snap} aiEnabled={aiEnabled} />}
+          {tab === 'replay' && <ReplayPanel />}
         </aside>
         )}
       </div>
