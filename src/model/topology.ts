@@ -70,6 +70,7 @@ export type InterventionKey =
   | 'carbonDose'
   | 'alkDose'
   | 'stormStore'
+  | 'stepFeed'
   | 'aerationOn'
   | 'pumpSpeed';
 
@@ -167,9 +168,15 @@ export const PLANT_TOPOLOGY: ProcessTopology = {
       name: '缺氧池',
       role: '反硝化 · 脱氮',
       volume: 4500,
-      ports: [P('in', 'in', 'mixed_liquor'), P('ir', 'in', 'internal_recycle'), P('out', 'out', 'mixed_liquor')],
+      ports: [
+        P('in', 'in', 'mixed_liquor'),
+        // 多点进水：原水可由此进入缺氧区补充碳源
+        P('feed', 'in', 'influent'),
+        P('ir', 'in', 'internal_recycle'),
+        P('out', 'out', 'mixed_liquor'),
+      ],
       states: ['cod', 'nh', 'no3', 'tp', 'do', 'mlss', 'alk'],
-      interventions: ['carbonDose'],
+      interventions: ['carbonDose', 'stepFeed'],
       meta: { 溶解氧: '0.2–0.5 mg/L', 内回流比: '设计 2.0×Q' },
     },
     {
@@ -314,7 +321,7 @@ export const PLANT_TOPOLOGY: ProcessTopology = {
       // 反硝化缺碳 → 硝酸盐累积 → 出水 TN 超标。这是模型跑出来后才暴露的工艺问题。
       id: 'c-primary-anoxic-stepfeed',
       from: { unit: 'primary', port: 'out' },
-      to: { unit: 'anoxic', port: 'in' },
+      to: { unit: 'anoxic', port: 'feed' },
       stream: 'influent',
       flowRef: 'stepFeedFraction',
     },
@@ -413,7 +420,49 @@ export function validateTopology(topo: ProcessTopology): TopologyIssue[] {
     }
   }
 
+  // 流股兼容性：某些物流不能接到不匹配的入口
+  const STREAM_COMPAT: Record<string, StreamKind[]> = {
+    air: ['air'],
+    chemical: ['chemical'],
+    sludge_cake: ['sludge_cake'],
+    waste_sludge: ['waste_sludge', 'influent'],
+    return_activated_sludge: ['return_activated_sludge', 'influent'],
+    internal_recycle: ['internal_recycle', 'mixed_liquor'],
+    // 原水不能直接进混合液端口：中间必须经过反应池，否则等于绕过整个生物处理
+    influent: ['influent'],
+    mixed_liquor: ['mixed_liquor'],
+    effluent: ['effluent'],
+  };
+
+  const seen = new Set<string>();
   for (const conn of topo.connections) {
+    // 重复连接：同一对端口重复接线会让流量被重复计入
+    const key = `${conn.from.unit}:${conn.from.port}->${conn.to.unit}:${conn.to.port}`;
+    if (seen.has(key)) {
+      issues.push({
+        severity: 'error',
+        code: 'DUPLICATE_LINK',
+        message: `重复连接：${key}`,
+        connectionId: conn.id,
+      });
+    }
+    seen.add(key);
+
+    // 流股与目标端口不兼容
+    const targetUnit = topo.units.find((u) => u.id === conn.to.unit);
+    const targetPort = targetUnit?.ports.find((pt) => pt.id === conn.to.port);
+    if (targetPort) {
+      const allowed = STREAM_COMPAT[conn.stream] ?? [conn.stream];
+      if (!allowed.includes(targetPort.stream)) {
+        issues.push({
+          severity: 'error',
+          code: 'STREAM_MISMATCH',
+          message: `${conn.stream} 物流不能接入 ${targetUnit!.name}.${targetPort.id}（该端口要求 ${targetPort.stream}）`,
+          connectionId: conn.id,
+        });
+      }
+    }
+
     if (!ids.has(conn.from.unit)) {
       issues.push({ severity: 'error', code: 'MISSING_UNIT', message: `连接 ${conn.id} 引用了不存在的源单元 ${conn.from.unit}`, connectionId: conn.id });
     }
