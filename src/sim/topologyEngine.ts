@@ -1,15 +1,8 @@
-import {
-  CONTROL_BOUNDS,
-  ControlSettings,
-  DEFAULT_CONTROLS,
-  INFLUENT_DESIGN,
-  LIMITS,
-} from '../sim/config';
+import { CONTROL_BOUNDS, ControlSettings, INFLUENT_DESIGN, LIMITS } from '../sim/config';
 import {
   Connection,
   ProcessTopology,
   UnitSpec,
-  PLANT_TOPOLOGY,
   deriveTrain,
   hydraulicRetention,
   totalTrainVolume,
@@ -79,114 +72,6 @@ export interface TopoSimState {
   accountingStartMin: number;
 }
 
-const K = {
-  kCodAerobic: 1.4,
-  kCodAnoxic: 0.9,
-  kCodAnaerobic: 0.6,
-  kNit: 14.0,
-  kDen: 4.6,
-  kPRel: 5.0,
-  kPUp: 3.0,
-  ksCod: 22,
-  ksNh: 1.0,
-  ksO2: 0.5,
-  ksO2Nit: 0.9,
-  yieldH: 0.48,
-  decayPerDay: 0.025,
-  thetaH: 1.045,
-  thetaN: 1.08,
-  o2PerCod: 0.9,
-  o2PerNh: 4.57,
-  alkPerNh: 7.14,
-  alkPerNo3: 3.57,
-  pacPPerMg: 0.06,
-  saeKgO2PerKwh: 3.4,
-  doSat20: 9.1,
-  biomassSeed: 3400,
-};
-
-function extrasOf(u: UnitSpec): Record<string, number> {
-  if (u.kind === 'clarifier') return { blanketM: 1.0, xRas: 8600, xEff: 4, slr: 3.4, sludgeMassKg: 22000, underflowM3h: 1600 };
-  if (u.kind === 'storage') return { storedM3: 0 };
-  return {};
-}
-
-function blankStream(overrides: Partial<StreamState> = {}): StreamState {
-  return {
-    flow: 0,
-    cod: 0,
-    nh: 0,
-    no3: 0,
-    tp: 0,
-    ss: 0,
-    do: 0,
-    alkalinity: 0,
-    temperature: 20,
-    mlss: 0,
-    ...overrides,
-  };
-}
-
-export function createTopoSimState(topo: ProcessTopology = PLANT_TOPOLOGY, options: { seed?: number; controls?: Partial<ControlSettings> } = {}): TopoSimState {
-  const controls: ControlSettings = { ...DEFAULT_CONTROLS, ...options.controls };
-  const volume = totalTrainVolume(topo);
-
-  const units: UnitState[] = topo.units.map((u) => ({
-    id: u.id,
-    kind: u.kind,
-    name: u.name,
-    volume: u.volume ?? 0,
-    liquor:
-      u.kind === 'anaerobic' || u.kind === 'anoxic' || u.kind === 'aerobic' || u.kind === 'clarifier' || u.kind === 'disinfection'
-        ? blankStream({
-            cod: u.kind === 'anaerobic' ? 90 : u.kind === 'aerobic' ? 30 : 40,
-            nh: u.kind === 'aerobic' ? 4 : 22,
-            no3: u.kind === 'anaerobic' ? 0.2 : 6,
-            tp: u.kind === 'anaerobic' ? 6 : 1,
-            do: u.kind === 'aerobic' ? 2 : 0.08,
-            alkalinity: 220,
-            mlss: K.biomassSeed,
-            temperature: 20,
-          })
-        : null,
-    extras: extrasOf(u),
-  }));
-
-  const links: LinkState[] = topo.connections.map((c) => ({
-    id: c.id,
-    stream: c.stream,
-    flow: 0,
-    from: c.from.unit,
-    to: c.to.unit,
-  }));
-
-  return {
-    timeMin: 0,
-    seed: options.seed ?? 20261019,
-    rngCount: 0,
-    topologyId: topo.id,
-    units,
-    links,
-    influent: blankStream({ ...INFLUENT_DESIGN, flow: INFLUENT_DESIGN.flow }),
-    effluent: blankStream({ flow: INFLUENT_DESIGN.flow, cod: 30, bod: 7, ss: 5, nh: 1.6, tn: 11, tp: 0.35, ph: 7.2, temperature: 20 } as Partial<StreamState>),
-    controls,
-    scenario: null,
-    biomassKg: (K.biomassSeed * volume) / 1000,
-    srtDays: 18,
-    inhibition: 1,
-    aerationCapacity: 1,
-    energy: { blowerKw: 380, mixerKw: 26, pumpKw: 62, totalKw: 468 },
-    alarms: [],
-    alarmSeq: 0,
-    cost: { energy: 0, chemical: 0, sludge: 0, total: 0 },
-    stormStorageM3: 0,
-    accountingStartMin: 0,
-  };
-}
-
-
-
-/** 校验拓扑是否可跑：引擎启动前必须通过，避免"图能画但跑不了" */
 export interface RunReadiness {
   ready: boolean;
   blockers: string[];
@@ -247,7 +132,12 @@ export function checkRunReadiness(topo: ProcessTopology, flowM3h = INFLUENT_DESI
   if (hrt > 24) warnings.push(`生物池停留时间 ${hrt.toFixed(1)} h 偏长，池容投资可能过剩`);
 
   const aerobicVolume = aerobic.reduce((s, t) => s + (t.spec.volume ?? 0), 0);
-  if (aerobic.length > 0 && aerobicVolume === 0) blockers.push('好氧池未设置容积：无法计算氧传递');
+  // 逐个检查：任一好氧池容积为 0 都应阻断，而不是只看总和
+  for (const t of aerobic) {
+    if (!t.spec.volume || t.spec.volume <= 0) {
+      blockers.push(`${t.spec.name} 未设置容积：无法计算氧传递`);
+    }
+  }
 
   // 新增但未接线的工艺单元必须阻断：图上画了却不在物流里，是最危险的假象
   const trainIds = new Set(train.map((t) => t.spec.id));
