@@ -118,3 +118,49 @@ describe('Takács 质量守恒', () => {
     }
   });
 });
+
+describe('Takács 质量守恒（回归：曾因上边界通量写错导致出水 SS 翻倍）', () => {
+  const cases = [
+    { label: 'BSM1 标准', mlss: 3000, ras: 1.0 },
+    { label: '低负荷', mlss: 2000, ras: 1.0 },
+    { label: '高负荷', mlss: 5000, ras: 1.0 },
+    { label: '低回流', mlss: 3000, ras: 0.4 },
+  ];
+
+  it('进出固体总量守恒（误差 < 3%）', () => {
+    for (const c of cases) {
+      const Qf = Q * (1 + c.ras);
+      const Qu = Q * c.ras;
+      const Qe = Qf - Qu;
+      const r = runSettlerToSteady(cfg, { flow: Qf, concentration: c.mlss }, { flow: Qu }, { maxDays: 80, dtDays: 1 / 1440 });
+      const inKg = (Qf * c.mlss) / 1000;
+      const outKg = (Qe * r.xEffluent + Qu * r.xUnderflow) / 1000;
+      const errPct = (Math.abs(inKg - outKg) / inKg) * 100;
+      expect(errPct, `${c.label} 守恒误差 ${errPct.toFixed(2)}%`).toBeLessThan(3);
+    }
+  });
+
+  it('回流污泥被浓缩（2–5 倍于进料）', () => {
+    for (const c of cases) {
+      const Qf = Q * (1 + c.ras);
+      const Qu = Q * c.ras;
+      const r = runSettlerToSteady(cfg, { flow: Qf, concentration: c.mlss }, { flow: Qu }, { maxDays: 80, dtDays: 1 / 1440 });
+      const ratio = r.xUnderflow / c.mlss;
+      expect(ratio, `${c.label} 浓缩比 ${ratio.toFixed(2)}`).toBeGreaterThan(1.8);
+      expect(ratio).toBeLessThan(5);
+    }
+  });
+
+  it('出水悬浮物在合理范围（< 20 g/m³）', () => {
+    for (const c of cases) {
+      const r = runSettlerToSteady(cfg, { flow: Q * (1 + c.ras), concentration: c.mlss }, { flow: Q * c.ras }, { maxDays: 80, dtDays: 1 / 1440 });
+      expect(r.xEffluent, `${c.label} 出水 SS ${r.xEffluent.toFixed(1)}`).toBeLessThan(20);
+    }
+  });
+
+  it('回流比越低，回流浓度越高', () => {
+    const high = runSettlerToSteady(cfg, { flow: Q * 2, concentration: 3000 }, { flow: Q }, { maxDays: 60, dtDays: 1 / 1440 });
+    const low = runSettlerToSteady(cfg, { flow: Q * 1.4, concentration: 3000 }, { flow: Q * 0.4 }, { maxDays: 60, dtDays: 1 / 1440 });
+    expect(low.xUnderflow).toBeGreaterThan(high.xUnderflow);
+  });
+});

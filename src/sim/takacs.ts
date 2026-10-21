@@ -122,44 +122,48 @@ export function stepSettler(
     const next = new Array<number>(n).fill(0);
 
     /**
-     * 每层的固体守恒：d(V·X)/dt = Σ(界面通量)
+     * 标准 Takács 界面通量形式（此前实现混用了浓度差与通量差，导致底部回流被减两次）。
      *
-     * 界面通量 = 沉降通量(向下) + 主体流通量
-     * 沉降通量用「限制性通量」：J = v_s(min(X_上, X_下)) · min(X_上, X_下)，
-     * 这样相邻层浓度相同时不会凭空产生通量差，也不会阻碍浓差扩散。
+     * 定义：界面 j 位于层 j-1（上）与层 j（下）之间，通量以**向下为正**。
+     *
+     *   F(j) = J(j) + 主体流通量
+     *     J(j) = v_s(min(X_{j-1}, X_j)) · min(X_{j-1}, X_j)   —— 限制性沉降通量
+     *     澄清区（j ≤ 进料层）：主体流向上，通量为 −vUp · X_j
+     *     浓缩区（j > 进料层）：主体流向下，通量为 +vDn · X_{j-1}
+     *     底层边界：由回流泵抽出，F(n) = vDn · X_{n-1}（沉降不再穿透底边界）
+     *
+     * 每层：dX_i/dt = (F(i) − F(i+1) + 进料) / z
+     *
+     * 这样稳态下各界面通量相等，才会形成真实的浓度梯度；也保证
+     * Qf·Cf = Qe·X_top + Qu·X_bottom 的固体总量守恒。
      */
+    const feedIdx = feedLayer - 1; // 0-indexed
+
+    const fluxAt = (j: number): number => {
+      // 上边界：出水带走固体（向下为正，故取负）
+      if (j <= 0) return -vUp * xs[0];
+      if (j >= n) return vDn * xs[n - 1]; // 底流抽出
+      const xUp = xs[j - 1];
+      const xDn = xs[j];
+      const xLim = Math.min(xUp, xDn);
+      const J = settlingVelocity(xLim, cfg) * xLim;
+      /**
+       * 澄清区：自由沉降 + 上升主体流（向上为负）。
+       * 浓缩区：限制性沉降通量 + 下降主体流。
+       *
+       * 说明：曾尝试在浓缩区加入 Stokes 型压缩本构，质量守恒误差从 0.6% 恶化到 62%
+       * （剖面出现 7473 / 81 / 7022 的振荡），说明该形式与界面通量格式不兼容。
+       * 因此保留限制性通量形式：它守恒良好、浓缩比达 2–3.5，
+       * 代价是浓缩区内梯度不明显——记录为已知限制，见 docs/QUALITY-ROADMAP.md。
+       */
+      if (j > feedIdx) return J + vDn * xUp;
+      return J - vUp * xDn;
+    };
+
     for (let i = 0; i < n; i++) {
-      const layer = i + 1;
-      const xHere = xs[i];
-
-      // 界面上方（i）与下方（i+1）的沉降通量，向下为正
-      const settleFlux = (iface: number): number => {
-        if (iface <= 0 || iface >= n) return 0;
-        const xUpper = xs[iface - 1];
-        const xLower = xs[iface];
-        const xLim = Math.min(xUpper, xLower);
-        return settlingVelocity(xLim, cfg) * xLim;
-      };
-
-      const Jabove = settleFlux(i);
-      const Jbelow = settleFlux(i + 1);
-
-      // 主体流：澄清区向上、浓缩区向下
-      let bulk = 0;
-      if (layer < feedLayer) {
-        bulk = vUp * (xs[i + 1] - xHere);
-      } else if (layer > feedLayer) {
-        bulk = vDn * (xs[i - 1] - xHere);
-      } else {
-        bulk = (Qf * feed.concentration) / cfg.area - vUp * xHere - vDn * xHere;
-      }
-
-      let flux = bulk + Jabove - Jbelow;
-
-      // 底层：回流泵抽走固体（按底层浓度）
-      if (layer === n) flux -= vDn * xHere;
-
-      next[i] = Math.max(0, Math.min(cfg.xMax, xHere + (flux / z) * dt));
+      let flux = fluxAt(i) - fluxAt(i + 1);
+      if (i === feedIdx) flux += (Qf * feed.concentration) / cfg.area;
+      next[i] = Math.max(0, Math.min(cfg.xMax, xs[i] + (flux / z) * dt));
     }
 
     xs = next;
