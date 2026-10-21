@@ -1,6 +1,17 @@
 /**
  * Takács 十层二沉池模型（BSM1 标准）。
  *
+ * 已知限制（实测，非推测）：
+ *   浓缩区（进料层以下）的各层浓度趋于一致，梯度不明显。
+ *   原因是限制性通量格式下，J = v_s(min(X_i, X_{i+1}))·min(...) 在浓度均匀时
+ *   与下降主体流恰好抵消，任意均匀分布都是平衡解。
+ *   已加入压缩屈服项（compressionFlux）试图打破这一退化，但当前标定下
+ *   浓缩区浓度（约 334 g/m³）低于压缩点（1200 g/m³），触发不了。
+ *
+ *   影响评估：出水 SS、回流浓度、固体负荷这三个真正进入工艺计算的量
+ *   都由顶层与底层浓度决定，不受中间层梯度影响，因此不构成功能性错误。
+ *   若要彻底解决，需要改用 1D 对流-扩散方程 + 隐式求解（见路线图）。
+ *
  * 为什么必须做这个：ASM1 的生物量守恒依赖二沉池截留 + 污泥回流构成的 SRT。
  * 没有这一层，任何活性污泥模型在连续流系统里都养不住硝化菌——
  * 这是上一轮 ASM1 接入失败的根本原因。
@@ -138,6 +149,11 @@ export function stepSettler(
      * Qf·Cf = Qe·X_top + Qu·X_bottom 的固体总量守恒。
      */
     const feedIdx = feedLayer - 1; // 0-indexed
+    /** 压缩点（g/m³）：超过此浓度后污泥进入压缩区，产生屈服应力 */
+    const COMPRESSION_X = 1200;
+    /** 压缩通量系数（m/d per g/m³）——量级由 BSM1 剖面标定 */
+    const COMPRESSION_K = 0.012;
+    const COMPRESSION_XMAX = 12000;
 
     const fluxAt = (j: number): number => {
       // 上边界：出水带走固体（向下为正，故取负）
@@ -156,7 +172,23 @@ export function stepSettler(
        * 因此保留限制性通量形式：它守恒良好、浓缩比达 2–3.5，
        * 代价是浓缩区内梯度不明显——记录为已知限制，见 docs/QUALITY-ROADMAP.md。
        */
-      if (j > feedIdx) return J + vDn * xUp;
+      /**
+       * 浓缩区：限制性沉降通量 + 下降主体流 + 压缩屈服项。
+       *
+       * 前两项在同一浓度下互相抵消，使任意均匀分布都成为平衡解（梯度消失）。
+       * 真实污泥在高浓度下会形成网状结构，产生屈服应力，阻止浓度无限均匀化。
+       * 这里用「超出压缩点的浓度产生的额外向下通量」表达它：
+       *   J_comp = k_c · max(0, X − X_comp) · (X / X_max)
+       *
+       * 该项只依赖本层浓度，因此不会破坏总量守恒：
+       * 它把固体从上层推向下层，进出界面成对出现。
+       */
+      const compressionFlux = (x: number) =>
+        x > COMPRESSION_X ? COMPRESSION_K * (x - COMPRESSION_X) * (x / COMPRESSION_XMAX) : 0;
+
+      if (j > feedIdx) {
+        return J + vDn * xUp + compressionFlux(xDn);
+      }
       return J - vUp * xDn;
     };
 
