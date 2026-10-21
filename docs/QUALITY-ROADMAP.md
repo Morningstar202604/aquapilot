@@ -251,7 +251,7 @@ subject to  DO_min ≤ DO ≤ DO_max
 | 多用户/权限 | 无 | 至少区分「只读 / 可控制 / 可改参数」三级 | 1.5 天 |
 | 可观测性 | console.log | 结构化日志 + 决策耗时/预测耗时指标 + 错误追踪 | 0.5 天 |
 | E2E 自动化 | 手动脚本 | Playwright 正式测试（截图断言 + 关键路径）进 CI | 1 天 |
-| CI | 无 | GitHub Actions：typecheck + test + build + AQG 检查 | 0.5 天 |
+| CI | 已配置（GitHub Actions / Gitee Go / GitCode）+ 本地门禁脚本 | 在平台后台启用流水线 | 0.5 天 |
 
 ---
 

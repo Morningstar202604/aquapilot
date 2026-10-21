@@ -28,6 +28,12 @@ const SIM_MINUTES_PER_TICK = Number(process.env.SIM_MINUTES_PER_TICK ?? 2);
 const AI_CYCLE_TICKS = 30;
 const TREND_EVERY_TICKS = 10;
 
+interface ClientState {
+  /** 上次触发重算决策的时间，用于防止同步阻塞被滥用 */
+  lastControlAt: number;
+  lastTopologyAt: number;
+}
+
 interface Runtime {
   topology: ProcessTopology;
   compiled: CompiledNetwork;
@@ -40,6 +46,7 @@ interface Runtime {
   tick: number;
   aiTick: number;
   clients: Set<WebSocket>;
+  clientState: Map<WebSocket, ClientState>;
 }
 
 const boot = createRuntime(PLANT_TOPOLOGY, 20261019);
@@ -56,6 +63,7 @@ const runtime: Runtime = {
   tick: 0,
   aiTick: 0,
   clients: new Set(),
+  clientState: new Map(),
 };
 
 function pushTrend(state: NetworkSimState, trend: TrendPoint[]): void {
@@ -247,6 +255,32 @@ function advance(): void {
   broadcastSnapshot();
 }
 
+/**
+ * 简易速率限制。
+ *
+ * 为什么需要：control 会同步跑一次完整决策（实测 ~135ms），
+ * topology apply 会同步重建并预热（实测 ~415ms）。
+ * 这些都在事件循环上，任何客户端连续发送就能把服务打停。
+ */
+const RATE_LIMIT = {
+  controlMs: 500,
+  topologyMs: 5000,
+};
+
+function rateLimited(ws: WebSocket, kind: 'control' | 'topology'): boolean {
+  const state = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0 };
+  const now = Date.now();
+  if (kind === 'control') {
+    if (now - state.lastControlAt < RATE_LIMIT.controlMs) return true;
+    state.lastControlAt = now;
+  } else {
+    if (now - state.lastTopologyAt < RATE_LIMIT.topologyMs) return true;
+    state.lastTopologyAt = now;
+  }
+  runtime.clientState.set(ws, state);
+  return false;
+}
+
 function handleClientMessage(ws: WebSocket, raw: string): void {
   let parsed: unknown;
   try {
@@ -291,6 +325,10 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       break;
     }
     case 'control': {
+      if (rateLimited(ws, 'control')) {
+        ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '操作过于频繁，请稍后再试' } satisfies ServerMessage));
+        break;
+      }
       const result = sanitizeControlPatch((msg as { patch?: unknown }).patch);
       if (!result.ok) {
         ws.send(JSON.stringify({ type: 'notice', level: 'error', text: `控制参数非法：${result.error}` } satisfies ServerMessage));
@@ -390,6 +428,10 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         break;
       }
       if (msg.action === 'apply') {
+        if (rateLimited(ws, 'topology')) {
+          ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '拓扑变更过于频繁，请稍后再试' } satisfies ServerMessage));
+          break;
+        }
         const incoming = (msg as { topology?: unknown }).topology;
         if (!incoming || typeof incoming !== 'object' || !Array.isArray((incoming as { units?: unknown }).units)) {
           ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '拓扑结构不合法' } satisfies ServerMessage));
@@ -571,8 +613,14 @@ async function main(): Promise<void> {
         }
       }
     });
-    ws.on('close', () => runtime.clients.delete(ws));
-    ws.on('error', () => runtime.clients.delete(ws));
+    ws.on('close', () => {
+      runtime.clients.delete(ws);
+      runtime.clientState.delete(ws);
+    });
+    ws.on('error', () => {
+      runtime.clients.delete(ws);
+      runtime.clientState.delete(ws);
+    });
     // heartbeat：清理半开连接，避免 clients 集合泄漏
     const ping = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) ws.ping();
