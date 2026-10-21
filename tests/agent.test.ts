@@ -54,11 +54,11 @@ describe('AI decision guardrails', () => {
     }
   });
 
-  it('reports confidence inside a bounded range', () => {
+  it('方案区分度落在 0–1 之间', () => {
     const s = steadyState();
     const rec = decide({ model: legacyModel(s, forecast), horizonMin: 180 });
-    expect(rec.confidence).toBeGreaterThan(0.3);
-    expect(rec.confidence).toBeLessThanOrEqual(1);
+    expect(rec.separation).toBeGreaterThan(0.3);
+    expect(rec.separation).toBeLessThanOrEqual(1);
   });
 
   it('explains each tweak with a human readable reason', () => {

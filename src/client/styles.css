@@ -227,8 +227,15 @@ button {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) 224px;
   min-height: 0;
+  /* 关键：min-width:0 允许 grid 子项收缩，否则内部 SVG 的固有宽度会把整列撑开 */
   min-width: 0;
+  width: 100%;
+  overflow: hidden;
   border-right: 1px solid var(--line);
+}
+
+.stage > * {
+  min-width: 0;
 }
 
 .kpi-strip {
@@ -1279,10 +1286,30 @@ button {
   }
 }
 
+/* 物流流动指示：CSS 动画，可被 reduced-motion 关闭 */
+@keyframes flow-dash {
+  from {
+    stroke-dashoffset: 37;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.flow-pulse {
+  animation-name: flow-dash;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation: none !important;
     transition: none !important;
+  }
+  /* 明确移除流动指示，避免 SMIL 时代的遗漏 */
+  .flow-pulse {
+    display: none !important;
   }
 }
 
@@ -1865,4 +1892,59 @@ button {
   .canvas-wrap .plant-canvas {
     min-width: 1400px;
   }
+}
+
+/* 画布视口：1:1 绘制 + 缩放 + 滚动，保证池子增多后文字仍可读 */
+.canvas-viewport {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.canvas-zoom-controls {
+  position: absolute;
+  right: 10px;
+  top: 8px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 5px;
+  background: rgba(8, 22, 21, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-2);
+}
+
+.canvas-zoom-controls button {
+  min-width: 20px;
+  height: 20px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.canvas-zoom-controls button:hover {
+  color: var(--water);
+}
+
+.canvas-viewport > .canvas-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* 画布滚动容器：只在自己内部滚动，绝不撑宽父级网格 */
+.canvas-viewport > .canvas-wrap {
+  overflow: auto;
+  min-width: 0;
+  width: 100%;
+}
+
+.canvas-scaler {
+  flex: none;
 }

@@ -56,11 +56,11 @@ describe('AI 在生产引擎上的护栏', () => {
     expect(a.summary).toBe(b.summary);
   });
 
-  it('置信度在合理区间', () => {
+  it('方案区分度在 0–1 之间', () => {
     const { model } = productionPlant();
     const rec = decide({ model, horizonMin: 120 });
-    expect(rec.confidence).toBeGreaterThan(0.3);
-    expect(rec.confidence).toBeLessThanOrEqual(1);
+    expect(rec.separation).toBeGreaterThan(0.3);
+    expect(rec.separation).toBeLessThanOrEqual(1);
   });
 
   it('每个调整项都有可读理由且确实发生了变化', () => {

@@ -1,0 +1,12 @@
+import { buildStoichiometry, ASM1_PARAMS as p } from '../src/sim/asm1';
+const s = buildStoichiometry();
+const g = s.aerobic_growth_autotrophs;
+const h = s.aerobic_growth_heterotrophs;
+console.log('CURRENT autotroph row:', g);
+console.log('IWA standard per 1 g X_B_A COD:');
+console.log('  S_NH =', (-(1/p.Y_A + p.i_XB)).toFixed(4), '(current', g.S_NH, ')');
+console.log('  S_NO =', (1/p.Y_A).toFixed(4), '(current', g.S_NO, ')');
+console.log('  S_O  =', (-(4.57 - p.Y_A)/p.Y_A).toFixed(4), '(current', g.S_O, ')');
+console.log('  S_ALK=', (-(1/(7.14*p.Y_A) + p.i_XB/14)).toFixed(4), '(current', g.S_ALK, ')');
+console.log('\nCURRENT heterotroph row:', h);
+console.log('IWA: S_S', (-1/p.Y_H).toFixed(4), 'S_O', (-(1-p.Y_H)/p.Y_H).toFixed(4), 'S_NH', (-p.i_XB).toFixed(4));

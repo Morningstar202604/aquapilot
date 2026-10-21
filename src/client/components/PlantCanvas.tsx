@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { layoutTopology, PlacedEdge, PlacedNode } from '../../model/layout';
 import { PLANT_TOPOLOGY, StreamKind, UnitKind, ProcessTopology } from '../../model/topology';
 import type { PlantSnapshot } from '../../shared/protocol';
@@ -65,13 +65,45 @@ export function PlantCanvas({
     () => layoutTopology(topo, { compact, laneGap: compact ? 88 : 150 }),
     [topo, compact],
   );
+  /**
+   * 缩放状态。
+   *
+   * 不再把整厂压缩进容器宽度——那样池子一多字号会掉到 4px（实测 27 池时）。
+   * 改为 1:1 绘制 + 可调缩放 + 横向滚动，保证文字始终可读。
+   */
+  const [zoom, setZoom] = useState(1);
   const unitState = useMemo(() => Object.fromEntries(snap.tanks.map((t) => [t.id, t])), [snap.tanks]);
 
   const visibleEdges = layout.edges.filter((e) => showRecycle || !e.connection.recycle);
   const animate = !snap.paused;
 
   return (
-    <div className="canvas-wrap">
+    <div className="canvas-viewport">
+      <div className="canvas-zoom-controls" role="group" aria-label="画布缩放">
+        <button onClick={() => setZoom((z) => Math.max(0.5, Number((z - 0.1).toFixed(2))))} aria-label="缩小">
+          −
+        </button>
+        <span>{Math.round(zoom * 100)}%</span>
+        <button onClick={() => setZoom((z) => Math.min(2, Number((z + 0.1).toFixed(2))))} aria-label="放大">
+          +
+        </button>
+        <button onClick={() => setZoom(1)} aria-label="重置为 100%">
+          1:1
+        </button>
+      </div>
+      <div className="canvas-wrap">
+        <div
+          className="canvas-scaler"
+          style={{
+            transform: `scale(${zoom})`,
+            transformOrigin: 'top left',
+            width: layout.width,
+            height: layout.height,
+            // 缩放后占位尺寸随之变化，滚动区域才能正确覆盖整张图
+            marginRight: `${(zoom - 1) * layout.width}px`,
+            marginBottom: `${(zoom - 1) * layout.height}px`,
+          }}
+        >
       <div className={fit === 'flow' ? 'canvas-legend canvas-legend-flow' : 'canvas-legend'}>
         <span className="canvas-legend-title">物流图例</span>
         {(['influent', 'mixed_liquor', 'internal_recycle', 'return_activated_sludge', 'waste_sludge', 'air', 'chemical'] as StreamKind[]).map((st) => (
@@ -142,6 +174,8 @@ export function PlantCanvas({
           />
         ))}
       </svg>
+        </div>
+      </div>
     </div>
   );
 }

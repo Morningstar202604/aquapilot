@@ -30,7 +30,8 @@ export function InsightsPanel({ snap, aiEnabled }: Props) {
   const annualFlowM3 = dailyFlowM3 * 365;
   const baselineEnergyAnnual = annualFlowM3 * MANUAL_BASELINE.specificKwh * 0.68;
   const actualEnergyAnnual = annualFlowM3 * actualKwhPerM3 * 0.68;
-  const annualSaving = Math.max(0, baselineEnergyAnnual - actualEnergyAnnual);
+  // 不做 Math.max(0, ...)：负值必须显示出来，否则会掩盖"比基准更费电"的情况
+  const annualSaving = baselineEnergyAnnual - actualEnergyAnnual;
 
   const margin = snap.margins[0];
   const complianceRisk = margin.ratio > 1 ? '已越限' : margin.ratio > 0.85 ? '裕度不足' : '裕度充足';
@@ -93,9 +94,9 @@ export function InsightsPanel({ snap, aiEnabled }: Props) {
           <span className="alt-score">¥{(snap.cost.chemicalToday + snap.cost.sludgeToday).toFixed(0)}</span>
         </div>
         <div className="alt-row">
-          <span className="alt-name">年化电费节省（按当前负荷外推）</span>
+          <span className="alt-name">年化电费{annualSaving >= 0 ? '节省' : '超支'}（按当前负荷线性外推，仅示意）</span>
           <span className="alt-score" data-best={annualSaving > 0}>
-            ¥{(annualSaving / 10000).toFixed(1)} 万
+            {annualSaving >= 0 ? '' : '−'}¥{(Math.abs(annualSaving) / 10000).toFixed(1)} 万
           </span>
         </div>
       </div>

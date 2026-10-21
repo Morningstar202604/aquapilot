@@ -35,7 +35,8 @@ export interface Recommendation {
   predictedEffluent: EffluentState;
   predictedScore: number;
   horizonMin: number;
-  confidence: number;
+  /** 候选区分度 0–1（启发式，非概率） */
+  separation: number;
   risks: string[];
   tweaks: { key: keyof Omit<ControlSettings, 'aiEnabled'>; from: number; to: number; reason: string }[];
   generatedAt: number;
@@ -356,7 +357,7 @@ export function decide(context: DecisionContext): Recommendation {
 
   const rationale = [...buildRationale(state, best, hold), ...scenarioHints(state, (state.scenario?.type as ScenarioType | null) ?? null)];
   const risks = buildRisks(state, best);
-  const confidence = computeConfidence(best, candidates);
+  const separation = computeDecisionSeparation(best, candidates);
 
   return {
     action,
@@ -368,7 +369,7 @@ export function decide(context: DecisionContext): Recommendation {
     predictedEffluent: best.predictedEffluent,
     predictedScore,
     horizonMin,
-    confidence,
+    separation,
     risks,
     tweaks,
     generatedAt: state.timeMin,
@@ -432,7 +433,14 @@ function buildRisks(state: PlantSnapshotForAi, best: DecisionCandidate): string[
   return risks;
 }
 
-function computeConfidence(best: DecisionCandidate, candidates: DecisionCandidate[]): number {
+/**
+ * 方案区分度（不是统计置信度）。
+ *
+ * 该值只反映"最优候选与次优候选的得分差距"以及"最紧指标的余量"，
+ * 是一个 0–1 的启发式排序指标，没有经过概率校准，不能解释为"决策正确的概率"。
+ * 命名与界面文案都必须体现这一点，否则就是伪量化。
+ */
+function computeDecisionSeparation(best: DecisionCandidate, candidates: DecisionCandidate[]): number {
   const sorted = [...candidates].sort((a, b) => b.score - a.score);
   const second = sorted[1]?.score ?? best.score;
   const gap = best.score - second;
@@ -502,7 +510,7 @@ export function answer(question: string, model: PlantModel, recommendation: Reco
       title: '这次调节为什么这么做',
       body: recommendation.summary,
       bullets: recommendation.rationale,
-      confidence: recommendation.confidence,
+      confidence: recommendation.separation,
       kind: 'explain',
     };
   }

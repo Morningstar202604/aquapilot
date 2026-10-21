@@ -91,7 +91,7 @@ function Message({ entry }: { entry: ChatEntry }) {
           </ul>
         )}
         <div className="msg-confidence">
-          <span>置信度</span>
+          <span>回答把握</span>
           <span className="conf-track">
             <span style={{ width: `${Math.round(answer.confidence * 100)}%` }} />
           </span>

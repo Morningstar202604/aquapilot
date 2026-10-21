@@ -32,7 +32,9 @@ export function DecisionPanel({ snap, rec, onApply, onRefresh, aiEnabled, onTogg
   return (
     <div className="scroll-panel">
       <div>
-        <div className="section-label">本轮决策 · {new Date().toLocaleTimeString('zh-CN', { hour12: false })}</div>
+        <div className="section-label">
+          本轮决策 · 仿真第 {Math.floor(rec.generatedAt / 60)}h{String(Math.floor(rec.generatedAt % 60)).padStart(2, '0')}m
+        </div>
         <div className="decision-card" data-sev={rec.severity}>
           <div className="decision-top">
             <span className="sev-tag" data-sev={rec.severity}>
@@ -40,7 +42,7 @@ export function DecisionPanel({ snap, rec, onApply, onRefresh, aiEnabled, onTogg
             </span>
             <span className="sev-tag">{rec.action === 'hold' ? '维持' : rec.action === 'emergency' ? '立即执行' : '建议微调'}</span>
             <span className="sev-tag" style={{ marginLeft: 'auto' }}>
-              置信度 {Math.round(rec.confidence * 100)}%
+              方案区分度 {Math.round(rec.separation * 100)}%
             </span>
           </div>
           <div className="decision-summary">{rec.summary}</div>

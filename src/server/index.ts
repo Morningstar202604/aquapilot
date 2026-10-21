@@ -26,6 +26,8 @@ const PORT = Number(process.env.PORT ?? 5173);
 const TICK_MS = Number(process.env.TICK_MS ?? 1000);
 const SIM_MINUTES_PER_TICK = Number(process.env.SIM_MINUTES_PER_TICK ?? 2);
 const AI_CYCLE_TICKS = 30;
+/** 人工调整后的 AI 静默期（仿真分钟） */
+const MANUAL_OVERRIDE_MIN = 30;
 const TREND_EVERY_TICKS = 10;
 
 interface ClientState {
@@ -47,6 +49,8 @@ interface Runtime {
   aiTick: number;
   clients: Set<WebSocket>;
   clientState: Map<WebSocket, ClientState>;
+  /** 人工调整后的优先期截止（仿真分钟）；期内 AI 只建议不覆盖 */
+  manualOverrideUntil: number;
 }
 
 const boot = createRuntime(PLANT_TOPOLOGY, 20261019);
@@ -64,6 +68,7 @@ const runtime: Runtime = {
   aiTick: 0,
   clients: new Set(),
   clientState: new Map(),
+  manualOverrideUntil: 0,
 };
 
 function pushTrend(state: NetworkSimState, trend: TrendPoint[]): void {
@@ -222,6 +227,14 @@ function runAiCycle(force = false): Recommendation {
   const model = networkModel(runtime.topology, runtime.net);
   const rec = decide({ model, horizonMin: 240 });
   runtime.recommendation = rec;
+
+  // 人工优先期内不自动执行，只记录建议
+  const inManualWindow = runtime.net.timeMin < runtime.manualOverrideUntil;
+  if (inManualWindow && !force) {
+    broadcast({ type: 'decision', data: rec });
+    return rec;
+  }
+
   if (runtime.net.controls.aiEnabled && (rec.action !== 'hold' || force)) {
     runtime.net.controls = rec.chosens.controls;
     runtime.net.controls.aiEnabled = true;
@@ -339,7 +352,20 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         ...result.value,
         aiEnabled: runtime.net.controls.aiEnabled,
       };
-      runAiCycle(true);
+
+      // 人工调整后进入优先期：期内 AI 只出建议、不覆盖设定值。
+      // 否则用户拖完滑块，下一帧就被 AI 改回去——控制实际不可用。
+      runtime.manualOverrideUntil = runtime.net.timeMin + MANUAL_OVERRIDE_MIN;
+
+      // 重新评估决策（用于展示），但不强制应用
+      runAiCycle(false);
+      ws.send(
+        JSON.stringify({
+          type: 'notice',
+          level: 'info',
+          text: `已应用手动设定。接下来 ${MANUAL_OVERRIDE_MIN} 分钟仿真时间内 AI 只给出建议，不会覆盖你的调整。`,
+        } satisfies ServerMessage),
+      );
       broadcastSnapshot();
       break;
     }
