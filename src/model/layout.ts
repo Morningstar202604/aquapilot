@@ -38,8 +38,8 @@ export interface Layout {
 }
 
 const GAP_X = 46;
-const GAP_Y = 96;
-const PAD = 32;
+const GAP_Y = 78;
+const PAD = 26;
 
 function sizeOf(unit: UnitSpec): { w: number; h: number } {
   switch (unit.kind) {
@@ -78,7 +78,7 @@ function layerOf(unit: UnitSpec, topo: ProcessTopology): Layer {
 
 export function layoutTopology(
   topo: ProcessTopology,
-  opts: { compact?: boolean; maxRowWidth?: number; laneGap?: number } = {},
+  opts: { compact?: boolean; maxRowWidth?: number; laneGap?: number; rowGap?: number } = {},
 ): Layout {
   const gapX = opts.compact ? 30 : GAP_X;
   const gapY = opts.laneGap ?? (opts.compact ? 88 : GAP_Y);
@@ -119,9 +119,10 @@ export function layoutTopology(
 
   const rowY: number[] = [];
   let acc = PAD;
+  const rowGapPx = opts.rowGap ?? (opts.compact ? 52 : 66);
   for (let r = 0; r <= row; r++) {
     rowY[r] = acc;
-    acc += (rowHeights[r] ?? 120) + (opts.compact ? 52 : 66);
+    acc += (rowHeights[r] ?? 120) + rowGapPx;
   }
 
   for (const unit of ordered) {
@@ -156,8 +157,6 @@ export function layoutTopology(
     nodeMap.set(unit.id, { unit, x: sludgeCursor, y: sludgeY, w: size.w, h: size.h, layer: 'sludge', lane: 0 });
     sludgeCursor += size.w + gapX;
   }
-  const bottom = sludges.length ? sludgeY + Math.max(...sludges.map((u) => sizeOf(u).h)) : utilBottom;
-
   for (const layer of ['main', 'utility', 'sludge'] as Layer[]) {
     const nodes = [...nodeMap.values()].filter((n) => n.layer === layer);
     if (nodes.length) laneY[layer] = nodes[0].y;
@@ -166,7 +165,16 @@ export function layoutTopology(
   const edges = topo.connections.map((conn) => placeEdge(conn, nodeMap));
 
   const maxX = Math.max(...[...nodeMap.values()].map((n) => n.x + n.w), mainWidth + PAD);
-  const maxY = Math.max(bottom, ...edges.map((e) => e.labelY + 10));
+  /**
+   * 画布高度按内容收口。
+   *
+   * 之前用 `bottom`（最下层节点的底边）再加上边距，但没有考虑回流线可能绕到
+   * 节点下方很远；同时 `edges` 参与的 max 会把高度撑到不需要的位置。
+   * 这里只取「节点底边」与「回流线实际折返点」的较大者，避免大片空白。
+   */
+  const nodeBottom = Math.max(...[...nodeMap.values()].map((n) => n.y + n.h));
+  const edgeBottom = edges.reduce((m, e) => Math.max(m, e.labelY + 8), 0);
+  const maxY = Math.max(nodeBottom, edgeBottom);
 
   return {
     nodes: [...nodeMap.values()],
