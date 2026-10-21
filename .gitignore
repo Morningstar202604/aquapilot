@@ -18,6 +18,9 @@ coverage/
 # local AQG state
 .aqg/current_ledger.md
 
+# runtime data
+data/
+
 # logs and OS noise
 *.log
 .DS_Store
