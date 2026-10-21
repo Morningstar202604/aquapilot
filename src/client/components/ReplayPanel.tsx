@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, MarkLineComponent } from 'echarts/components';
@@ -142,6 +142,23 @@ export function ReplayPanel() {
 
   const current = snapshots[Math.min(cursor, Math.max(0, snapshots.length - 1))];
 
+  /**
+   * 与时间轴联动的决策。
+   *
+   * 取「不晚于当前时刻的最近一条决策」——这才是操作员在那一刻看到的建议。
+   * 单纯按列表位置高亮会误导：决策是稀疏的，采样点是连续的。
+   */
+  const decisionAtCursor = useMemo(() => {
+    if (!current) return null;
+    let best: DecisionRow | null = null;
+    for (const d of decisions) {
+      if (d.atMin <= current.atMin) {
+        if (!best || d.atMin > best.atMin) best = d;
+      }
+    }
+    return best;
+  }, [current, decisions]);
+
   if (loading) return <div className="scroll-panel"><div className="empty-note">加载历史…</div></div>;
 
   if (enabled === false) {
@@ -189,6 +206,19 @@ export function ReplayPanel() {
         </div>
       </div>
 
+      {decisionAtCursor && (
+        <div>
+          <div className="section-label">该时刻的 AI 决策</div>
+          <div className="decision-card" data-sev={decisionAtCursor.severity}>
+            <div className="decision-summary">{decisionAtCursor.summary}</div>
+            <div className="control-hint" style={{ marginTop: 6 }}>
+              发生于第 {Math.floor(decisionAtCursor.atMin / 60)} 小时 · 预测评分{' '}
+              {decisionAtCursor.predictedScore}/100
+            </div>
+          </div>
+        </div>
+      )}
+
       {current && (
         <div>
           <div className="section-label">该时刻出水</div>
@@ -223,15 +253,24 @@ export function ReplayPanel() {
       <div>
         <div className="section-label">决策记录（{decisions.length}）</div>
         {decisions.length === 0 && <div className="empty-note">暂无决策记录</div>}
-        {decisions.slice(-12).reverse().map((d) => (
-          <div className="alarm-row" key={`${d.atMin}-${d.summary.slice(0, 8)}`} data-sev={d.severity === 'critical' ? 'critical' : 'warning'}>
-            <div className="alarm-meta">
-              <span>第 {Math.floor(d.atMin / 60)}h</span>
-              <span style={{ color: d.severity === 'critical' ? 'var(--alarm)' : 'var(--amber)' }}>{d.severity}</span>
+        {decisions.slice(-12).reverse().map((d) => {
+          const isCurrent = decisionAtCursor && d.atMin === decisionAtCursor.atMin && d.summary === decisionAtCursor.summary;
+          return (
+            <div
+              className="alarm-row"
+              key={`${d.atMin}-${d.summary.slice(0, 8)}`}
+              data-sev={d.severity === 'critical' ? 'critical' : 'warning'}
+              style={isCurrent ? { borderLeftWidth: 3, background: 'rgba(62,224,181,0.06)' } : undefined}
+            >
+              <div className="alarm-meta">
+                <span>第 {Math.floor(d.atMin / 60)}h</span>
+                <span style={{ color: d.severity === 'critical' ? 'var(--alarm)' : 'var(--amber)' }}>{d.severity}</span>
+                {isCurrent && <span style={{ color: 'var(--water)' }}>· 当前时刻</span>}
+              </div>
+              <div className="alarm-text">{d.summary}</div>
             </div>
-            <div className="alarm-text">{d.summary}</div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

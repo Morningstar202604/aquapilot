@@ -164,3 +164,29 @@ describe('Takács 质量守恒（回归：曾因上边界通量写错导致出�
     expect(low.xUnderflow).toBeGreaterThan(high.xUnderflow);
   });
 });
+
+describe('压缩屈服项（保守性）', () => {
+  it('加入压缩项后质量守恒仍成立', () => {
+    const cases = [
+      { mlss: 3000, ras: 1.0 },
+      { mlss: 5000, ras: 1.0 },
+      { mlss: 3000, ras: 0.4 },
+    ];
+    for (const c of cases) {
+      const Qf = Q * (1 + c.ras);
+      const Qu = Q * c.ras;
+      const Qe = Qf - Qu;
+      const r = runSettlerToSteady(cfg, { flow: Qf, concentration: c.mlss }, { flow: Qu }, { maxDays: 80, dtDays: 1 / 1440 });
+      const inKg = (Qf * c.mlss) / 1000;
+      const outKg = (Qe * r.xEffluent + Qu * r.xUnderflow) / 1000;
+      expect(Math.abs(inKg - outKg) / inKg).toBeLessThan(0.05);
+    }
+  });
+
+  it('压缩项不改变关键输出：出水 SS 与回流浓度仍在合理范围', () => {
+    const r = runSettlerToSteady(cfg, { flow: Q * 2, concentration: 3000 }, { flow: Q }, { maxDays: 60, dtDays: 1 / 1440 });
+    expect(r.xEffluent).toBeLessThan(20);
+    expect(r.xUnderflow).toBeGreaterThan(2000);
+    expect(r.xUnderflow).toBeLessThan(15000);
+  });
+});
