@@ -61,6 +61,8 @@ export interface ControlSettings {
   carbonDose: number;
   alkDose: number;
   stormStore: number;
+  /** 多点进水：直接进入缺氧池的原水比例（0–0.5），为反硝化补碳源 */
+  stepFeed: number;
   aiEnabled: boolean;
 }
 
@@ -73,6 +75,7 @@ export const DEFAULT_CONTROLS: ControlSettings = {
   carbonDose: 0,
   alkDose: 0,
   stormStore: 0,
+  stepFeed: 0.3,
   aiEnabled: true,
 };
 
@@ -88,6 +91,7 @@ export const CONTROL_BOUNDS: Record<
   carbonDose: { min: 0, max: 60, step: 1, unit: 'mg/L', label: '碳源投加', precision: 0 },
   alkDose: { min: 0, max: 120, step: 2, unit: 'mg/L', label: '碱度投加', precision: 0 },
   stormStore: { min: 0, max: 1, step: 0.1, unit: '', label: '雨水调蓄分流', precision: 1 },
+  stepFeed: { min: 0, max: 0.5, step: 0.05, unit: '×Q', label: '缺氧区多点进水', precision: 2 },
 };
 
 export const INFLUENT_DESIGN = {

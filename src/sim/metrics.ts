@@ -20,6 +20,7 @@ export function clampControls(c: ControlSettings): ControlSettings {
     carbonDose: clamp(c.carbonDose, CONTROL_BOUNDS.carbonDose.min, CONTROL_BOUNDS.carbonDose.max),
     alkDose: clamp(c.alkDose, CONTROL_BOUNDS.alkDose.min, CONTROL_BOUNDS.alkDose.max),
     stormStore: clamp(c.stormStore, CONTROL_BOUNDS.stormStore.min, CONTROL_BOUNDS.stormStore.max),
+    stepFeed: clamp(c.stepFeed, CONTROL_BOUNDS.stepFeed.min, CONTROL_BOUNDS.stepFeed.max),
     aiEnabled: c.aiEnabled,
   };
 }

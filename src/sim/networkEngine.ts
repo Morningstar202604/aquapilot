@@ -390,7 +390,12 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
   const Q = Math.max(200, influent.flow - diverted + returnFlow);
   state.influent = { ...influent, flow: Q };
 
-  const flows = resolveFlows(net, Q, rec);
+  const flows = resolveFlows(net, Q, {
+    ras: rec.ras,
+    ir: rec.ir,
+    was: rec.was,
+    stepFeed: state.controls.stepFeed,
+  });
   state.edgeFlows = Object.fromEntries(flows.edgeFlow);
 
   const byId = new Map(state.reactors.map((r) => [r.id, r]));
@@ -489,14 +494,40 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
         });
       }
 
-      // 入流组分：按流量加权
+      /**
+       * 入流组分：按流量加权。
+       *
+       * 污泥回流（RAS）不能直接取末端池浓度——二沉池把污泥浓缩了 2–3 倍，
+       * 用未浓缩的浓度会让每个池的颗粒物被"稀释"，生物量持续流失。
+       * Takács 模型已经算出真实的回流浓度 xRas，这里按它的浓缩倍数缩放颗粒态。
+       */
+      const rasConcentrationRatio = (() => {
+        const feedSS = lastReactor?.asm1
+          ? lastReactor.asm1.X_I + lastReactor.asm1.X_S + lastReactor.asm1.X_B_H + lastReactor.asm1.X_B_A + lastReactor.asm1.X_P
+          : 0;
+        if (feedSS <= 1) return 1;
+        // Takács 给出的底流浓度 / 进料浓度 = 真实浓缩倍数
+        return Math.max(1, Math.min(6, clar.xRas / feedSS));
+      })();
+
       let asmIn = emptyAsm1State();
       let qAcc = 0;
       for (const edge of incoming) {
         const flow = flows.edgeFlow.get(edge.id) ?? 0;
         if (flow <= 0) continue;
         let src: Asm1State;
-        if (edge.recycleKind === 'ras' && lastReactor?.asm1) src = lastReactor.asm1;
+        if (edge.recycleKind === 'ras' && lastReactor?.asm1) {
+          // 按二沉池浓缩倍数放大颗粒态
+          const base = lastReactor.asm1;
+          src = {
+            ...base,
+            X_I: base.X_I * rasConcentrationRatio,
+            X_S: base.X_S * rasConcentrationRatio,
+            X_B_H: base.X_B_H * rasConcentrationRatio,
+            X_B_A: base.X_B_A * rasConcentrationRatio,
+            X_P: base.X_P * rasConcentrationRatio,
+          };
+        }
         else if (edge.recycleKind === 'internal' && lastReactor?.asm1) src = lastReactor.asm1;
         else if (byId.has(edge.from) && byId.get(edge.from)!.asm1) src = byId.get(edge.from)!.asm1!;
         else
@@ -529,7 +560,6 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
        *
        * 颗粒态的正确流失途径是：排泥（由 SRT 决定）与出水悬浮物（由二沉池决定）。
        */
-      const SOLUBLE = new Set(['S_I', 'S_S', 'S_O', 'S_NO', 'S_NH', 'S_ND', 'S_ALK']);
 
       /**
        * 输运项分两类处理，这是整个接入的关键：
@@ -546,32 +576,21 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
        * 生物量会被出水一次性带光——这正是早期失败的根因。
        */
       /**
-       * 颗粒态的真正流失途径只有一个：随出水悬浮物离开。
+       * 标准 CSTR 质量平衡：dC/dt = (Q/V)(C_in − C) + r
        *
-       * 流失比例 = 出水 SS / 池内 SS（浓度比），
-       * 即 (Qe·xEff) / (V·X)——这才是"每步被出水带走的池内固体份额"。
+       * 这里 C_in 是**按流量加权的所有入流浓度**（含内回流与污泥回流），
+       * 由上面的 asmIn 计算得出。这个形式对溶解态与颗粒态都成立，
+       * 不需要为颗粒态单独设计"净流出比例"——那是把简单问题复杂化，
+       * 并且在实现中引入过两次指数发散。
        *
-       * 之前用 Q/qIn（约 26%）是把"随水流出反应器"误当成"离开系统"，
-       * 而实际上那些固体随回流又回来了。这一步之差导致生物量在几小时内归零。
+       * 只要 asmIn 正确包含了回流携带的颗粒物，生物量就不会被冲走。
        */
-      const reactorSS = reactor.asm1.X_I + reactor.asm1.X_S + reactor.asm1.X_B_H + reactor.asm1.X_B_A + reactor.asm1.X_P;
-      const outFraction =
-        reactorSS > 1
-          ? Math.min(1, (Qe * clar.xEff) / Math.max(1, reactorSS * qIn * (1 / qOverV) / 24) / 24)
-          : 0;
-
       for (const comp of ASM1_COMPONENTS) {
         if (comp === 'S_ALK') continue;
-        if (SOLUBLE.has(comp)) {
-          nextAsm1[comp] = Math.max(
-            0,
-            reactor.asm1[comp] + dtH * (qOverV * (asmIn[comp] - reactor.asm1[comp]) + r[comp]),
-          );
-        } else {
-          // 颗粒态：入流带入 + 反应生成 - 仅出水带走的部分
-          const transportLoss = qOverV * reactor.asm1[comp] * outFraction;
-          nextAsm1[comp] = Math.max(0, reactor.asm1[comp] + dtH * (r[comp] - transportLoss));
-        }
+        nextAsm1[comp] = Math.max(
+          0,
+          reactor.asm1[comp] + dtH * (qOverV * (asmIn[comp] - reactor.asm1[comp]) + r[comp]),
+        );
       }
       nextAsm1.S_ALK = Math.max(0, reactor.asm1.S_ALK + dtH * qOverV * (asmIn.S_ALK - reactor.asm1.S_ALK));
 
@@ -672,10 +691,26 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
     depth: clar.depth,
   };
 
+  /**
+   * 二沉池进料浓度必须用「末端反应器的实际颗粒浓度」，而不是全局 biomassKg 折算的 xBiomass。
+   *
+   * ASM1 模式下两者会分叉：xBiomass 来自早期简化模型的全局生物量，
+   * 而池内真实颗粒浓度是 X_I+X_S+X_B_H+X_B_A+X_P 之和。
+   * 用错会让 Takács 算出与实际不符的回流浓度，进而破坏 RAS 的生物量补给。
+   */
+  const lastReactorForFeed = state.reactors[state.reactors.length - 1];
+  const feedSolids = lastReactorForFeed?.asm1
+    ? lastReactorForFeed.asm1.X_I +
+      lastReactorForFeed.asm1.X_S +
+      lastReactorForFeed.asm1.X_B_H +
+      lastReactorForFeed.asm1.X_B_A +
+      lastReactorForFeed.asm1.X_P
+    : xBiomass;
+
   const settlerResult = stepSettler(
     clar.settler,
     settlerCfg,
-    { flow: clarifierInflow * 24, concentration: xBiomass }, // m³/d, g/m³
+    { flow: clarifierInflow * 24, concentration: feedSolids }, // m³/d, g/m³
     { flow: underflow * 24 },
     dtMin / 1440,
   );

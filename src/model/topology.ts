@@ -308,6 +308,16 @@ export const PLANT_TOPOLOGY: ProcessTopology = {
       flowRef: 'returnFlow',
     },
     { id: 'c-primary-sludge', from: { unit: 'primary', port: 'sludge' }, to: { unit: 'thickener', port: 'in' }, stream: 'waste_sludge' },
+    {
+      // A²/O 多点进水：一部分原水直接进缺氧池，为反硝化补充碳源。
+      // 单点进水时内回流（2×Q）会把缺氧区 COD 稀释到 3–5 mg/L，
+      // 反硝化缺碳 → 硝酸盐累积 → 出水 TN 超标。这是模型跑出来后才暴露的工艺问题。
+      id: 'c-primary-anoxic-stepfeed',
+      from: { unit: 'primary', port: 'out' },
+      to: { unit: 'anoxic', port: 'in' },
+      stream: 'influent',
+      flowRef: 'stepFeedFraction',
+    },
     { id: 'c-anaerobic-anoxic', from: { unit: 'anaerobic', port: 'out' }, to: { unit: 'anoxic', port: 'in' }, stream: 'mixed_liquor' },
     { id: 'c-anoxic-aerobic1', from: { unit: 'anoxic', port: 'out' }, to: { unit: 'aerobic1', port: 'in' }, stream: 'mixed_liquor' },
     { id: 'c-aerobic1-aerobic2', from: { unit: 'aerobic1', port: 'out' }, to: { unit: 'aerobic2', port: 'in' }, stream: 'mixed_liquor' },

@@ -57,6 +57,7 @@ const KEY_ORDER: (keyof Omit<ControlSettings, 'aiEnabled'>)[] = [
   'carbonDose',
   'alkDose',
   'stormStore',
+  'stepFeed',
 ];
 
 interface Guardrails {
@@ -251,6 +252,7 @@ const CONTROL_VERB: Record<keyof Omit<ControlSettings, 'aiEnabled'>, [string, st
   carbonDose: ['减少碳源投加', '投加碳源'],
   alkDose: ['减少碱度投加', '提高碱度投加'],
   stormStore: ['停止调蓄分流', '启用雨水调蓄分流'],
+  stepFeed: ['减少缺氧区进水', '增加缺氧区进水'],
 };
 
 function candidateLabel(key: string): string {
@@ -383,6 +385,8 @@ function formatNum(value: number, key: keyof Omit<ControlSettings, 'aiEnabled'>)
 function explainTweak(key: keyof Omit<ControlSettings, 'aiEnabled'>, from: number, to: number): string {
   const up = to > from;
   switch (key) {
+    case 'stepFeed':
+      return up ? '增加直接进入缺氧池的原水，为反硝化补充碳源' : '减少缺氧区进水，把碳源留给厌氧释磷';
     case 'stormStore':
       return up ? '启用雨水调蓄分流，削减进厂流量以保护二沉池固体通量' : '停止调蓄分流，恢复全部进水处理';
     case 'doSetpoint':

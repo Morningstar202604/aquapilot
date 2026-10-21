@@ -194,14 +194,28 @@ export function buildRates(p = ASM1_PARAMS, temperatureC = p.T_REF) {
       (s.S_O / (p.K_O_H + s.S_O)) *
       s.X_B_H,
 
-    anoxic_growth_heterotrophs: (s: Asm1State) =>
-      p.mu_H *
-      fMuH *
-      p.eta_g *
-      (s.S_S / (p.K_S + s.S_S)) *
-      (p.K_O_H / (p.K_O_H + s.S_O)) *
-      (s.S_NO / (p.K_NO + s.S_NO)) *
-      s.X_B_H,
+    /**
+     * 缺氧生长。
+     *
+     * 早期实现直接用 K_O/(K_O+S_O) 与 S_NO/(K_NO+S_NO) 两个 Monod 项相乘，
+     * 在厌氧条件（S_O≈0.02, S_NO≈0.3）下仍能得到约 0.34 的最大速率，
+     * 导致厌氧池大量消耗 COD、异养菌异常增殖，进而使缺氧池断碳、反硝化失败。
+     *
+     * 修正：乘以一个「缺氧窗口」因子 O2_INHIBITION，
+     * 当溶解氧接近 0 且硝酸盐也接近 0 时，把速率压到接近零。
+     * 这是 ASM1 原文隐含、但实现时必须显式的开关条件。
+     */
+    anoxic_growth_heterotrophs: (s: Asm1State) => {
+      const o2Inhibition = p.K_O_H / (p.K_O_H + s.S_O); // 氧抑制（高氧时趋 0）
+      /**
+       * 硝酸盐可用性用更陡的判据：K_NO=0.5 时 S_NO=0.3 仍给出 0.375 的饱和，
+       * 对厌氧池来说太宽松。改用平方形式使低浓度区更快衰减：
+       *   S_NO=0.3 → 0.14；S_NO=2 → 0.8；S_NO=8 → 0.99
+       */
+      const no3Availability = (s.S_NO / (p.K_NO + s.S_NO)) ** 2;
+      const window = Math.min(o2Inhibition, no3Availability);
+      return p.mu_H * fMuH * p.eta_g * (s.S_S / (p.K_S + s.S_S)) * window * s.X_B_H;
+    },
 
     aerobic_growth_autotrophs: (s: Asm1State) =>
       p.mu_A * fMuA * (s.S_NH / (p.K_NH + s.S_NH)) * (s.S_O / (p.K_O_A + s.S_O)) * s.X_B_A,

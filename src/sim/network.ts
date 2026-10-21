@@ -218,7 +218,7 @@ function topologicalOrder(ids: string[], forwardEdges: CompiledEdge[]): string[]
 export function resolveFlows(
   network: CompiledNetwork,
   inflow: number,
-  controls: { ras: number; ir: number; was: number },
+  controls: { ras: number; ir: number; was: number; stepFeed?: number },
 ): { edgeFlow: Map<string, number>; reactorInflow: Map<string, number>; reactorOutflow: Map<string, number> } {
   const edgeFlow = new Map<string, number>();
   const reactorInflow = new Map<string, number>();
@@ -260,13 +260,35 @@ export function resolveFlows(
         qIn += edgeFlow.get(e.id) ?? 0;
         continue;
       }
-      // 厂外来水：首个承接全部进水，其余并联旁路（调蓄池等）为 0
+      if (edgeFlow.has(e.id)) {
+        // 多点进水等已在上游分配过的厂外支线
+        qIn += edgeFlow.get(e.id) ?? 0;
+        continue;
+      }
+      /**
+       * 厂外来水分配。
+       *
+       * 支持多点进水：直接进入缺氧池的那条支线按 stepFeed 比例分走一部分原水，
+       * 其余原水进首个反应器（厌氧池）。这样缺氧区才有碳源做反硝化，
+       * 否则内回流会把 COD 稀释到几 mg/L，硝酸盐累积、TN 超标。
+       */
       if (!externalAssigned) {
-        edgeFlow.set(e.id, inflow);
-        qIn += inflow;
+        const stepFeedEdges = network.edges.filter(
+          (x) => x.stream === 'influent' && x.to !== reactor.id && !reactorIds.has(x.from) && !x.recycle,
+        );
+        const stepFeedShare = Math.min(0.5, Math.max(0, controls.stepFeed ?? 0));
+        const stepFeedFlow = stepFeedEdges.length > 0 ? inflow * stepFeedShare : 0;
+
+        for (const se of stepFeedEdges) {
+          edgeFlow.set(se.id, stepFeedFlow / stepFeedEdges.length);
+        }
+
+        edgeFlow.set(e.id, inflow - stepFeedFlow);
+        qIn += inflow - stepFeedFlow;
         externalAssigned = true;
       } else {
-        edgeFlow.set(e.id, 0);
+        edgeFlow.set(e.id, edgeFlow.get(e.id) ?? 0);
+        qIn += edgeFlow.get(e.id) ?? 0;
       }
     }
 
