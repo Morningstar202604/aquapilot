@@ -1,0 +1,43 @@
+name: Bug report
+description: Something behaves incorrectly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For simulation issues, please include the seed and the topology you used —
+        otherwise the result cannot be reproduced.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The observed behaviour, including any error output.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. npm ci && npm run build
+        2. npm start
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      placeholder: '22.12.0'
+  - type: textarea
+    id: gate
+    attributes:
+      label: Output of `npm run ci`
+      description: Paste the last lines. If it fails, say where.
+      render: shell
