@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify (typecheck + test + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Smoke test production server
+        run: |
+          node dist/server/index.mjs &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:5173/api/snapshot > /dev/null; then break; fi
+            sleep 1
+          done
+          echo "--- snapshot keys ---"
+          curl -sf http://127.0.0.1:5173/api/snapshot | head -c 200
+          echo
+          echo "--- topology ---"
+          curl -sf http://127.0.0.1:5173/api/topology | head -c 200
+          echo
+          kill $SERVER_PID
+
+  quality-gate:
+    name: Quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: verify
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Ensure no secrets committed
+        run: |
+          set -e
+          # 令牌/密钥模式扫描（只扫受版本控制的源码与文档）
+          if git grep -nIE '(ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})' -- . \
+               ':(exclude)package-lock.json'; then
+            echo "::error::发现疑似 GitHub 令牌，禁止提交"
+            exit 1
+          fi
+          if git grep -nIE '(AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----)' -- .; then
+            echo "::error::发现疑似私钥/云密钥"
+            exit 1
+          fi
+          echo "密钥扫描通过"
+
+      - name: Ensure no build artifacts committed
+        run: |
+          set -e
+          for p in dist out node_modules; do
+            if git ls-files --error-unmatch "$p" > /dev/null 2>&1 || [ -n "$(git ls-files "$p" | head -1)" ]; then
+              echo "::error::$p 不应被提交"
+              exit 1
+            fi
+          done
+          echo "构建产物未入库"
+
+      - name: Test count floor
+        run: |
+          set -e
+          npx vitest run --reporter=json --outputFile=test-results.json > /dev/null 2>&1 || true
+          COUNT=$(node -e "const r=require('./test-results.json'); console.log(r.numTotalTests)")
+          PASSED=$(node -e "const r=require('./test-results.json'); console.log(r.numPassedTests)")
+          echo "测试数量: $COUNT（通过 $PASSED）"
+          if [ "$COUNT" -lt 140 ]; then
+            echo "::error::测试数量低于下限 140（当前 $COUNT），可能有测试被删除"
+            exit 1
+          fi
+          if [ "$PASSED" -ne "$COUNT" ]; then
+            echo "::error::有测试未通过：$PASSED/$COUNT"
+            exit 1
+          fi

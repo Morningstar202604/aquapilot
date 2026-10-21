@@ -1,0 +1,58 @@
+{
+  "name": "aquapilot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI-operated wastewater treatment plant simulator with topology-driven solvers",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:client": "vite",
+    "build": "npm run typecheck && vite build && node scripts/build-server.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "node dist/server/index.mjs",
+    "harness": "tsx scripts/harness.ts",
+    "verify": "npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "echarts": "6.1.0",
+    "lucide-react": "1.59.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "ws": "8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/ws": "8.18.1",
+    "@vitejs/plugin-react": "6.1.2",
+    "esbuild": "0.28.2",
+    "playwright-core": "^1.59.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Morningstar202604/aquapilot.git"
+  },
+  "homepage": "https://github.com/Morningstar202604/aquapilot#readme",
+  "bugs": {
+    "url": "https://github.com/Morningstar202604/aquapilot/issues"
+  },
+  "keywords": [
+    "wastewater",
+    "simulation",
+    "asm1",
+    "bsm1",
+    "activated-sludge",
+    "digital-twin",
+    "ai-agents",
+    "process-control"
+  ]
+}
