@@ -212,6 +212,35 @@ export function checkRunReadiness(topo: ProcessTopology, flowM3h = INFLUENT_DESI
   const aerobic = train.filter((t) => t.spec.kind === 'aerobic');
   if (aerobic.length === 0) blockers.push('主序列中没有好氧池：无法完成硝化');
 
+  /**
+   * 好氧池必须有鼓风机供气。
+   *
+   * 之前不检查这一项：删掉鼓风机后校验仍然通过，而引擎的曝气能力
+   * 与鼓风机单元完全无关（它只看 aerationCapacity），
+   * 于是"图上没有风机但满负荷曝气"——属于校验与求解脱节。
+   */
+  if (aerobic.length > 0) {
+    const hasBlower = topo.units.some((u) => u.kind === 'blower');
+    if (!hasBlower) blockers.push('好氧池存在但没有鼓风机：无法供氧');
+    const blowerConnected = topo.connections.some((c) => {
+      const from = topo.units.find((u) => u.id === c.from.unit);
+      const to = topo.units.find((u) => u.id === c.to.unit);
+      return from?.kind === 'blower' && to?.kind === 'aerobic';
+    });
+    if (hasBlower && !blowerConnected) blockers.push('鼓风机没有连接到任何好氧池');
+  }
+
+  /**
+   * 只允许一个二沉池。
+   *
+   * 引擎的 compileNetwork 与 networkEngine 都只取第一个 clarifier，
+   * 第二个会被静默忽略——这比报错更危险，用户以为它生效了。
+   */
+  const clarifiers = topo.units.filter((u) => u.kind === 'clarifier');
+  if (clarifiers.length > 1) {
+    blockers.push(`当前只支持一个二沉池（检测到 ${clarifiers.length} 个）：${clarifiers.map((c) => c.name).join('、')}`);
+  }
+
   const bioVolume = totalTrainVolume(topo);
   const hrt = bioVolume / Math.max(1, flowM3h);
   if (hrt < 4) warnings.push(`生物池停留时间仅 ${hrt.toFixed(1)} h（低于常见下限 6 h），硝化可能不完全`);
