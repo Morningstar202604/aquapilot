@@ -6,12 +6,22 @@ step() { printf '\n\033[1;36m▶ %s\033[0m\n' "$1"; }
 pass() { printf '\033[1;32m  PASS\033[0m %s\n' "$1"; }
 fail() { printf '\033[1;31m  FAIL\033[0m %s\n' "$1"; exit 1; }
 
-step "1/7 依赖一致性 (package-lock)"
+step "1/8 依赖一致性 (package-lock)"
 [ -f package-lock.json ] || fail "缺少 package-lock.json"
-npm ci --prefer-offline --no-audit --no-fund > /dev/null 2>&1 || fail "npm ci 失败"
-pass "依赖安装成功"
+CI_OUT=$(npm ci --prefer-offline --no-audit --no-fund 2>&1) && pass "依赖安装成功" || {
+  printf '%s
+' "$CI_OUT" | tail -20
+  if printf '%s' "$CI_OUT" | grep -q 'EPERM.*unlink'; then
+    fail "npm ci 失败：node_modules 被占用（Windows 上常见于残留的 esbuild.exe / node 进程）。
+        处理：先结束占用进程再重试——
+          taskkill //F //IM esbuild.exe
+          taskkill //F //IM node.exe   （会结束所有 node，包括正在运行的仿真服务）
+        这不是代码问题，但必须清理后才能得到可信结果。"
+  fi
+  fail "npm ci 失败（见上方输出）"
+}
 
-step "2/7 TypeScript 严格检查"
+step "2/8 TypeScript 严格检查"
 npm run typecheck > /dev/null 2>&1 && pass "0 错误" || fail "类型检查失败"
 
 step "3/8 严格未使用检查"
