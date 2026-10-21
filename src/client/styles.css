@@ -2018,3 +2018,72 @@ button {
   height: 100%;
   min-height: 0;
 }
+
+/* 访问令牌入口 */
+.auth-gate {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  background:
+    radial-gradient(900px 480px at 50% 30%, rgba(62, 224, 181, 0.06), transparent 65%),
+    var(--ink);
+}
+
+.auth-card {
+  width: min(360px, calc(100% - 40px));
+  padding: 26px 24px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.auth-brand {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: var(--water);
+  margin-bottom: 6px;
+}
+
+.auth-hint {
+  margin: 0 0 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.auth-card input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.auth-card input:focus {
+  border-color: var(--water-dim);
+}
+
+.auth-error {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--alarm);
+}
+
+.auth-submit {
+  width: 100%;
+  height: 34px;
+  margin-top: 14px;
+  border: 1px solid var(--water-dim);
+  background: rgba(62, 224, 181, 0.12);
+  color: var(--water);
+  font-size: 12.5px;
+  border-radius: 2px;
+}
+
+.auth-submit:hover {
+  background: rgba(62, 224, 181, 0.2);
+}
