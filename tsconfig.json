@@ -18,5 +18,6 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src", "tests", "scripts", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "tests", "scripts", "vite.config.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist", "out", "scripts/_*", "scripts/__*", "scripts/tmp-*"]
 }

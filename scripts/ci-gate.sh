@@ -33,7 +33,7 @@ TOTAL=$(node -e "console.log(require('./test-results.json').numTotalTests)")
 PASSED=$(node -e "console.log(require('./test-results.json').numPassedTests)")
 rm -f test-results.json
 [ "$PASSED" -eq "$TOTAL" ] && pass "$PASSED/$TOTAL 通过" || fail "$PASSED/$TOTAL，存在失败"
-[ "$TOTAL" -ge 160 ] && pass "测试数量 $TOTAL ≥ 160" || fail "测试数量 $TOTAL 低于下限 160"
+[ "$TOTAL" -ge 165 ] && pass "测试数量 $TOTAL ≥ 165" || fail "测试数量 $TOTAL 低于下限 165"
 
 step "5/8 构建"
 npm run build > /dev/null 2>&1 && pass "客户端与服务端构建成功" || fail "构建失败"

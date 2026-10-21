@@ -6,7 +6,7 @@
 
 AquaPilot is a working prototype of a new interaction model for process simulation: instead of an engineer reading curves and turning knobs, an AI operator watches the plant, forecasts, decides, and acts — while the human asks questions and sets boundaries.
 
-![tests](https://img.shields.io/badge/tests-157%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-171%20passing-brightgreen)
 ![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
@@ -49,7 +49,7 @@ Verify:
 
 ```bash
 npm run typecheck  # TypeScript strict + noUnusedLocals/Parameters
-npm run test       # 157 tests
+npm run test       # 171 tests
 npm run build      # client bundle + server bundle
 npm run verify     # all three in order
 npm run ci         # full gate: deps, types, tests, build, smoke, secret scan
@@ -77,7 +77,7 @@ src/
   server/        WebSocket simulation loop, REST snapshot, static hosting
   client/        Control-room UI (React + ECharts + SVG flowsheet)
   shared/        Client/server protocol
-tests/           157 tests: physics, conservation, guardrails, topology, cross-engine,
+tests/           171 tests: physics, conservation, guardrails, topology, cross-engine,
                  input validation and crash-boundary regressions
 ```
 
@@ -109,7 +109,7 @@ This is a **simulation prototype**, not a system that can take over a real plant
 
 Verified **on this machine** by `npm run ci` (7/7 steps green):
 - Dependency install, TypeScript strict (0 errors, including unused-code checks)
-- 157 tests, all passing
+- 171 tests, all passing
 - Client + server build, production bundle
 - Smoke test: three endpoints respond under a real server
 - Secret scan and artifact scan
