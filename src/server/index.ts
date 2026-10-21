@@ -671,14 +671,38 @@ async function main(): Promise<void> {
   await store.open();
 
   const server = createServer((req, res) => {
-    // 启用访问控制时，除健康检查外的所有请求都要带令牌
-    if (!req.url?.startsWith('/api/health')) {
+    /**
+     * 访问控制只作用于 API 与 WebSocket，不拦静态资源。
+     *
+     * 为什么：浏览器导航请求无法携带 Authorization 头。
+     * 早期实现把 `/` 也拦了，导致启用 token 后首页直接 401，
+     * 前端完全无法加载——认证功能"启用即故障"。
+     * 正确做法：页面可加载，页面内的 API/WS 调用再要求令牌。
+     */
+    const isApi = req.url?.startsWith('/api/');
+    // 健康检查与"是否需要认证"必须免鉴权，否则前端无法得知该不该弹登录框（死锁）
+    const isPublic = req.url?.startsWith('/api/health') || req.url?.startsWith('/api/auth-required');
+    if (isApi && !isPublic) {
       const decision = authorize(req);
       if (!decision.allowed) {
         res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: decision.reason, authRequired: true }));
         return;
       }
+    }
+    // 基线安全响应头（OWASP A02）
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:",
+    );
+
+    if (req.url?.startsWith('/api/auth-required')) {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ required: authRequired() }));
+      return;
     }
     if (req.url?.startsWith('/api/health')) {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
