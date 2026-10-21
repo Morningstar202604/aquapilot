@@ -16,7 +16,8 @@
     "harness": "tsx scripts/harness.ts",
     "verify": "npm run typecheck && npm run test && npm run build",
     "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
-    "ci": "bash scripts/ci-gate.sh"
+    "ci": "bash scripts/ci-gate.sh",
+    "e2e": "tsx scripts/e2e-ci.ts"
   },
   "dependencies": {
     "echarts": "6.1.0",
@@ -30,6 +31,7 @@
     "@types/react-dom": "19.3.0",
     "@types/ws": "8.18.1",
     "@vitejs/plugin-react": "6.1.2",
+    "@vitest/coverage-v8": "^5.0.5",
     "esbuild": "0.28.2",
     "playwright-core": "^1.64.1",
     "tsx": "4.23.15",
@@ -57,6 +59,6 @@
     "process-control"
   ],
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=20.19.0"
   }
 }

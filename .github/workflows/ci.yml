@@ -37,8 +37,11 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
-      - name: Unit tests
-        run: npm run test
+      - name: Unit tests with coverage
+        run: npx vitest run --coverage
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
 
       - name: Build
         run: npm run build
@@ -58,6 +61,31 @@ jobs:
           curl -sf http://127.0.0.1:5173/api/topology | head -c 200
           echo
           kill $SERVER_PID
+
+  e2e:
+    name: Browser smoke (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run browser smoke
+        run: npx tsx scripts/e2e-ci.ts
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: out/shots/
+          retention-days: 7
 
   quality-gate:
     name: Quality gate

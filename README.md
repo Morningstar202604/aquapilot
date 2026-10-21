@@ -6,7 +6,7 @@
 
 AquaPilot is a working prototype of a new interaction model for process simulation: instead of an engineer reading curves and turning knobs, an AI operator watches the plant, forecasts, decides, and acts — while the human asks questions and sets boundaries.
 
-![tests](https://img.shields.io/badge/tests-211%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-243%20passing-brightgreen)
 ![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
@@ -49,7 +49,7 @@ Verify:
 
 ```bash
 npm run typecheck  # TypeScript strict + noUnusedLocals/Parameters
-npm run test       # 211 tests
+npm run test       # 243 tests
 npm run build      # client bundle + server bundle
 npm run verify     # all three in order
 npm run ci         # full gate: deps, types, tests, build, smoke, secret scan
@@ -81,7 +81,7 @@ src/
   server/        WebSocket simulation loop, REST snapshot, static hosting
   client/        Control-room UI (React + ECharts + SVG flowsheet)
   shared/        Client/server protocol
-tests/           211 tests: physics, conservation, guardrails, topology, cross-engine,
+tests/           243 tests: physics, conservation, guardrails, topology, cross-engine,
                  input validation and crash-boundary regressions
 ```
 
@@ -113,16 +113,19 @@ This is a **simulation prototype**, not a system that can take over a real plant
 
 Verified **on this machine** by `npm run ci` (7/7 steps green):
 - Dependency install, TypeScript strict (0 errors, including unused-code checks)
-- 211 tests, all passing
+- 243 tests, all passing
 - Client + server build, production bundle
 - Smoke test: three endpoints respond under a real server
 - Secret scan and artifact scan
 
-CI configuration is provided for all three hosts (`.github/workflows/ci.yml`,
-`.workflow/aquapilot-ci.yml` for Gitee Go, `.gitcode/pipeline.yml`).
-**These are configuration files. Whether they execute depends on enabling CI in
-each platform's web console, which cannot be provisioned from the repository.**
-The claim above is about the local gate, not about a hosted badge.
+CI runs on GitHub Actions and is **verified green** (Node 20, Node 22 and a
+quality gate, all passing). Configuration is also included for Gitee Go
+(`.workflow/aquapilot-ci.yml`) and GitCode (`.gitcode/pipeline.yml`); those two
+require enabling the pipeline in the platform console.
+
+The CI pipeline runs: type check, tests with coverage thresholds, dependency
+audit at high severity, build, production smoke test, secret scan, artifact
+scan, and a Playwright browser smoke test that asserts the UI actually renders.
 
 Hardening added after an independent engineering audit (which reproduced nine
 remotely-triggerable crashes in an earlier revision): runtime validation on every

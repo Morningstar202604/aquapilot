@@ -41,6 +41,16 @@ function isUsableSnapshot(v: unknown): v is PlantSnapshot {
   return true;
 }
 
+const TOKEN_KEY = 'aquapilot_token';
+
+function readToken(): string | null {
+  try {
+    return window.sessionStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export function useSimulation() {
   const [snapshot, setSnapshot] = useState<PlantSnapshot | null>(null);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
@@ -61,7 +71,14 @@ export function useSimulation() {
     const connect = () => {
       if (closed) return;
       const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-      const ws = new WebSocket(`${proto}://${window.location.host}/ws`);
+      /**
+       * 浏览器无法为 WebSocket 握手设置 Authorization 头，
+       * 因此令牌通过子协议传递（服务端 verifyClient 支持 `token.<value>`）。
+       */
+      const token = readToken();
+      const ws = token
+        ? new WebSocket(`${proto}://${window.location.host}/ws`, [`token.${token}`])
+        : new WebSocket(`${proto}://${window.location.host}/ws`);
       socketRef.current = ws;
 
       ws.onopen = () => {

@@ -105,3 +105,80 @@ describe('持久化', () => {
     delete process.env.AQUAPILOT_PERSIST;
   });
 });
+
+describe('未启用持久化时的全部读取路径', () => {
+  it('所有查询都安全返回空值', async () => {
+    process.env.AQUAPILOT_PERSIST = '0';
+    const s = new Store(join(dir, 'off2.db'));
+    await s.open();
+    expect(s.enabled).toBe(false);
+    expect(s.recentDecisions()).toEqual([]);
+    expect(s.snapshotsBetween(0, 100)).toEqual([]);
+    expect(s.latestRunId()).toBeNull();
+    expect(s.listRuns()).toEqual([]);
+    expect(s.count()).toEqual({ decisions: 0, alarms: 0, snapshots: 0 });
+    s.recordAlarm({ id: 'a1', atMin: 1, severity: 'warning', code: 'X', message: 'm' });
+    s.flush();
+    expect(s.count().alarms).toBe(0);
+    s.close();
+    delete process.env.AQUAPILOT_PERSIST;
+  });
+});
+
+describe('store 的错误恢复路径', () => {
+  it('表名互换后迁移可重复执行（ALTER 已存在不抛）', async () => {
+    const s1 = new Store(join(dir, 'repeat.db'));
+    await s1.open();
+    if (!s1.enabled) return;
+    s1.close();
+    // 二次 open 会重复执行 ALTER，必须被 catch 吞掉而不是崩溃
+    const s2 = new Store(join(dir, 'repeat.db'));
+    await s2.open();
+    expect(s2.enabled).toBe(true);
+    s2.close();
+  });
+
+  it('同一目录两个实例并存不崩溃', async () => {
+    const a = new Store(join(dir, 'shared.db'));
+    const b = new Store(join(dir, 'shared.db'));
+    await a.open();
+    await b.open();
+    if (a.enabled && b.enabled) {
+      a.recordDecision({
+        runId: 'r', atMin: 1, action: 'hold', severity: 'normal',
+        summary: 'x', tweaks: '[]', predictedScore: 1, separation: 0.5,
+      });
+      a.flush();
+      expect(a.count().decisions).toBeGreaterThan(0);
+    }
+    a.close();
+    b.close();
+  });
+
+  it('flush 在无数据时是空操作', async () => {
+    const s = new Store(join(dir, 'empty.db'));
+    await s.open();
+    expect(() => s.flush()).not.toThrow();
+    s.close();
+  });
+
+  it('listRuns 返回按时间聚合的运行列表', async () => {
+    const s = new Store(join(dir, 'runs.db'));
+    await s.open();
+    if (!s.enabled) return;
+    for (const [runId, atMin] of [['r1', 10], ['r1', 20], ['r2', 5]] as const) {
+      s.recordSnapshot({
+        runId, atMin, effluentCod: 30, effluentNh: 0.5, effluentTn: 10,
+        effluentTp: 0.2, effluentSs: 3, mlss: 3000, srtDays: 20, energyKw: 200, score: 80,
+      });
+    }
+    s.flush();
+    const runs = s.listRuns();
+    expect(runs.length).toBe(2);
+    const r1 = runs.find((r) => r.runId === 'r1')!;
+    expect(r1.points).toBe(2);
+    expect(r1.fromMin).toBe(10);
+    expect(r1.toMin).toBe(20);
+    s.close();
+  });
+});
