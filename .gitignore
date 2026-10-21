@@ -18,6 +18,9 @@ coverage/
 # local AQG state
 .aqg/current_ledger.md
 
+# scratch dirs left by review/probe scripts
+.tmpcheck/
+
 # runtime data
 data/
 
