@@ -1,5 +1,7 @@
-import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { logger, metrics } from './observability';
 
 /**
  * node:sqlite 是 Node 22+ 的内置模块；Node 20 上不存在。
@@ -10,7 +12,11 @@ import { dirname, resolve } from 'node:path';
  */
 type DatabaseLike = {
   exec(sql: string): void;
-  prepare(sql: string): { run(...args: unknown[]): unknown; all(...args: unknown[]): unknown[]; get(...args: unknown[]): unknown };
+  prepare(sql: string): {
+    run(...args: unknown[]): unknown;
+    all(...args: unknown[]): unknown[];
+    get(...args: unknown[]): unknown;
+  };
   close(): void;
 };
 
@@ -59,6 +65,21 @@ export interface AlarmRow {
   message: string;
 }
 
+export interface BackupManifest {
+  format: 'aquapilot-backup';
+  version: 1;
+  createdAt: string;
+  sourcePath: string;
+  bytes: number;
+  counts: { decisions: number; alarms: number; snapshots: number };
+}
+
+export interface RestoreResult {
+  ok: boolean;
+  reason?: string;
+  manifest?: BackupManifest;
+}
+
 export interface SnapshotRow {
   runId?: string;
   atMin: number;
@@ -88,7 +109,7 @@ export class Store {
     if (process.env.AQUAPILOT_PERSIST === '0') return;
     const DatabaseSync = await loadSqlite();
     if (!DatabaseSync) {
-      console.warn('persistence disabled: node:sqlite unavailable on this Node version');
+      logger.warn('persistence disabled', { reason: 'node:sqlite unavailable' });
       return;
     }
     try {
@@ -127,7 +148,7 @@ export class Store {
       this.db.prepare('INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)').run('schema_version', '2');
       this.flushTimer = setInterval(() => this.flush(), 5000);
     } catch (err) {
-      console.error('persistence disabled: cannot open database', err);
+      logger.error('persistence disabled', { reason: 'cannot open database', error: String(err) });
       this.db = null;
     }
   }
@@ -164,7 +185,8 @@ export class Store {
       const insD = this.db.prepare(
         'INSERT INTO decisions(run_id,at_min,action,severity,summary,tweaks,predicted_score,separation) VALUES(?,?,?,?,?,?,?,?)',
       );
-      for (const r of d) insD.run(r.runId ?? null, r.atMin, r.action, r.severity, r.summary, r.tweaks, r.predictedScore, r.separation);
+      for (const r of d)
+        insD.run(r.runId ?? null, r.atMin, r.action, r.severity, r.summary, r.tweaks, r.predictedScore, r.separation);
 
       const insA = this.db.prepare('INSERT INTO alarms(alarm_id,at_min,severity,code,message) VALUES(?,?,?,?,?)');
       for (const r of a) insA.run(r.id, r.atMin, r.severity, r.code, r.message);
@@ -173,17 +195,31 @@ export class Store {
         'INSERT INTO snapshots(run_id,at_min,cod,nh,tn,tp,ss,mlss,srt,energy_kw,score) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
       );
       for (const r of s) {
-        insS.run(r.runId ?? null, r.atMin, r.effluentCod, r.effluentNh, r.effluentTn, r.effluentTp, r.effluentSs, r.mlss, r.srtDays, r.energyKw, r.score);
+        insS.run(
+          r.runId ?? null,
+          r.atMin,
+          r.effluentCod,
+          r.effluentNh,
+          r.effluentTn,
+          r.effluentTp,
+          r.effluentSs,
+          r.mlss,
+          r.srtDays,
+          r.energyKw,
+          r.score,
+        );
       }
       this.db.exec('COMMIT');
       this.writeBuffer = { decisions: [], alarms: [], snapshots: [] };
+      metrics.persistenceFlushes += 1;
     } catch (err) {
+      metrics.persistenceErrors += 1;
       try {
         this.db.exec('ROLLBACK');
       } catch {
         /* 事务可能已中止 */
       }
-      console.error('persistence flush failed', err);
+      logger.error('persistence flush failed', { error: String(err) });
     }
   }
 
@@ -191,7 +227,9 @@ export class Store {
   recentDecisions(limit = 50): DecisionRow[] {
     if (!this.db) return [];
     return this.db
-      .prepare('SELECT run_id as runId, at_min as atMin, action, severity, summary, tweaks, predicted_score as predictedScore, separation FROM decisions ORDER BY id DESC LIMIT ?')
+      .prepare(
+        'SELECT run_id as runId, at_min as atMin, action, severity, summary, tweaks, predicted_score as predictedScore, separation FROM decisions ORDER BY id DESC LIMIT ?',
+      )
       .all(limit) as unknown as DecisionRow[];
   }
 
@@ -223,7 +261,7 @@ export class Store {
   latestRunId(): string | null {
     if (!this.db) return null;
     const row = this.db
-      .prepare("SELECT run_id as runId FROM snapshots WHERE run_id IS NOT NULL ORDER BY id DESC LIMIT 1")
+      .prepare('SELECT run_id as runId FROM snapshots WHERE run_id IS NOT NULL ORDER BY id DESC LIMIT 1')
       .get() as unknown as { runId: string } | undefined;
     return row?.runId ?? null;
   }
@@ -244,6 +282,100 @@ export class Store {
     const one = (table: string) =>
       (this.db!.prepare(`SELECT COUNT(*) as c FROM ${table}`).get() as unknown as { c: number }).c;
     return { decisions: one('decisions'), alarms: one('alarms'), snapshots: one('snapshots') };
+  }
+
+  /**
+   * 一致性备份。
+   *
+   * 不能直接 copyFile 正在写入的库：WAL 模式下的主文件可能缺最新事务，
+   * 复制出来的库会"回退几秒"甚至损坏。正确做法是先 flush 缓冲，
+   * 再用 SQLite 的 VACUUM INTO 生成一致性快照（单文件、无 WAL 依赖）。
+   */
+  backupTo(targetPath: string): BackupManifest {
+    if (!this.db) throw new Error('持久化未启用，无法备份');
+    this.flush();
+    const target = resolve(targetPath);
+    mkdirSync(dirname(target), { recursive: true });
+    // VACUUM INTO 不接受参数化路径，必须先做引号转义
+    this.db.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
+    const manifest: BackupManifest = {
+      format: 'aquapilot-backup',
+      version: 1,
+      createdAt: new Date().toISOString(),
+      sourcePath: this.path,
+      bytes: statSync(target).size,
+      counts: this.count(),
+    };
+    logger.info('backup written', { target, bytes: manifest.bytes });
+    return manifest;
+  }
+
+  /** 从备份恢复：先校验是新库（能打开且含三张表），再原子替换 */
+  static async restoreFrom(backupPath: string, dbPath: string): Promise<RestoreResult> {
+    const source = resolve(backupPath);
+    if (!existsSync(source)) return { ok: false, reason: `备份文件不存在：${source}` };
+
+    // 在临时目录里先打开一次，确认文件确实是本应用的库
+    const probeDir = mkdtempSync(join(tmpdir(), 'aquapilot-restore-'));
+    const probePath = join(probeDir, 'probe.db');
+    copyFileSync(source, probePath);
+    const probe = new Store(probePath);
+    try {
+      await probe.open();
+      if (!probe.enabled) return { ok: false, reason: '备份文件无法作为 SQLite 打开（文件损坏或格式不符）' };
+      const counts = probe.count();
+      if (counts.snapshots === 0 && counts.decisions === 0 && counts.alarms === 0) {
+        return { ok: false, reason: '备份文件可打开但没有任何数据' };
+      }
+      probe.close();
+
+      const target = resolve(dbPath);
+      mkdirSync(dirname(target), { recursive: true });
+      // 先写临时文件再 rename：避免恢复到一半的库被服务读走
+      const staging = `${target}.restore-${Date.now()}`;
+      copyFileSync(source, staging);
+      renameSync(staging, target);
+      // 旧的 WAL/SHM 与新主文件不匹配，必须清掉
+      for (const suffix of ['-wal', '-shm']) {
+        try {
+          rmSync(`${target}${suffix}`, { force: true });
+        } catch {
+          /* 不存在即可 */
+        }
+      }
+      const manifest: BackupManifest = {
+        format: 'aquapilot-backup',
+        version: 1,
+        createdAt: new Date().toISOString(),
+        sourcePath: source,
+        bytes: statSync(target).size,
+        counts,
+      };
+      logger.info('backup restored', { target, counts });
+      return { ok: true, manifest };
+    } catch (err) {
+      return { ok: false, reason: `备份文件无法读取：${String(err)}` };
+    } finally {
+      try {
+        probe.close();
+      } catch {
+        /* 探测库可能根本没打开 */
+      }
+      // Windows 上句柄释放有延迟，清理失败不应让恢复流程报错
+      try {
+        rmSync(probeDir, { recursive: true, force: true });
+      } catch {
+        /* 留在临时目录里也无妨 */
+      }
+    }
+  }
+
+  /**
+   * 测试专用注入点：拿到原始句柄以模拟磁盘故障。
+   * 不暴露给生产调用方——它只是让"写失败路径"可被测到。
+   */
+  __rawDbForTests(): DatabaseLike | null {
+    return this.db;
   }
 
   close(): void {

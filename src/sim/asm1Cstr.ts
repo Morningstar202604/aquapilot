@@ -1,10 +1,4 @@
-import {
-  ASM1_COMPONENTS,
-  ASM1_PARAMS,
-  emptyAsm1State,
-  reactionRates,
-  type Asm1State,
-} from './asm1';
+import { ASM1_COMPONENTS, ASM1_PARAMS, emptyAsm1State, reactionRates, type Asm1State } from './asm1';
 
 /**
  * ASM1 单池 CSTR 求解器。
@@ -34,12 +28,7 @@ export interface CstrResult {
 }
 
 /** 以一个时间步推进（小时） */
-export function stepCstr(
-  state: Asm1State,
-  influent: Asm1State,
-  cfg: CstrConfig,
-  dtHours: number,
-): Asm1State {
+export function stepCstr(state: Asm1State, influent: Asm1State, cfg: CstrConfig, dtHours: number): Asm1State {
   const qv = cfg.flow / cfg.volume; // 1/h
   const r = reactionRates(state);
   const next = emptyAsm1State();

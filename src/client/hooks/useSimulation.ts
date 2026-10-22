@@ -149,10 +149,7 @@ export function useSimulation() {
             break;
           case 'notice':
             noticeId.current += 1;
-            setNotices((prev) => [
-              { id: noticeId.current, level: msg.level, text: msg.text },
-              ...prev.slice(0, 4),
-            ]);
+            setNotices((prev) => [{ id: noticeId.current, level: msg.level, text: msg.text }, ...prev.slice(0, 4)]);
             break;
           case 'simState':
             setPaused(msg.paused);

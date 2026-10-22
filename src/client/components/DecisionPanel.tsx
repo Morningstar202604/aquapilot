@@ -33,14 +33,17 @@ export function DecisionPanel({ snap, rec, onApply, onRefresh, aiEnabled, onTogg
     <div className="scroll-panel">
       <div>
         <div className="section-label">
-          本轮决策 · 仿真第 {Math.floor(rec.generatedAt / 60)}h{String(Math.floor(rec.generatedAt % 60)).padStart(2, '0')}m
+          本轮决策 · 仿真第 {Math.floor(rec.generatedAt / 60)}h
+          {String(Math.floor(rec.generatedAt % 60)).padStart(2, '0')}m
         </div>
         <div className="decision-card" data-sev={rec.severity}>
           <div className="decision-top">
             <span className="sev-tag" data-sev={rec.severity}>
               {SEV_LABEL[rec.severity]}
             </span>
-            <span className="sev-tag">{rec.action === 'hold' ? '维持' : rec.action === 'emergency' ? '立即执行' : '建议微调'}</span>
+            <span className="sev-tag">
+              {rec.action === 'hold' ? '维持' : rec.action === 'emergency' ? '立即执行' : '建议微调'}
+            </span>
             <span className="sev-tag" style={{ marginLeft: 'auto' }}>
               方案区分度 {Math.round(rec.separation * 100)}%
             </span>

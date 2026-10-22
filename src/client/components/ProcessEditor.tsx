@@ -39,14 +39,20 @@ const PALETTE: PaletteEntry[] = [
     kind: 'screening',
     name: '格栅',
     role: '拦截',
-    ports: [{ id: 'in', kind: 'in', stream: 'influent' }, { id: 'out', kind: 'out', stream: 'influent' }],
+    ports: [
+      { id: 'in', kind: 'in', stream: 'influent' },
+      { id: 'out', kind: 'out', stream: 'influent' },
+    ],
   },
   {
     group: '预处理',
     kind: 'grit',
     name: '沉砂池',
     role: '除砂',
-    ports: [{ id: 'in', kind: 'in', stream: 'influent' }, { id: 'out', kind: 'out', stream: 'influent' }],
+    ports: [
+      { id: 'in', kind: 'in', stream: 'influent' },
+      { id: 'out', kind: 'out', stream: 'influent' },
+    ],
   },
   {
     group: '预处理',
@@ -119,7 +125,10 @@ const PALETTE: PaletteEntry[] = [
     name: '消毒池',
     role: '灭活',
     volume: 1800,
-    ports: [{ id: 'in', kind: 'in', stream: 'effluent' }, { id: 'out', kind: 'out', stream: 'effluent' }],
+    ports: [
+      { id: 'in', kind: 'in', stream: 'effluent' },
+      { id: 'out', kind: 'out', stream: 'effluent' },
+    ],
   },
   {
     group: '调蓄',
@@ -127,7 +136,10 @@ const PALETTE: PaletteEntry[] = [
     name: '调蓄池',
     role: '削峰',
     volume: 16000,
-    ports: [{ id: 'in', kind: 'in', stream: 'influent' }, { id: 'out', kind: 'out', stream: 'influent' }],
+    ports: [
+      { id: 'in', kind: 'in', stream: 'influent' },
+      { id: 'out', kind: 'out', stream: 'influent' },
+    ],
   },
   {
     group: '公用工程',
@@ -150,14 +162,20 @@ const PALETTE: PaletteEntry[] = [
     role: '减容',
     area: 320,
     depth: 4,
-    ports: [{ id: 'in', kind: 'in', stream: 'waste_sludge' }, { id: 'out', kind: 'out', stream: 'waste_sludge' }],
+    ports: [
+      { id: 'in', kind: 'in', stream: 'waste_sludge' },
+      { id: 'out', kind: 'out', stream: 'waste_sludge' },
+    ],
   },
   {
     group: '污泥',
     kind: 'dewatering',
     name: '脱水机房',
     role: '出泥',
-    ports: [{ id: 'in', kind: 'in', stream: 'waste_sludge' }, { id: 'out', kind: 'out', stream: 'sludge_cake' }],
+    ports: [
+      { id: 'in', kind: 'in', stream: 'waste_sludge' },
+      { id: 'out', kind: 'out', stream: 'sludge_cake' },
+    ],
   },
 ];
 
@@ -319,7 +337,7 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty }: Prop
               </button>
             </span>
           )}
-          
+
           <button className="pill" onClick={() => onChange(PLANT_TOPOLOGY)}>
             恢复标准厂
           </button>
@@ -372,11 +390,17 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty }: Prop
                 </div>
                 <div className="field">
                   <label>显示名称</label>
-                  <input value={selectedUnit.name} onChange={(e) => updateUnit(selectedUnit.id, { name: e.target.value })} />
+                  <input
+                    value={selectedUnit.name}
+                    onChange={(e) => updateUnit(selectedUnit.id, { name: e.target.value })}
+                  />
                 </div>
                 <div className="field">
                   <label>工艺角色</label>
-                  <input value={selectedUnit.role} onChange={(e) => updateUnit(selectedUnit.id, { role: e.target.value })} />
+                  <input
+                    value={selectedUnit.role}
+                    onChange={(e) => updateUnit(selectedUnit.id, { role: e.target.value })}
+                  />
                 </div>
                 {(selectedUnit.kind === 'aerobic' ||
                   selectedUnit.kind === 'anoxic' ||
@@ -463,7 +487,11 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty }: Prop
                   {selectedUnit.ports
                     .filter((p) => p.kind === 'in')
                     .map((p) => (
-                      <button key={p.id} className="palette-item" onClick={() => completeConnect(selectedUnit.id, p.id)}>
+                      <button
+                        key={p.id}
+                        className="palette-item"
+                        onClick={() => completeConnect(selectedUnit.id, p.id)}
+                      >
                         <span className="palette-glyph" style={{ borderColor: streamColor(p.stream) }} />
                         <span className="palette-name">
                           {p.id} · {streamName(p.stream)}
@@ -538,13 +566,21 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty }: Prop
               </div>
             ))}
             {issues.map((issue: TopologyIssue) => (
-              <div className="issue" data-sev={issue.severity} key={issue.code + (issue.unitId ?? '') + (issue.connectionId ?? '')}>
+              <div
+                className="issue"
+                data-sev={issue.severity}
+                key={issue.code + (issue.unitId ?? '') + (issue.connectionId ?? '')}
+              >
                 <span className="issue-code">{issue.code}</span>
                 <span>{issue.message}</span>
               </div>
             ))}
             {readiness.ready && issues.filter((i) => i.severity === 'error').length === 0 && (
-              <div className="issue" data-sev="warning" style={{ borderLeftColor: 'var(--water-dim)', color: 'var(--water)' }}>
+              <div
+                className="issue"
+                data-sev="warning"
+                style={{ borderLeftColor: 'var(--water-dim)', color: 'var(--water)' }}
+              >
                 <span className="issue-code">OK</span>
                 <span>拓扑校验通过，可以应用到仿真。</span>
               </div>

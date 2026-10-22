@@ -6,7 +6,7 @@
 
 AquaPilot is a working prototype of a new interaction model for process simulation: instead of an engineer reading curves and turning knobs, an AI operator watches the plant, forecasts, decides, and acts — while the human asks questions and sets boundaries.
 
-![tests](https://img.shields.io/badge/tests-245%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-307%20passing-brightgreen)
 ![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
@@ -73,7 +73,7 @@ Verify:
 
 ```bash
 npm run typecheck  # TypeScript strict + noUnusedLocals/Parameters
-npm run test       # 245 tests
+npm run test       # 307 tests
 npm run build      # client bundle + server bundle
 npm run verify     # all three in order
 npm run ci         # full gate: deps, types, tests, build, smoke, secret scan
@@ -105,7 +105,7 @@ src/
   server/        WebSocket simulation loop, REST snapshot, static hosting
   client/        Control-room UI (React + ECharts + SVG flowsheet)
   shared/        Client/server protocol
-tests/           245 tests: physics, conservation, guardrails, topology, cross-engine,
+tests/           307 tests: physics, conservation, guardrails, topology, cross-engine,
                  input validation and crash-boundary regressions
 ```
 
@@ -135,21 +135,35 @@ Measured on this repository:
 
 This is a **simulation prototype**, not a system that can take over a real plant.
 
-Verified **on this machine** by `npm run ci` (7/7 steps green):
+Verified **on this machine** by `npm run verify` plus `npm run e2e`:
 - Dependency install, TypeScript strict (0 errors, including unused-code checks)
-- 245 tests, all passing
+- ESLint 9 and Prettier 3 clean
+- 307 tests, all passing; branch coverage 85.2%
 - Client + server build, production bundle
-- Smoke test: three endpoints respond under a real server
-- Secret scan and artifact scan
+- Browser smoke: 6 KPIs, 17 nodes, 3 charts, 5 tabs, no console errors,
+  no connection crossing a unit body, no horizontal overflow on mobile
 
 CI runs on GitHub Actions and is **verified green** (Node 20, Node 22 and a
 quality gate, all passing). Configuration is also included for Gitee Go
 (`.workflow/aquapilot-ci.yml`) and GitCode (`.gitcode/pipeline.yml`); those two
 require enabling the pipeline in the platform console.
 
-The CI pipeline runs: type check, tests with coverage thresholds, dependency
-audit at high severity, build, production smoke test, secret scan, artifact
-scan, and a Playwright browser smoke test that asserts the UI actually renders.
+The CI pipeline runs: type check, lint, format check, tests with coverage
+thresholds, dependency audit at high severity, build, production smoke test
+(including `/api/metrics` and a backup→restore round-trip), secret scan,
+artifact scan, and a Playwright browser smoke test that asserts the UI actually
+renders and that the flowsheet geometry is sane.
+
+### Operating it
+
+| Need | Where |
+|---|---|
+| Liveness / readiness | `GET /api/health` |
+| Metrics for Prometheus | `GET /api/metrics` (text) or `?format=json` |
+| SLOs and suggested alerts | `docs/SLO.md` |
+| Structured logs | stdout, one JSON object per line, `LOG_LEVEL` to filter |
+| Backup | `npm run backup -- create --db data/aquapilot.db` |
+| Restore | `npm run backup -- restore --from <file> --db data/aquapilot.db --yes` |
 
 Hardening added after an independent engineering audit (which reproduced nine
 remotely-triggerable crashes in an earlier revision): runtime validation on every
@@ -162,7 +176,7 @@ Known gaps (tracked in `docs/QUALITY-ROADMAP.md`):
 - ASM1 effluent TN runs slightly above the discharge limit in the default configuration
 - No automated comparison against the official BSM1 Table 6 values (those numbers were not available when this was built)
 - ASM1 has no phosphorus; TP relies on chemical precipitation
-- Single-user, in-memory state; no persistence or history replay
+- Single-user; simulation state is in memory, history is persisted to SQLite (Node 22+) and used only for replay
 - Access control is opt-in: set AQUAPILOT_TOKEN to require a bearer token on HTTP
   and WebSocket. It is a single shared secret, not per-user accounts, and is not
   a substitute for TLS and a reverse proxy in production

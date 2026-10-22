@@ -1,4 +1,12 @@
-import type { Alarm, EffluentState, EnergyState, InfluentState, TankState, ClarifierState, CostState } from '../sim/plantTypes';
+import type {
+  Alarm,
+  EffluentState,
+  EnergyState,
+  InfluentState,
+  TankState,
+  ClarifierState,
+  CostState,
+} from '../sim/plantTypes';
 import type { ControlSettings, Limits } from '../sim/config';
 import type { ScenarioSpec } from '../sim/scenarios';
 import type { Answer, Recommendation } from '../ai/agent';
@@ -106,6 +114,14 @@ export type ServerMessage =
   | { type: 'decision'; data: Recommendation }
   | { type: 'notice'; level: 'info' | 'warn' | 'error'; text: string }
   | { type: 'simState'; paused: boolean; speed: number }
-  | { type: 'topology'; data: ProcessTopology; dirty: boolean; readiness: { ready: boolean; blockers: string[]; warnings: string[]; derived: { trainUnits: number; bioVolume: number; hrtHours: number; aerobicVolume: number } } };
-
-
+  | {
+      type: 'topology';
+      data: ProcessTopology;
+      dirty: boolean;
+      readiness: {
+        ready: boolean;
+        blockers: string[];
+        warnings: string[];
+        derived: { trainUnits: number; bioVolume: number; hrtHours: number; aerobicVolume: number };
+      };
+    };

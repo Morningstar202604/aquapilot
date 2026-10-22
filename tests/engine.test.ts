@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONTROLS, LIMITS, PLANT } from '../src/sim/config';
-import {
-  createInitialState,
-  forecast,
-  qualityScore,
-  spinUp,
-  startScenario,
-  step,
-} from '../src/sim/engine';
+import { createInitialState, forecast, qualityScore, spinUp, startScenario, step } from '../src/sim/engine';
 
 function steadyState(seed = 7) {
   return spinUp(createInitialState({ seed }), 30);

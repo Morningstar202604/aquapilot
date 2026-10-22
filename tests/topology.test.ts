@@ -12,7 +12,6 @@ import {
 import { layoutTopology, unreachableUnits } from '../src/model/layout';
 import { checkRunReadiness, createRuntime, applyTopology, stepRuntime } from '../src/server/topologyRuntime';
 
-
 describe('工艺拓扑模型', () => {
   it('标准厂拓扑无阻断错误', () => {
     const issues = validateTopology(PLANT_TOPOLOGY);
@@ -231,9 +230,7 @@ describe('拓扑应用到仿真（真跑）', () => {
     const sum = (rt: ReturnType<typeof createRuntime>) =>
       rt.net.reactors.reduce((a: number, t: { volume: number }) => a + t.volume, 0);
     expect(sum(doubled)).toBeCloseTo(sum(base) * 2, 0);
-    expect(doubled.compiled.reactors.map((r) => r.volume)).toEqual(
-      base.compiled.reactors.map((r) => r.volume * 2),
-    );
+    expect(doubled.compiled.reactors.map((r) => r.volume)).toEqual(base.compiled.reactors.map((r) => r.volume * 2));
   });
 
   it('二沉池面积改变会反映到引擎', () => {
@@ -353,7 +350,6 @@ describe('回归：拓扑几何必须真实影响物理', () => {
     expect(runtime.net.clarifier.blanketM).toBeGreaterThan(before);
   });
 });
-
 
 /**
  * 把布局生成的 M/H/V 折线展开成线段，检查是否侵入节点矩形。

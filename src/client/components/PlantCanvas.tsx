@@ -122,9 +122,7 @@ export function PlantCanvas({
    * 可读性靠节点字号解决（compact 模式用 22/28px 字号，缩放后仍有 13–16px）。
    */
   const fitScale =
-    wrapSize.w > 0 && wrapSize.h > 0
-      ? Math.min(wrapSize.w / layout.width, wrapSize.h / layout.height, 1)
-      : 1;
+    wrapSize.w > 0 && wrapSize.h > 0 ? Math.min(wrapSize.w / layout.width, wrapSize.h / layout.height, 1) : 1;
   const effectiveZoom = fitToWindow ? fitScale : zoom;
   const unitState = useMemo(() => Object.fromEntries(snap.tanks.map((t) => [t.id, t])), [snap.tanks]);
 
@@ -175,22 +173,40 @@ export function PlantCanvas({
         </button>
       </div>
       {/**
-        * 图例必须放在缩放容器外面。
-        * canvas-scaler 带 transform，会成为绝对定位元素的包含块，
-        * 1:1 模式下图例就被钉到 646px 图纸底部（屏幕外）而看不见。
-        */}
+       * 图例必须放在缩放容器外面。
+       * canvas-scaler 带 transform，会成为绝对定位元素的包含块，
+       * 1:1 模式下图例就被钉到 646px 图纸底部（屏幕外）而看不见。
+       */}
       <div className={fit === 'flow' ? 'canvas-legend canvas-legend-flow' : 'canvas-legend'}>
         <span className="canvas-legend-title">物流图例</span>
-        {(['influent', 'mixed_liquor', 'internal_recycle', 'return_activated_sludge', 'waste_sludge', 'air', 'chemical'] as StreamKind[]).map((st) => (
+        {(
+          [
+            'influent',
+            'mixed_liquor',
+            'internal_recycle',
+            'return_activated_sludge',
+            'waste_sludge',
+            'air',
+            'chemical',
+          ] as StreamKind[]
+        ).map((st) => (
           <span className="canvas-legend-item" key={st}>
             <svg width="18" height="8" aria-hidden="true">
-              <line x1="0" y1="4" x2="18" y2="4" stroke={STREAM_COLOR[st]} strokeWidth={Math.max(1.4, STREAM_WIDTH[st])} strokeDasharray={STREAM_DASH[st]} />
+              <line
+                x1="0"
+                y1="4"
+                x2="18"
+                y2="4"
+                stroke={STREAM_COLOR[st]}
+                strokeWidth={Math.max(1.4, STREAM_WIDTH[st])}
+                strokeDasharray={STREAM_DASH[st]}
+              />
             </svg>
             {streamLabel(st)}
           </span>
         ))}
       </div>
-      <div className="canvas-wrap" ref={wrapRef} data-fit={fitToWindow ? "true" : "false"}>
+      <div className="canvas-wrap" ref={wrapRef} data-fit={fitToWindow ? 'true' : 'false'}>
         <div
           className="canvas-scaler"
           style={{
@@ -203,77 +219,95 @@ export function PlantCanvas({
             marginBottom: `${(effectiveZoom - 1) * layout.height}px`,
           }}
         >
-      <svg
-        className={fit === 'flow' ? 'plant-canvas plant-canvas-flow' : 'plant-canvas'}
-        width={fit === 'flow' ? layout.width : undefined}
-        height={fit === 'flow' ? layout.height : undefined}
-        viewBox={`0 0 ${layout.width} ${layout.height}`}
-        /**
- * 全览模式贴顶对齐：图形按宽度缩放后会留出上下空白，
- * 贴顶能把这部分空白推到下方（视觉上更接近"图在上、字在下"的阅读习惯），
- * 同时避免内容被垂直居中后与图例/缩放控件重叠。
- */
-preserveAspectRatio={fitToWindow ? 'xMidYMin meet' : 'xMinYMin meet'}
-        role="img"
-        aria-label={`${topo.name} 工艺流程实时图，共 ${topo.units.length} 个工艺单元、${topo.connections.length} 条物流连接`}
-      >
-        <defs>
-          {Object.entries(STREAM_COLOR).map(([stream, color]) => (
-            <marker
-              key={stream}
-              id={`arrow-${stream}`}
-              viewBox="0 0 10 10"
-              refX="9"
-              refY="5"
-              markerWidth="5"
-              markerHeight="5"
-              orient="auto-start-reverse"
-            >
-              <path d="M 0 0 L 10 5 L 0 10 z" fill={color} opacity={0.9} />
-            </marker>
-          ))}
-          <filter id="nodeGlow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
+          <svg
+            className={fit === 'flow' ? 'plant-canvas plant-canvas-flow' : 'plant-canvas'}
+            width={fit === 'flow' ? layout.width : undefined}
+            height={fit === 'flow' ? layout.height : undefined}
+            viewBox={`0 0 ${layout.width} ${layout.height}`}
+            /**
+             * 全览模式贴顶对齐：图形按宽度缩放后会留出上下空白，
+             * 贴顶能把这部分空白推到下方（视觉上更接近"图在上、字在下"的阅读习惯），
+             * 同时避免内容被垂直居中后与图例/缩放控件重叠。
+             */
+            preserveAspectRatio={fitToWindow ? 'xMidYMin meet' : 'xMinYMin meet'}
+            role="img"
+            aria-label={`${topo.name} 工艺流程实时图，共 ${topo.units.length} 个工艺单元、${topo.connections.length} 条物流连接`}
+          >
+            <defs>
+              {Object.entries(STREAM_COLOR).map(([stream, color]) => (
+                <marker
+                  key={stream}
+                  id={`arrow-${stream}`}
+                  viewBox="0 0 10 10"
+                  refX="9"
+                  refY="5"
+                  markerWidth="5"
+                  markerHeight="5"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill={color} opacity={0.9} />
+                </marker>
+              ))}
+              <filter id="nodeGlow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
 
-        {layout.lanes.map((lane) => (
-          <g key={lane.layer}>
-            <line x1={0} y1={lane.y - 14} x2={layout.width} y2={lane.y - 14} stroke="var(--line-soft)" strokeWidth="1" strokeDasharray="2 8" />
-            <text x={6} y={lane.y - 20} className="lane-label">
-              {lane.label}
-            </text>
-          </g>
-        ))}
+            {layout.lanes.map((lane) => (
+              <g key={lane.layer}>
+                <line
+                  x1={0}
+                  y1={lane.y - 14}
+                  x2={layout.width}
+                  y2={lane.y - 14}
+                  stroke="var(--line-soft)"
+                  strokeWidth="1"
+                  strokeDasharray="2 8"
+                />
+                <text x={6} y={lane.y - 20} className="lane-label">
+                  {lane.label}
+                </text>
+              </g>
+            ))}
 
-        {visibleEdges.map((edge, i) => (
-          <Edge key={edge.connection.id} edge={edge} index={i} animate={animate} showLabel={showLabels} />
-        ))}
+            {visibleEdges.map((edge, i) => (
+              <Edge key={edge.connection.id} edge={edge} index={i} animate={animate} showLabel={showLabels} />
+            ))}
 
-        {layout.nodes.map((node) => (
-          <Node
-            key={node.unit.id}
-            node={node}
-            snap={snap}
-            selected={selected === node.unit.id}
-            onSelect={onSelect}
-            showLabel={showLabels}
-            liveTank={unitState[node.unit.id]}
-            compactView={fitToWindow || compact === true}
-          />
-        ))}
-      </svg>
+            {layout.nodes.map((node) => (
+              <Node
+                key={node.unit.id}
+                node={node}
+                snap={snap}
+                selected={selected === node.unit.id}
+                onSelect={onSelect}
+                showLabel={showLabels}
+                liveTank={unitState[node.unit.id]}
+                compactView={fitToWindow || compact === true}
+              />
+            ))}
+          </svg>
         </div>
       </div>
     </div>
   );
 }
 
-function Edge({ edge, index, animate, showLabel }: { edge: PlacedEdge; index: number; animate: boolean; showLabel: boolean }) {
+function Edge({
+  edge,
+  index,
+  animate,
+  showLabel,
+}: {
+  edge: PlacedEdge;
+  index: number;
+  animate: boolean;
+  showLabel: boolean;
+}) {
   if (!edge.path) return null;
   const stream = edge.connection.stream;
   const color = STREAM_COLOR[stream];
@@ -359,7 +393,16 @@ function Node({
   selected: boolean;
   onSelect: (id: string | null) => void;
   showLabel: boolean;
-  liveTank?: { do: number; mlss: number; cod: number; nh: number; no3: number; tp: number; alkalinity: number; kind: string };
+  liveTank?: {
+    do: number;
+    mlss: number;
+    cod: number;
+    nh: number;
+    no3: number;
+    tp: number;
+    alkalinity: number;
+    kind: string;
+  };
   compactView: boolean;
 }) {
   const { unit, x, y, w, h } = node;
@@ -381,7 +424,16 @@ function Node({
         }
       }}
     >
-      <rect x={x} y={y} width={w} height={h} rx="2" fill={fillFor(unit.kind, liveTank)} stroke={stroke} strokeWidth={strokeWidth} />
+      <rect
+        x={x}
+        y={y}
+        width={w}
+        height={h}
+        rx="2"
+        fill={fillFor(unit.kind, liveTank)}
+        stroke={stroke}
+        strokeWidth={strokeWidth}
+      />
       <rect x={x} y={y} width={w} height="20" rx="2" fill="rgba(6,16,15,0.66)" />
       <text x={x + 7} y={y + 15} className={compactView ? 'unit-title-lg' : 'unit-title'}>
         {compactView ? shortName(unit.name) : unit.name}
@@ -507,7 +559,13 @@ function UnitBody({
           {line(unit.role)}
           {line(`${(snap.stormStorageM3 / 1000).toFixed(1)} 千 m³`, 'unit-value')}
           <rect x={x + 8} y={y + h - 12} width={w - 16} height="3" fill="var(--line-soft)" />
-          <rect x={x + 8} y={y + h - 12} width={(w - 16) * Math.min(1, snap.stormStorageM3 / 16000)} height="3" fill="var(--cyan)" />
+          <rect
+            x={x + 8}
+            y={y + h - 12}
+            width={(w - 16) * Math.min(1, snap.stormStorageM3 / 16000)}
+            height="3"
+            fill="var(--cyan)"
+          />
         </g>
       );
     case 'thickener':
@@ -551,7 +609,21 @@ function UnitBody({
 
 type UnitSpecOnNode = PlacedNode['unit'];
 
-function ClarifierBody({ unit, x, y, w, h, snap }: { unit: UnitSpecOnNode; x: number; y: number; w: number; h: number; snap: PlantSnapshot }) {
+function ClarifierBody({
+  unit,
+  x,
+  y,
+  w,
+  h,
+  snap,
+}: {
+  unit: UnitSpecOnNode;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  snap: PlantSnapshot;
+}) {
   const depth = unit.depth ?? 4.5;
   const fx = x + 6;
   const fw = w - 12;
@@ -563,8 +635,22 @@ function ClarifierBody({ unit, x, y, w, h, snap }: { unit: UnitSpecOnNode; x: nu
   return (
     <g>
       <rect x={fx} y={fy} width={fw} height={fh} fill="rgba(6,16,15,0.35)" />
-      <rect x={fx} y={fy + fh - bh} width={fw} height={bh} fill={over ? 'rgba(190,80,60,0.3)' : 'rgba(150,110,70,0.26)'} />
-      <line x1={fx} y1={fy + fh - bh} x2={fx + fw} y2={fy + fh - bh} stroke={over ? 'var(--alarm)' : 'var(--amber)'} strokeWidth="1.2" strokeDasharray="4 3" />
+      <rect
+        x={fx}
+        y={fy + fh - bh}
+        width={fw}
+        height={bh}
+        fill={over ? 'rgba(190,80,60,0.3)' : 'rgba(150,110,70,0.26)'}
+      />
+      <line
+        x1={fx}
+        y1={fy + fh - bh}
+        x2={fx + fw}
+        y2={fy + fh - bh}
+        stroke={over ? 'var(--alarm)' : 'var(--amber)'}
+        strokeWidth="1.2"
+        strokeDasharray="4 3"
+      />
       <text x={fx + 4} y={fy + 12} className="unit-sub">
         出水 SS {snap.effluent.ss.toFixed(1)}
       </text>

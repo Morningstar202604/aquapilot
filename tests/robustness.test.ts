@@ -103,7 +103,13 @@ describe('二沉池非法几何不得挂死', () => {
   it('depth=0 立即返回而不是无限循环', () => {
     const cfg = { ...BSM1_SETTLER, area: 1500, depth: 0 };
     const t0 = Date.now();
-    const r = stepSettler(createSettler({ ...cfg, depth: 0.001 }), cfg, { flow: 1000, concentration: 3000 }, { flow: 800 }, 1 / 1440);
+    const r = stepSettler(
+      createSettler({ ...cfg, depth: 0.001 }),
+      cfg,
+      { flow: 1000, concentration: 3000 },
+      { flow: 800 },
+      1 / 1440,
+    );
     expect(Date.now() - t0).toBeLessThan(1000);
     expect(Number.isFinite(r.xEffluent)).toBe(true);
   });

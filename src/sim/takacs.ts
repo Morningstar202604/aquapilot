@@ -204,7 +204,7 @@ export function stepSettler(
   const xEffluent = xs[0];
   const xUnderflow = xs[n - 1];
   // Qf 单位 m³/d，先换成 m³/h 再算通量，否则会放大 24 倍
-  const solidsLoading = (Qf / 24) * (feed.concentration / 1000) / cfg.area; // kg/(m²·h)
+  const solidsLoading = ((Qf / 24) * (feed.concentration / 1000)) / cfg.area; // kg/(m²·h)
 
   return {
     state: { x: xs },
@@ -226,8 +226,13 @@ export function runSettlerToSteady(
   const maxDays = options.maxDays ?? 30;
   const dt = options.dtDays ?? 1 / 1440; // 1 min
   const tol = options.tolerance ?? 1e-4;
-  let state = createSettler(cfg, options.initialX ?? 3000);
-  let result: SettlerResult = { state, xEffluent: state.x[0], xUnderflow: state.x[state.x.length - 1], solidsLoading: 0 };
+  const state = createSettler(cfg, options.initialX ?? 3000);
+  let result: SettlerResult = {
+    state,
+    xEffluent: state.x[0],
+    xUnderflow: state.x[state.x.length - 1],
+    solidsLoading: 0,
+  };
   let stable = 0;
 
   const steps = Math.ceil(maxDays / dt);

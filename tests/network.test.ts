@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PLANT_TOPOLOGY, ProcessTopology } from '../src/model/topology';
 import { compileNetwork, resolveFlows } from '../src/sim/network';
-import {
-  createNetworkState,
-  networkModel,
-  spinUpNetwork,
-  stepNetwork,
-} from '../src/sim/networkEngine';
+import { createNetworkState, networkModel, spinUpNetwork, stepNetwork } from '../src/sim/networkEngine';
 
 const clone = (): ProcessTopology => JSON.parse(JSON.stringify(PLANT_TOPOLOGY));
 
@@ -40,8 +35,18 @@ describe('网络编译', () => {
     topo.train.push('aerobic4');
     topo.connections = topo.connections.filter((c) => c.id !== 'c-aerobic3-clarifier');
     topo.connections.push(
-      { id: 'c-a3-a4', from: { unit: 'aerobic3', port: 'out' }, to: { unit: 'aerobic4', port: 'in' }, stream: 'mixed_liquor' },
-      { id: 'c-a4-cl', from: { unit: 'aerobic4', port: 'out' }, to: { unit: 'clarifier', port: 'in' }, stream: 'mixed_liquor' },
+      {
+        id: 'c-a3-a4',
+        from: { unit: 'aerobic3', port: 'out' },
+        to: { unit: 'aerobic4', port: 'in' },
+        stream: 'mixed_liquor',
+      },
+      {
+        id: 'c-a4-cl',
+        from: { unit: 'aerobic4', port: 'out' },
+        to: { unit: 'clarifier', port: 'in' },
+        stream: 'mixed_liquor',
+      },
     );
     const net = compileNetwork(topo);
     expect(net.reactors).toHaveLength(6);
@@ -55,7 +60,13 @@ describe('网络编译', () => {
     topo.connections = topo.connections.filter((c) => c.from.unit !== 'anaerobic' && c.to.unit !== 'anaerobic');
     topo.connections.push(
       { id: 'c-p-ax', from: { unit: 'primary', port: 'out' }, to: { unit: 'anoxic', port: 'in' }, stream: 'influent' },
-      { id: 'c-cl-ras', from: { unit: 'clarifier', port: 'ras' }, to: { unit: 'anoxic', port: 'in' }, stream: 'return_activated_sludge', recycle: true },
+      {
+        id: 'c-cl-ras',
+        from: { unit: 'clarifier', port: 'ras' },
+        to: { unit: 'anoxic', port: 'in' },
+        stream: 'return_activated_sludge',
+        recycle: true,
+      },
     );
     const net = compileNetwork(topo);
     expect(net.problems).toEqual([]);
@@ -169,8 +180,18 @@ describe('拓扑求解引擎', () => {
     topo.train.splice(idx + 1, 0, 'anoxic2');
     topo.connections = topo.connections.filter((c) => c.id !== 'c-anoxic-aerobic1');
     topo.connections.push(
-      { id: 'c-ax-ax2', from: { unit: 'anoxic', port: 'out' }, to: { unit: 'anoxic2', port: 'in' }, stream: 'mixed_liquor' },
-      { id: 'c-ax2-a1', from: { unit: 'anoxic2', port: 'out' }, to: { unit: 'aerobic1', port: 'in' }, stream: 'mixed_liquor' },
+      {
+        id: 'c-ax-ax2',
+        from: { unit: 'anoxic', port: 'out' },
+        to: { unit: 'anoxic2', port: 'in' },
+        stream: 'mixed_liquor',
+      },
+      {
+        id: 'c-ax2-a1',
+        from: { unit: 'anoxic2', port: 'out' },
+        to: { unit: 'aerobic1', port: 'in' },
+        stream: 'mixed_liquor',
+      },
     );
     const base = spinUpNetwork(createNetworkState(PLANT_TOPOLOGY, { seed: 13 }), PLANT_TOPOLOGY, 25);
     const extra = spinUpNetwork(createNetworkState(topo, { seed: 13 }), topo, 25);
@@ -224,8 +245,18 @@ describe('PlantModel 预测与被控对象一致', () => {
     topo.train.push('aerobic4');
     topo.connections = topo.connections.filter((c) => c.id !== 'c-aerobic3-clarifier');
     topo.connections.push(
-      { id: 'c-a3-a4', from: { unit: 'aerobic3', port: 'out' }, to: { unit: 'aerobic4', port: 'in' }, stream: 'mixed_liquor' },
-      { id: 'c-a4-cl', from: { unit: 'aerobic4', port: 'out' }, to: { unit: 'clarifier', port: 'in' }, stream: 'mixed_liquor' },
+      {
+        id: 'c-a3-a4',
+        from: { unit: 'aerobic3', port: 'out' },
+        to: { unit: 'aerobic4', port: 'in' },
+        stream: 'mixed_liquor',
+      },
+      {
+        id: 'c-a4-cl',
+        from: { unit: 'aerobic4', port: 'out' },
+        to: { unit: 'clarifier', port: 'in' },
+        stream: 'mixed_liquor',
+      },
     );
     const s = spinUpNetwork(createNetworkState(topo, { seed: 23 }), topo, 20);
     const model = networkModel(topo, s);

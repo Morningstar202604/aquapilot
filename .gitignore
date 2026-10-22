@@ -23,6 +23,9 @@ coverage/
 
 # runtime data
 data/
+backups/
+.ci-*.db
+.ci-*
 
 # logs and OS noise
 *.log

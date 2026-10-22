@@ -1,12 +1,5 @@
 export type ScenarioType =
-  | 'storm'
-  | 'shock_load'
-  | 'toxic'
-  | 'blower_failure'
-  | 'ras_failure'
-  | 'power_outage'
-  | 'winter'
-  | 'chemical_shortage';
+  'storm' | 'shock_load' | 'toxic' | 'blower_failure' | 'ras_failure' | 'power_outage' | 'winter' | 'chemical_shortage';
 
 export interface ScenarioSpec {
   type: ScenarioType;

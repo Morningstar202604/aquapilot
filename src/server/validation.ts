@@ -89,7 +89,7 @@ export function sanitizeRange(value: unknown, min: number, max: number, fallback
  * 校验客户端消息的基本形状。
  * 返回 null 表示不可处理（调用方应当拒绝而不是继续）。
  */
-export function sanitizeMessage(raw: unknown): { type: string } & Record<string, unknown> | null {
+export function sanitizeMessage(raw: unknown): ({ type: string } & Record<string, unknown>) | null {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const msg = raw as Record<string, unknown>;
   if (typeof msg.type !== 'string' || msg.type.length === 0 || msg.type.length > 64) return null;

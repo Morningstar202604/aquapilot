@@ -96,7 +96,10 @@ export function networkSnapshot(state: NetworkSimState): PlantSnapshotForAi {
 }
 
 /** 旧引擎适配器：让既有测试与脚本继续可用，同时保证预测与被控对象一致 */
-export function legacyModel(state: import('./engine').SimState, forecastFn: typeof import('./engine').forecast): PlantModel {
+export function legacyModel(
+  state: import('./engine').SimState,
+  forecastFn: typeof import('./engine').forecast,
+): PlantModel {
   const snap = (): PlantSnapshotForAi => {
     const last = state.tanks[state.tanks.length - 1];
     return {
@@ -128,14 +131,19 @@ export function legacyModel(state: import('./engine').SimState, forecastFn: type
     };
   };
 
-  const run = (controls: ControlSettings, horizonMin: number, sampleEvery: number, scenario: string | null): ForecastOutcomeX => {
+  const run = (
+    controls: ControlSettings,
+    horizonMin: number,
+    sampleEvery: number,
+    scenario: string | null,
+  ): ForecastOutcomeX => {
     let base = state;
     if (scenario) {
       base = structuredClone(state);
       base.scenario = { type: scenario as never, durationMin: 360, magnitude: 1, startedAt: base.timeMin };
     }
     const fc = forecastFn(base, controls, horizonMin, sampleEvery);
-      return {
+    return {
       points: fc.points.map((p) => ({
         minute: p.minute,
         effluent: p.effluent,

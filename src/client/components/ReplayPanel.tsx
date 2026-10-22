@@ -174,7 +174,12 @@ export function ReplayPanel() {
     return best;
   }, [current, decisions]);
 
-  if (loading) return <div className="scroll-panel"><div className="empty-note">加载历史…</div></div>;
+  if (loading)
+    return (
+      <div className="scroll-panel">
+        <div className="empty-note">加载历史…</div>
+      </div>
+    );
 
   if (enabled === false) {
     return (
@@ -237,8 +242,7 @@ export function ReplayPanel() {
           <div className="decision-card" data-sev={decisionAtCursor.severity}>
             <div className="decision-summary">{decisionAtCursor.summary}</div>
             <div className="control-hint" style={{ marginTop: 6 }}>
-              发生于第 {Math.floor(decisionAtCursor.atMin / 60)} 小时 · 预测评分{' '}
-              {decisionAtCursor.predictedScore}/100
+              发生于第 {Math.floor(decisionAtCursor.atMin / 60)} 小时 · 预测评分 {decisionAtCursor.predictedScore}/100
             </div>
           </div>
         </div>
@@ -278,24 +282,30 @@ export function ReplayPanel() {
       <div>
         <div className="section-label">决策记录（{decisions.length}）</div>
         {decisions.length === 0 && <div className="empty-note">暂无决策记录</div>}
-        {decisions.slice(-12).reverse().map((d) => {
-          const isCurrent = decisionAtCursor && d.atMin === decisionAtCursor.atMin && d.summary === decisionAtCursor.summary;
-          return (
-            <div
-              className="alarm-row"
-              key={`${d.atMin}-${d.summary.slice(0, 8)}`}
-              data-sev={d.severity === 'critical' ? 'critical' : 'warning'}
-              style={isCurrent ? { borderLeftWidth: 3, background: 'rgba(62,224,181,0.06)' } : undefined}
-            >
-              <div className="alarm-meta">
-                <span>第 {Math.floor(d.atMin / 60)}h</span>
-                <span style={{ color: d.severity === 'critical' ? 'var(--alarm)' : 'var(--amber)' }}>{d.severity}</span>
-                {isCurrent && <span style={{ color: 'var(--water)' }}>· 当前时刻</span>}
+        {decisions
+          .slice(-12)
+          .reverse()
+          .map((d) => {
+            const isCurrent =
+              decisionAtCursor && d.atMin === decisionAtCursor.atMin && d.summary === decisionAtCursor.summary;
+            return (
+              <div
+                className="alarm-row"
+                key={`${d.atMin}-${d.summary.slice(0, 8)}`}
+                data-sev={d.severity === 'critical' ? 'critical' : 'warning'}
+                style={isCurrent ? { borderLeftWidth: 3, background: 'rgba(62,224,181,0.06)' } : undefined}
+              >
+                <div className="alarm-meta">
+                  <span>第 {Math.floor(d.atMin / 60)}h</span>
+                  <span style={{ color: d.severity === 'critical' ? 'var(--alarm)' : 'var(--amber)' }}>
+                    {d.severity}
+                  </span>
+                  {isCurrent && <span style={{ color: 'var(--water)' }}>· 当前时刻</span>}
+                </div>
+                <div className="alarm-text">{d.summary}</div>
               </div>
-              <div className="alarm-text">{d.summary}</div>
-            </div>
-          );
-        })}
+            );
+          })}
       </div>
     </div>
   );

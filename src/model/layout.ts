@@ -141,7 +141,7 @@ export function layoutTopology(
   const mainBottom = Math.max(...[...nodeMap.values()].map((n) => n.y + n.h));
 
   // 公用工程：吸附在其主要输出目标的正下方，避免斜跨主线
-  let utilY = mainBottom + gapY;
+  const utilY = mainBottom + gapY;
   const utilCursor = new Map<string, number>();
   for (const unit of utilities) {
     const targets = outgoing(topo, unit.id).map((c) => c.to.unit);
@@ -232,24 +232,26 @@ function orderMainLine(topo: ProcessTopology, mains: UnitSpec[]): UnitSpec[] {
 
 function anchorOut(node: PlacedNode, portId: string): { x: number; y: number } {
   const ports = node.unit.ports.filter((p) => p.kind === 'out');
-  const idx = Math.max(0, ports.findIndex((p) => p.id === portId));
+  const idx = Math.max(
+    0,
+    ports.findIndex((p) => p.id === portId),
+  );
   const step = node.h / (ports.length + 1);
   return { x: node.x + node.w, y: node.y + step * (idx + 1) };
 }
 
 function anchorIn(node: PlacedNode, portId: string): { x: number; y: number } {
   const ports = node.unit.ports.filter((p) => p.kind === 'in');
-  const idx = Math.max(0, ports.findIndex((p) => p.id === portId));
+  const idx = Math.max(
+    0,
+    ports.findIndex((p) => p.id === portId),
+  );
   const step = node.h / (ports.length + 1);
   return { x: node.x, y: node.y + step * (idx + 1) };
 }
 
 function isRecycleStream(conn: Connection): boolean {
-  return (
-    Boolean(conn.recycle) ||
-    conn.stream === 'internal_recycle' ||
-    conn.stream === 'return_activated_sludge'
-  );
+  return Boolean(conn.recycle) || conn.stream === 'internal_recycle' || conn.stream === 'return_activated_sludge';
 }
 
 function placeEdge(conn: Connection, nodes: Map<string, PlacedNode>, index: number): PlacedEdge {
@@ -285,9 +287,7 @@ function placeEdgeRaw(conn: Connection, nodes: Map<string, PlacedNode>, index: n
    * 结果水平段横穿池体顶部的标题栏，把 DO/MLSS 数字压在连线下。
    * 这里改为以节点边界为基准，并按边序号错开，避免多条线重叠成一条。
    */
-  const mainBottom = Math.max(
-    ...[...nodes.values()].filter((n) => n.layer === 'main').map((n) => n.y + n.h),
-  );
+  const mainBottom = Math.max(...[...nodes.values()].filter((n) => n.layer === 'main').map((n) => n.y + n.h));
   /**
    * 三条互不重叠的走廊，全部落在空白带里：
    * 内回流贴主排下方；公用工程线在主排与公用工程排之间；

@@ -37,6 +37,12 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format
+
       - name: Unit tests with coverage
         run: npx vitest run --coverage
 
@@ -72,6 +78,10 @@ jobs:
           echo
           echo "--- topology ---"
           curl -sf http://127.0.0.1:5173/api/topology | head -c 200
+          echo
+          echo "--- metrics ---"
+          curl -sf http://127.0.0.1:5173/api/metrics | head -12
+          curl -sf "http://127.0.0.1:5173/api/metrics?format=json" | head -c 200
           echo
           kill $SERVER_PID
 
@@ -143,6 +153,15 @@ jobs:
             fi
           done
           echo "构建产物未入库"
+
+      - name: Backup round-trip
+        run: |
+          set -e
+          # 用真实 CLI 走一遍：写数据 → VACUUM INTO 备份 → 恢复 → 读回行数
+          npx tsx scripts/backup-seed.ts .ci-backup.db
+          npx tsx scripts/backup.ts create --db .ci-backup.db --out .ci-backup-snapshot.db
+          npx tsx scripts/backup.ts restore --from .ci-backup-snapshot.db --db .ci-restored.db --yes
+          npx tsx scripts/backup-seed.ts .ci-restored.db --verify 5
 
       - name: Test count floor
         run: |

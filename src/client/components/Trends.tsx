@@ -33,7 +33,10 @@ const SPECS: ChartSpec[] = [
       { name: '出水 SS', color: '#f0a83c', key: 'effluentSs' },
       { name: '进水 COD', color: '#2f6a5d', key: 'influentCod' },
     ],
-    limits: [{ value: 50, label: 'COD 限值' }, { value: 10, label: 'SS 限值' }],
+    limits: [
+      { value: 50, label: 'COD 限值' },
+      { value: 10, label: 'SS 限值' },
+    ],
     yMax: 120,
   },
   {
@@ -45,7 +48,10 @@ const SPECS: ChartSpec[] = [
       { name: '出水 TN', color: '#8f7fe8', key: 'effluentTn' },
       { name: '出水 TP', color: '#f0a83c', key: 'effluentTp' },
     ],
-    limits: [{ value: 5, label: 'NH₃-N 限值' }, { value: 0.5, label: 'TP 限值' }],
+    limits: [
+      { value: 5, label: 'NH₃-N 限值' },
+      { value: 0.5, label: 'TP 限值' },
+    ],
     yMax: 20,
   },
   {
@@ -156,7 +162,12 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
           boundaryGap: false,
           axisLine: { lineStyle: { color: '#1d3b37' } },
           axisTick: { show: false },
-          axisLabel: { color: '#5f7d78', fontSize: 9, interval: Math.max(0, Math.floor(xData.length / 5)), fontFamily: 'JetBrains Mono, monospace' },
+          axisLabel: {
+            color: '#5f7d78',
+            fontSize: 9,
+            interval: Math.max(0, Math.floor(xData.length / 5)),
+            fontFamily: 'JetBrains Mono, monospace',
+          },
           splitLine: { show: false },
         },
         yAxis: [
@@ -198,7 +209,10 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
 
   const last = snap.trends[snap.trends.length - 1];
   const readout = spec.series
-    .map((s) => `${s.name.replace('出水 ', '').replace('进水 ', '进')} ${last ? Number(last[s.key]).toFixed(s.key === 'energyKw' ? 0 : 2) : '—'}`)
+    .map(
+      (s) =>
+        `${s.name.replace('出水 ', '').replace('进水 ', '进')} ${last ? Number(last[s.key]).toFixed(s.key === 'energyKw' ? 0 : 2) : '—'}`,
+    )
     .join(' · ');
 
   return (

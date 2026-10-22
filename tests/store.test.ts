@@ -30,16 +30,43 @@ describe('持久化', () => {
     if (!store.enabled) return; // Node 20 上自动降级，跳过
 
     store.recordSnapshot({
-      runId: 'run-A', atMin: 10, effluentCod: 40, effluentNh: 0.5, effluentTn: 10,
-      effluentTp: 0.2, effluentSs: 3, mlss: 3000, srtDays: 20, energyKw: 200, score: 85,
+      runId: 'run-A',
+      atMin: 10,
+      effluentCod: 40,
+      effluentNh: 0.5,
+      effluentTn: 10,
+      effluentTp: 0.2,
+      effluentSs: 3,
+      mlss: 3000,
+      srtDays: 20,
+      energyKw: 200,
+      score: 85,
     });
     store.recordSnapshot({
-      runId: 'run-A', atMin: 20, effluentCod: 41, effluentNh: 0.6, effluentTn: 10,
-      effluentTp: 0.2, effluentSs: 3, mlss: 3000, srtDays: 20, energyKw: 200, score: 85,
+      runId: 'run-A',
+      atMin: 20,
+      effluentCod: 41,
+      effluentNh: 0.6,
+      effluentTn: 10,
+      effluentTp: 0.2,
+      effluentSs: 3,
+      mlss: 3000,
+      srtDays: 20,
+      energyKw: 200,
+      score: 85,
     });
     store.recordSnapshot({
-      runId: 'run-B', atMin: 10, effluentCod: 99, effluentNh: 9, effluentTn: 30,
-      effluentTp: 2, effluentSs: 30, mlss: 1000, srtDays: 5, energyKw: 300, score: 20,
+      runId: 'run-B',
+      atMin: 10,
+      effluentCod: 99,
+      effluentNh: 9,
+      effluentTn: 30,
+      effluentTp: 2,
+      effluentSs: 30,
+      mlss: 1000,
+      srtDays: 5,
+      energyKw: 300,
+      score: 20,
     });
     store.flush();
 
@@ -57,13 +84,31 @@ describe('持久化', () => {
     if (!store.enabled) return;
 
     store.recordSnapshot({
-      runId: 'run-old', atMin: 10, effluentCod: 40, effluentNh: 0.5, effluentTn: 10,
-      effluentTp: 0.2, effluentSs: 3, mlss: 3000, srtDays: 20, energyKw: 200, score: 85,
+      runId: 'run-old',
+      atMin: 10,
+      effluentCod: 40,
+      effluentNh: 0.5,
+      effluentTn: 10,
+      effluentTp: 0.2,
+      effluentSs: 3,
+      mlss: 3000,
+      srtDays: 20,
+      energyKw: 200,
+      score: 85,
     });
     store.flush();
     store.recordSnapshot({
-      runId: 'run-new', atMin: 10, effluentCod: 41, effluentNh: 0.6, effluentTn: 10,
-      effluentTp: 0.2, effluentSs: 3, mlss: 3000, srtDays: 20, energyKw: 200, score: 85,
+      runId: 'run-new',
+      atMin: 10,
+      effluentCod: 41,
+      effluentNh: 0.6,
+      effluentTn: 10,
+      effluentTp: 0.2,
+      effluentSs: 3,
+      mlss: 3000,
+      srtDays: 20,
+      energyKw: 200,
+      score: 85,
     });
     store.flush();
 
@@ -79,8 +124,14 @@ describe('持久化', () => {
 
     for (const at of [10, 20, 30]) {
       store.recordDecision({
-        runId: 'run-A', atMin: at, action: 'adjust', severity: 'normal',
-        summary: `决策 ${at}`, tweaks: '[]', predictedScore: 80, separation: 0.7,
+        runId: 'run-A',
+        atMin: at,
+        action: 'adjust',
+        severity: 'normal',
+        summary: `决策 ${at}`,
+        tweaks: '[]',
+        predictedScore: 80,
+        separation: 0.7,
       });
     }
     store.flush();
@@ -96,8 +147,13 @@ describe('持久化', () => {
     await disabled.open();
     expect(disabled.enabled).toBe(false);
     disabled.recordDecision({
-      atMin: 0, action: 'hold', severity: 'normal', summary: 'x',
-      tweaks: '[]', predictedScore: 0, separation: 0,
+      atMin: 0,
+      action: 'hold',
+      severity: 'normal',
+      summary: 'x',
+      tweaks: '[]',
+      predictedScore: 0,
+      separation: 0,
     });
     disabled.flush();
     expect(disabled.recentDecisions()).toEqual([]);
@@ -145,8 +201,14 @@ describe('store 的错误恢复路径', () => {
     await b.open();
     if (a.enabled && b.enabled) {
       a.recordDecision({
-        runId: 'r', atMin: 1, action: 'hold', severity: 'normal',
-        summary: 'x', tweaks: '[]', predictedScore: 1, separation: 0.5,
+        runId: 'r',
+        atMin: 1,
+        action: 'hold',
+        severity: 'normal',
+        summary: 'x',
+        tweaks: '[]',
+        predictedScore: 1,
+        separation: 0.5,
       });
       a.flush();
       expect(a.count().decisions).toBeGreaterThan(0);
@@ -166,10 +228,23 @@ describe('store 的错误恢复路径', () => {
     const s = new Store(join(dir, 'runs.db'));
     await s.open();
     if (!s.enabled) return;
-    for (const [runId, atMin] of [['r1', 10], ['r1', 20], ['r2', 5]] as const) {
+    for (const [runId, atMin] of [
+      ['r1', 10],
+      ['r1', 20],
+      ['r2', 5],
+    ] as const) {
       s.recordSnapshot({
-        runId, atMin, effluentCod: 30, effluentNh: 0.5, effluentTn: 10,
-        effluentTp: 0.2, effluentSs: 3, mlss: 3000, srtDays: 20, energyKw: 200, score: 80,
+        runId,
+        atMin,
+        effluentCod: 30,
+        effluentNh: 0.5,
+        effluentTn: 10,
+        effluentTp: 0.2,
+        effluentSs: 3,
+        mlss: 3000,
+        srtDays: 20,
+        energyKw: 200,
+        score: 80,
       });
     }
     s.flush();

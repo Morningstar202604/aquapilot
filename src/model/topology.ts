@@ -185,7 +185,12 @@ export const PLANT_TOPOLOGY: ProcessTopology = {
       name: '好氧池 A',
       role: '硝化 · 有机物氧化',
       volume: 5000,
-      ports: [P('in', 'in', 'mixed_liquor'), P('out', 'out', 'mixed_liquor'), P('air', 'in', 'air'), P('chem', 'in', 'chemical')],
+      ports: [
+        P('in', 'in', 'mixed_liquor'),
+        P('out', 'out', 'mixed_liquor'),
+        P('air', 'in', 'air'),
+        P('chem', 'in', 'chemical'),
+      ],
       states: ['cod', 'nh', 'no3', 'tp', 'do', 'mlss', 'alk'],
       interventions: ['doSetpoint', 'pacDose', 'alkDose'],
       meta: { 曝气器: '微孔曝气盘 ×1200', 溶解氧: '设定 2.0 mg/L' },
@@ -207,7 +212,12 @@ export const PLANT_TOPOLOGY: ProcessTopology = {
       name: '好氧池 C',
       role: '硝化 · 有机物氧化',
       volume: 5000,
-      ports: [P('in', 'in', 'mixed_liquor'), P('out', 'out', 'mixed_liquor'), P('ir', 'out', 'internal_recycle'), P('air', 'in', 'air')],
+      ports: [
+        P('in', 'in', 'mixed_liquor'),
+        P('out', 'out', 'mixed_liquor'),
+        P('ir', 'out', 'internal_recycle'),
+        P('air', 'in', 'air'),
+      ],
       states: ['cod', 'nh', 'no3', 'tp', 'do', 'mlss', 'alk'],
       interventions: ['doSetpoint'],
       meta: { 曝气器: '微孔曝气盘 ×1200', 内回流取水点: '末端' },
@@ -290,9 +300,24 @@ export const PLANT_TOPOLOGY: ProcessTopology = {
     },
   ],
   connections: [
-    { id: 'c-inlet-screen', from: { unit: 'inlet', port: 'out' }, to: { unit: 'screening', port: 'in' }, stream: 'influent' },
-    { id: 'c-screen-grit', from: { unit: 'screening', port: 'out' }, to: { unit: 'grit', port: 'in' }, stream: 'influent' },
-    { id: 'c-grit-primary', from: { unit: 'grit', port: 'out' }, to: { unit: 'primary', port: 'in' }, stream: 'influent' },
+    {
+      id: 'c-inlet-screen',
+      from: { unit: 'inlet', port: 'out' },
+      to: { unit: 'screening', port: 'in' },
+      stream: 'influent',
+    },
+    {
+      id: 'c-screen-grit',
+      from: { unit: 'screening', port: 'out' },
+      to: { unit: 'grit', port: 'in' },
+      stream: 'influent',
+    },
+    {
+      id: 'c-grit-primary',
+      from: { unit: 'grit', port: 'out' },
+      to: { unit: 'primary', port: 'in' },
+      stream: 'influent',
+    },
     {
       id: 'c-primary-storm-route',
       from: { unit: 'primary', port: 'out' },
@@ -314,7 +339,12 @@ export const PLANT_TOPOLOGY: ProcessTopology = {
       stream: 'influent',
       flowRef: 'returnFlow',
     },
-    { id: 'c-primary-sludge', from: { unit: 'primary', port: 'sludge' }, to: { unit: 'thickener', port: 'in' }, stream: 'waste_sludge' },
+    {
+      id: 'c-primary-sludge',
+      from: { unit: 'primary', port: 'sludge' },
+      to: { unit: 'thickener', port: 'in' },
+      stream: 'waste_sludge',
+    },
     {
       // A²/O 多点进水：一部分原水直接进缺氧池，为反硝化补充碳源。
       // 单点进水时内回流（2×Q）会把缺氧区 COD 稀释到 3–5 mg/L，
@@ -325,11 +355,36 @@ export const PLANT_TOPOLOGY: ProcessTopology = {
       stream: 'influent',
       flowRef: 'stepFeedFraction',
     },
-    { id: 'c-anaerobic-anoxic', from: { unit: 'anaerobic', port: 'out' }, to: { unit: 'anoxic', port: 'in' }, stream: 'mixed_liquor' },
-    { id: 'c-anoxic-aerobic1', from: { unit: 'anoxic', port: 'out' }, to: { unit: 'aerobic1', port: 'in' }, stream: 'mixed_liquor' },
-    { id: 'c-aerobic1-aerobic2', from: { unit: 'aerobic1', port: 'out' }, to: { unit: 'aerobic2', port: 'in' }, stream: 'mixed_liquor' },
-    { id: 'c-aerobic2-aerobic3', from: { unit: 'aerobic2', port: 'out' }, to: { unit: 'aerobic3', port: 'in' }, stream: 'mixed_liquor' },
-    { id: 'c-aerobic3-clarifier', from: { unit: 'aerobic3', port: 'out' }, to: { unit: 'clarifier', port: 'in' }, stream: 'mixed_liquor' },
+    {
+      id: 'c-anaerobic-anoxic',
+      from: { unit: 'anaerobic', port: 'out' },
+      to: { unit: 'anoxic', port: 'in' },
+      stream: 'mixed_liquor',
+    },
+    {
+      id: 'c-anoxic-aerobic1',
+      from: { unit: 'anoxic', port: 'out' },
+      to: { unit: 'aerobic1', port: 'in' },
+      stream: 'mixed_liquor',
+    },
+    {
+      id: 'c-aerobic1-aerobic2',
+      from: { unit: 'aerobic1', port: 'out' },
+      to: { unit: 'aerobic2', port: 'in' },
+      stream: 'mixed_liquor',
+    },
+    {
+      id: 'c-aerobic2-aerobic3',
+      from: { unit: 'aerobic2', port: 'out' },
+      to: { unit: 'aerobic3', port: 'in' },
+      stream: 'mixed_liquor',
+    },
+    {
+      id: 'c-aerobic3-clarifier',
+      from: { unit: 'aerobic3', port: 'out' },
+      to: { unit: 'clarifier', port: 'in' },
+      stream: 'mixed_liquor',
+    },
     {
       id: 'c-aerobic3-anoxic-ir',
       from: { unit: 'aerobic3', port: 'ir' },
@@ -346,14 +401,59 @@ export const PLANT_TOPOLOGY: ProcessTopology = {
       flowRef: 'rasFlow',
       recycle: true,
     },
-    { id: 'c-clarifier-was', from: { unit: 'clarifier', port: 'was' }, to: { unit: 'thickener', port: 'in' }, stream: 'waste_sludge', flowRef: 'wasFlow' },
-    { id: 'c-clarifier-effluent', from: { unit: 'clarifier', port: 'out' }, to: { unit: 'disinfection', port: 'in' }, stream: 'effluent' },
-    { id: 'c-disinfection-outlet', from: { unit: 'disinfection', port: 'out' }, to: { unit: 'outlet', port: 'in' }, stream: 'effluent' },
-    { id: 'c-thickener-dewatering', from: { unit: 'thickener', port: 'out' }, to: { unit: 'dewatering', port: 'in' }, stream: 'waste_sludge' },
-    { id: 'c-blower-aerobic1', from: { unit: 'blower', port: 'air' }, to: { unit: 'aerobic1', port: 'air' }, stream: 'air', flowRef: 'airflow' },
-    { id: 'c-blower-aerobic2', from: { unit: 'blower', port: 'air' }, to: { unit: 'aerobic2', port: 'air' }, stream: 'air', flowRef: 'airflow' },
-    { id: 'c-blower-aerobic3', from: { unit: 'blower', port: 'air' }, to: { unit: 'aerobic3', port: 'air' }, stream: 'air', flowRef: 'airflow' },
-    { id: 'c-chem-aerobic1', from: { unit: 'chemical', port: 'chem' }, to: { unit: 'aerobic1', port: 'chem' }, stream: 'chemical', flowRef: 'pacFlow' },
+    {
+      id: 'c-clarifier-was',
+      from: { unit: 'clarifier', port: 'was' },
+      to: { unit: 'thickener', port: 'in' },
+      stream: 'waste_sludge',
+      flowRef: 'wasFlow',
+    },
+    {
+      id: 'c-clarifier-effluent',
+      from: { unit: 'clarifier', port: 'out' },
+      to: { unit: 'disinfection', port: 'in' },
+      stream: 'effluent',
+    },
+    {
+      id: 'c-disinfection-outlet',
+      from: { unit: 'disinfection', port: 'out' },
+      to: { unit: 'outlet', port: 'in' },
+      stream: 'effluent',
+    },
+    {
+      id: 'c-thickener-dewatering',
+      from: { unit: 'thickener', port: 'out' },
+      to: { unit: 'dewatering', port: 'in' },
+      stream: 'waste_sludge',
+    },
+    {
+      id: 'c-blower-aerobic1',
+      from: { unit: 'blower', port: 'air' },
+      to: { unit: 'aerobic1', port: 'air' },
+      stream: 'air',
+      flowRef: 'airflow',
+    },
+    {
+      id: 'c-blower-aerobic2',
+      from: { unit: 'blower', port: 'air' },
+      to: { unit: 'aerobic2', port: 'air' },
+      stream: 'air',
+      flowRef: 'airflow',
+    },
+    {
+      id: 'c-blower-aerobic3',
+      from: { unit: 'blower', port: 'air' },
+      to: { unit: 'aerobic3', port: 'air' },
+      stream: 'air',
+      flowRef: 'airflow',
+    },
+    {
+      id: 'c-chem-aerobic1',
+      from: { unit: 'chemical', port: 'chem' },
+      to: { unit: 'aerobic1', port: 'chem' },
+      stream: 'chemical',
+      flowRef: 'pacFlow',
+    },
   ],
 };
 
@@ -464,10 +564,20 @@ export function validateTopology(topo: ProcessTopology): TopologyIssue[] {
     }
 
     if (!ids.has(conn.from.unit)) {
-      issues.push({ severity: 'error', code: 'MISSING_UNIT', message: `连接 ${conn.id} 引用了不存在的源单元 ${conn.from.unit}`, connectionId: conn.id });
+      issues.push({
+        severity: 'error',
+        code: 'MISSING_UNIT',
+        message: `连接 ${conn.id} 引用了不存在的源单元 ${conn.from.unit}`,
+        connectionId: conn.id,
+      });
     }
     if (!ids.has(conn.to.unit)) {
-      issues.push({ severity: 'error', code: 'MISSING_UNIT', message: `连接 ${conn.id} 引用了不存在的目标单元 ${conn.to.unit}`, connectionId: conn.id });
+      issues.push({
+        severity: 'error',
+        code: 'MISSING_UNIT',
+        message: `连接 ${conn.id} 引用了不存在的目标单元 ${conn.to.unit}`,
+        connectionId: conn.id,
+      });
     }
     if (conn.from.unit === conn.to.unit) {
       issues.push({ severity: 'error', code: 'SELF_LOOP', message: `连接 ${conn.id} 自连`, connectionId: conn.id });
@@ -499,7 +609,12 @@ export function validateTopology(topo: ProcessTopology): TopologyIssue[] {
     if (!unit) {
       issues.push({ severity: 'error', code: 'TRAIN_MISSING', message: `主序列引用了不存在的单元 ${id}`, unitId: id });
     } else if (!unit.volume) {
-      issues.push({ severity: 'warning', code: 'TRAIN_NO_VOLUME', message: `主序列单元 ${unit.name} 没有容积，无法做停留时间计算`, unitId: id });
+      issues.push({
+        severity: 'warning',
+        code: 'TRAIN_NO_VOLUME',
+        message: `主序列单元 ${unit.name} 没有容积，无法做停留时间计算`,
+        unitId: id,
+      });
     }
   }
 
@@ -507,7 +622,10 @@ export function validateTopology(topo: ProcessTopology): TopologyIssue[] {
 }
 
 /** 从拓扑派生主序列的水力停留时间（小时）；flowM3h 为进水流量 m³/h */
-export function hydraulicRetention(topo: ProcessTopology, flowM3h: number): { unit: string; name: string; volume: number; hrt: number }[] {
+export function hydraulicRetention(
+  topo: ProcessTopology,
+  flowM3h: number,
+): { unit: string; name: string; volume: number; hrt: number }[] {
   return topo.train
     .map((id) => findUnit(topo, id))
     .filter((u): u is UnitSpec => Boolean(u?.volume))

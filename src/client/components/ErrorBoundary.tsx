@@ -72,9 +72,7 @@ export class ErrorBoundary extends Component<Props, State> {
         }}
       >
         <div style={{ maxWidth: 520 }}>
-          <div style={{ fontSize: 13, letterSpacing: '0.1em', color: '#ff6b5a', marginBottom: 10 }}>
-            界面渲染失败
-          </div>
+          <div style={{ fontSize: 13, letterSpacing: '0.1em', color: '#ff6b5a', marginBottom: 10 }}>界面渲染失败</div>
           <p style={{ fontSize: 13, lineHeight: 1.7, color: '#9db8b2', margin: '0 0 16px' }}>
             仿真服务可能返回了不完整的数据，或页面状态已损坏。重新加载通常可以恢复；若持续出现，请检查服务端日志。
           </p>

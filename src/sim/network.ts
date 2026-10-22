@@ -1,9 +1,4 @@
-import {
-  ProcessTopology,
-  StreamKind,
-  UnitSpec,
-  findUnit,
-} from '../model/topology';
+import { ProcessTopology, StreamKind, UnitSpec, findUnit } from '../model/topology';
 
 /**
  * 拓扑 → 可求解网络的编译器。
@@ -154,7 +149,10 @@ export function compileNetwork(topo: ProcessTopology): CompiledNetwork {
   }
 
   // 拓扑排序：只用非回流边，保证前向顺序
-  const order = topologicalOrder(reactors.map((r) => r.id), edges.filter((e) => !e.recycle));
+  const order = topologicalOrder(
+    reactors.map((r) => r.id),
+    edges.filter((e) => !e.recycle),
+  );
   if (order.length !== reactors.length) {
     problems.push('主序列存在环路，无法确定求解顺序');
   }

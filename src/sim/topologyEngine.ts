@@ -65,7 +65,14 @@ export interface TopoSimState {
   inhibition: number;
   aerationCapacity: number;
   energy: { blowerKw: number; mixerKw: number; pumpKw: number; totalKw: number };
-  alarms: { id: string; at: number; severity: 'warning' | 'critical'; code: string; message: string; unitId?: string }[];
+  alarms: {
+    id: string;
+    at: number;
+    severity: 'warning' | 'critical';
+    code: string;
+    message: string;
+    unitId?: string;
+  }[];
   alarmSeq: number;
   cost: { energy: number; chemical: number; sludge: number; total: number };
   stormStorageM3: number;
@@ -123,7 +130,9 @@ export function checkRunReadiness(topo: ProcessTopology, flowM3h = INFLUENT_DESI
    */
   const clarifiers = topo.units.filter((u) => u.kind === 'clarifier');
   if (clarifiers.length > 1) {
-    blockers.push(`当前只支持一个二沉池（检测到 ${clarifiers.length} 个）：${clarifiers.map((c) => c.name).join('、')}`);
+    blockers.push(
+      `当前只支持一个二沉池（检测到 ${clarifiers.length} 个）：${clarifiers.map((c) => c.name).join('、')}`,
+    );
   }
 
   const bioVolume = totalTrainVolume(topo);

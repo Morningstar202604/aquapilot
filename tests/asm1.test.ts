@@ -197,7 +197,7 @@ describe('ASM1 量纲', () => {
   it('硝化菌世代时间落在文献范围（8–30 h，20℃）', () => {
     const p = ASM1_PARAMS;
     const sp = emptyAsm1State({ S_O: 2, S_NH: 30 });
-    const mu = (p.mu_A * (sp.S_NH / (p.K_NH + sp.S_NH)) * (sp.S_O / (p.K_O_A + sp.S_O))) * p.PER_DAY_TO_PER_HOUR;
+    const mu = p.mu_A * (sp.S_NH / (p.K_NH + sp.S_NH)) * (sp.S_O / (p.K_O_A + sp.S_O)) * p.PER_DAY_TO_PER_HOUR;
     const generationHours = Math.log(2) / mu;
     expect(generationHours).toBeGreaterThan(8);
     expect(generationHours).toBeLessThan(30);
@@ -206,14 +206,24 @@ describe('ASM1 量纲', () => {
   it('异养菌世代时间落在文献范围（1–6 h，20℃）', () => {
     const p = ASM1_PARAMS;
     const sp = emptyAsm1State({ S_S: 70, S_O: 2 });
-    const mu = (p.mu_H * (sp.S_S / (p.K_S + sp.S_S)) * (sp.S_O / (p.K_O_H + sp.S_O))) * p.PER_DAY_TO_PER_HOUR;
+    const mu = p.mu_H * (sp.S_S / (p.K_S + sp.S_S)) * (sp.S_O / (p.K_O_H + sp.S_O)) * p.PER_DAY_TO_PER_HOUR;
     const generationHours = Math.log(2) / mu;
     expect(generationHours).toBeGreaterThan(1);
     expect(generationHours).toBeLessThan(6);
   });
 
   it('典型浓度下反应速率为正且不爆炸', () => {
-    const sp = emptyAsm1State({ S_S: 70, X_S: 200, X_B_H: 2500, X_B_A: 150, S_O: 2, S_NO: 5, S_NH: 30, S_ND: 5, X_ND: 10 });
+    const sp = emptyAsm1State({
+      S_S: 70,
+      X_S: 200,
+      X_B_H: 2500,
+      X_B_A: 150,
+      S_O: 2,
+      S_NO: 5,
+      S_NH: 30,
+      S_ND: 5,
+      X_ND: 10,
+    });
     const r = reactionRates(sp);
     // 好氧段基质降解速率应在每小时百分之几到几十 mg/L 量级
     expect(r.S_S).toBeLessThan(0);
@@ -250,7 +260,7 @@ describe('ASM1 CSTR 稳态（真跑）', () => {
 
   it('临界 HRT 的判据与生长/衰减平衡一致', () => {
     const p = ASM1_PARAMS;
-    const muEff = (p.mu_A * (2 / (p.K_NH + 2)) * (2 / (p.K_O_A + 2))) * p.PER_DAY_TO_PER_HOUR;
+    const muEff = p.mu_A * (2 / (p.K_NH + 2)) * (2 / (p.K_O_A + 2)) * p.PER_DAY_TO_PER_HOUR;
     const bEff = p.b_A * p.PER_DAY_TO_PER_HOUR;
     const criticalHrt = 1 / (muEff - bEff);
     // 临界 HRT 应落在几十小时量级（与世代时间同阶）
@@ -270,7 +280,11 @@ describe('ASM1 CSTR 稳态（真跑）', () => {
   });
 
   it('稳态下所有组分非负且有限', () => {
-    const r = runCstr(BSM1_INFLUENT, { volume: Q * 240, flow: Q, aerated: true, doSetpoint: 2 }, { maxHours: 24 * 150 });
+    const r = runCstr(
+      BSM1_INFLUENT,
+      { volume: Q * 240, flow: Q, aerated: true, doSetpoint: 2 },
+      { maxHours: 24 * 150 },
+    );
     for (const comp of ASM1_COMPONENTS) {
       expect(Number.isFinite(r.state[comp]), `${comp} 非有限`).toBe(true);
       expect(r.state[comp], `${comp} 为负`).toBeGreaterThanOrEqual(0);
