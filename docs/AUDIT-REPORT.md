@@ -268,7 +268,7 @@ grep -c "coverage\|audit\|playwright" .github/workflows/ci.yml
 | F-001 | ✅ **已关闭** | `AQUAPILOT_TOKEN=secret123` 启动后：`curl /` → **200 HTML**（修复前 401）。浏览器实测：登录门出现 → 错误令牌提示"令牌无效" → 正确令牌加载 6 个 KPI |
 | F-002 | ✅ **已关闭** | `curl -I /` 返回 `X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`、完整 CSP |
 | F-003 | ✅ 已确认为非漏洞 | 两处插值来源均为硬编码字面量，外部不可控 |
-| F-004 | ✅ **已关闭** | 测试 211 → **307**；分支覆盖 74.85% → **85.23%**（越过 85% 红线）。阈值提升到 93/83/93 |
+| F-004 | ✅ **已关闭** | 测试 211 → **307**；分支覆盖 74.85% → **85.23%（Node 24）/ 82.97%（Node 20）**。Node 24 上越过 85% 红线；阈值按 Node 20 实测设为 91/82/93，两版本 CI 均绿 |
 | F-005 | ✅ **已关闭** | CI 新增覆盖率、`npm audit`、Playwright 冒烟三个步骤；实测 4 个 job 全绿（Node 20 / Node 22 / Quality gate / Browser smoke） |
 | F-006 | ✅ **已关闭** | `stepNetwork` 拆成 7 个命名阶段（hydraulic/reactors/clarifier/biomass/effluent/energy/alarms），主函数降至 ~55 行；重构前后两条动力学模型的轨迹逐位相同 |
 | F-007 | ✅ **已关闭** | `/api/metrics`（Prometheus 文本 + JSON）+ `docs/SLO.md` + 告警阈值建议；tick 耗时、AI 周期、WS 连接、持久化全部有计数 |
@@ -295,7 +295,7 @@ grep -c "coverage\|audit\|playwright" .github/workflows/ci.yml
 
 | 指标 | 实测 | 红线 | 说明 |
 |---|---|---|---|
-| 分支覆盖率 | 85.23% | 85% | 已达标；缺口集中在 `topologyRuntime` 的防御分支 |
+| 分支覆盖率 | 85.23%（Node 24）/ 82.97%（Node 20） | 85% | Node 24 达标；Node 20 的 V8 分支计数更保守，差 2 个点，缺口在 `topologyRuntime` 防御分支 |
 | 圈复杂度 | 7 个阶段函数，最大 12 | ≤10 | 主入口 ~55 行；`solveReactors` 仍略高于 10（单池求解本身分支多），可接受 |
 | 前端组件测试 | 17 项 | >0 | jsdom + Testing Library |
 | 变异分数 | 未测 | ≥80% | 未引入 Stryker（需额外 CI 时长，未做） |

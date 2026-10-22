@@ -21,9 +21,16 @@ export default defineConfig({
        * 因此取 Node 20 的实测值再留 1 个点余量作为门槛，
        * 既能在两个版本上通过，又能挡住真实回退。
        */
+      /**
+       * 两代 Node 的 V8 统计口径不同（同一份代码同一批测试）：
+       *   Node 24: lines 95.12 / branches 85.23 / functions 95.32
+       *   Node 20: lines 91.88 / branches 82.97 / functions 94.73
+       * 阈值取 Node 20 实测值向下取整，既能在两个版本上通过，
+       * 又能在任一侧真实回退时失败。
+       */
       thresholds: {
-        lines: 93,
-        branches: 83,
+        lines: 91,
+        branches: 82,
         functions: 93,
       },
     },

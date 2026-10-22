@@ -32,8 +32,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - `stepNetwork` split into seven named phases (hydraulics, reactors, clarifier,
   biomass, effluent, energy/cost, alarms). The simulation trajectory is
   bit-identical before and after the split, for both kinetic models.
-- Coverage thresholds raised to lines 93 / branches 83 / functions 93.
-- Test count 245 → 307; branch coverage 83.79% → 85.23%.
+- Coverage thresholds set to lines 91 / branches 82 / functions 93, the strictest
+  values that hold on both supported Node versions.
+- Test count 245 → 307; branch coverage 83.79% → 85.23% on Node 24, 82.97% on Node 20
+  (V8 counts branches more conservatively there).
 
 ### Fixed
 
