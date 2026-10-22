@@ -69,7 +69,9 @@ export default function App() {
           </div>
           <div className="meta-item">
             <span className="meta-label">求解结构</span>
-            <span className="meta-value">{snap.reactorCount} 反应器 · {snap.tanks.reduce((a, t) => a + t.volume, 0).toLocaleString()} m³</span>
+            <span className="meta-value">
+              {snap.reactorCount} 反应器 · {snap.tanks.reduce((a, t) => a + t.volume, 0).toLocaleString()} m³
+            </span>
           </div>
           <div className="meta-item">
             <span className="meta-label">执行标准</span>
@@ -132,23 +134,29 @@ export default function App() {
       <div className={view === 'editor' ? 'layout layout-editor' : 'layout'}>
         <section className={view === 'editor' ? 'stage stage-editor' : 'stage'}>
           {view === 'plant' && (
-          <div className="kpi-strip">
-            {kpis.map((k) => (
-              <div className="kpi" key={k.label} data-state={k.state}>
-                <div className="kpi-label">
-                  <span>{k.label}</span>
-                  <span className="kpi-limit">{k.limit}</span>
+            <div className="kpi-strip">
+              {kpis.map((k) => (
+                <div className="kpi" key={k.label} data-state={k.state}>
+                  <div className="kpi-label">
+                    <span>{k.label}</span>
+                    <span className="kpi-limit">{k.limit}</span>
+                  </div>
+                  <div className="kpi-value">
+                    <span className="kpi-num tabular">{k.value}</span>
+                    <span className="kpi-unit">{k.unit}</span>
+                  </div>
+                  <div className="kpi-bar">
+                    <span
+                      style={{
+                        width: `${Math.min(100, k.ratio * 100)}%`,
+                        background:
+                          k.state === 'bad' ? 'var(--alarm)' : k.state === 'warn' ? 'var(--amber)' : 'var(--water-dim)',
+                      }}
+                    />
+                  </div>
                 </div>
-                <div className="kpi-value">
-                  <span className="kpi-num tabular">{k.value}</span>
-                  <span className="kpi-unit">{k.unit}</span>
-                </div>
-                <div className="kpi-bar">
-                  <span style={{ width: `${Math.min(100, k.ratio * 100)}%`, background: k.state === 'bad' ? 'var(--alarm)' : k.state === 'warn' ? 'var(--amber)' : 'var(--water-dim)' }} />
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
           )}
 
           {view === 'plant' ? (
@@ -178,89 +186,89 @@ export default function App() {
         </section>
 
         {view === 'plant' && (
-        <aside className="side">
-          <nav className="side-tabs" role="tablist" aria-label="操作面板">
-            <button
-              className="side-tab"
-              role="tab"
-              aria-selected={tab === 'chat'}
-              data-active={tab === 'chat'}
-              onClick={() => setTab('chat')}
-            >
-              AI 对话
-            </button>
-            <button
-              className="side-tab"
-              role="tab"
-              aria-selected={tab === 'decision'}
-              data-active={tab === 'decision'}
-              onClick={() => setTab('decision')}
-            >
-              决策解释
-            </button>
-            <button
-              className="side-tab"
-              role="tab"
-              aria-selected={tab === 'control'}
-              data-active={tab === 'control'}
-              onClick={() => setTab('control')}
-            >
-              控制与工况
-            </button>
-            <button
-              className="side-tab"
-              role="tab"
-              aria-selected={tab === 'alarms'}
-              data-active={tab === 'alarms'}
-              onClick={() => setTab('alarms')}
-            >
-              告警
-              {alarmCount > 0 && <span className="side-tab-count">{alarmCount}</span>}
-            </button>
-            <button
-              className="side-tab"
-              role="tab"
-              aria-selected={tab === 'insights'}
-              data-active={tab === 'insights'}
-              onClick={() => setTab('insights')}
-            >
-              效益
-            </button>
-            <button
-              className="side-tab"
-              role="tab"
-              aria-selected={tab === 'replay'}
-              data-active={tab === 'replay'}
-              onClick={() => setTab('replay')}
-            >
-              回放
-            </button>
-          </nav>
+          <aside className="side">
+            <nav className="side-tabs" role="tablist" aria-label="操作面板">
+              <button
+                className="side-tab"
+                role="tab"
+                aria-selected={tab === 'chat'}
+                data-active={tab === 'chat'}
+                onClick={() => setTab('chat')}
+              >
+                AI 对话
+              </button>
+              <button
+                className="side-tab"
+                role="tab"
+                aria-selected={tab === 'decision'}
+                data-active={tab === 'decision'}
+                onClick={() => setTab('decision')}
+              >
+                决策解释
+              </button>
+              <button
+                className="side-tab"
+                role="tab"
+                aria-selected={tab === 'control'}
+                data-active={tab === 'control'}
+                onClick={() => setTab('control')}
+              >
+                控制与工况
+              </button>
+              <button
+                className="side-tab"
+                role="tab"
+                aria-selected={tab === 'alarms'}
+                data-active={tab === 'alarms'}
+                onClick={() => setTab('alarms')}
+              >
+                告警
+                {alarmCount > 0 && <span className="side-tab-count">{alarmCount}</span>}
+              </button>
+              <button
+                className="side-tab"
+                role="tab"
+                aria-selected={tab === 'insights'}
+                data-active={tab === 'insights'}
+                onClick={() => setTab('insights')}
+              >
+                效益
+              </button>
+              <button
+                className="side-tab"
+                role="tab"
+                aria-selected={tab === 'replay'}
+                data-active={tab === 'replay'}
+                onClick={() => setTab('replay')}
+              >
+                回放
+              </button>
+            </nav>
 
-          {tab === 'chat' && <ChatPanel chat={sim.chat} onAsk={sim.ask} connected={sim.link.connected} snap={snap} />}
-          {tab === 'decision' && (
-            <DecisionPanel
-              snap={snap}
-              rec={sim.recommendation}
-              onApply={sim.applyRecommendation}
-              onRefresh={sim.refreshDecision}
-              aiEnabled={aiEnabled}
-              onToggleAi={sim.setAiEnabled}
-            />
-          )}
-          {tab === 'control' && (
-            <ControlPanel
-              snap={snap}
-              onChange={sim.setControls}
-              onStartScenario={sim.startScenario}
-              onClearScenario={sim.clearScenario}
-              aiEnabled={aiEnabled}
-            />
-          )}
-          {tab === 'alarms' && <AlarmsPanel snap={snap} />}
-          {tab === 'insights' && <InsightsPanel snap={snap} aiEnabled={aiEnabled} />}
-          {tab === 'replay' && <ReplayPanel />}
-        </aside>
+            {tab === 'chat' && <ChatPanel chat={sim.chat} onAsk={sim.ask} connected={sim.link.connected} snap={snap} />}
+            {tab === 'decision' && (
+              <DecisionPanel
+                snap={snap}
+                rec={sim.recommendation}
+                onApply={sim.applyRecommendation}
+                onRefresh={sim.refreshDecision}
+                aiEnabled={aiEnabled}
+                onToggleAi={sim.setAiEnabled}
+              />
+            )}
+            {tab === 'control' && (
+              <ControlPanel
+                snap={snap}
+                onChange={sim.setControls}
+                onStartScenario={sim.startScenario}
+                onClearScenario={sim.clearScenario}
+                aiEnabled={aiEnabled}
+              />
+            )}
+            {tab === 'alarms' && <AlarmsPanel snap={snap} />}
+            {tab === 'insights' && <InsightsPanel snap={snap} aiEnabled={aiEnabled} />}
+            {tab === 'replay' && <ReplayPanel />}
+          </aside>
         )}
       </div>
 

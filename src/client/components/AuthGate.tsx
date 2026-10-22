@@ -84,7 +84,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
           aria-label="访问令牌"
           autoComplete="off"
         />
-        {error && <div className="auth-error" role="alert">{error}</div>}
+        {error && (
+          <div className="auth-error" role="alert">
+            {error}
+          </div>
+        )}
         <button className="auth-submit" onClick={submit}>
           进入
         </button>

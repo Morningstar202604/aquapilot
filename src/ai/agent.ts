@@ -1,8 +1,4 @@
-import {
-  CONTROL_BOUNDS,
-  ControlSettings,
-  LIMITS,
-} from '../sim/config';
+import { CONTROL_BOUNDS, ControlSettings, LIMITS } from '../sim/config';
 import type { EffluentState } from '../sim/plantTypes';
 import { qualityScore, clampControls } from '../sim/metrics';
 import { PlantModel, PlantSnapshotForAi } from '../sim/plantModel';
@@ -145,11 +141,7 @@ function round(value: number, key: keyof Omit<ControlSettings, 'aiEnabled'>): nu
   return Math.round(value * factor) / factor;
 }
 
-function perturb(
-  base: ControlSettings,
-  key: keyof Omit<ControlSettings, 'aiEnabled'>,
-  value: number,
-): ControlSettings {
+function perturb(base: ControlSettings, key: keyof Omit<ControlSettings, 'aiEnabled'>, value: number): ControlSettings {
   return clampControls({ ...base, [key]: round(value, key) });
 }
 
@@ -191,7 +183,8 @@ function scoreCandidate(
       return sum + Math.abs(controls[key] - state.controls[key]) / Math.max(1e-6, span);
     }, 0) * 95;
 
-  const score = 600 + qualityBonus - compliancePenalty - marginPenalty - costPenalty - instability - srtCost - movementPenalty;
+  const score =
+    600 + qualityBonus - compliancePenalty - marginPenalty - costPenalty - instability - srtCost - movementPenalty;
 
   return {
     label: '',
@@ -211,7 +204,14 @@ function scoreCandidate(
 function scenarioHints(state: PlantSnapshotForAi, type: ScenarioType | null): string[] {
   if (!type) return [];
   const active = state.scenario;
-  const intensity = active ? Math.round(Math.max(0, Math.min(1, 1 - (active.durationMin - (state.timeMin - active.startedAt)) / Math.max(1, active.durationMin))) * 100) : 0;
+  const intensity = active
+    ? Math.round(
+        Math.max(
+          0,
+          Math.min(1, 1 - (active.durationMin - (state.timeMin - active.startedAt)) / Math.max(1, active.durationMin)),
+        ) * 100,
+      )
+    : 0;
   switch (type) {
     case 'storm':
       return [
@@ -223,7 +223,10 @@ function scenarioHints(state: PlantSnapshotForAi, type: ScenarioType | null): st
     case 'toxic':
       return ['毒性抑制下提高污泥龄、降低排泥，保住硝化菌群', '暂停节能导向的溶氧下调，维持较高溶解氧'];
     case 'blower_failure':
-      return ['鼓风机能力受限：把溶氧设定下调至可维持水平，避免控制目标不可达', '缺氧/厌氧搅拌功率不变，注意反硝化碳源'];
+      return [
+        '鼓风机能力受限：把溶氧设定下调至可维持水平，避免控制目标不可达',
+        '缺氧/厌氧搅拌功率不变，注意反硝化碳源',
+      ];
     case 'ras_failure':
       return ['回流中断时二沉池界面快速抬升，应立即降低内回流并准备应急排泥', '污泥回流恢复后需缓慢爬坡，避免二次冲击'];
     case 'power_outage':
@@ -348,11 +351,7 @@ export function decide(context: DecisionContext): Recommendation {
 
   const predictedScore = best.quality;
   const severity: Recommendation['severity'] =
-    best.violations > 0 || best.worstRatio > 1
-      ? 'critical'
-      : best.worstRatio > 0.85
-        ? 'watch'
-        : 'normal';
+    best.violations > 0 || best.worstRatio > 1 ? 'critical' : best.worstRatio > 0.85 ? 'watch' : 'normal';
 
   const action: Recommendation['action'] =
     tweaks.length === 0 ? 'hold' : severity === 'critical' ? 'emergency' : 'adjust';
@@ -368,7 +367,10 @@ export function decide(context: DecisionContext): Recommendation {
             .map((t) => `${CONTROL_BOUNDS[t.key].label} ${formatNum(t.from, t.key)}→${formatNum(t.to, t.key)}`)
             .join('，')}。`;
 
-  const rationale = [...buildRationale(state, best, hold), ...scenarioHints(state, (state.scenario?.type as ScenarioType | null) ?? null)];
+  const rationale = [
+    ...buildRationale(state, best, hold),
+    ...scenarioHints(state, (state.scenario?.type as ScenarioType | null) ?? null),
+  ];
   const risks = buildRisks(state, best);
   const separation = computeDecisionSeparation(best, candidates);
 
@@ -425,7 +427,9 @@ function buildRationale(state: PlantSnapshotForAi, best: DecisionCandidate, hold
     `当前出水最紧约束为 ${tight.metric}：${tight.value.toFixed(2)} / ${tight.limit} mg/L（占限值 ${(tight.ratio * 100).toFixed(0)}%）。`,
   );
   if (hold.violations > 0) {
-    lines.push(`维持现状在未来 ${Math.round(best.cost > 0 ? 4 : 4)} 小时窗口内预计出现 ${hold.violations} 次超标采样点。`);
+    lines.push(
+      `维持现状在未来 ${Math.round(best.cost > 0 ? 4 : 4)} 小时窗口内预计出现 ${hold.violations} 次超标采样点。`,
+    );
   } else {
     lines.push(`当前控制在预测窗口内无超标，方案优化目标转为「保达标前提下降低能耗与药耗」。`);
   }
@@ -443,7 +447,8 @@ function buildRisks(state: PlantSnapshotForAi, best: DecisionCandidate): string[
   if (best.worstRatio > 0.9) risks.push('出水指标裕度不足 10%，建议同步准备应急药剂与旁路预案');
   if (best.energyPeak > state.energy.totalKw * 1.4) risks.push('优化方案能耗峰值较当前高 40% 以上，注意配电容量');
   if (state.srtDays < 12) risks.push(`污泥龄 ${state.srtDays.toFixed(1)} d 偏低，硝化菌群稳定性存在隐患`);
-  if (state.clarifier.blanketM > 3.2) risks.push(`二沉池污泥界面 ${state.clarifier.blanketM.toFixed(2)} m 偏高，警惕跑泥`);
+  if (state.clarifier.blanketM > 3.2)
+    risks.push(`二沉池污泥界面 ${state.clarifier.blanketM.toFixed(2)} m 偏高，警惕跑泥`);
   if (!risks.length) risks.push('当前无高风险项，维持 15 分钟级滚动复核');
   return risks;
 }
@@ -561,10 +566,7 @@ export function answer(question: string, model: PlantModel, recommendation: Reco
     const verdict = violated
       ? `4 小时内出现 ${fc.violations.length} 个超标采样点`
       : '4 小时内不会突破一级 A 限值，但裕度会明显收窄';
-    const header =
-      worst.minute === 240 && fc.points.length > 0
-        ? `4 小时末`
-        : `第 ${worst.minute} 分钟`;
+    const header = worst.minute === 240 && fc.points.length > 0 ? `4 小时末` : `第 ${worst.minute} 分钟`;
     return {
       title: `假设推演：${scenarioLabel(scenario)}`,
       body: `若立即发生${scenarioLabel(scenario)}且控制保持不变，${verdict}。${header}最紧指标是 ${worstMetric(worst.e)}，出水评分 ${qualityScore(worst.e)}/100。`,
@@ -589,7 +591,9 @@ export function answer(question: string, model: PlantModel, recommendation: Reco
         '每 15 分钟仿真时间重新评估一次控制组合',
         '出水指标逼近限值 85% 时进入 watch 状态，提高复核频率',
         '超标风险出现时切到 emergency 策略，优先保达标',
-        recommendation ? `下一步关键动作：${recommendation.tweaks.map((t) => CONTROL_BOUNDS[t.key].label).join('、') || '维持'}` : '无',
+        recommendation
+          ? `下一步关键动作：${recommendation.tweaks.map((t) => CONTROL_BOUNDS[t.key].label).join('、') || '维持'}`
+          : '无',
       ],
       confidence: 0.8,
       kind: 'plan',
@@ -614,12 +618,7 @@ export function answer(question: string, model: PlantModel, recommendation: Reco
   return {
     title: '我没太理解这个问题',
     body: '可以问我：现在运行怎么样、为什么这样调、如果发生暴雨会怎样、未来几小时的计划、或者某个指标的意义。我也会在你授权时直接执行控制调整。',
-    bullets: [
-      '“现在出水怎么样？”',
-      '“为什么把内回流调高？”',
-      '“如果进水氨氮翻倍会怎样？”',
-      '“给我未来 8 小时计划”',
-    ],
+    bullets: ['“现在出水怎么样？”', '“为什么把内回流调高？”', '“如果进水氨氮翻倍会怎样？”', '“给我未来 8 小时计划”'],
     confidence: 0.4,
     kind: 'unknown',
   };
@@ -671,5 +670,3 @@ function scenarioLabel(type: ScenarioType): string {
   };
   return map[type];
 }
-
-

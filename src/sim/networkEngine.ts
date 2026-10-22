@@ -132,7 +132,15 @@ export interface NetworkSimState {
   inhibition: number;
   aerationCapacity: number;
   energy: { blowerKw: number; mixerKw: number; pumpKw: number; totalKw: number };
-  alarms: { id: string; at: number; severity: 'warning' | 'critical'; code: string; message: string; metric?: string; value?: number }[];
+  alarms: {
+    id: string;
+    at: number;
+    severity: 'warning' | 'critical';
+    code: string;
+    message: string;
+    metric?: string;
+    value?: number;
+  }[];
   alarmSeq: number;
   /** 累计（自预热结束起） */
   cost: { energy: number; chemical: number; sludge: number; total: number };
@@ -145,8 +153,6 @@ export interface NetworkSimState {
 }
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
-
-
 
 export function createNetworkState(
   topo: ProcessTopology,
@@ -207,7 +213,17 @@ export function createNetworkState(
       slr: 3.4,
     },
     influent: { ...INFLUENT_DESIGN },
-    effluent: { flow: INFLUENT_DESIGN.flow, cod: 30, bod: 7, ss: 5, nh: 1.6, tn: 11, tp: 0.35, ph: 7.2, temperature: 20 },
+    effluent: {
+      flow: INFLUENT_DESIGN.flow,
+      cod: 30,
+      bod: 7,
+      ss: 5,
+      nh: 1.6,
+      tn: 11,
+      tp: 0.35,
+      ph: 7.2,
+      temperature: 20,
+    },
     controls,
     scenario: null,
     biomassKg: (DESIGN_MLSS * net.bioVolume) / 1000,
@@ -350,31 +366,55 @@ function pushAlarm(
   const recent = state.alarms.find((a) => a.code === code && state.timeMin - a.at < 45);
   if (recent) return;
   state.alarmSeq += 1;
-  state.alarms.push({ id: `A${String(state.alarmSeq).padStart(4, '0')}`, at: state.timeMin, severity, code, message, metric, value });
+  state.alarms.push({
+    id: `A${String(state.alarmSeq).padStart(4, '0')}`,
+    at: state.timeMin,
+    severity,
+    code,
+    message,
+    metric,
+    value,
+  });
   if (state.alarms.length > 80) state.alarms.splice(0, state.alarms.length - 80);
 }
 
 /**
  * 推进一个时间步。反应器按拓扑序求解，回流在每步开头按控制量定流量。
  */
-export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin = 1): NetworkSimState {
-  if (dtMin <= 0) return state;
-  const dtH = dtMin / 60;
-  state.timeMin += dtMin;
-  state.rngCount += 1;
+/**
+ * 单步求解的共享上下文。
+ *
+ * 拆分前，这些东西散落在 260 行的函数体里，任何一处改动都要通读全篇；
+ * 现在集中成一个只读快照，各阶段函数按名字就能看出依赖。
+ */
+interface StepContext {
+  state: NetworkSimState;
+  net: CompiledNetwork;
+  dtMin: number;
+  dtH: number;
+  /** 本步进水（已扣除调蓄分流、加回缓释流量） */
+  influent: NetworkSimState['influent'];
+  sup: number;
+  rec: { ras: number; ir: number; was: number };
+  flows: ReturnType<typeof resolveFlows>;
+  Q: number;
+  Qr: number;
+  Qw: number;
+  Qe: number;
+  underflow: number;
+  xBiomass: number;
+  bf: number;
+  T: number;
+  thetaH: number;
+  thetaN: number;
+  clar: NetworkSimState['clarifier'];
+  lastReactor: ReactorState;
+  byId: Map<string, ReactorState>;
+}
 
-  const net: CompiledNetwork = compileNetwork(topo);
-  if (net.problems.length) {
-    throw new Error(`运行中拓扑失效：${net.problems.join('；')}`);
-  }
-
+/** 阶段 1：进水与调蓄。返回本步实际进厂流量。 */
+function resolveHydraulics(state: NetworkSimState, dtH: number): { influent: NetworkSimState['influent']; Q: number } {
   const influent = deriveInfluent(state);
-  const sup = toxicSuppression(state);
-  state.inhibition = sup;
-  state.aerationCapacity = aerationCapacityOf(state);
-  const rec = recycleOf(state);
-
-  // 调蓄分流
   const stormActive = state.scenario?.type === 'storm' && scenarioEnvelope(state.scenario, state.timeMin) > 0.05;
   const storeFrac = stormActive ? state.controls.stormStore : 0;
   const CAP = 16000;
@@ -388,42 +428,33 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
     state.stormStorageM3 = Math.max(0, state.stormStorageM3 - returnFlow * dtH);
   }
   const Q = Math.max(200, influent.flow - diverted + returnFlow);
-  state.influent = { ...influent, flow: Q };
+  return { influent: { ...influent, flow: Q }, Q };
+}
 
-  const flows = resolveFlows(net, Q, {
-    ras: rec.ras,
-    ir: rec.ir,
-    was: rec.was,
-    stepFeed: state.controls.stepFeed,
-  });
-  state.edgeFlows = Object.fromEntries(flows.edgeFlow);
-
-  const byId = new Map(state.reactors.map((r) => [r.id, r]));
-  const xBiomass = clamp((state.biomassKg * 1000) / Math.max(1, state.volume.bio), 300, 14000);
-  const bf = xBiomass / DESIGN_MLSS;
-  const T = influent.temperature;
-  const thetaH = Math.pow(KINETICS.thetaH, T - 20);
-  const thetaN = Math.pow(KINETICS.thetaN, T - 20);
-
-  const clar = state.clarifier;
-  const Qr = Q * rec.ras;
-  const Qw = Q * rec.was;
-  const Qe = Math.max(1, Q - Qw);
-  const underflow = Qr + Qw;
-
-  // 回流污泥来自二沉池底部，其水质近似最末端反应器
-  const lastReactor = [...state.reactors].sort((a, b) => net.reactors.find((r) => r.id === b.id)!.order - net.reactors.find((r) => r.id === a.id)!.order)[0];
+/**
+ * 阶段 2：反应器串联求解。
+ *
+ * ASM1 模式下溶解态随水进出、颗粒态由二沉池截留决定——
+ * 这个区别写在这里，而不是散在循环里。
+ */
+function solveReactors(ctx: StepContext): {
+  o2DemandKgH: number;
+  codOxidizedKgH: number;
+  nhOxidizedKgH: number;
+} {
+  const { state, net, dtH, flows, byId, xBiomass, bf, T, thetaH, thetaN, clar, lastReactor, influent, sup } = ctx;
   const rasCod = lastReactor?.cod ?? 20;
   const rasNh = lastReactor?.nh ?? 1;
   const rasNo3 = lastReactor?.no3 ?? 8;
   const rasTp = lastReactor?.tp ?? 0.2;
   const rasAlk = lastReactor?.alkalinity ?? 180;
-
   let o2DemandKgH = 0;
   let codOxidizedKgH = 0;
   let nhOxidizedKgH = 0;
-
-  const orderedReactorIds = net.reactors.slice().sort((a, b) => a.order - b.order).map((r) => r.id);
+  const orderedReactorIds = net.reactors
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((r) => r.id);
 
   for (const id of orderedReactorIds) {
     const reactor = byId.get(id);
@@ -503,7 +534,11 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
        */
       const rasConcentrationRatio = (() => {
         const feedSS = lastReactor?.asm1
-          ? lastReactor.asm1.X_I + lastReactor.asm1.X_S + lastReactor.asm1.X_B_H + lastReactor.asm1.X_B_A + lastReactor.asm1.X_P
+          ? lastReactor.asm1.X_I +
+            lastReactor.asm1.X_S +
+            lastReactor.asm1.X_B_H +
+            lastReactor.asm1.X_B_A +
+            lastReactor.asm1.X_P
           : 0;
         if (feedSS <= 1) return 1;
         // Takács 给出的底流浓度 / 进料浓度 = 真实浓缩倍数
@@ -527,8 +562,7 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
             X_B_A: base.X_B_A * rasConcentrationRatio,
             X_P: base.X_P * rasConcentrationRatio,
           };
-        }
-        else if (edge.recycleKind === 'internal' && lastReactor?.asm1) src = lastReactor.asm1;
+        } else if (edge.recycleKind === 'internal' && lastReactor?.asm1) src = lastReactor.asm1;
         else if (byId.has(edge.from) && byId.get(edge.from)!.asm1) src = byId.get(edge.from)!.asm1!;
         else
           src = influentToAsm1({
@@ -541,9 +575,7 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
           });
 
         if (qAcc === 0) asmIn = { ...src };
-        else
-          for (const comp of ASM1_COMPONENTS)
-            asmIn[comp] = (asmIn[comp] * qAcc + src[comp] * flow) / (qAcc + flow);
+        else for (const comp of ASM1_COMPONENTS) asmIn[comp] = (asmIn[comp] * qAcc + src[comp] * flow) / (qAcc + flow);
         qAcc += flow;
       }
 
@@ -639,7 +671,8 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
     } else {
       const hetero = KINETICS.kCodAerobic * fCod * fO2 * thetaH * bf * sup * reactor.cod;
       codRate = -hetero;
-      nhRate = -KINETICS.kNit * fNh * fO2Nit * thetaN * bf * sup * (reactor.alkalinity > 30 ? 1 : reactor.alkalinity / 30);
+      nhRate =
+        -KINETICS.kNit * fNh * fO2Nit * thetaN * bf * sup * (reactor.alkalinity > 30 ? 1 : reactor.alkalinity / 30);
       tpRate = -KINETICS.kPUp * (reactor.tp / (0.25 + reactor.tp)) * fO2 * bf * sup;
       o2Rate = hetero * KINETICS.o2PerCod + -nhRate * KINETICS.o2PerNh;
     }
@@ -667,7 +700,11 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
       const effective = kla * capacity;
       const doTarget = effective > 0.02 ? dsat - our / effective : 0.02;
       const tau = clamp(1.4 / Math.max(0.2, effective), 0.02, 0.45);
-      reactor.doLevel = clamp(reactor.doLevel + (clamp(doTarget, 0.02, dsat) - reactor.doLevel) * clamp(dtH / tau, 0, 1), 0.02, dsat);
+      reactor.doLevel = clamp(
+        reactor.doLevel + (clamp(doTarget, 0.02, dsat) - reactor.doLevel) * clamp(dtH / tau, 0, 1),
+        0.02,
+        dsat,
+      );
       reactor.o2Demand = our;
       reactor.kla = effective;
       o2DemandKgH += (our * reactor.volume) / 1000;
@@ -681,6 +718,12 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
     nhOxidizedKgH += (Math.max(0, -nhRate) * reactor.volume) / 1000;
   }
 
+  return { o2DemandKgH, codOxidizedKgH, nhOxidizedKgH };
+}
+
+/** 阶段 3：二沉池（Takács 十层）。返回进水固体负荷与排泥带走的干固体。 */
+function solveClarifier(ctx: StepContext): { clarifierInflow: number; wasted: number } {
+  const { state, dtMin, dtH, rec, clar, xBiomass, Qw, Qr, Qe, underflow, Q } = ctx;
   // ── 二沉池：Takács 十层沉降模型 ──
   // 用分层剖面直接给出回流浓度与出水悬浮物，取代原先的经验关联式。
   // 这是 ASM1 能接入的前提：生物量的截留必须由物理沉降决定，而不是外部指定的系数。
@@ -731,7 +774,11 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
    */
   const slrFactor2 = clamp(settlerResult.solidsLoading / 3.6, 0.15, 3.2);
   const rasFactor2 = clamp(0.8 / Math.max(0.15, rec.ras), 0.2, 3.0);
-  const blanketTarget = clamp(0.19 * clar.depth * Math.pow(slrFactor2, 1.25) * Math.pow(rasFactor2, 0.6), 0.25, clar.depth + 0.8);
+  const blanketTarget = clamp(
+    0.19 * clar.depth * Math.pow(slrFactor2, 1.25) * Math.pow(rasFactor2, 0.6),
+    0.25,
+    clar.depth + 0.8,
+  );
   clar.blanketM += (blanketTarget - clar.blanketM) * Math.min(1, dtMin / 60 / 0.5);
 
   // 池内固体存量（供界面显示）
@@ -746,10 +793,22 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
   void solidsIn;
   void solidsOut;
 
-  // 生物量
-  const growth = KINETICS.yieldH * codOxidizedKgH + 0.11 * nhOxidizedKgH;
-  const decay = (KINETICS.decayPerDay / 24) * state.biomassKg;
+  // 排泥带走的干固体（kg）；成本与生物量都依赖它，因此在这一阶段算一次
   const wasted = ((Qw * clar.xRas) / 1000) * dtH;
+  return { clarifierInflow, wasted };
+}
+
+/** 阶段 4：生物量与 SRT。 */
+function solveBiomass(
+  ctx: StepContext,
+  oxidized: { o2DemandKgH: number; codOxidizedKgH: number; nhOxidizedKgH: number },
+  wasted: number,
+): void {
+  const { state, dtH, Qw, clar, Q, influent } = ctx;
+  void oxidized.o2DemandKgH;
+  // 生物量
+  const growth = KINETICS.yieldH * oxidized.codOxidizedKgH + 0.11 * oxidized.nhOxidizedKgH;
+  const decay = (KINETICS.decayPerDay / 24) * state.biomassKg;
 
   if (state.modelMode === 'asm1') {
     // ASM1 模式下生物量由各池组分汇总（生物量是物理存量，不由全局标量独立演化）
@@ -775,9 +834,15 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
   // 食微比：每天进入系统的 BOD 负荷 ÷ 系统内生物量
   const bodLoadKgDay = (Q * 24 * influent.bod) / 1000;
   state.fmRatio = bodLoadKgDay / Math.max(1, state.biomassKg);
+}
 
+/** 阶段 5：出水水质。 */
+function solveEffluent(ctx: StepContext): number {
+  const { state, T, clar, lastReactor, Qe } = ctx;
   // 出水
-  const pacAllowed = !(state.scenario?.type === 'chemical_shortage' && scenarioEnvelope(state.scenario, state.timeMin) > 0.3);
+  const pacAllowed = !(
+    state.scenario?.type === 'chemical_shortage' && scenarioEnvelope(state.scenario, state.timeMin) > 0.3
+  );
   const pacDose = pacAllowed ? state.controls.pacDose : 0;
   const suspend = clar.xEff;
   /**
@@ -787,9 +852,7 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
    * 早期直接用 lastReactor.cod 导致出水 COD 被 clamp 到上限 900，
    * 而同一时刻氨氮、总氮都正常，掩盖了这个问题。
    */
-  const effluentSolubleCod = lastReactor.asm1
-    ? lastReactor.asm1.S_I + lastReactor.asm1.S_S
-    : lastReactor.cod;
+  const effluentSolubleCod = lastReactor.asm1 ? lastReactor.asm1.S_I + lastReactor.asm1.S_S : lastReactor.cod;
   const effluentCodValue = clamp(effluentSolubleCod + suspend * 1.3, 4, 900);
 
   state.effluent = {
@@ -804,7 +867,12 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
     ph: clamp(6.6 + 0.004 * (lastReactor.alkalinity - 40), 5.8, 8.7),
     temperature: T,
   };
+  return pacDose;
+}
 
+/** 阶段 6：能耗与成本。 */
+function solveEnergyAndCost(ctx: StepContext, o2DemandKgH: number, wasted: number, pacDose: number): void {
+  const { state, dtH, Q, Qr, rec } = ctx;
   // 能耗
   const anoxicVol = state.volume.anoxic + state.volume.anaerobic;
   const blowerKw = clamp(o2DemandKgH / KINETICS.saeKgO2PerKwh / 0.7, 5, 900) * (state.aerationCapacity > 0.02 ? 1 : 0);
@@ -834,13 +902,101 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
   state.costToday.chemical += chemCost;
   state.costToday.sludge += sludgeCost;
   state.costToday.total += energyCost + chemCost + sludgeCost;
+}
 
+/** 阶段 7：限值告警。 */
+function raiseLimitAlarms(state: NetworkSimState): void {
+  const clar = state.clarifier;
   const e = state.effluent;
   if (e.nh > LIMITS.nh) pushAlarm(state, 'critical', 'EFF_NH', `出水氨氮 ${e.nh.toFixed(2)} mg/L 超一级A`, 'nh', e.nh);
-  if (e.cod > LIMITS.cod) pushAlarm(state, 'critical', 'EFF_COD', `出水 COD ${e.cod.toFixed(1)} mg/L 超一级A`, 'cod', e.cod);
+  if (e.cod > LIMITS.cod)
+    pushAlarm(state, 'critical', 'EFF_COD', `出水 COD ${e.cod.toFixed(1)} mg/L 超一级A`, 'cod', e.cod);
   if (e.tp > LIMITS.tp) pushAlarm(state, 'warning', 'EFF_TP', `出水总磷 ${e.tp.toFixed(3)} mg/L 超一级A`, 'tp', e.tp);
   if (e.ss > LIMITS.ss) pushAlarm(state, 'warning', 'EFF_SS', `出水悬浮物 ${e.ss.toFixed(1)} mg/L 超一级A`, 'ss', e.ss);
-  if (clar.blanketM > clar.depth - 0.4) pushAlarm(state, 'critical', 'SLUDGE_BLANKET', `二沉池泥位 ${clar.blanketM.toFixed(2)} m 接近跑泥`, 'blanket', clar.blanketM);
+  if (clar.blanketM > clar.depth - 0.4)
+    pushAlarm(
+      state,
+      'critical',
+      'SLUDGE_BLANKET',
+      `二沉池泥位 ${clar.blanketM.toFixed(2)} m 接近跑泥`,
+      'blanket',
+      clar.blanketM,
+    );
+}
+
+/**
+ * 推进一个时间步。
+ *
+ * 七个阶段按固定顺序执行；每个阶段只碰自己那一块状态，
+ * 因此可以单独测试，也不会再出现"改出水逻辑却误伤生物量"的情况。
+ */
+export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin = 1): NetworkSimState {
+  if (dtMin <= 0) return state;
+  const dtH = dtMin / 60;
+  state.timeMin += dtMin;
+  state.rngCount += 1;
+
+  const net: CompiledNetwork = compileNetwork(topo);
+  if (net.problems.length) {
+    throw new Error(`运行中拓扑失效：${net.problems.join('；')}`);
+  }
+
+  const sup = toxicSuppression(state);
+  state.inhibition = sup;
+  state.aerationCapacity = aerationCapacityOf(state);
+  const rec = recycleOf(state);
+
+  const { influent, Q } = resolveHydraulics(state, dtH);
+  state.influent = influent;
+
+  const flows = resolveFlows(net, Q, {
+    ras: rec.ras,
+    ir: rec.ir,
+    was: rec.was,
+    stepFeed: state.controls.stepFeed,
+  });
+  state.edgeFlows = Object.fromEntries(flows.edgeFlow);
+
+  const byId = new Map(state.reactors.map((r) => [r.id, r]));
+  const xBiomass = clamp((state.biomassKg * 1000) / Math.max(1, state.volume.bio), 300, 14000);
+  const T = influent.temperature;
+  const Qr = Q * rec.ras;
+  const Qw = Q * rec.was;
+  const Qe = Math.max(1, Q - Qw);
+  const lastReactor = [...state.reactors].sort(
+    (a, b) => net.reactors.find((r) => r.id === b.id)!.order - net.reactors.find((r) => r.id === a.id)!.order,
+  )[0];
+
+  const ctx: StepContext = {
+    state,
+    net,
+    dtMin,
+    dtH,
+    influent,
+    sup,
+    rec,
+    flows,
+    Q,
+    Qr,
+    Qw,
+    Qe,
+    underflow: Qr + Qw,
+    xBiomass,
+    bf: xBiomass / DESIGN_MLSS,
+    T,
+    thetaH: Math.pow(KINETICS.thetaH, T - 20),
+    thetaN: Math.pow(KINETICS.thetaN, T - 20),
+    clar: state.clarifier,
+    lastReactor,
+    byId,
+  };
+
+  const oxidized = solveReactors(ctx);
+  const { wasted } = solveClarifier(ctx);
+  solveBiomass(ctx, oxidized, wasted);
+  const pacDose = solveEffluent(ctx);
+  solveEnergyAndCost(ctx, oxidized.o2DemandKgH, wasted, pacDose);
+  raiseLimitAlarms(state);
 
   return state;
 }
@@ -872,7 +1028,6 @@ export function startNetworkScenario(
   return state.scenario;
 }
 
-
 /**
  * 拓扑引擎的 PlantModel 实现：预测 = 克隆当前状态，按给定控制量推进。
  * 因为用的是同一份编译拓扑，预测与被控对象永远一致。
@@ -880,7 +1035,8 @@ export function startNetworkScenario(
 export function networkModel(topo: ProcessTopology, state: NetworkSimState): PlantModel {
   return {
     snapshot: () => networkSnapshot(state),
-    predict: (controls, horizonMin, sampleEveryMin) => runForecast(state, topo, controls, horizonMin, sampleEveryMin, null),
+    predict: (controls, horizonMin, sampleEveryMin) =>
+      runForecast(state, topo, controls, horizonMin, sampleEveryMin, null),
     predictWithScenario: (controls, horizonMin, sampleEveryMin, scenario) =>
       runForecast(state, topo, controls, horizonMin, sampleEveryMin, scenario),
   };
@@ -894,50 +1050,50 @@ function runForecast(
   sampleEveryMin: number,
   scenario: import('./scenarios').ScenarioType | null,
 ): import('./plantModel').ForecastOutcomeX {
-      const clone = structuredClone(state) as NetworkSimState;
-      clone.controls = { ...controls };
-      if (scenario) {
-        clone.scenario = { type: scenario, durationMin: 360, magnitude: 1, startedAt: clone.timeMin };
+  const clone = structuredClone(state) as NetworkSimState;
+  clone.controls = { ...controls };
+  if (scenario) {
+    clone.scenario = { type: scenario, durationMin: 360, magnitude: 1, startedAt: clone.timeMin };
+  }
+  const startCost = clone.cost.total;
+  const points: ReturnType<typeof networkModel> extends never ? never : import('./plantModel').ForecastPointX[] = [];
+  const violations: { metric: string; minute: number; value: number; limit: number }[] = [];
+  let peak = 0;
+  for (let m = 0; m < horizonMin; m++) {
+    stepNetwork(clone, topo, 1);
+    peak = Math.max(peak, clone.energy.totalKw);
+    if ((m + 1) % sampleEveryMin === 0) {
+      const e = clone.effluent;
+      const lastDo = clone.reactors[clone.reactors.length - 1]?.doLevel ?? 0;
+      points.push({
+        minute: m + 1,
+        effluent: { ...e },
+        doLevel: lastDo,
+        blanket: clone.clarifier.blanketM,
+        score: qualityScoreOf(e),
+        energyKw: clone.energy.totalKw,
+      });
+      const checks: [string, number, number][] = [
+        ['cod', e.cod, LIMITS.cod],
+        ['nh', e.nh, LIMITS.nh],
+        ['tn', e.tn, LIMITS.tn],
+        ['tp', e.tp, LIMITS.tp],
+        ['ss', e.ss, LIMITS.ss],
+      ];
+      for (const [metric, value, limit] of checks) {
+        if (value > limit) violations.push({ metric, minute: m + 1, value, limit });
       }
-      const startCost = clone.cost.total;
-      const points: ReturnType<typeof networkModel> extends never ? never : import('./plantModel').ForecastPointX[] = [];
-      const violations: { metric: string; minute: number; value: number; limit: number }[] = [];
-      let peak = 0;
-      for (let m = 0; m < horizonMin; m++) {
-        stepNetwork(clone, topo, 1);
-        peak = Math.max(peak, clone.energy.totalKw);
-        if ((m + 1) % sampleEveryMin === 0) {
-          const e = clone.effluent;
-          const lastDo = clone.reactors[clone.reactors.length - 1]?.doLevel ?? 0;
-          points.push({
-            minute: m + 1,
-            effluent: { ...e },
-            doLevel: lastDo,
-            blanket: clone.clarifier.blanketM,
-            score: qualityScoreOf(e),
-            energyKw: clone.energy.totalKw,
-          });
-          const checks: [string, number, number][] = [
-            ['cod', e.cod, LIMITS.cod],
-            ['nh', e.nh, LIMITS.nh],
-            ['tn', e.tn, LIMITS.tn],
-            ['tp', e.tp, LIMITS.tp],
-            ['ss', e.ss, LIMITS.ss],
-          ];
-          for (const [metric, value, limit] of checks) {
-            if (value > limit) violations.push({ metric, minute: m + 1, value, limit });
-          }
-        }
-      }
-      return {
-        points,
-        violations,
-        costDelta: clone.cost.total - startCost,
-        peakEnergyKw: peak,
-        endSrt: clone.srtDays,
-        endBlanket: clone.clarifier.blanketM,
-        endDilute: clone.inhibition,
-      };
+    }
+  }
+  return {
+    points,
+    violations,
+    costDelta: clone.cost.total - startCost,
+    peakEnergyKw: peak,
+    endSrt: clone.srtDays,
+    endBlanket: clone.clarifier.blanketM,
+    endDilute: clone.inhibition,
+  };
 }
 
 /** 兼容旧命名：网络引擎的出水评分与共享实现一致 */

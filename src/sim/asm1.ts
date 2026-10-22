@@ -188,11 +188,7 @@ export function buildRates(p = ASM1_PARAMS, temperatureC = p.T_REF) {
 
   return {
     aerobic_growth_heterotrophs: (s: Asm1State) =>
-      p.mu_H *
-      fMuH *
-      (s.S_S / (p.K_S + s.S_S)) *
-      (s.S_O / (p.K_O_H + s.S_O)) *
-      s.X_B_H,
+      p.mu_H * fMuH * (s.S_S / (p.K_S + s.S_S)) * (s.S_O / (p.K_O_H + s.S_O)) * s.X_B_H,
 
     /**
      * 缺氧生长。

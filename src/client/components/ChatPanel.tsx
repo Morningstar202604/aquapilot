@@ -77,7 +77,13 @@ export function ChatPanel({ chat, onAsk, connected, snap }: Props) {
         />
         <button className="send-btn" onClick={submit} disabled={!connected || !draft.trim()} aria-label="发送">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M2 8h11M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="M2 8h11M9 4l4 4-4 4"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </button>
       </div>

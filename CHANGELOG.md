@@ -1,40 +1,48 @@
 # Changelog
 
-All notable changes to this project are documented here.
+All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] — 2026-10-22
 
 ### Added
-- CI configuration for GitHub Actions, Gitee Go and GitCode
-- Local quality gate (`npm run ci`) mirroring CI in eight steps
-- Regression tests for input validation and crash boundaries (15)
-- Production-path AI tests running against the deployed engine (11)
+
+- **`/api/metrics`** in Prometheus text format, plus `?format=json` for humans.
+  Counters cover HTTP by route/status, auth failures, rate limiting, rejected
+  WebSocket frames, AI cycles, simulation ticks, and persistence flushes;
+  a latency histogram covers 5 ms – 10 s.
+- **Structured logging.** Every server event is a single JSON line with
+  `ts`/`level`/`msg` plus context. Credential-shaped fields are redacted, and
+  circular references degrade to `[circular]` instead of throwing.
+- **SLO definitions in code** (`src/server/observability.ts`) mirrored in
+  `docs/SLO.md`, with suggested alerting thresholds.
+- **Backup and restore.** `npm run backup -- create|restore|list` writes a
+  consistent snapshot via `VACUUM INTO` and refuses to restore a file it cannot
+  verify. Restore is a two-step operation: preflight by default, `--yes` to apply.
+- **Component tests** (jsdom + Testing Library) for the decision, alarm, control,
+  insights and chat panels — 17 cases covering render, callbacks and empty states.
+- **Layout regression tests** asserting that no flowsheet connection crosses a
+  unit body, and that corridor edges are not labelled.
+- **ESLint 9 + Prettier 3** with `npm run lint` / `npm run format` wired into
+  `npm run verify` and CI.
 
 ### Changed
-- `tsconfig` now enforces `noUnusedLocals` and `noUnusedParameters`
+
+- `stepNetwork` split into seven named phases (hydraulics, reactors, clarifier,
+  biomass, effluent, energy/cost, alarms). The simulation trajectory is
+  bit-identical before and after the split, for both kinetic models.
+- Coverage thresholds raised to lines 93 / branches 83 / functions 93.
+- Test count 245 → 307; branch coverage 83.79% → 85.23%.
+
+### Fixed
+
+- Today's operating cost in incremental snapshot patches used the lifetime
+  total, so the KPI grew linearly with simulated days.
+- Trend and replay x-axes printed `55h10` / `0h 0h 0h` instead of a clock.
 
 ## [0.1.0] — 2026-10-21
 
-### Added
-- Topology-driven simulation engine: reactor count and order derive from the
-  flowsheet rather than being hard-coded
-- ASM1 implementation (13 components, 8 processes) with stoichiometry derived
-  from parameters; nitrogen and alkalinity conservation verified to machine
-  precision
-- Takács ten-layer secondary clarifier, calibrated against BSM1-scale operating
-  points for effluent suspended solids and solids loading
-- AI operator: rolling 4-hour forecast, candidate scoring on compliance margin,
-  cost and stability, hard guardrails on dissolved oxygen, PAC dose and SRT
-- Control-room UI: SVG flowsheet with three lanes, live trends, decision
-  explanations, scenario injection
-- Visual flowsheet editor with structural and run-readiness validation
-- Eight scenarios: storm, shock load, toxicity, blower failure, RAS failure,
-  power outage, winter, chemical shortage
-
-### Security
-- Runtime validation on every inbound client message
-- Path-traversal rejection in static file serving
-- WebSocket origin allowlist, payload cap and heartbeat
-- Crash boundaries around the tick loop and message handler
+Initial public version: topology-driven A²/O simulation, ASM1 kinetics, Takács
+ten-layer clarifier, AI operator with guardrails, flowsheet editor, replay, and
+a bilingual README.

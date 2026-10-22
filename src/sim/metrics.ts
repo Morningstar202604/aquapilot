@@ -27,7 +27,14 @@ export function clampControls(c: ControlSettings): ControlSettings {
 
 /** 0–100 的出水综合评分：最差指标超标重罚，整体裕度轻罚 */
 export function qualityScore(e: EffluentState): number {
-  const ratios = [e.cod / LIMITS.cod, e.bod / LIMITS.bod, e.ss / LIMITS.ss, e.nh / LIMITS.nh, e.tn / LIMITS.tn, e.tp / LIMITS.tp];
+  const ratios = [
+    e.cod / LIMITS.cod,
+    e.bod / LIMITS.bod,
+    e.ss / LIMITS.ss,
+    e.nh / LIMITS.nh,
+    e.tn / LIMITS.tn,
+    e.tp / LIMITS.tp,
+  ];
   const worst = Math.max(...ratios);
   const mean = ratios.reduce((a, b) => a + b, 0) / ratios.length;
   return Math.round(clamp(100 - Math.max(0, worst - 0.5) * 100 - Math.max(0, mean - 0.45) * 40, 0, 100));

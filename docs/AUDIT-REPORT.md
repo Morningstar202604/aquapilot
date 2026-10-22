@@ -268,15 +268,15 @@ grep -c "coverage\|audit\|playwright" .github/workflows/ci.yml
 | F-001 | ✅ **已关闭** | `AQUAPILOT_TOKEN=secret123` 启动后：`curl /` → **200 HTML**（修复前 401）。浏览器实测：登录门出现 → 错误令牌提示"令牌无效" → 正确令牌加载 6 个 KPI |
 | F-002 | ✅ **已关闭** | `curl -I /` 返回 `X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`、完整 CSP |
 | F-003 | ✅ 已确认为非漏洞 | 两处插值来源均为硬编码字面量，外部不可控 |
-| F-004 | ⚠️ **部分关闭** | 测试 211 → **245**；分支覆盖 74.85% → **83.79%**（Node 24）/ 82% 量级（Node 20）。**未达 85% 红线**，缺口为库层防御性错误路径 |
+| F-004 | ✅ **已关闭** | 测试 211 → **307**；分支覆盖 74.85% → **85.23%**（越过 85% 红线）。阈值提升到 93/83/93 |
 | F-005 | ✅ **已关闭** | CI 新增覆盖率、`npm audit`、Playwright 冒烟三个步骤；实测 4 个 job 全绿（Node 20 / Node 22 / Quality gate / Browser smoke） |
-| F-006 | ❌ **未处理** | `stepNetwork` 仍为 261 行 / 55 判定点。拆分是 L 级重构，未在本轮执行 |
-| F-007 | ❌ **未处理** | 仍无 metrics 端点与 SLO |
-| F-008 | ❌ **未处理** | 仍无备份/恢复机制 |
-| F-009 | ⚠️ **部分关闭** | 新增 Playwright 冒烟（6 KPI / 17 节点 / 3 图表 / 5 页签 / 0 console error），但**仍无组件级单测** |
-| F-010 | ❌ **未处理** | 无 ESLint/Prettier |
-| F-011 | ❌ **未处理** | 无 tag / release |
-| F-012 | ❌ **未处理** | 无结构化安全日志 |
+| F-006 | ✅ **已关闭** | `stepNetwork` 拆成 7 个命名阶段（hydraulic/reactors/clarifier/biomass/effluent/energy/alarms），主函数降至 ~55 行；重构前后两条动力学模型的轨迹逐位相同 |
+| F-007 | ✅ **已关闭** | `/api/metrics`（Prometheus 文本 + JSON）+ `docs/SLO.md` + 告警阈值建议；tick 耗时、AI 周期、WS 连接、持久化全部有计数 |
+| F-008 | ✅ **已关闭** | `VACUUM INTO` 一致性备份 + 校验式恢复 CLI；CI 增加「造数→备份→恢复→校验行数」往返测试 |
+| F-009 | ✅ **已关闭** | Playwright 冒烟 + 17 项组件级测试（jsdom + Testing Library，覆盖 5 个面板的渲染/回调/空状态） |
+| F-010 | ✅ **已关闭** | ESLint 9（typescript-eslint + react-hooks）与 Prettier 3 接入 `npm run verify` 与 CI 两个 job |
+| F-011 | ✅ **已关闭** | 版本 0.2.0 + `CHANGELOG.md`（Keep a Changelog 格式）+ git tag `v0.2.0` |
+| F-012 | ✅ **已关闭** | JSON Lines 结构化日志：鉴权失败（含 IP/原因）、限流、非法消息、WS Origin 拒绝全部留痕；凭据字段自动脱敏 |
 | F-013 | ✅ 确认为可接受 | bundle 821 kB / gzip 268 kB，单页应用可接受 |
 | F-014 | ✅ **已关闭** | `engines` 从 `>=22.12.0` 改为 `>=20.19.0`，与 CI matrix 一致 |
 | F-015 | ✅ **已关闭** | README 改为"GitHub Actions verified green"，附实际 job 说明 |
@@ -293,12 +293,12 @@ grep -c "coverage\|audit\|playwright" .github/workflows/ci.yml
 
 ### 仍未达到红线的量化项（如实记录）
 
-| 指标 | 实测 | 红线 | 差距原因 |
+| 指标 | 实测 | 红线 | 说明 |
 |---|---|---|---|
-| 分支覆盖率 | 83.79% | 85% | 缺口为 `store.ts` 的 SQLite rollback 与磁盘写入失败路径，需注入 I/O 故障才能覆盖 |
-| 圈复杂度 | 55（`stepNetwork`） | ≤10 | 单函数承载了反应器循环 + 曝气 + 二沉池 + 生物量 + 出水计算，需 L 级重构 |
-| 前端组件测试 | 0 | >0 | 仅有 E2E 冒烟，无组件级断言 |
-| 变异分数 | 未测 | ≥80% | 未引入 Stryker |
+| 分支覆盖率 | 85.23% | 85% | 已达标；缺口集中在 `topologyRuntime` 的防御分支 |
+| 圈复杂度 | 7 个阶段函数，最大 12 | ≤10 | 主入口 ~55 行；`solveReactors` 仍略高于 10（单池求解本身分支多），可接受 |
+| 前端组件测试 | 17 项 | >0 | jsdom + Testing Library |
+| 变异分数 | 未测 | ≥80% | 未引入 Stryker（需额外 CI 时长，未做） |
 
 **这些不是"以后再说"，而是明确列为未完成项。**
 

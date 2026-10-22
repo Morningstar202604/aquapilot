@@ -41,10 +41,38 @@ export function InsightsPanel({ snap, aiEnabled }: Props) {
       <div>
         <div className="section-label">AI 值守 vs 人工基准</div>
         <div className="compare-grid">
-          <Metric label="吨水电耗" actual={actualKwhPerM3.toFixed(3)} unit="kWh/m³" baseline={MANUAL_BASELINE.specificKwh.toFixed(3)} delta={energyDelta} better="lower" />
-          <Metric label="PAC 投加" actual={snap.controls.pacDose.toFixed(0)} unit="mg/L" baseline={MANUAL_BASELINE.pacDose.toFixed(0)} delta={pacSaving} better="lower" />
-          <Metric label="出水裕度" actual={`${(margin.ratio * 100).toFixed(0)}%`} unit={margin.metric} baseline="85%" delta={85 - margin.ratio * 100} better="lower" />
-          <Metric label="日运行成本" actual={(costPerDay / 1000).toFixed(1)} unit="千元" baseline={(baselineCostPerDay / 1000).toFixed(1)} delta={costDelta} better="lower" />
+          <Metric
+            label="吨水电耗"
+            actual={actualKwhPerM3.toFixed(3)}
+            unit="kWh/m³"
+            baseline={MANUAL_BASELINE.specificKwh.toFixed(3)}
+            delta={energyDelta}
+            better="lower"
+          />
+          <Metric
+            label="PAC 投加"
+            actual={snap.controls.pacDose.toFixed(0)}
+            unit="mg/L"
+            baseline={MANUAL_BASELINE.pacDose.toFixed(0)}
+            delta={pacSaving}
+            better="lower"
+          />
+          <Metric
+            label="出水裕度"
+            actual={`${(margin.ratio * 100).toFixed(0)}%`}
+            unit={margin.metric}
+            baseline="85%"
+            delta={85 - margin.ratio * 100}
+            better="lower"
+          />
+          <Metric
+            label="日运行成本"
+            actual={(costPerDay / 1000).toFixed(1)}
+            unit="千元"
+            baseline={(baselineCostPerDay / 1000).toFixed(1)}
+            delta={costDelta}
+            better="lower"
+          />
         </div>
         <div className="control-hint" style={{ marginTop: 8 }}>
           基准值为人工经验控制下的同规模水厂典型运行区间，用于对照，不代表同一时段的实测。

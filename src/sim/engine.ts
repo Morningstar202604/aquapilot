@@ -12,18 +12,18 @@
  * 改动本文件不会影响线上行为；改动力学请同步 networkEngine。
  */
 
-import {
-  BIO_VOLUME,
-  ControlSettings,
-  DEFAULT_CONTROLS,
-  INFLUENT_DESIGN,
-  LIMITS,
-  PLANT,
-  TankConfig,
-} from './config';
+import { BIO_VOLUME, ControlSettings, DEFAULT_CONTROLS, INFLUENT_DESIGN, LIMITS, PLANT, TankConfig } from './config';
 import { mulberry32 } from './rng';
 import { ScenarioSpec, SCENARIOS } from './scenarios';
-import type { Alarm, ClarifierState, CostState, EffluentState, EnergyState, InfluentState, TankState } from './plantTypes';
+import type {
+  Alarm,
+  ClarifierState,
+  CostState,
+  EffluentState,
+  EnergyState,
+  InfluentState,
+  TankState,
+} from './plantTypes';
 import { clamp, clampControls, qualityScore, estimateMargin } from './metrics';
 import { KINETICS, DESIGN_MLSS, TARIFF } from './kinetics';
 
@@ -103,11 +103,21 @@ export function createInitialState(options: EngineOptions = {}): SimState {
       area: PLANT.clarifier.area,
       depth: PLANT.clarifier.depth,
     },
-    effluent: { flow: INFLUENT_DESIGN.flow, cod: 30, bod: 7, ss: 5, nh: 1.6, tn: 11, tp: 0.35, ph: 7.2, temperature: 20 },
+    effluent: {
+      flow: INFLUENT_DESIGN.flow,
+      cod: 30,
+      bod: 7,
+      ss: 5,
+      nh: 1.6,
+      tn: 11,
+      tp: 0.35,
+      ph: 7.2,
+      temperature: 20,
+    },
     controls,
     scenario: null,
     energy: { blowerKw: 380, mixerKw: 26, pumpKw: 62, totalKw: 468, specificKwhM3: 0.234 },
-    biomassKg: DESIGN_MLSS * volume / 1000,
+    biomassKg: (DESIGN_MLSS * volume) / 1000,
     srtDays: 18,
     fmRatio: 0.12,
     inhibition: 1,
@@ -166,7 +176,7 @@ function deriveInfluent(state: SimState): InfluentState {
   let tp = base.tp * noise(0.04);
   let ss = base.ss * noise(0.05);
   let temperature = seasonalTemperature(state.timeMin) + rng.normal() * 0.15;
-  let ph = base.ph + rng.normal() * 0.05;
+  const ph = base.ph + rng.normal() * 0.05;
   let alkalinity = base.alkalinity * noise(0.02);
 
   const type = state.scenario?.type;
@@ -312,7 +322,7 @@ export function step(state: SimState, dtMin = 1): SimState {
 
   const thetaH = Math.pow(KINETICS.thetaH, T - 20);
   const thetaN = Math.pow(KINETICS.thetaN, T - 20);
-  const xBiomass = clamp(state.biomassKg * 1000 / BIO_VOLUME, 500, 12000);
+  const xBiomass = clamp((state.biomassKg * 1000) / BIO_VOLUME, 500, 12000);
   const bf = xBiomass / DESIGN_MLSS;
 
   const ras = state.tanks[state.tanks.length - 1];
@@ -499,7 +509,9 @@ export function step(state: SimState, dtMin = 1): SimState {
   const biomassOut = ((Qw * clar.xRas + Qe * clar.xEff) / 1000) * dtH;
   state.biomassKg = clamp(state.biomassKg + (growth - decay - stressDecay) * dtH - biomassOut, 8000, 300000);
 
-  const pacActive = !(state.scenario?.type === 'chemical_shortage' && scenarioEnvelope(state.scenario, state.timeMin) > 0.3);
+  const pacActive = !(
+    state.scenario?.type === 'chemical_shortage' && scenarioEnvelope(state.scenario, state.timeMin) > 0.3
+  );
   const pacDose = pacActive ? state.controls.pacDose : 0;
   const netO2KgH = o2DemandKgH;
 
@@ -566,15 +578,35 @@ export function step(state: SimState, dtMin = 1): SimState {
   state.totalOutflowM3 += Qe * dtH;
 
   const e = state.effluent;
-  if (e.nh > LIMITS.nh) pushAlarm(state, 'critical', 'EFF_NH', `出水氨氮 ${e.nh.toFixed(2)} mg/L 超一级A（${LIMITS.nh}）`, 'nh', e.nh);
-  if (e.tp > LIMITS.tp) pushAlarm(state, 'warning', 'EFF_TP', `出水总磷 ${e.tp.toFixed(2)} mg/L 超一级A（${LIMITS.tp}）`, 'tp', e.tp);
-  if (e.cod > LIMITS.cod) pushAlarm(state, 'critical', 'EFF_COD', `出水 COD ${e.cod.toFixed(1)} mg/L 超一级A（${LIMITS.cod}）`, 'cod', e.cod);
-  if (e.ss > LIMITS.ss) pushAlarm(state, 'warning', 'EFF_SS', `出水悬浮物 ${e.ss.toFixed(1)} mg/L 超一级A（${LIMITS.ss}）`, 'ss', e.ss);
-  if (final.do < 1.0) pushAlarm(state, 'warning', 'DO_LOW', `好氧区溶解氧 ${final.do.toFixed(2)} mg/L，低于工艺下限`, 'do', final.do);
+  if (e.nh > LIMITS.nh)
+    pushAlarm(state, 'critical', 'EFF_NH', `出水氨氮 ${e.nh.toFixed(2)} mg/L 超一级A（${LIMITS.nh}）`, 'nh', e.nh);
+  if (e.tp > LIMITS.tp)
+    pushAlarm(state, 'warning', 'EFF_TP', `出水总磷 ${e.tp.toFixed(2)} mg/L 超一级A（${LIMITS.tp}）`, 'tp', e.tp);
+  if (e.cod > LIMITS.cod)
+    pushAlarm(state, 'critical', 'EFF_COD', `出水 COD ${e.cod.toFixed(1)} mg/L 超一级A（${LIMITS.cod}）`, 'cod', e.cod);
+  if (e.ss > LIMITS.ss)
+    pushAlarm(state, 'warning', 'EFF_SS', `出水悬浮物 ${e.ss.toFixed(1)} mg/L 超一级A（${LIMITS.ss}）`, 'ss', e.ss);
+  if (final.do < 1.0)
+    pushAlarm(state, 'warning', 'DO_LOW', `好氧区溶解氧 ${final.do.toFixed(2)} mg/L，低于工艺下限`, 'do', final.do);
   if (clar.blanketM > clarifierDepth - 0.4) {
-    pushAlarm(state, 'critical', 'SLUDGE_BLANKET', `二沉池污泥界面 ${clar.blanketM.toFixed(2)} m，存在跑泥风险`, 'blanket', clar.blanketM);
+    pushAlarm(
+      state,
+      'critical',
+      'SLUDGE_BLANKET',
+      `二沉池污泥界面 ${clar.blanketM.toFixed(2)} m，存在跑泥风险`,
+      'blanket',
+      clar.blanketM,
+    );
   }
-  if (state.srtDays < 8) pushAlarm(state, 'warning', 'SRT_LOW', `污泥龄 ${state.srtDays.toFixed(1)} d，硝化菌群可能流失`, 'srt', state.srtDays);
+  if (state.srtDays < 8)
+    pushAlarm(
+      state,
+      'warning',
+      'SRT_LOW',
+      `污泥龄 ${state.srtDays.toFixed(1)} d，硝化菌群可能流失`,
+      'srt',
+      state.srtDays,
+    );
 
   return state;
 }
@@ -678,4 +710,3 @@ export function forecast(
     end: sim,
   };
 }
-

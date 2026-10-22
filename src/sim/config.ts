@@ -48,9 +48,7 @@ export const PLANT = {
 } as const;
 
 export const BIO_VOLUME = PLANT.tanks.reduce((sum, t) => sum + t.volume, 0);
-export const AEROBIC_VOLUME = PLANT.tanks
-  .filter((t) => t.kind === 'aerobic')
-  .reduce((sum, t) => sum + t.volume, 0);
+export const AEROBIC_VOLUME = PLANT.tanks.filter((t) => t.kind === 'aerobic').reduce((sum, t) => sum + t.volume, 0);
 
 export interface ControlSettings {
   doSetpoint: number;

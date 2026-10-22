@@ -14,6 +14,7 @@ import { PLANT_TOPOLOGY, ProcessTopology, validateTopology } from '../model/topo
 import { applyTopology, checkRunReadiness, createRuntime } from './topologyRuntime';
 import { Store } from './store';
 import { authRequired, authorize } from './auth';
+import { logger, metrics, metricsJson, recordHttp, recordTick, renderPrometheus } from './observability';
 import {
   VALID_SCENARIOS,
   sanitizeBoolean,
@@ -168,7 +169,10 @@ function buildSnapshot(): PlantSnapshot {
     fmRatio: s.fmRatio,
     score: qualityScoreOf(effluent),
     margins: estimateMargin(effluent),
-    alarms: s.alarms.slice(-20).reverse().map((a) => ({ ...a })),
+    alarms: s.alarms
+      .slice(-20)
+      .reverse()
+      .map((a) => ({ ...a })),
     activeAlarms: currentAlarms(s),
     trends: runtime.trend,
     forecast: fc
@@ -206,18 +210,34 @@ function currentAlarms(s: NetworkSimState) {
   const push = (code: string, severity: 'warning' | 'critical', message: string, metric: string, value: number) => {
     out.push({ id: `LIVE-${code}`, at: s.timeMin, severity, code, message, metric, value });
   };
-  if (s.effluent.nh > LIMITS.nh) push('EFF_NH', 'critical', `出水氨氮 ${s.effluent.nh.toFixed(2)} mg/L 超限`, 'nh', s.effluent.nh);
-  if (s.effluent.cod > LIMITS.cod) push('EFF_COD', 'critical', `出水 COD ${s.effluent.cod.toFixed(1)} mg/L 超限`, 'cod', s.effluent.cod);
-  if (s.effluent.tp > LIMITS.tp) push('EFF_TP', 'warning', `出水总磷 ${s.effluent.tp.toFixed(3)} mg/L 超限`, 'tp', s.effluent.tp);
-  if (s.effluent.ss > LIMITS.ss) push('EFF_SS', 'warning', `出水悬浮物 ${s.effluent.ss.toFixed(1)} mg/L 超限`, 'ss', s.effluent.ss);
-  if (last && last.doLevel < 1) push('DO_LOW', 'warning', `好氧区溶解氧 ${last.doLevel.toFixed(2)} mg/L 低于下限`, 'do', last.doLevel);
+  if (s.effluent.nh > LIMITS.nh)
+    push('EFF_NH', 'critical', `出水氨氮 ${s.effluent.nh.toFixed(2)} mg/L 超限`, 'nh', s.effluent.nh);
+  if (s.effluent.cod > LIMITS.cod)
+    push('EFF_COD', 'critical', `出水 COD ${s.effluent.cod.toFixed(1)} mg/L 超限`, 'cod', s.effluent.cod);
+  if (s.effluent.tp > LIMITS.tp)
+    push('EFF_TP', 'warning', `出水总磷 ${s.effluent.tp.toFixed(3)} mg/L 超限`, 'tp', s.effluent.tp);
+  if (s.effluent.ss > LIMITS.ss)
+    push('EFF_SS', 'warning', `出水悬浮物 ${s.effluent.ss.toFixed(1)} mg/L 超限`, 'ss', s.effluent.ss);
+  if (last && last.doLevel < 1)
+    push('DO_LOW', 'warning', `好氧区溶解氧 ${last.doLevel.toFixed(2)} mg/L 低于下限`, 'do', last.doLevel);
   if (s.clarifier.blanketM > s.clarifier.depth - 0.4)
-    push('SLUDGE_BLANKET', 'critical', `二沉池泥位 ${s.clarifier.blanketM.toFixed(2)} m 接近跑泥`, 'blanket', s.clarifier.blanketM);
+    push(
+      'SLUDGE_BLANKET',
+      'critical',
+      `二沉池泥位 ${s.clarifier.blanketM.toFixed(2)} m 接近跑泥`,
+      'blanket',
+      s.clarifier.blanketM,
+    );
   if (s.srtDays < 8) push('SRT_LOW', 'warning', `污泥龄 ${s.srtDays.toFixed(1)} d 偏低`, 'srt', s.srtDays);
   return out;
 }
 
-function topologyMessage(): { type: 'topology'; data: ProcessTopology; dirty: boolean; readiness: ReturnType<typeof checkRunReadiness> } {
+function topologyMessage(): {
+  type: 'topology';
+  data: ProcessTopology;
+  dirty: boolean;
+  readiness: ReturnType<typeof checkRunReadiness>;
+} {
   return {
     type: 'topology',
     data: runtime.topology,
@@ -298,7 +318,15 @@ function broadcastSnapshot(): void {
 
 function runAiCycle(force = false): Recommendation {
   const model = networkModel(runtime.topology, runtime.net);
-  const rec = decide({ model, horizonMin: 240 });
+  let rec: Recommendation;
+  try {
+    rec = decide({ model, horizonMin: 240 });
+    metrics.aiCycles += 1;
+  } catch (err) {
+    metrics.aiCycleErrors += 1;
+    logger.error('ai cycle failed', { error: String(err) });
+    throw err;
+  }
   runtime.recommendation = rec;
 
   // 人工优先期内不自动执行，只记录建议
@@ -387,10 +415,16 @@ function rateLimited(ws: WebSocket, kind: 'control' | 'topology'): boolean {
   const state = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, trendCount: 0 };
   const now = Date.now();
   if (kind === 'control') {
-    if (now - state.lastControlAt < RATE_LIMIT.controlMs) return true;
+    if (now - state.lastControlAt < RATE_LIMIT.controlMs) {
+      metrics.rateLimited += 1;
+      return true;
+    }
     state.lastControlAt = now;
   } else {
-    if (now - state.lastTopologyAt < RATE_LIMIT.topologyMs) return true;
+    if (now - state.lastTopologyAt < RATE_LIMIT.topologyMs) {
+      metrics.rateLimited += 1;
+      return true;
+    }
     state.lastTopologyAt = now;
   }
   runtime.clientState.set(ws, state);
@@ -402,6 +436,8 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
   try {
     parsed = JSON.parse(raw);
   } catch {
+    metrics.invalidMessages += 1;
+    logger.warn('ws message rejected', { reason: 'malformed-json', bytes: raw.length });
     ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '消息格式错误' } satisfies ServerMessage));
     return;
   }
@@ -409,6 +445,8 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
   // 形状校验：JSON.parse 的结果是任意值，null/数组/缺 type 都必须挡在这里
   const shaped = sanitizeMessage(parsed);
   if (!shaped) {
+    metrics.invalidMessages += 1;
+    logger.warn('ws message rejected', { reason: 'bad-shape' });
     ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '消息结构不合法' } satisfies ServerMessage));
     return;
   }
@@ -433,7 +471,13 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
     case 'chat': {
       const text = sanitizeChatText((msg as { text?: unknown }).text);
       if (text === null) {
-        ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '问题为空或过长（上限 2000 字）' } satisfies ServerMessage));
+        ws.send(
+          JSON.stringify({
+            type: 'notice',
+            level: 'error',
+            text: '问题为空或过长（上限 2000 字）',
+          } satisfies ServerMessage),
+        );
         break;
       }
       const contextual = answer(text, networkModel(runtime.topology, runtime.net), runtime.recommendation);
@@ -442,12 +486,20 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
     }
     case 'control': {
       if (rateLimited(ws, 'control')) {
-        ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '操作过于频繁，请稍后再试' } satisfies ServerMessage));
+        ws.send(
+          JSON.stringify({ type: 'notice', level: 'error', text: '操作过于频繁，请稍后再试' } satisfies ServerMessage),
+        );
         break;
       }
       const result = sanitizeControlPatch((msg as { patch?: unknown }).patch);
       if (!result.ok) {
-        ws.send(JSON.stringify({ type: 'notice', level: 'error', text: `控制参数非法：${result.error}` } satisfies ServerMessage));
+        ws.send(
+          JSON.stringify({
+            type: 'notice',
+            level: 'error',
+            text: `控制参数非法：${result.error}`,
+          } satisfies ServerMessage),
+        );
         break;
       }
       runtime.net.controls = {
@@ -475,7 +527,9 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
     case 'aiEnabled': {
       const enabled = sanitizeBoolean((msg as { enabled?: unknown }).enabled);
       if (enabled === null) {
-        ws.send(JSON.stringify({ type: 'notice', level: 'error', text: 'aiEnabled 必须是布尔值' } satisfies ServerMessage));
+        ws.send(
+          JSON.stringify({ type: 'notice', level: 'error', text: 'aiEnabled 必须是布尔值' } satisfies ServerMessage),
+        );
         break;
       }
       runtime.net.controls.aiEnabled = enabled;
@@ -510,7 +564,12 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         const meta = SCENARIOS[scenarioType as ScenarioType];
         runtime.net.scenario = {
           type: scenarioType as ScenarioType,
-          durationMin: sanitizeRange((msg as { durationMin?: unknown }).durationMin, 10, 10080, meta.defaultDurationMin),
+          durationMin: sanitizeRange(
+            (msg as { durationMin?: unknown }).durationMin,
+            10,
+            10080,
+            meta.defaultDurationMin,
+          ),
           magnitude: sanitizeRange((msg as { magnitude?: unknown }).magnitude, 0, 30, meta.defaultMagnitude),
           startedAt: runtime.net.timeMin,
         };
@@ -539,7 +598,13 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
     case 'speed': {
       const speed = sanitizeSpeed((msg as { value?: unknown }).value);
       if (speed === null) {
-        ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '速度必须是 0.25–8 之间的数值' } satisfies ServerMessage));
+        ws.send(
+          JSON.stringify({
+            type: 'notice',
+            level: 'error',
+            text: '速度必须是 0.25–8 之间的数值',
+          } satisfies ServerMessage),
+        );
         break;
       }
       runtime.speed = speed;
@@ -558,7 +623,13 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       }
       if (msg.action === 'apply') {
         if (rateLimited(ws, 'topology')) {
-          ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '拓扑变更过于频繁，请稍后再试' } satisfies ServerMessage));
+          ws.send(
+            JSON.stringify({
+              type: 'notice',
+              level: 'error',
+              text: '拓扑变更过于频繁，请稍后再试',
+            } satisfies ServerMessage),
+          );
           break;
         }
         const incoming = (msg as { topology?: unknown }).topology;
@@ -578,7 +649,9 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
           result = applyTopology(rt, incoming as ProcessTopology);
         } catch (err) {
           const reason = err instanceof Error ? err.message : String(err);
-          ws.send(JSON.stringify({ type: 'notice', level: 'error', text: `拓扑应用失败：${reason}` } satisfies ServerMessage));
+          ws.send(
+            JSON.stringify({ type: 'notice', level: 'error', text: `拓扑应用失败：${reason}` } satisfies ServerMessage),
+          );
           break;
         }
         if (!result.ok) {
@@ -601,7 +674,11 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         runtime.trend = [];
         pushTrend(runtime.net, runtime.trend);
         runAiCycle(true);
-        broadcast({ type: 'notice', level: 'info', text: `工艺拓扑已应用（第 ${runtime.topologyRevision} 版），厂已按新拓扑重建并完成预热。` });
+        broadcast({
+          type: 'notice',
+          level: 'info',
+          text: `工艺拓扑已应用（第 ${runtime.topologyRevision} 版），厂已按新拓扑重建并完成预热。`,
+        });
         broadcast({ ...topologyMessage() } satisfies ServerMessage);
         broadcastSnapshot();
       }
@@ -672,6 +749,12 @@ async function main(): Promise<void> {
   await store.open();
 
   const server = createServer((req, res) => {
+    const startedHr = process.hrtime.bigint();
+    res.on('finish', () => {
+      const seconds = Number(process.hrtime.bigint() - startedHr) / 1e9;
+      recordHttp(req.method ?? 'GET', req.url ?? '/', res.statusCode, seconds);
+    });
+
     /**
      * 访问控制只作用于 API 与 WebSocket，不拦静态资源。
      *
@@ -686,6 +769,13 @@ async function main(): Promise<void> {
     if (isApi && !isPublic) {
       const decision = authorize(req);
       if (!decision.allowed) {
+        metrics.authFailures += 1;
+        logger.warn('auth rejected', {
+          scope: 'http',
+          route: req.url?.split('?')[0],
+          reason: decision.reason,
+          ip: req.socket.remoteAddress,
+        });
         res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: decision.reason, authRequired: true }));
         return;
@@ -706,8 +796,50 @@ async function main(): Promise<void> {
       return;
     }
     if (req.url?.startsWith('/api/health')) {
+      /**
+       * 健康检查分两级：
+       * - 默认 /api/health：存活探针，只要进程能响应就是 200（用于 restart 判断）
+       * - ?deep=1：就绪探针，额外检查仿真是否在推进、持久化是否可用
+       *
+       * 早期实现无条件返回 {ok:true}，tick 已经因异常停摆也照样"健康"，
+       * 这对自动重启策略来说是假信号。
+       */
+      const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
+      const deep = url.searchParams.get('deep') === '1';
+      const body: Record<string, unknown> = {
+        ok: true,
+        authRequired: authRequired(),
+        uptimeSeconds: Math.round(process.uptime()),
+      };
+      if (deep) {
+        const stalled = runtime.paused && metrics.tickErrors > 0;
+        const body2 = {
+          ...body,
+          ok: !stalled,
+          paused: runtime.paused,
+          tickErrors: metrics.tickErrors,
+          lastTickMs: Number(metrics.lastTickMs.toFixed(1)),
+          persistence: store.enabled ? 'enabled' : 'disabled',
+          simulationMinutes: Math.round(runtime.net.timeMin),
+        };
+        res.writeHead(stalled ? 503 : 200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(body2));
+        return;
+      }
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ ok: true, authRequired: authRequired() }));
+      res.end(JSON.stringify(body));
+      return;
+    }
+    if (req.url?.startsWith('/api/metrics')) {
+      // Prometheus 抓取默认走文本；?format=json 便于人读与前端展示
+      const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
+      if (url.searchParams.get('format') === 'json') {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(metricsJson()));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
+      res.end(renderPrometheus());
       return;
     }
     if (req.url?.startsWith('/api/limits')) {
@@ -797,22 +929,38 @@ async function main(): Promise<void> {
       // 访问控制优先：令牌不对直接拒绝，不再看 Origin
       const subprotocol = info.req.headers['sec-websocket-protocol'];
       const protoToken =
-        typeof subprotocol === 'string' ? subprotocol.split(',').map((x) => x.trim()).find((x) => x.startsWith('token.'))?.slice(6) : null;
-      if (!authorize(info.req, protoToken).allowed) return false;
+        typeof subprotocol === 'string'
+          ? subprotocol
+              .split(',')
+              .map((x) => x.trim())
+              .find((x) => x.startsWith('token.'))
+              ?.slice(6)
+          : null;
+      const verdict = authorize(info.req, protoToken);
+      if (!verdict.allowed) {
+        metrics.authFailures += 1;
+        logger.warn('auth rejected', { scope: 'ws', reason: verdict.reason, ip: info.req.socket.remoteAddress });
+        return false;
+      }
 
       const origin = info.origin;
       if (!origin) return true; // 非浏览器客户端（curl / 测试）
       if (authRequired()) return true; // 已通过令牌校验，允许跨主机使用
       try {
         const host = new URL(origin).hostname;
-        return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+        const allowed = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+        if (!allowed) logger.warn('ws origin rejected', { origin });
+        return allowed;
       } catch {
+        logger.warn('ws origin unparsable', { origin });
         return false;
       }
     },
   });
 
   wss.on('connection', (ws) => {
+    metrics.wsConnections += 1;
+    logger.info('ws connected', { clients: runtime.clients.size + 1 });
     runtime.clients.add(ws);
     ws.on('message', (data) => {
       // 单条消息的处理绝不能冒泡到进程级
@@ -828,10 +976,13 @@ async function main(): Promise<void> {
       }
     });
     ws.on('close', () => {
+      metrics.wsDisconnections += 1;
       runtime.clients.delete(ws);
       runtime.clientState.delete(ws);
     });
-    ws.on('error', () => {
+    ws.on('error', (err) => {
+      metrics.wsDisconnections += 1;
+      logger.warn('ws error', { error: String(err) });
       runtime.clients.delete(ws);
       runtime.clientState.delete(ws);
     });
@@ -844,11 +995,15 @@ async function main(): Promise<void> {
 
   setInterval(() => {
     if (runtime.paused) return;
+    const t0 = process.hrtime.bigint();
     try {
       advance();
+      recordTick(Number(process.hrtime.bigint() - t0) / 1e6);
     } catch (err) {
       // 仿真步进失败不应终止服务：暂停并广播，等待人工介入
-      console.error('simulation tick failed', err);
+      metrics.tickErrors += 1;
+      metrics.simTicks += 1;
+      logger.error('simulation tick failed', { error: String(err) });
       runtime.paused = true;
       broadcast({ type: 'notice', level: 'error', text: '仿真步进异常，已暂停。请检查参数或重置。' });
     }
@@ -859,8 +1014,15 @@ async function main(): Promise<void> {
   runtime.net.controls.aiEnabled = true;
 
   server.listen(PORT, () => {
-    console.log(`AquaPilot 仿真服务已启动：http://127.0.0.1:${PORT}`);
-    console.log(`WebSocket: ws://127.0.0.1:${PORT}/ws | 速度 ${runtime.speed}x | 每 tick ${SIM_MINUTES_PER_TICK} 仿真分钟`);
+    logger.info('aquapilot listening', {
+      url: `http://127.0.0.1:${PORT}`,
+      ws: `ws://127.0.0.1:${PORT}/ws`,
+      speed: runtime.speed,
+      simMinutesPerTick: SIM_MINUTES_PER_TICK,
+      persistence: store.enabled,
+      authRequired: authRequired(),
+      runId: RUN_ID,
+    });
   });
 }
 
@@ -874,6 +1036,6 @@ process.on('SIGTERM', () => {
 });
 
 main().catch((err) => {
-  console.error('server failed', err);
+  logger.error('server failed to start', { error: String(err) });
   process.exit(1);
 });
