@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatEntry } from '../hooks/useSimulation';
 import type { Answer } from '../../ai/agent';
+import type { PlantSnapshot } from '../../shared/protocol';
 
 interface Props {
   chat: ChatEntry[];
   onAsk: (text: string) => void;
   connected: boolean;
+  snap: PlantSnapshot;
 }
 
 const SUGGESTIONS = ['现在运行怎么样', '为什么这样调节', '如果发生暴雨会怎样', '给我未来 8 小时计划'];
 
-export function ChatPanel({ chat, onAsk, connected }: Props) {
+export function ChatPanel({ chat, onAsk, connected, snap }: Props) {
   const [draft, setDraft] = useState('');
   const logRef = useRef<HTMLDivElement | null>(null);
 
@@ -34,6 +36,21 @@ export function ChatPanel({ chat, onAsk, connected }: Props) {
             <strong>AI 值班员在岗。</strong>
             <br />
             全厂控制已交由 AI 接管，你只需要提问或下指令。它会解释每一次调节的依据，也可以帮你做假设推演。
+            {/* 空状态给三行当前实况：否则新用户面对一片空白，不知道从哪问起 */}
+            <div className="chat-brief">
+              <div>
+                <span>出水评分</span>
+                <b>{snap.score}/100</b>
+              </div>
+              <div>
+                <span>最紧指标</span>
+                <b>{briefTightest(snap)}</b>
+              </div>
+              <div>
+                <span>活动告警</span>
+                <b data-alarm={snap.activeAlarms.length > 0}>{snap.activeAlarms.length} 条</b>
+              </div>
+            </div>
           </div>
         )}
         {chat.map((entry) => (
@@ -66,6 +83,12 @@ export function ChatPanel({ chat, onAsk, connected }: Props) {
       </div>
     </div>
   );
+}
+
+function briefTightest(snap: PlantSnapshot): string {
+  const top = [...snap.margins].sort((a, b) => b.ratio - a.ratio)[0];
+  if (!top) return '—';
+  return `${top.metric} ${Math.round(top.ratio * 100)}%`;
 }
 
 function Message({ entry }: { entry: ChatEntry }) {

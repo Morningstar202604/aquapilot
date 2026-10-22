@@ -179,6 +179,25 @@ describe('布局引擎', () => {
     }
   });
 
+  it('没有任何连线穿过工艺单元（池体）', () => {
+    const layout = layoutTopology(PLANT_TOPOLOGY);
+    for (const edge of layout.edges) {
+      const hits = polylineHitsNodes(edge.path, layout.nodes, edge.connection.from.unit, edge.connection.to.unit);
+      expect(hits, `${edge.connection.id} 穿过 ${hits.join(',')}`).toEqual([]);
+    }
+  });
+
+  it('只有同排顺流边标注物流名称（回流与跨层边不堆叠文字）', () => {
+    const layout = layoutTopology(PLANT_TOPOLOGY);
+    const labelled = layout.edges.filter((e) => e.straight);
+    expect(labelled.length).toBeGreaterThan(0);
+    for (const edge of labelled) {
+      expect(edge.connection.stream).not.toBe('internal_recycle');
+      expect(edge.connection.stream).not.toBe('return_activated_sludge');
+      expect(edge.connection.recycle).not.toBe(true);
+    }
+  });
+
   it('回流线与主物料流分层，不画在主线高度上', () => {
     const layout = layoutTopology(PLANT_TOPOLOGY);
     const recycles = layout.edges.filter((e) => e.connection.recycle);
@@ -334,3 +353,53 @@ describe('回归：拓扑几何必须真实影响物理', () => {
     expect(runtime.net.clarifier.blanketM).toBeGreaterThan(before);
   });
 });
+
+
+/**
+ * 把布局生成的 M/H/V 折线展开成线段，检查是否侵入节点矩形。
+ * 起终点所在的节点自身要排除，否则端口本身就落在边界内。
+ */
+function polylineHitsNodes(
+  path: string,
+  nodes: { unit: { id: string }; x: number; y: number; w: number; h: number }[],
+  fromId: string,
+  toId: string,
+): string[] {
+  const cmds = path.match(/[MHV][^MHV]*/g) ?? [];
+  const points: { x: number; y: number }[] = [];
+  let x = 0;
+  let y = 0;
+  for (const cmd of cmds) {
+    const nums = (cmd.slice(1).match(/-?\d+(\.\d+)?/g) ?? []).map(Number);
+    if (cmd[0] === 'M') {
+      x = nums[0];
+      y = nums[1];
+      points.push({ x, y });
+    } else if (cmd[0] === 'H') {
+      x = nums[0];
+      points.push({ x, y });
+    } else {
+      y = nums[0];
+      points.push({ x, y });
+    }
+  }
+
+  const hits = new Set<string>();
+  for (const n of nodes) {
+    if (n.unit.id === fromId || n.unit.id === toId) continue;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1];
+      const b = points[i];
+      // 采样 40 个点：折线只有水平/垂直段，采样足够定位穿越
+      for (let k = 0; k <= 40; k++) {
+        const px = a.x + ((b.x - a.x) * k) / 40;
+        const py = a.y + ((b.y - a.y) * k) / 40;
+        if (px > n.x + 2 && px < n.x + n.w - 2 && py > n.y + 2 && py < n.y + n.h - 2) {
+          hits.add(n.unit.id);
+          break;
+        }
+      }
+    }
+  }
+  return [...hits];
+}

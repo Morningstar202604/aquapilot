@@ -263,7 +263,8 @@ function buildPatch(client: ClientState): SnapshotPatch | null {
       slr: s.clarifier.slr,
     },
     energy: { ...s.energy, specificKwhM3: s.energy.totalKw / Math.max(1, s.influent.flow) },
-    cost: { totalToday: s.cost.total, total: s.cost.total },
+    // 当日口径必须用 costToday：用累计值会让「今日运行成本」随仿真天数线性上涨
+    cost: { totalToday: s.costToday.total, total: s.cost.total },
     srtDays: s.srtDays,
     score: qualityScoreOf(s.effluent),
     margins: estimateMargin(s.effluent),

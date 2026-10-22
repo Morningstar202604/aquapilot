@@ -1,0 +1,15 @@
+polish(ui): route edges around units, fix topbar wrap, refresh screenshots
+
+- layout: corridor-based routing so no connection crosses a unit body;
+  internal recycle / RAS / utility lines get separate tracks
+- labels: only same-lane forward edges are labelled, killing stacked
+  duplicate stream names in corridors
+- topbar: values never wrap; two-row layout at <=1280 so 1024/1366 no
+  longer squeeze the capacity figure into three lines
+- canvas: compact node typography readable at 45-60% zoom, legend moved
+  out of the transformed scaler, zoom controls bottom-right
+- trends/replay: simulation-clock axis labels (D2 03:40) instead of 55h10
+- chat: empty state shows live score / tightest metric / alarm count
+- fix(snapshot): today cost used lifetime total, now uses costToday
+- tests: edge-crossing + label-rule regressions; e2e asserts no crossing,
+  no topbar wrap, no mobile overflow (245 tests)

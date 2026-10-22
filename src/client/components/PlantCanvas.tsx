@@ -73,6 +73,7 @@ export function PlantCanvas({
    *
    * 手机上全览会把整厂压到 19%，文字完全不可读；
    * 窄屏改为 1:1 + 横向滑动，至少能看清当前单元。
+   * 平板/笔记本仍用全览：先看清全厂结构，再点 1:1 细读。
    */
   const [fitToWindow, setFitToWindow] = useState(() =>
     typeof window === 'undefined' ? true : window.innerWidth > 900,
@@ -116,6 +117,10 @@ export function PlantCanvas({
     return () => ro.disconnect();
   }, []);
 
+  /**
+   * 全览必须严格装进容器：加下限会让图形超出边界，右侧排放口与底部污泥线被裁掉。
+   * 可读性靠节点字号解决（compact 模式用 22/28px 字号，缩放后仍有 13–16px）。
+   */
   const fitScale =
     wrapSize.w > 0 && wrapSize.h > 0
       ? Math.min(wrapSize.w / layout.width, wrapSize.h / layout.height, 1)
@@ -169,6 +174,22 @@ export function PlantCanvas({
           全览
         </button>
       </div>
+      {/**
+        * 图例必须放在缩放容器外面。
+        * canvas-scaler 带 transform，会成为绝对定位元素的包含块，
+        * 1:1 模式下图例就被钉到 646px 图纸底部（屏幕外）而看不见。
+        */}
+      <div className={fit === 'flow' ? 'canvas-legend canvas-legend-flow' : 'canvas-legend'}>
+        <span className="canvas-legend-title">物流图例</span>
+        {(['influent', 'mixed_liquor', 'internal_recycle', 'return_activated_sludge', 'waste_sludge', 'air', 'chemical'] as StreamKind[]).map((st) => (
+          <span className="canvas-legend-item" key={st}>
+            <svg width="18" height="8" aria-hidden="true">
+              <line x1="0" y1="4" x2="18" y2="4" stroke={STREAM_COLOR[st]} strokeWidth={Math.max(1.4, STREAM_WIDTH[st])} strokeDasharray={STREAM_DASH[st]} />
+            </svg>
+            {streamLabel(st)}
+          </span>
+        ))}
+      </div>
       <div className="canvas-wrap" ref={wrapRef} data-fit={fitToWindow ? "true" : "false"}>
         <div
           className="canvas-scaler"
@@ -182,18 +203,6 @@ export function PlantCanvas({
             marginBottom: `${(effectiveZoom - 1) * layout.height}px`,
           }}
         >
-      <div className={fit === 'flow' ? 'canvas-legend canvas-legend-flow' : 'canvas-legend'}>
-        <span className="canvas-legend-title">物流图例</span>
-        {(['influent', 'mixed_liquor', 'internal_recycle', 'return_activated_sludge', 'waste_sludge', 'air', 'chemical'] as StreamKind[]).map((st) => (
-          <span className="canvas-legend-item" key={st}>
-            <svg width="18" height="8" aria-hidden="true">
-              <line x1="0" y1="4" x2="18" y2="4" stroke={STREAM_COLOR[st]} strokeWidth={Math.max(1.4, STREAM_WIDTH[st])} strokeDasharray={STREAM_DASH[st]} />
-            </svg>
-            {streamLabel(st)}
-          </span>
-        ))}
-      </div>
-
       <svg
         className={fit === 'flow' ? 'plant-canvas plant-canvas-flow' : 'plant-canvas'}
         width={fit === 'flow' ? layout.width : undefined}
@@ -298,13 +307,19 @@ function Edge({ edge, index, animate, showLabel }: { edge: PlacedEdge; index: nu
           <animate attributeName="stroke-dashoffset" from="37" to="0" dur={`${dur}s`} repeatCount="indefinite" />
         </path>
       )}
-      {showLabel && stream !== 'air' && (
+      {showLabel && stream !== 'air' && edge.straight && Math.abs(edge.labelX - pipeStartX(edge)) > 90 && (
         <text x={edge.labelX} y={edge.labelY} className="edge-label" textAnchor="middle">
           {streamLabel(stream)}
         </text>
       )}
     </g>
   );
+}
+
+/** 直连边的起点 x：短距离（相邻池之间）不值得标名字，标了反而糊成一片 */
+function pipeStartX(edge: PlacedEdge): number {
+  const m = edge.path.match(/^M\s+(-?\d+(\.\d+)?)/);
+  return m ? Number(m[1]) : 0;
 }
 
 function streamLabel(stream: StreamKind): string {
@@ -369,7 +384,7 @@ function Node({
       <rect x={x} y={y} width={w} height={h} rx="2" fill={fillFor(unit.kind, liveTank)} stroke={stroke} strokeWidth={strokeWidth} />
       <rect x={x} y={y} width={w} height="20" rx="2" fill="rgba(6,16,15,0.66)" />
       <text x={x + 7} y={y + 15} className={compactView ? 'unit-title-lg' : 'unit-title'}>
-        {unit.name}
+        {compactView ? shortName(unit.name) : unit.name}
       </text>
 
       {showLabel && (
@@ -379,6 +394,11 @@ function Node({
       {bad && <circle cx={x + w - 9} cy={y + 10} r="3.4" fill="var(--alarm)" />}
     </g>
   );
+}
+
+/** 全览只保留主名称：节点宽 124，带 "· 副标题" 会压到相邻池子 */
+function shortName(name: string): string {
+  return name.split(' · ')[0];
 }
 
 function fillFor(kind: UnitKind, tank?: { do: number; kind: string }): string {
@@ -428,10 +448,10 @@ function UnitBody({
     if (compact) {
       return (
         <g>
-          <text x={lx} y={y + 46} className="unit-value-lg">
+          <text x={lx} y={y + 58} className="unit-value-lg">
             {unit.kind === 'aerobic' ? `DO ${liveTank.do.toFixed(1)}` : `NH₄ ${liveTank.nh.toFixed(0)}`}
           </text>
-          <text x={lx} y={y + 64} className="unit-sub">
+          <text x={lx} y={y + 88} className="unit-sub">
             MLSS {Math.round(liveTank.mlss)}
           </text>
         </g>

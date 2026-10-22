@@ -237,7 +237,7 @@ export default function App() {
             </button>
           </nav>
 
-          {tab === 'chat' && <ChatPanel chat={sim.chat} onAsk={sim.ask} connected={sim.link.connected} />}
+          {tab === 'chat' && <ChatPanel chat={sim.chat} onAsk={sim.ask} connected={sim.link.connected} snap={snap} />}
           {tab === 'decision' && (
             <DecisionPanel
               snap={snap}

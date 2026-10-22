@@ -32,7 +32,7 @@ npm run dev
 验证：
 
 ```bash
-npm test           # 31 项引擎与 AI 单元测试
+npm test           # 245 项测试（引擎物理、AI 护栏、拓扑、服务端）
 npm run typecheck  # TypeScript 严格模式
 ```
 
@@ -59,7 +59,7 @@ src/
                     Trends、DecisionPanel、ChatPanel、ControlPanel、Alarms、Insights
   shared/
     protocol.ts     前后端消息契约
-tests/            引擎物理性质与 AI 安全护栏测试
+tests/            245 项测试：引擎物理性质、AI 安全护栏、拓扑求解、服务端
 ```
 
 ### 仿真引擎
