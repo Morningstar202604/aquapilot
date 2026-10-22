@@ -31,7 +31,13 @@ Industrial simulators (GPS-X, BioWin, Aspen HYSYS) are powerful but assume the o
 - **Explainable by construction.** Each recommendation carries the predicted effluent, the candidate ranking, the per-tweak reason, and a confidence figure.
 - **Scenario injection.** Storm, shock load, toxicity, blower failure, RAS failure, power outage, winter, chemical shortage.
 
-## Screenshots
+## Demo
+
+![AquaPilot demo](docs/media/demo.gif)
+
+_A 30-second walk-through: live flowsheet, AI conversation, decision explanation, control, scenario injection, flowsheet editor._
+
+### Screenshots
 
 | Run monitoring | AI conversation |
 |---|---|
