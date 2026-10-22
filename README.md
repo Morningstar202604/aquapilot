@@ -138,7 +138,7 @@ This is a **simulation prototype**, not a system that can take over a real plant
 Verified **on this machine** by `npm run verify` plus `npm run e2e`:
 - Dependency install, TypeScript strict (0 errors, including unused-code checks)
 - ESLint 9 and Prettier 3 clean
-- 307 tests, all passing; branch coverage 85.2%
+- 307 tests, all passing; branch coverage 85.2% (Node 24) / 83.0% (Node 20)
 - Client + server build, production bundle
 - Browser smoke: 6 KPIs, 17 nodes, 3 charts, 5 tabs, no console errors,
   no connection crossing a unit body, no horizontal overflow on mobile
