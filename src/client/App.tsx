@@ -321,7 +321,7 @@ function buildKpis(snap: NonNullable<ReturnType<typeof useSimulation>['snapshot'
       label: '今日运行成本',
       value: snap.cost.totalToday.toFixed(0),
       unit: '元',
-      limit: `日基准 ¥${(DAY_COST_BASELINE / 1000).toFixed(0)}k · 累计 ¥${(snap.cost.total / 1000).toFixed(1)}k`,
+      limit: `基准 ¥${(DAY_COST_BASELINE / 1000).toFixed(0)}k`,
       ratio: snap.cost.totalToday / DAY_COST_BASELINE,
     },
   ];
