@@ -78,7 +78,7 @@ step "8/9 依赖安全审计"
 # 这里显式指定官方源；若网络不可达，则明确标记"未审计"而不是假装通过。
 if AUDIT_OUT=$(npm audit --registry=https://registry.npmjs.org --audit-level=high 2>&1); then
   pass "0 高危漏洞"
-elif printf '%s' "$AUDIT_OUT" | grep -qE "ENOTFOUND|ETIMEDOUT|ECONNREFUSED|network"; then
+elif printf '%s' "$AUDIT_OUT" | grep -qE "ENOTFOUND|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|network|SSL|TLS|dh key too small|audit endpoint returned an error"; then
   printf '[1;33m  SKIP[0m 依赖审计（官方源不可达，未验证）
 '
 else
