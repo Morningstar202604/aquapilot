@@ -27,6 +27,14 @@ export interface PlacedEdge {
   labelX: number;
   labelY: number;
   reverse: boolean;
+  /**
+   * 是否为主线上的一段直连（端点同高）。
+   *
+   * 只有这类边画物流名：绕行走廊上的边如果也标名字，几条线会在同一条
+   * 走廊里叠出四五个「进水」，比不标更难读。绕行线靠颜色与线型区分，
+   * 图例已经给出对应关系。
+   */
+  straight: boolean;
 }
 
 export interface Layout {
@@ -162,7 +170,7 @@ export function layoutTopology(
     if (nodes.length) laneY[layer] = nodes[0].y;
   }
 
-  const edges = topo.connections.map((conn) => placeEdge(conn, nodeMap));
+  const edges = topo.connections.map((conn, i) => placeEdge(conn, nodeMap, i));
 
   const maxX = Math.max(...[...nodeMap.values()].map((n) => n.x + n.w), mainWidth + PAD);
   /**
@@ -244,7 +252,21 @@ function isRecycleStream(conn: Connection): boolean {
   );
 }
 
-function placeEdge(conn: Connection, nodes: Map<string, PlacedNode>): PlacedEdge {
+function placeEdge(conn: Connection, nodes: Map<string, PlacedNode>, index: number): PlacedEdge {
+  const placed = placeEdgeRaw(conn, nodes, index);
+  /**
+   * 只有同排的顺流边标注物流名。
+   *
+   * 回流与跨层边都走走廊，几条线在同一走廊里并排时，标签会叠成
+   * 一串「进水/进水/进水」。这类线靠颜色与线型区分，图例已给对应关系。
+   */
+  const from = nodes.get(conn.from.unit);
+  const to = nodes.get(conn.to.unit);
+  const labelable = Boolean(from && to) && !isRecycleStream(conn) && from!.layer === to!.layer;
+  return { ...placed, straight: placed.path.length > 0 && labelable };
+}
+
+function placeEdgeRaw(conn: Connection, nodes: Map<string, PlacedNode>, index: number): Omit<PlacedEdge, 'straight'> {
   const from = nodes.get(conn.from.unit);
   const to = nodes.get(conn.to.unit);
   if (!from || !to) {
@@ -253,31 +275,83 @@ function placeEdge(conn: Connection, nodes: Map<string, PlacedNode>): PlacedEdge
   const a = anchorOut(from, conn.from.port);
   const b = anchorIn(to, conn.to.port);
 
-  // 回流与跨层物流：走外侧折线，避免与主物料流交叉
   const isRecycle = isRecycleStream(conn);
   const crossLayer = from.layer !== to.layer;
 
+  /**
+   * 走廊高度：所有跨层/绕行线都走主排下方、公用工程上方的空白带。
+   *
+   * 早期实现用「端口 y - 22」当作走廊高度，而端口本身就在节点内部，
+   * 结果水平段横穿池体顶部的标题栏，把 DO/MLSS 数字压在连线下。
+   * 这里改为以节点边界为基准，并按边序号错开，避免多条线重叠成一条。
+   */
+  const mainBottom = Math.max(
+    ...[...nodes.values()].filter((n) => n.layer === 'main').map((n) => n.y + n.h),
+  );
+  /**
+   * 三条互不重叠的走廊，全部落在空白带里：
+   * 内回流贴主排下方；公用工程线在主排与公用工程排之间；
+   * 污泥回流在公用工程排下方、污泥排上方——否则会横穿鼓风机房与加药间。
+   */
+  const utilityBottom = Math.max(
+    mainBottom,
+    ...[...nodes.values()].filter((n) => n.layer === 'utility').map((n) => n.y + n.h),
+  );
+  const irTrack = mainBottom + 24;
+  const utilTrack = mainBottom + 52 + (index % 3) * 7;
+  const rasTrack = utilityBottom + 22;
+
   if (isRecycle) {
-    // 内回流走主线上方、污泥回流走生物池与公用工程之间的走廊：
-    // 两条回流都不穿过任何池体，读图时能直接看出"从哪回到哪"
+    // 回流走主排下方走廊：内回流在上、污泥回流在下，互不重叠
     const isRas = conn.stream === 'return_activated_sludge';
-    const offset = isRas ? from.y + from.h + 30 : Math.min(from.y, to.y) - 26;
-    const midX1 = a.x + 22;
-    const midX2 = b.x - 22;
-    const path = `M ${a.x} ${a.y} H ${midX1} V ${offset} H ${midX2} V ${b.y} H ${b.x}`;
+    const corridor = isRas ? rasTrack : irTrack;
+    const outX = a.x + 24;
+    const inX = b.x - 24;
     return {
       connection: conn,
-      path,
-      labelX: (midX1 + midX2) / 2,
-      labelY: isRas ? offset + 12 : offset - 8,
+      path: `M ${a.x} ${a.y} H ${outX} V ${corridor} H ${inX} V ${b.y} H ${b.x}`,
+      labelX: (outX + inX) / 2,
+      labelY: corridor - 7,
       reverse: true,
     };
   }
 
   if (crossLayer) {
-    const midY = b.y - 22;
-    const path = `M ${a.x} ${a.y} H ${a.x + 20} V ${midY} H ${b.x - 20} V ${b.y} H ${b.x}`;
-    return { connection: conn, path, labelX: (a.x + b.x) / 2, labelY: midY - 5, reverse: false };
+    if (to.layer === 'sludge') {
+      // 污泥线：从主排下来，走污泥排上方的走廊，从顶部进料
+      const corridor = to.y - 18 - (index % 3) * 6;
+      const cx = to.x + to.w / 2;
+      const outX = a.x + 20;
+      return {
+        connection: conn,
+        path: `M ${a.x} ${a.y} H ${outX} V ${corridor} H ${cx} V ${to.y}`,
+        labelX: (outX + cx) / 2,
+        labelY: corridor - 7,
+        reverse: false,
+      };
+    }
+    // 公用工程 → 主排：走主排下方走廊，从池底进入（空气/药剂本来就是从底部进池）
+    if (to.layer === 'main') {
+      const cx = to.x + to.w / 2;
+      const outX = a.x + 18;
+      return {
+        connection: conn,
+        path: `M ${a.x} ${a.y} H ${outX} V ${utilTrack} H ${cx} V ${to.y + to.h}`,
+        labelX: (outX + cx) / 2,
+        labelY: utilTrack - 7,
+        reverse: false,
+      };
+    }
+    // 主排 → 调蓄池：从顶部进池，避免竖线纵穿池体
+    const sx = to.x + to.w / 2;
+    const ox = a.x + 18;
+    return {
+      connection: conn,
+      path: `M ${a.x} ${a.y} H ${ox} V ${to.y - 20} H ${sx} V ${to.y}`,
+      labelX: (ox + sx) / 2,
+      labelY: to.y - 27,
+      reverse: false,
+    };
   }
 
   // 折行回转：上一排末端 → 下一排首端，走两排之间的走廊，不穿过任何池体
@@ -294,9 +368,37 @@ function placeEdge(conn: Connection, nodes: Map<string, PlacedNode>): PlacedEdge
     return { connection: conn, path, labelX: (a.x + b.x) / 2, labelY: a.y - 7, reverse: false };
   }
 
+  /**
+   * 同排跨单元（如多点进水从初沉池直接进缺氧池）：不能贴着端口高度横穿
+   * 中间的池体，改为下到主排下方走廊，再从目标池左侧进入。
+   */
+  if (Math.abs(a.y - b.y) >= 2 && b.x > a.x && crossesIntermediate(from, to, nodes)) {
+    const outX = a.x + 18;
+    const inX = b.x - 24;
+    return {
+      connection: conn,
+      path: `M ${a.x} ${a.y} H ${outX} V ${utilTrack} H ${inX} V ${b.y} H ${b.x}`,
+      labelX: (outX + inX) / 2,
+      labelY: utilTrack - 7,
+      reverse: false,
+    };
+  }
+
   const midX = (a.x + b.x) / 2;
   const path = `M ${a.x} ${a.y} H ${midX} V ${b.y} H ${b.x}`;
   return { connection: conn, path, labelX: midX, labelY: (a.y + b.y) / 2, reverse: false };
+}
+
+/** 同一排里，起点与终点之间是否夹着别的单元 */
+function crossesIntermediate(from: PlacedNode, to: PlacedNode, nodes: Map<string, PlacedNode>): boolean {
+  const left = Math.min(from.x + from.w, to.x);
+  const right = Math.max(from.x, to.x + to.w);
+  for (const n of nodes.values()) {
+    if (n.unit.id === from.unit.id || n.unit.id === to.unit.id) continue;
+    if (n.layer !== from.layer) continue;
+    if (n.x + n.w > left && n.x < right) return true;
+  }
+  return false;
 }
 
 /** 供编排器使用：拓扑变化时的连通性提示（哪些单元与进/出水不连通） */

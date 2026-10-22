@@ -6,7 +6,7 @@
 
 AquaPilot is a working prototype of a new interaction model for process simulation: instead of an engineer reading curves and turning knobs, an AI operator watches the plant, forecasts, decides, and acts — while the human asks questions and sets boundaries.
 
-![tests](https://img.shields.io/badge/tests-243%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-245%20passing-brightgreen)
 ![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
@@ -31,7 +31,13 @@ Industrial simulators (GPS-X, BioWin, Aspen HYSYS) are powerful but assume the o
 - **Explainable by construction.** Each recommendation carries the predicted effluent, the candidate ranking, the per-tweak reason, and a confidence figure.
 - **Scenario injection.** Storm, shock load, toxicity, blower failure, RAS failure, power outage, winter, chemical shortage.
 
-## Screenshots
+## Demo
+
+![AquaPilot demo](docs/media/demo.gif)
+
+_A 30-second walk-through: live flowsheet, AI conversation, decision explanation, control, scenario injection, flowsheet editor._
+
+### Screenshots
 
 | Run monitoring | AI conversation |
 |---|---|
@@ -67,7 +73,7 @@ Verify:
 
 ```bash
 npm run typecheck  # TypeScript strict + noUnusedLocals/Parameters
-npm run test       # 243 tests
+npm run test       # 245 tests
 npm run build      # client bundle + server bundle
 npm run verify     # all three in order
 npm run ci         # full gate: deps, types, tests, build, smoke, secret scan
@@ -99,7 +105,7 @@ src/
   server/        WebSocket simulation loop, REST snapshot, static hosting
   client/        Control-room UI (React + ECharts + SVG flowsheet)
   shared/        Client/server protocol
-tests/           243 tests: physics, conservation, guardrails, topology, cross-engine,
+tests/           245 tests: physics, conservation, guardrails, topology, cross-engine,
                  input validation and crash-boundary regressions
 ```
 
@@ -131,7 +137,7 @@ This is a **simulation prototype**, not a system that can take over a real plant
 
 Verified **on this machine** by `npm run ci` (7/7 steps green):
 - Dependency install, TypeScript strict (0 errors, including unused-code checks)
-- 243 tests, all passing
+- 245 tests, all passing
 - Client + server build, production bundle
 - Smoke test: three endpoints respond under a real server
 - Secret scan and artifact scan

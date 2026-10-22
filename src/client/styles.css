@@ -96,6 +96,8 @@ button {
   border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, #0a1917, #071312);
   z-index: 5;
+  /* 顶栏是仪表盘的身份条：宁可少显示一个字段，也不能让数值折成竖排 */
+  overflow: hidden;
 }
 
 .brand {
@@ -131,6 +133,7 @@ button {
   display: flex;
   flex-direction: column;
   line-height: 1.25;
+  flex: none;
 }
 
 .meta-label {
@@ -143,6 +146,7 @@ button {
   font-family: var(--mono);
   font-size: 12px;
   color: var(--text);
+  white-space: nowrap;
 }
 
 .topbar-right {
@@ -150,11 +154,14 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: none;
 }
 
 .pill {
   display: inline-flex;
   align-items: center;
+  flex: none;
+  white-space: nowrap;
   gap: 6px;
   height: 24px;
   padding: 0 9px;
@@ -227,7 +234,9 @@ button {
   /* 工艺图天然宽扁（约 3.2:1），给它过高的区域只会留白；
      把更多高度分配给趋势图，信息密度更高。 */
   display: grid;
-  grid-template-rows: auto minmax(0, 1.15fr) minmax(224px, 0.85fr);
+  /* 工艺图是宽扁的（约 3.9:1），按宽度缩放后高度只占约 320px；
+     多给它的高度只会变成底部空白，不如让给趋势图。 */
+  grid-template-rows: auto minmax(0, 1fr) minmax(240px, 0.95fr);
   min-height: 0;
   /* 关键：min-width:0 允许 grid 子项收缩，否则内部 SVG 的固有宽度会把整列撑开 */
   min-width: 0;
@@ -434,6 +443,9 @@ button {
   justify-content: space-between;
   gap: 8px;
   padding: 8px 12px 2px;
+  /* 读数行是单行信息条：禁止折行，否则 1366 下「进 COD 348.23」会被挤成两行 */
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .trend-title {
@@ -1147,6 +1159,59 @@ button {
   margin-top: 2px;
 }
 
+@media (max-width: 1500px) {
+  /* 1440 / 1366 笔记本：先收掉装饰性文字和间距，保证一行放得下 */
+  .brand-sub {
+    display: none;
+  }
+  .topbar {
+    gap: 14px;
+    padding: 0 12px;
+  }
+  .topbar-meta {
+    gap: 14px;
+  }
+  .topbar-right {
+    gap: 6px;
+  }
+  .topbar-right .pill {
+    padding: 0 7px;
+  }
+}
+
+@media (max-width: 1360px) {
+  /* 更窄一档：处理规模与厂站信息重复，先让位 */
+  .topbar-meta .meta-item:nth-child(3) {
+    display: none;
+  }
+}
+
+/* 13 寸与 1024 宽屏：顶栏改两行，参数独占第二行。
+   一行硬塞会把「48 千 m³/d」压成三行竖排。 */
+@media (max-width: 1280px) {
+  .app {
+    grid-template-rows: auto 1fr;
+  }
+  .topbar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 46px;
+    padding: 6px 12px;
+    row-gap: 4px;
+  }
+  .topbar-meta {
+    order: 3;
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    padding-top: 5px;
+    border-top: 1px solid var(--line-soft);
+  }
+  .topbar-meta .meta-item:nth-child(3) {
+    display: flex;
+  }
+}
+
 @media (max-width: 1180px) {
   .layout {
     grid-template-columns: minmax(0, 1fr) 330px;
@@ -1214,6 +1279,9 @@ button {
   }
   .topbar-right {
     margin-left: auto;
+    /* 手机宽度装不下一整排控件：允许换行，且宽度受父级约束 */
+    flex: 1 1 100%;
+    max-width: 100%;
     flex-wrap: wrap;
     gap: 6px;
   }
@@ -1247,7 +1315,9 @@ button {
   }
   .canvas-zoom-controls {
     right: 6px;
-    top: 4px;
+    /* top/bottom 同时存在会把绝对定位元素拉满整列：这里必须显式复位 */
+    top: auto;
+    bottom: 6px;
     padding: 2px 3px;
     font-size: 9px;
   }
@@ -1278,12 +1348,19 @@ button {
   }
   .notice-stack {
     right: 10px;
-    top: 96px;
+    top: auto;
+    bottom: 10px;
     max-width: calc(100% - 20px);
   }
 }
 
 @media (max-width: 520px) {
+  /* 手机竖屏：厂站与仿真时钟是唯一的动态信息；静态参数让位给水质卡片 */
+  .topbar-meta .meta-item:nth-child(3),
+  .topbar-meta .meta-item:nth-child(4),
+  .topbar-meta .meta-item:nth-child(5) {
+    display: none;
+  }
   .kpi-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1464,32 +1541,32 @@ button {
 }
 
 .unit-title {
-  font-size: 10.5px;
+  font-size: 11px;
   fill: var(--text);
   font-family: var(--sans);
 }
 
 .unit-sub {
-  font-size: 9.5px;
+  font-size: 10px;
   fill: var(--text-3);
   font-family: var(--sans);
 }
 
 .unit-value {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12px;
   fill: var(--text);
 }
 
 .edge-label {
-  font-size: 9px;
+  font-size: 10.5px;
   fill: var(--text-3);
   font-family: var(--sans);
   pointer-events: none;
 }
 
 .lane-label {
-  font-size: 9px;
+  font-size: 10.5px;
   fill: var(--text-3);
   font-family: var(--sans);
   letter-spacing: 0.12em;
@@ -1814,9 +1891,10 @@ button {
 }
 
 .canvas-legend {
+  /* 图例放左下角：右上角是二沉池与消毒池，压在上面会挡住池体标题 */
   position: absolute;
-  top: 8px;
-  right: 10px;
+  bottom: 8px;
+  left: 10px;
   z-index: 3;
   display: flex;
   align-items: center;
@@ -1837,6 +1915,8 @@ button {
   letter-spacing: 0.08em;
   border-right: 1px solid var(--line);
   padding-right: 8px;
+  flex: none;
+  white-space: nowrap;
 }
 
 .canvas-legend-item {
@@ -1844,6 +1924,7 @@ button {
   align-items: center;
   gap: 4px;
   white-space: nowrap;
+  flex: none;
 }
 
 /* 画布填满可用高度：窄屏时按比例缩，不产生大片空白 */
@@ -1852,10 +1933,17 @@ button {
 }
 
 @media (max-width: 900px) {
+  /* 移动端图例放不下就横向滚动：不允许被裁掉一半 */
   .canvas-legend {
     position: static;
     margin: 6px;
-    max-width: none;
+    max-width: calc(100vw - 12px);
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+  .canvas-legend::-webkit-scrollbar {
+    display: none;
   }
 }
 
@@ -1929,9 +2017,10 @@ button {
 }
 
 .canvas-zoom-controls {
+  /* 右下角：与左下角图例分居两端，且不压住右上角的排放口节点 */
   position: absolute;
   right: 10px;
-  top: 8px;
+  bottom: 8px;
   z-index: 6;
   display: flex;
   align-items: center;
@@ -1992,13 +2081,14 @@ button {
 /* 全览模式下的关键数值：用更大字号抵消缩放，保证缩到 60% 仍可辨认 */
 .unit-value-lg {
   font-family: var(--mono);
-  font-size: 15px;
+  font-size: 30px;
   font-weight: 500;
   fill: var(--text);
 }
 
 .unit-title-lg {
-  font-size: 12.5px;
+  /* 全览会把整图缩到 45–60%：标题给到 22px，落到屏幕上仍有 10–13px */
+  font-size: 24px;
   fill: var(--text);
   font-family: var(--sans);
 }
@@ -2087,3 +2177,43 @@ button {
 .auth-submit:hover {
   background: rgba(62, 224, 181, 0.2);
 }
+
+/* 移动端：缩放控件贴右下，间距略收 */
+@media (max-width: 900px) {
+  .canvas-zoom-controls {
+    right: 6px;
+    bottom: 6px;
+  }
+}
+
+/* 对话空状态的三行实况：新用户先看到现状，再决定问什么 */
+.chat-brief {
+  margin-top: 18px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11.5px;
+}
+
+.chat-brief > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chat-brief span {
+  color: var(--text-3);
+}
+
+.chat-brief b {
+  font-family: var(--mono);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.chat-brief b[data-alarm='true'] {
+  color: var(--alarm);
+}
+

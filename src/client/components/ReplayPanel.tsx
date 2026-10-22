@@ -98,7 +98,13 @@ export function ReplayPanel() {
         },
         xAxis: {
           type: 'category',
-          data: pts.map((p) => `${Math.floor(p.atMin / 60)}h`),
+          // 采样点可能落在同一小时内：写成 H:MM，否则轴上会连出「0h 0h 0h」
+          data: pts.map((p) => {
+            const d = Math.floor(p.atMin / 1440) + 1;
+            const h = Math.floor((p.atMin % 1440) / 60);
+            const m = Math.floor(p.atMin % 60);
+            return `D${d} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+          }),
           axisLine: { lineStyle: { color: '#1d3b37' } },
           axisTick: { show: false },
           axisLabel: { color: '#5f7d78', fontSize: 9, interval: Math.max(0, Math.floor(pts.length / 6)) },
@@ -174,16 +180,26 @@ export function ReplayPanel() {
     return (
       <div className="scroll-panel">
         <div className="empty-note">
-          持久化未启用。
+          持久化未启用，无法回放历史。
           <br />
-          {`node:sqlite 在 Node 22+ 可用；或用 AQUAPILOT_PERSIST=0 显式关闭后运行。`}
+          {`需要 Node 22+ 的 node:sqlite；若显式设了 AQUAPILOT_PERSIST=0，去掉后重启即可。`}
         </div>
+        <button className="chip" onClick={() => void load()} style={{ alignSelf: 'flex-start' }}>
+          重新检测
+        </button>
       </div>
     );
   }
 
   if (snapshots.length === 0) {
-    return <div className="scroll-panel"><div className="empty-note">还没有历史数据，运行一段时间后再看。</div></div>;
+    return (
+      <div className="scroll-panel">
+        <div className="empty-note">还没有历史数据，运行一段时间后再看。</div>
+        <button className="chip" onClick={() => void load()} style={{ alignSelf: 'flex-start' }}>
+          刷新
+        </button>
+      </div>
+    );
   }
 
   return (

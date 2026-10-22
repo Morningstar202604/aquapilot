@@ -32,7 +32,7 @@ npm run dev
 验证：
 
 ```bash
-npm test           # 31 项引擎与 AI 单元测试
+npm test           # 245 项测试（引擎物理、AI 护栏、拓扑、服务端）
 npm run typecheck  # TypeScript 严格模式
 ```
 
@@ -59,7 +59,7 @@ src/
                     Trends、DecisionPanel、ChatPanel、ControlPanel、Alarms、Insights
   shared/
     protocol.ts     前后端消息契约
-tests/            引擎物理性质与 AI 安全护栏测试
+tests/            245 项测试：引擎物理性质、AI 安全护栏、拓扑求解、服务端
 ```
 
 ### 仿真引擎
@@ -119,6 +119,10 @@ tests/            引擎物理性质与 AI 安全护栏测试
 AI 的预测与被控对象使用**同一个拓扑模型**（`PlantModel` 抽象），不会出现"改图后 AI 还在用旧引擎预测"。
 
 ## 界面与工艺编排
+
+![AquaPilot 演示](docs/media/demo.gif)
+
+_30 秒走查：实时工艺图、AI 对话、决策解释、控制与工况、场景注入、工艺编排。_
 
 平台界面不是一张画出来的流程图，而是**可执行工艺模型的表示**：拓扑（单元 + 物流）是唯一真相源，布局、渲染、告警、校验全部从它派生。
 

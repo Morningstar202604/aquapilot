@@ -268,7 +268,7 @@ grep -c "coverage\|audit\|playwright" .github/workflows/ci.yml
 | F-001 | ✅ **已关闭** | `AQUAPILOT_TOKEN=secret123` 启动后：`curl /` → **200 HTML**（修复前 401）。浏览器实测：登录门出现 → 错误令牌提示"令牌无效" → 正确令牌加载 6 个 KPI |
 | F-002 | ✅ **已关闭** | `curl -I /` 返回 `X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`、完整 CSP |
 | F-003 | ✅ 已确认为非漏洞 | 两处插值来源均为硬编码字面量，外部不可控 |
-| F-004 | ⚠️ **部分关闭** | 测试 211 → **243**；分支覆盖 74.85% → **83.46%**（Node 24）/ 81.56%（Node 20）。**未达 85% 红线**，缺口为库层防御性错误路径 |
+| F-004 | ⚠️ **部分关闭** | 测试 211 → **245**；分支覆盖 74.85% → **83.79%**（Node 24）/ 82% 量级（Node 20）。**未达 85% 红线**，缺口为库层防御性错误路径 |
 | F-005 | ✅ **已关闭** | CI 新增覆盖率、`npm audit`、Playwright 冒烟三个步骤；实测 4 个 job 全绿（Node 20 / Node 22 / Quality gate / Browser smoke） |
 | F-006 | ❌ **未处理** | `stepNetwork` 仍为 261 行 / 55 判定点。拆分是 L 级重构，未在本轮执行 |
 | F-007 | ❌ **未处理** | 仍无 metrics 端点与 SLO |
@@ -295,7 +295,7 @@ grep -c "coverage\|audit\|playwright" .github/workflows/ci.yml
 
 | 指标 | 实测 | 红线 | 差距原因 |
 |---|---|---|---|
-| 分支覆盖率 | 83.46% | 85% | 缺口为 `store.ts` 的 SQLite rollback 与磁盘写入失败路径，需注入 I/O 故障才能覆盖 |
+| 分支覆盖率 | 83.79% | 85% | 缺口为 `store.ts` 的 SQLite rollback 与磁盘写入失败路径，需注入 I/O 故障才能覆盖 |
 | 圈复杂度 | 55（`stepNetwork`） | ≤10 | 单函数承载了反应器循环 + 曝气 + 二沉池 + 生物量 + 出水计算，需 L 级重构 |
 | 前端组件测试 | 0 | >0 | 仅有 E2E 冒烟，无组件级断言 |
 | 变异分数 | 未测 | ≥80% | 未引入 Stryker |

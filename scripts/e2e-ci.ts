@@ -70,6 +70,45 @@ try {
   }
   await page.screenshot({ path: `${OUT}/ci-replay.png` });
 
+  /**
+   * 布局回归：这些问题靠单测抓不到，只能量真实几何。
+   * - 连线穿过池体（早期内回流横穿好氧池）
+   * - 顶栏数值被挤成竖排（1440/1366 下出现过多行）
+   * - 页面横向溢出（移动端图例被裁）
+   */
+  const crossing = await page.evaluate(() => {
+    const nodes = [...document.querySelectorAll('.plant-node')].map((g) => {
+      const r = g.querySelector('rect')!.getBBox();
+      return { x: r.x, y: r.y, w: r.width, h: r.height };
+    });
+    const bad: string[] = [];
+    for (const path of document.querySelectorAll('.plant-canvas path[marker-end]')) {
+      const el = path as SVGPathElement;
+      const len = el.getTotalLength();
+      for (let i = 0; i <= 300; i++) {
+        const pt = el.getPointAtLength((len * i) / 300);
+        const hit = nodes.findIndex((n) => pt.x > n.x + 3 && pt.x < n.x + n.w - 3 && pt.y > n.y + 3 && pt.y < n.y + n.h - 3);
+        if (hit >= 0) {
+          const label = el.parentElement?.querySelector('text')?.textContent ?? '?';
+          bad.push(`${label}@node${hit}`);
+          break;
+        }
+      }
+    }
+    return bad;
+  });
+  if (crossing.length > 0) fail(`edges cross unit bodies: ${crossing.slice(0, 3).join(', ')}`);
+
+  const topbar = await page.evaluate(() => {
+    const items = [...document.querySelectorAll('.topbar .meta-value')] as HTMLElement[];
+    return items.map((e) => Math.round(e.getBoundingClientRect().height));
+  });
+  if (topbar.some((h) => h > 34)) fail(`topbar values wrapped: heights ${topbar.join(',')}`);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(600);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  if (overflow > 1) fail(`mobile horizontal overflow: ${overflow}px`);
   if (errors.length > 0) fail(`console errors: ${errors.slice(0, 3).join(' | ')}`);
 
   await browser.close();
