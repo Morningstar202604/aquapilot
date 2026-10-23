@@ -166,13 +166,14 @@ _30 秒走查：实时工艺图、AI 对话、决策解释、控制与工况、�
 
 ## 质量路线
 
-当前平台的价值在交互范式（AI 值守 + 可解释 + 可视化），不在模型精度。要把原型推到可被专业审阅的工具，唯一不可绕过的一步是**把模型换到有国际基准的 ASM1/BSM1 并跑通对照**。
+当前平台的价值在交互范式（AI 值守 + 可解释 + 可视化），不在模型精度。把模型对齐国际基准的第一步已经落地：`tests/bsm1-benchmark.test.ts` 按 BSM1 技术报告的开环默认配置（五池、Qintr=55 338 m³/d、KLa 240/240/84 d⁻¹、Henze-1987 参数集）运行至稳态，与技术报告 Table 6 公开值逐项对照——出水 S_S 偏差 2.6%、S_NO 偏差 7.4%、S_NH 偏差 19.6%（绝对差 0.34 gN/m³，不足氮通量的 1%，与二沉池已知限制同源）。这次对照还揪出并修复了自养硝化计量被低估 16.8 倍的真实缺陷（详见 [docs/AUDIT-REPORT.md](docs/AUDIT-REPORT.md) §十二）。
 
-完整路线（含已实测的性能数据、BSM1 权威参数、迁移障碍清单、优先级排序与代价估算）见 [docs/QUALITY-ROADMAP.md](docs/QUALITY-ROADMAP.md)。
+剩余的模型深化（动态进水、二沉池浓缩区梯度、ASM2d 磷）见 [docs/QUALITY-ROADMAP.md](docs/QUALITY-ROADMAP.md)。
 
 复现测量：
 
 ```bash
+npx vitest run tests/bsm1-benchmark.test.ts   # BSM1 Table 6 稳态对照
 npx tsx scripts/bench.ts      # 引擎与决策耗时
 npx tsx scripts/bsm1-gap.ts   # 当前实现与 BSM1 的结构差异
 ```

@@ -132,7 +132,9 @@ describe('拓扑求解引擎', () => {
     const s = spinUpNetwork(createNetworkState(PLANT_TOPOLOGY, { seed: 7 }), PLANT_TOPOLOGY, 25);
     expect(s.effluent.nh).toBeLessThan(5);
     expect(s.effluent.cod).toBeLessThan(50);
-    expect(s.effluent.ss).toBeLessThan(10);
+    // 修正硝化计量后硝化菌真实产泥，出水 SS 实测 11.1（官方 BSM1 稳态 12.5），
+    // 10 的一级 A 限值对无深度处理工艺过苛，锁 15 防退化
+    expect(s.effluent.ss).toBeLessThan(15);
     const mlss = (s.biomassKg * 1000) / s.volume.bio;
     expect(mlss).toBeGreaterThan(1500);
     expect(mlss).toBeLessThan(7000);

@@ -4,6 +4,47 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] — 2026-10-23
+
+### Fixed
+
+- **Autotrophic nitrification stoichiometry was understated 16.8×.** Each gram of
+  autotrophic biomass growth must oxidize 1/Y_A = 4.17 g of ammonia nitrogen; the
+  stoichiometric row carried 0.247 g. The nitrogen conservation test stayed green
+  because S_NO was excluded from the ledger — the books were self-consistent but
+  wrong. Found by the BSM1 Table 6 benchmark, where nitrification could never
+  establish itself. (`src/sim/asm1.ts`)
+- **Anoxic growth missed the denitrification alkalinity credit** (+1/14 mol per g
+  of nitrate nitrogen reduced), and nitrification drew only 1/14 instead of 2/14
+  mol alkalinity per g N. Effluent alkalinity now lands within 2% of the official
+  benchmark value.
+- The default settler feed layer moved from the 6th to the 5th layer (top-down) to
+  match the official "2.2 m from the bottom" specification.
+
+### Added
+
+- **BSM1 Table 6 benchmark** (`src/sim/bsm1.ts`, `tests/bsm1-benchmark.test.ts`):
+  the five-tank BSM1 open-loop configuration (Qintr 55 338 m³/d, KLa 240/240/84
+  d⁻¹, Henze-1987 parameter set used as tabulated) runs to steady state and is
+  compared against the official values. Effluent S_S deviates −2.6%, S_NO +7.4%,
+  S_ALK −2.0%, S_O +7.6%, autotroph biomass ≈ official; S_NH −19.6% (0.34 gN/m³
+  absolute, under 1% of the nitrogen flux) is locked with a 25% regression gate
+  and tied to the known settler limitation.
+- Mutation testing pilot (Stryker, devDependencies only) scoped to
+  `src/sim/asm1.ts` + `src/sim/takacs.ts` via `npm run mutation`; not wired into
+  CI (measured runtime recorded in `docs/AUDIT-REPORT.md` §12.3).
+- Rejection-path tests for `createRuntime` (unreadable and uncompilable
+  topologies), closing the `topologyRuntime` branch gap.
+
+### Changed
+
+- Test thresholds recalibrated to the corrected physics, each with its measured
+  justification: long-SRT CSTR autotroph biomass >2 (chemostat mass balance) with
+  a new `S_NO > 20` nitrification lock; network-plant autotroph biomass >30
+  (measured 66); effluent SS gates 10 → 15 (measured 11.1; official BSM1 steady
+  state is 12.5 — the 10 mg/L class-1A limit presumes filtration). Test count
+  315 → 324; branch coverage 85.43% → 85.85%.
+
 ## [0.2.1] — 2026-10-23
 
 ### Fixed

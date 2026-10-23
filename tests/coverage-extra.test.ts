@@ -126,6 +126,38 @@ describe('拓扑运行时的辅助接口', () => {
     expect(result.ok).toBe(false);
     expect(rt.revision).toBe(revision);
   });
+
+  it('createRuntime 拒绝不可运行的拓扑（缺二沉池）', () => {
+    const broken = JSON.parse(JSON.stringify(PLANT_TOPOLOGY));
+    broken.units = broken.units.filter((u: { kind: string }) => u.kind !== 'clarifier');
+    broken.connections = broken.connections.filter(
+      (c: { to: { unit: string }; from: { unit: string } }) => c.to.unit !== 'clarifier' && c.from.unit !== 'clarifier',
+    );
+    expect(() => createRuntime(broken, 7)).toThrowError(/拓扑不可运行/);
+  });
+
+  it('createRuntime 拒绝无法编译的拓扑（主序列成环）', () => {
+    const topo = JSON.parse(JSON.stringify(PLANT_TOPOLOGY));
+    topo.units.push({
+      id: 'loopA',
+      kind: 'aerobic',
+      name: '环 A',
+      role: '测试',
+      volume: 1000,
+      ports: [
+        { id: 'in', kind: 'in', stream: 'mixed_liquor' },
+        { id: 'out', kind: 'out', stream: 'mixed_liquor' },
+      ],
+    });
+    topo.train = [...topo.train, 'loopA'];
+    topo.connections.push({
+      id: 'loop-a-self',
+      from: { unit: 'loopA', port: 'out' },
+      to: { unit: 'loopA', port: 'in' },
+      stream: 'mixed_liquor',
+    });
+    expect(() => createRuntime(topo, 7)).toThrowError(/拓扑无法编译/);
+  });
 });
 
 describe('编译期错误分支', () => {

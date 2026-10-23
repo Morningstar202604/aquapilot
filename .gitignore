@@ -34,3 +34,6 @@ backups/
 .DS_Store
 Thumbs.db
 .v2c/
+.stryker-tmp/
+reports/
+.workbuddy/

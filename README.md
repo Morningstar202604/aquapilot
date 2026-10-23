@@ -188,9 +188,11 @@ and a bounded integrator in the settler.
 
 Known gaps (tracked in `docs/QUALITY-ROADMAP.md`):
 - The ten-layer settler does not build a strong concentration gradient in the thickening zone, so underflow concentration is lower than reality
-- ASM1 effluent TN runs slightly above the discharge limit in the default configuration
-- No automated comparison against the official BSM1 Table 6 values (those numbers were not available when this was built)
 - ASM1 has no phosphorus; TP relies on chemical precipitation
+- The BSM1 Table 6 benchmark comparison is automated (`tests/bsm1-benchmark.test.ts`):
+  effluent S_S matches the official open-loop steady state within 3% and S_NO within
+  8%; S_NH sits 20% below the reference (0.34 gN/m³ absolute, under 1% of the nitrogen
+  flux), consistent with the settler limitation above
 - Single-user; simulation state is in memory, history is persisted to SQLite (Node 22+) and used only for replay
 - Access control is opt-in: set AQUAPILOT_TOKEN to require a bearer token on HTTP
   and WebSocket. It is a single shared secret, not per-user accounts, and is not

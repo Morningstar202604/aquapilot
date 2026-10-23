@@ -1,6 +1,6 @@
 {
   "name": "aquapilot",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "description": "AI-operated wastewater treatment plant simulator with topology-driven solvers",
@@ -21,6 +21,7 @@
     "format": "prettier --check \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\"",
     "format:write": "prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\"",
     "backup": "tsx scripts/backup.ts",
+    "mutation": "stryker run",
     "docker:build": "docker build -t aquapilot:local .",
     "docker:run": "docker run --rm -p 5173:5173 -v aquapilot-data:/app/data aquapilot:local"
   },
@@ -31,6 +32,8 @@
     "ws": "^8.22.0"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "10.0.0",
+    "@stryker-mutator/vitest-runner": "10.0.0",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
     "@types/node": "26.6.5",

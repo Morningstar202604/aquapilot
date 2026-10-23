@@ -61,6 +61,12 @@ export const ASM1_PARAMS = {
   k_a: 0.08,
   k_h: 3.0,
   K_X: 0.03,
+  /**
+   * 缺氧生长硝酸盐饱和项 (S_NO/(K_NO+S_NO)) 的指数。
+   * 标准 ASM1 为线性开关（1）；本项目默认 2（更陡判据，用于聚合引擎厌氧池防漏，
+   * 见 buildRates 注释）。BSM1 基准对照取 1，与技术报告开关函数逐项一致。
+   */
+  anoxicNo3Exponent: 2,
   // 单位换算
   /** 每 g 硝酸盐氮作为电子受体相当于 2.86 g COD */
   COD_PER_NO3_N: 2.86,
@@ -120,24 +126,26 @@ export function buildStoichiometry(p = ASM1_PARAMS): Record<Asm1Process, Stoich>
       S_ALK: -p.i_XB * p.ALK_PER_N,
       X_B_H: 1,
     },
-    // 缺氧生长：硝酸盐替代氧做电子受体，每 g NO3-N 折 2.86 g COD
+    // 缺氧生长：硝酸盐替代氧做电子受体，每 g NO3-N 折 2.86 g COD。
+    // 反硝化 NO3- → N2 消耗 H+，每克氮释放 1/14 mol 碱度（标准 ASM1 行为）。
     anoxic_growth_heterotrophs: {
       S_S: -1 / p.Y_H,
       S_NO: -(1 - p.Y_H) / (p.COD_PER_NO3_N * p.Y_H),
       S_NH: -p.i_XB,
-      S_ALK: -p.i_XB * p.ALK_PER_N,
+      S_ALK: -(p.i_XB - (1 - p.Y_H) / (p.COD_PER_NO3_N * p.Y_H)) * p.ALK_PER_N,
       X_B_H: 1,
     },
-    // 以 1 g N 硝化为单位：NH4 去生物量与硝酸盐，耗氧 4.57-Y_A
-    // 以 1 g COD 自养菌生物量为单位（与异养一致，保证生长与衰减可直接相减）。
-    // 自养菌以 CO2 为碳源：每 g 生物量 COD 需要 i_XB/Y_A 的氨氮，
-    // 其中 i_XB 进入生物量，其余氧化成硝酸盐。
+    // 以 1 g X_B_A 生物量 COD 为单位（与异养一致，保证生长与衰减可直接相减）。
+    // Y_A = 0.24 g 生物量 COD / g N 氧化 ⇒ 每 1 g 生物量生长对应 1/Y_A = 4.167 g N 被硝化，
+    // 外加 i_XB 的氨氮进入生物量。此前实现把硝化项写成 i_XB/Y_A 量级，
+    // 使硝化通量被低估 16.8 倍——该缺陷由 BSM1 Table 6 对照暴露（硝化始终无法建立）。
     aerobic_growth_autotrophs: {
       X_B_A: 1,
-      S_NH: -p.i_XB / p.Y_A,
-      S_NO: p.i_XB / p.Y_A - p.i_XB,
+      S_NH: -(1 / p.Y_A + p.i_XB),
+      S_NO: 1 / p.Y_A,
       S_O: -(p.O2_PER_NH_N - p.Y_A) / p.Y_A,
-      S_ALK: (-p.i_XB / p.Y_A) * p.ALK_PER_N,
+      // 碱度：硝化 NH4+→NO3- 释放 2 mol H+/mol N（2/14），同化 1/14
+      S_ALK: -(2 / p.Y_A + p.i_XB) * p.ALK_PER_N,
     },
     // 衰减：生物量转为慢速基质与惰性产物，有机氮释放到 X_ND
     decay_heterotrophs: {
@@ -204,11 +212,11 @@ export function buildRates(p = ASM1_PARAMS, temperatureC = p.T_REF) {
     anoxic_growth_heterotrophs: (s: Asm1State) => {
       const o2Inhibition = p.K_O_H / (p.K_O_H + s.S_O); // 氧抑制（高氧时趋 0）
       /**
-       * 硝酸盐可用性用更陡的判据：K_NO=0.5 时 S_NO=0.3 仍给出 0.375 的饱和，
-       * 对厌氧池来说太宽松。改用平方形式使低浓度区更快衰减：
-       *   S_NO=0.3 → 0.14；S_NO=2 → 0.8；S_NO=8 → 0.99
+       * 硝酸盐可用性：指数可配置（anoxicNo3Exponent，默认 2）。
+       * 指数 2 使低浓度区更快衰减：S_NO=0.3 → 0.14；S_NO=2 → 0.8；S_NO=8 → 0.99。
+       * 标准 ASM1（指数 1）：S_NO=0.3 → 0.375；S_NO=2 → 0.8；S_NO=8 → 0.94。
        */
-      const no3Availability = (s.S_NO / (p.K_NO + s.S_NO)) ** 2;
+      const no3Availability = (s.S_NO / (p.K_NO + s.S_NO)) ** p.anoxicNo3Exponent;
       const window = Math.min(o2Inhibition, no3Availability);
       return p.mu_H * fMuH * p.eta_g * (s.S_S / (p.K_S + s.S_S)) * window * s.X_B_H;
     },
@@ -320,17 +328,14 @@ export function conservationResiduals(p = ASM1_PARAMS) {
       (row.X_P ?? 0) * p.i_XP +
       (proc === 'aerobic_growth_autotrophs' ? (row.S_NO ?? 0) : 0);
 
-    // 碱度账：只有硝化消耗碱度、氨化释放碱度，有机氮水解不涉及质子转移。
-    // S_ALK 系数已经是 mol，直接与「被转化的氮量 × 1 mol N/mol HCO3」对上。
-    // 碱度只与「被转化的氮」相关：
-    //   硝化   —— 每氧化 1 mol NH4-N 消耗 1 mol HCO3 → S_ALK 应为负
-    //   氨化   —— 每释放 1 mol NH4-N 释放 1 mol HCO3 → S_ALK 应为正
-    // 检验方式：S_ALK 与「按氮转移量推出的碱度变化」必须相等。
-    // 判据只有一个：过程是否直接改变氨氮（S_NH）。
-    //   - 同化/硝化消耗 S_NH → 消耗碱度
-    //   - 氨化生成 S_NH    → 释放碱度
-    // 有机氮的水解只在 S_ND / X_ND 之间搬运，不涉及质子，因此不影响碱度。
-    const expectedAlk = (row.S_NH ?? 0) * p.ALK_PER_N;
+    // 碱度账：碱度变化与质子转移对应，统一判据（对全部 8 行成立）：
+    //   expectedAlk = (S_NH − S_NO) × ALK_PER_N
+    //   氨化   —— NH4+ 释放 1 mol H+ → +1/14 每克氮
+    //   同化   —— NH4+ 并入有机氮释放 1 mol H+ → −1/14 每克氮
+    //   硝化   —— NH4+ → NO3- 释放 2 mol H+ → −2/14 每克氮（自养行）
+    //   反硝化 —— NO3- → N2 消耗 H+ → +1/14 每克氮（缺氧行）
+    // 有机氮的水解只在 S_ND / X_ND 之间搬运，不涉及质子，碱度为零。
+    const expectedAlk = ((row.S_NH ?? 0) - (row.S_NO ?? 0)) * p.ALK_PER_N;
     const alk = (row.S_ALK ?? 0) - expectedAlk;
 
     return { process: proc, cod, n, alk };

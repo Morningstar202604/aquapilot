@@ -254,8 +254,13 @@ describe('ASM1 CSTR 稳态（真跑）', () => {
       { maxHours: 24 * 200, seedBiomass: 150 },
     );
     expect(long.converged).toBe(true);
-    expect(long.state.X_B_A).toBeGreaterThan(10);
+    // 修正自养计量后（每 g 硝化菌生长同化+氧化 4.25 gN），化学恒化器的
+    // 硝化菌平衡 = 被硝化氮量 / 4.25 / (D+b_A)，量级在个位数 gCOD/m³。
+    // 此前阈值 10 是按被低估 16.8 倍的硝化计量标定的。
+    expect(long.state.X_B_A).toBeGreaterThan(2);
     expect(long.state.S_NH).toBeLessThan(5);
+    // 真实硝化通量的回归锁：好氧恒化器无反硝化，被氧化的氮全部变成硝酸盐
+    expect(long.state.S_NO).toBeGreaterThan(20);
   });
 
   it('临界 HRT 的判据与生长/衰减平衡一致', () => {

@@ -36,7 +36,11 @@ export interface SettlerConfig {
   depth: number;
   /** 分层数，BSM1 取 10 */
   layers: number;
-  /** 进料层（从顶部数，1 起）。BSM1 为第 6 层 */
+  /**
+   * 进料层（自顶部数，1 起）。
+   * 官方规格：进料点距池底 2.2 m，即自池底数第 6 层 = 自顶数第 5 层
+   * （0.4 m × 10 层，池深 4 m）。
+   */
   feedLayer: number;
   v0Max: number;
   v0: number;
@@ -48,7 +52,7 @@ export interface SettlerConfig {
 
 export const BSM1_SETTLER: Omit<SettlerConfig, 'area' | 'depth'> = {
   layers: 10,
-  feedLayer: 6,
+  feedLayer: 5,
   v0Max: 250,
   v0: 474,
   rh: 0.000576,
