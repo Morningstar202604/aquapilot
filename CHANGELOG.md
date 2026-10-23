@@ -4,6 +4,50 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-10-23
+
+### Fixed
+
+- **Unknown `/api/*` paths returned `200` with the SPA shell.** A client asking
+  for JSON got HTML. They now return `404` with a JSON body.
+- **Every `/api/*` route accepted any HTTP method.** `POST /api/snapshot` and
+  `OPTIONS` both answered `200`. All API routes are read-only, so non-`GET`/`HEAD`
+  requests now return `405` with `Allow: GET, HEAD`.
+- **Route matching used `startsWith`.** `/api/snapshot-evil` matched
+  `/api/snapshot`; routes now compare the exact pathname.
+- **Missing static assets fell back to `index.html`.** `/assets/missing.js`
+  answered `200 text/html`, so the browser executed HTML as JavaScript. Only
+  extension-less client routes fall back now; assets return `404`.
+- **`WebSocket` metrics were wrong in two ways.** `aquapilot_ws_connections` was a
+  counter that only ever grew (now a gauge of open connections), and an `error`
+  followed by `close` counted the same disconnect twice. `accepted` is now its own
+  counter, `aquapilot_ws_connections_total`.
+- **`src/server/index.ts` contained a literal NUL byte** in the path-traversal
+  guard. Tools that sniff for binary content treated the file as binary; the
+  check now uses the `\u0000` escape.
+
+### Added
+
+- `src/server/httpRoutes.ts` — pure path/method predicates with 5 unit tests that
+  lock the four routing regressions above.
+- `docs/API.md` — every HTTP endpoint and the WebSocket message contract.
+- `Dockerfile`, `.dockerignore`, `.env.example`, `CODE_OF_CONDUCT.md`,
+  `.github/dependabot.yml`, `.github/CODEOWNERS`, `scripts/README.md`.
+
+### Changed
+
+- `SECURITY.md` no longer claims "Authentication: None" or "In-memory state only",
+  both of which stopped being true in 0.2.0.
+- `docs/QUALITY-ROADMAP.md` carries a status banner: it is a 2026-10-21 snapshot,
+  not a description of the current code.
+- Test count 307 → 315.
+
+### Removed
+
+- 34 `scripts/__diag_*.ts` one-off diagnostics and 8 superseded check/e2e scripts.
+  Their conclusions live in tests and in `docs/AUDIT-REPORT.md`; the scripts were
+  never referenced by any doc, CI job or npm script.
+
 ## [0.2.0] — 2026-10-22
 
 ### Added

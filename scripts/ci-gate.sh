@@ -37,7 +37,7 @@ TOTAL=$(node -e "console.log(require('./test-results.json').numTotalTests)")
 PASSED=$(node -e "console.log(require('./test-results.json').numPassedTests)")
 rm -f test-results.json
 [ "$PASSED" -eq "$TOTAL" ] && pass "$PASSED/$TOTAL 通过" || fail "$PASSED/$TOTAL，存在失败"
-[ "$TOTAL" -ge 165 ] && pass "测试数量 $TOTAL ≥ 165" || fail "测试数量 $TOTAL 低于下限 165"
+[ "$TOTAL" -ge 300 ] && pass "测试数量 $TOTAL ≥ 300" || fail "测试数量 $TOTAL 低于下限 300"
 
 step "5/9 构建"
 npm run build > /dev/null 2>&1 && pass "客户端与服务端构建成功" || fail "构建失败"
@@ -93,6 +93,10 @@ step "9/9 工程卫生"
 [ -f README.zh-CN.md ] || fail "缺少中文 README"
 [ -f .github/workflows/ci.yml ] || fail "缺少 CI 工作流"
 [ -f .gitignore ] || fail "缺少 .gitignore"
+[ -f CODE_OF_CONDUCT.md ] || fail "缺少 CODE_OF_CONDUCT.md"
+[ -f .env.example ] || fail "缺少 .env.example"
+[ -f Dockerfile ] || fail "缺少 Dockerfile"
+[ -f docs/API.md ] || fail "缺少 docs/API.md"
 pass "必要文件齐全"
 
 printf '\n\033[1;42m  CI GATE: ALL GREEN  \033[0m\n'

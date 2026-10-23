@@ -79,8 +79,16 @@ describe('指标采集', () => {
 
   it('查询串不会进入指标标签（避免基数爆炸）', () => {
     expect(normalizeRoute('/api/history/snapshots?from=1&to=2')).toBe('/api/history/snapshots');
-    const long = `/api/${'x'.repeat(200)}`;
-    expect(normalizeRoute(long).length).toBeLessThanOrEqual(80);
+  });
+
+  it('未知路径折叠成固定标签，随机路径不能制造新序列', () => {
+    // 回归：只做截断时，10 万个随机 /api/xxx 会生成 10 万条时间序列
+    expect(normalizeRoute('/api/nope')).toBe('/api/__unmatched__');
+    expect(normalizeRoute(`/api/${'x'.repeat(200)}`)).toBe('/api/__unmatched__');
+    expect(normalizeRoute('/assets/index-abc123.js')).toBe('/assets/*');
+    expect(normalizeRoute('/replay')).toBe('__static__');
+    expect(normalizeRoute('/')).toBe('/');
+    expect(normalizeRoute('/api/snapshot')).toBe('/api/snapshot');
   });
 
   it('直方图按桶累计且 +Inf 等于总数', () => {
@@ -111,6 +119,17 @@ describe('指标采集', () => {
     }
   });
 
+  it('带标签的指标不能混入无标签样本，也不能重复声明 HELP', () => {
+    recordHttp('GET', '/api/snapshot', 200, 0.01);
+    recordHttp('GET', '/api/nope', 404, 0.01);
+    const text = renderPrometheus();
+    const lines = text.split('\n');
+    const helps = lines.filter((l) => l.startsWith('# HELP aquapilot_http_requests_total '));
+    expect(helps).toHaveLength(1);
+    const bare = lines.filter((l) => l === 'aquapilot_http_requests_total 0');
+    expect(bare).toHaveLength(0);
+  });
+
   it('JSON 视图含 SLO 定义与各子系统计数', () => {
     recordHttp('GET', '/api/snapshot', 200, 0.01);
     const json = metricsJson();
@@ -118,6 +137,22 @@ describe('指标采集', () => {
     expect(http.requests['GET /api/snapshot 200']).toBe(1);
     expect(Array.isArray(json.slo)).toBe(true);
     expect((json.slo as unknown[]).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('WebSocket 指标区分「当前连接」与「累计接受」', () => {
+    // 回归：早先把只增不减的计数器当成 gauge 输出，且 error+close 会重复计断开
+    metrics.wsActive = 2;
+    metrics.wsAccepted = 7;
+    metrics.wsDisconnections = 5;
+    const json = metricsJson();
+    const ws = json.ws as { open: number; accepted: number; closed: number };
+    expect(ws).toEqual({ open: 2, accepted: 7, closed: 5 });
+    const text = renderPrometheus();
+    expect(text).toContain('aquapilot_ws_connections 2');
+    expect(text).toContain('aquapilot_ws_connections_total 7');
+    expect(text).toContain('aquapilot_ws_disconnections_total 5');
+    expect(text).toContain('# TYPE aquapilot_ws_connections gauge');
+    expect(text).toContain('# TYPE aquapilot_ws_connections_total counter');
   });
 
   it('SLO 目标值都是可解析的字符串', () => {

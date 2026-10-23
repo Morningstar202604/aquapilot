@@ -93,7 +93,11 @@ export const metrics = {
   httpRequests: new Map<string, number>(),
   httpErrors: 0,
   httpDuration: newHistogram(),
-  wsConnections: 0,
+  /** 当前打开的连接数（gauge） */
+  wsActive: 0,
+  /** 累计接受的连接数（counter） */
+  wsAccepted: 0,
+  /** 累计关闭的连接数（counter） */
   wsDisconnections: 0,
   authFailures: 0,
   rateLimited: 0,
@@ -117,10 +121,36 @@ export function recordHttp(method: string, path: string, status: number, seconds
   observe(metrics.httpDuration, seconds);
 }
 
-/** 把 /api/history/snapshots?from=1 归一成 /api/history/snapshots，避免指标基数爆炸 */
+/** 已知的 API 路由。未知路径统一归到一个标签，避免指标基数爆炸。 */
+const KNOWN_API_ROUTES = new Set([
+  '/api/auth-required',
+  '/api/health',
+  '/api/snapshot',
+  '/api/limits',
+  '/api/topology',
+  '/api/metrics',
+  '/api/history/decisions',
+  '/api/history/snapshots',
+  '/api/history/stats',
+]);
+
+/**
+ * 把请求路径归一成有限的标签集合。
+ *
+ * 为什么不能只截断：截断后的路径仍然一一对应，攻击者刷 10 万个随机
+ * `/api/xxx` 就能造出 10 万条时间序列（Prometheus 基数 DoS）。
+ * 因此未知 API 路径一律折叠为 `/api/__unmatched__`，静态资源折叠为
+ * `/assets/*` 或 `__static__`。
+ */
 export function normalizeRoute(path: string): string {
   const clean = path.split('?')[0];
-  return clean.length > 80 ? `${clean.slice(0, 77)}...` : clean;
+  if (clean === '/api' || clean === '/api/') return '/api';
+  if (clean.startsWith('/api/')) {
+    return KNOWN_API_ROUTES.has(clean) ? clean : '/api/__unmatched__';
+  }
+  if (clean.startsWith('/assets/')) return '/assets/*';
+  if (clean === '/') return '/';
+  return '__static__';
 }
 
 export function recordTick(ms: number): void {
@@ -186,7 +216,11 @@ export function renderPrometheus(): string {
     lines.push(`${name} ${fmt(value)}`);
   };
 
-  counter('aquapilot_http_requests_total', 'HTTP requests by method, route and status', 0);
+  // 这个指标是带标签的，不能再用 counter() 先写一条无标签样本：
+  // 同一 family 里混入无标签样本会让抓取端把 `aquapilot_http_requests_total`
+  // 当成两条不同序列，且空集合时还会输出一个永远为 0 的假点。
+  lines.push('# HELP aquapilot_http_requests_total HTTP requests by method, route and status');
+  lines.push('# TYPE aquapilot_http_requests_total counter');
   for (const [key, value] of metrics.httpRequests) {
     const [method, route, status] = key.split(' ');
     lines.push(`aquapilot_http_requests_total{method="${method}",route="${route}",status="${status}"} ${value}`);
@@ -202,13 +236,9 @@ export function renderPrometheus(): string {
   counter('aquapilot_persistence_flushes_total', 'SQLite flush operations', metrics.persistenceFlushes);
   counter('aquapilot_persistence_errors_total', 'Failed SQLite flush operations', metrics.persistenceErrors);
 
-  gauge('aquapilot_ws_connections', 'Currently open WebSocket connections', metrics.wsConnections);
-  gauge(
-    'aquapilot_ws_connections_total',
-    'WebSocket connections accepted',
-    metrics.wsConnections + metrics.wsDisconnections,
-  );
-  gauge('aquapilot_ws_disconnections_total', 'WebSocket connections closed', metrics.wsDisconnections);
+  gauge('aquapilot_ws_connections', 'Currently open WebSocket connections', metrics.wsActive);
+  counter('aquapilot_ws_connections_total', 'WebSocket connections accepted', metrics.wsAccepted);
+  counter('aquapilot_ws_disconnections_total', 'WebSocket connections closed', metrics.wsDisconnections);
   gauge('aquapilot_uptime_seconds', 'Process uptime in seconds', (Date.now() - startedAt) / 1000);
   gauge('aquapilot_tick_duration_last_ms', 'Duration of the last simulation tick', metrics.lastTickMs);
   gauge('aquapilot_tick_duration_max_ms', 'Slowest simulation tick since start', metrics.maxTickMs);
@@ -241,8 +271,8 @@ export function metricsJson(): Record<string, unknown> {
       },
     },
     ws: {
-      open: metrics.wsConnections,
-      accepted: metrics.wsConnections + metrics.wsDisconnections,
+      open: metrics.wsActive,
+      accepted: metrics.wsAccepted,
       closed: metrics.wsDisconnections,
     },
     security: {
@@ -267,7 +297,8 @@ export function resetMetrics(): void {
   metrics.httpRequests.clear();
   metrics.httpErrors = 0;
   metrics.httpDuration = newHistogram();
-  metrics.wsConnections = 0;
+  metrics.wsActive = 0;
+  metrics.wsAccepted = 0;
   metrics.wsDisconnections = 0;
   metrics.authFailures = 0;
   metrics.rateLimited = 0;

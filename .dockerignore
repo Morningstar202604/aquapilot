@@ -1,0 +1,16 @@
+node_modules
+dist
+out
+coverage
+data
+backups
+.git
+.github
+.v2c
+.aqg
+docs/media
+docs/screenshots
+*.log
+.env
+.env.*
+!.env.example

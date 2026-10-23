@@ -305,7 +305,7 @@ grep -c "coverage\|audit\|playwright" .github/workflows/ci.yml
 
 ---
 
-## 八、视觉走查与交互复检（2026-10-22）
+## 十、视觉走查与交互复检（2026-10-22）
 
 本轮对真实运行的界面做了全量视觉与交互走查：5 个分辨率（1920/1600/1366/1024/390）、6 个侧栏面板、编辑器、以及全部可见按钮的逐一点击。
 
@@ -333,3 +333,44 @@ grep -c "coverage\|audit\|playwright" .github/workflows/ci.yml
 | 浏览器冒烟 | PASS：6 KPI / 17 节点 / 3 图表 / 5 页签 / 0 console error / 0 连线穿越 / 0 移动端溢出 |
 | 按钮遍历 | 3 个分辨率共 60 次点击，0 报错 |
 | CI | GitHub Actions 4/4 job 全绿（Node 20、Node 22、Quality gate、Browser smoke） |
+
+---
+
+## 十一、0.2.1 收尾轮（2026-10-23）
+
+本轮只做可复现的缺陷修复，不做推测性重构。所有结论在修复前均先实测复现。
+
+| 发现 | 复现（修复前） | 修复 | 复验（修复后） |
+|---|---|---|---|
+| 未知 `/api/*` 返回 SPA 页面 | `curl /api/nope` → `200 text/html` | 未匹配 API 一律 404 JSON | `404 application/json` |
+| API 不限制方法 | `POST /api/snapshot` → `200`；`OPTIONS` → `200` | 非 GET/HEAD → 405 + `Allow` | `405` |
+| 前缀匹配误命中 | `/api/snapshot-evil` 命中 `/api/snapshot` 分支 | 精确路径比较 | `404` |
+| 缺失静态资源回落首页 | `/assets/nope.js` → `200 text/html` | 仅无扩展名路径回落 | `404 text/plain` |
+| WS 连接数只增不减 | 连一次断开后 `open=1 accepted=2 closed=1` | 拆成 `wsActive`（gauge）/`wsAccepted`（counter） | `open=0 accepted=1 closed=1` |
+| 源文件含裸 NUL 字节 | `grep` 判定 `src/server/index.ts` 为二进制 | 改用 `\u0000` 转义 | 文本工具可正常处理 |
+| 未使用的测试后门 | `/api/__test/bad-frame` 无任何调用方 | 删除 | 端点不存在 |
+
+### 清理
+
+删除 34 个 `scripts/__diag_*.ts`、8 个被 `e2e-ci.ts` 取代或从未被引用的 check/e2e 脚本，
+以及仓库根目录 3 个 `.tmp-*.log`、`.v2c/`、`coverage/`、`out/`。删除前逐项确认无任何
+npm script、CI 步骤或文档引用；保留的 15 个脚本在 `scripts/README.md` 里逐个说明用途。
+
+### 验证
+
+| 命令 | 结果 |
+|---|---|
+| `npm run ci` | 9/9 全绿（typecheck / unused / 315 tests + 覆盖率 / build / smoke / secret / audit / hygiene） |
+| `npx vitest run --coverage` | 21 文件 / 315 tests 通过；语句 95.13% / 分支 85.43% / 函数 95.38% / 行 95.72% |
+| `npm run lint` · `npm run format` | 0 错误；Prettier 全部符合 |
+| `npx tsx scripts/e2e-ci.ts` | PASS：6 KPI / 17 节点 / 3 图表 / 5 页签 / 0 console error |
+| `curl` 探测 6 条路由 + 3 个边界 | 状态码与 Content-Type 全部符合预期 |
+
+### 本轮未做（如实记录）
+
+| 项 | 原因 |
+|---|---|
+| Docker 镜像实跑 | 本机 Docker daemon 未启动（`docker info` 连接失败），Dockerfile 只做了静态审查 |
+| 30 天 SLO 窗口验证 | 需要外部 Prometheus 抓取，单进程指标重启即清零，见 `docs/SLO.md` |
+| 变异测试（Stryker） | 未引入，CI 时长代价未评估 |
+| BSM1 Table 6 数值对照 | 仍缺官方数值，列在 README 已知边界 |

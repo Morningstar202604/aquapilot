@@ -1,6 +1,6 @@
 {
   "name": "aquapilot",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "AI-operated wastewater treatment plant simulator with topology-driven solvers",
@@ -20,7 +20,9 @@
     "e2e": "tsx scripts/e2e-ci.ts",
     "format": "prettier --check \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\"",
     "format:write": "prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\"",
-    "backup": "tsx scripts/backup.ts"
+    "backup": "tsx scripts/backup.ts",
+    "docker:build": "docker build -t aquapilot:local .",
+    "docker:run": "docker run --rm -p 5173:5173 -v aquapilot-data:/app/data aquapilot:local"
   },
   "dependencies": {
     "echarts": "6.1.0",
@@ -50,6 +52,7 @@
     "vitest": "5.0.5"
   },
   "license": "MIT",
+  "author": "AquaPilot contributors",
   "repository": {
     "type": "git",
     "url": "https://github.com/Morningstar202604/aquapilot.git"

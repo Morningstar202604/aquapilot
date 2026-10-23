@@ -14,6 +14,7 @@ import { PLANT_TOPOLOGY, ProcessTopology, validateTopology } from '../model/topo
 import { applyTopology, checkRunReadiness, createRuntime } from './topologyRuntime';
 import { Store } from './store';
 import { authRequired, authorize } from './auth';
+import { isApiPath, isPublicApiPath, isReadMethod, pathnameOf, shouldFallbackToIndex } from './httpRoutes';
 import { logger, metrics, metricsJson, recordHttp, recordTick, renderPrometheus } from './observability';
 import {
   VALID_SCENARIOS,
@@ -714,7 +715,7 @@ async function serveStatic(req: IncomingMessage, res: import('node:http').Server
   }
 
   // 拒绝空字节与路径穿越片段
-  if (urlPath.includes(' ')) {
+  if (urlPath.includes('\u0000')) {
     res.writeHead(400);
     res.end('bad request');
     return;
@@ -730,6 +731,12 @@ async function serveStatic(req: IncomingMessage, res: import('node:http').Server
     return;
   }
   if (!existsSync(filePath)) {
+    // 只有前端路由才回落首页；缺资源必须 404，否则浏览器把 HTML 当 JS 执行
+    if (!shouldFallbackToIndex(urlPath)) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('not found');
+      return;
+    }
     filePath = join(clientDir, 'index.html');
   }
   try {
@@ -763,9 +770,19 @@ async function main(): Promise<void> {
      * 前端完全无法加载——认证功能"启用即故障"。
      * 正确做法：页面可加载，页面内的 API/WS 调用再要求令牌。
      */
-    const isApi = req.url?.startsWith('/api/');
+    // 基线安全响应头（OWASP A02）
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:",
+    );
+
+    const pathname = pathnameOf(req.url);
+    const isApi = isApiPath(pathname);
     // 健康检查与"是否需要认证"必须免鉴权，否则前端无法得知该不该弹登录框（死锁）
-    const isPublic = req.url?.startsWith('/api/health') || req.url?.startsWith('/api/auth-required');
+    const isPublic = isPublicApiPath(pathname);
     if (isApi && !isPublic) {
       const decision = authorize(req);
       if (!decision.allowed) {
@@ -781,21 +798,22 @@ async function main(): Promise<void> {
         return;
       }
     }
-    // 基线安全响应头（OWASP A02）
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader(
-      'Content-Security-Policy',
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:",
-    );
+    // 所有 API 都是只读的（写操作走 WebSocket），非 GET/HEAD 一律 405 并给出 Allow
+    if (isApi && !isReadMethod(req.method)) {
+      res.writeHead(405, {
+        'Content-Type': 'application/json; charset=utf-8',
+        Allow: 'GET, HEAD',
+      });
+      res.end(JSON.stringify({ error: 'method not allowed' }));
+      return;
+    }
 
-    if (req.url?.startsWith('/api/auth-required')) {
+    if (pathname === '/api/auth-required') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ required: authRequired() }));
       return;
     }
-    if (req.url?.startsWith('/api/health')) {
+    if (pathname === '/api/health') {
       /**
        * 健康检查分两级：
        * - 默认 /api/health：存活探针，只要进程能响应就是 200（用于 restart 判断）
@@ -804,7 +822,7 @@ async function main(): Promise<void> {
        * 早期实现无条件返回 {ok:true}，tick 已经因异常停摆也照样"健康"，
        * 这对自动重启策略来说是假信号。
        */
-      const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
+      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
       const deep = url.searchParams.get('deep') === '1';
       const body: Record<string, unknown> = {
         ok: true,
@@ -830,9 +848,9 @@ async function main(): Promise<void> {
       res.end(JSON.stringify(body));
       return;
     }
-    if (req.url?.startsWith('/api/metrics')) {
+    if (pathname === '/api/metrics') {
       // Prometheus 抓取默认走文本；?format=json 便于人读与前端展示
-      const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
+      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
       if (url.searchParams.get('format') === 'json') {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(metricsJson()));
@@ -842,12 +860,12 @@ async function main(): Promise<void> {
       res.end(renderPrometheus());
       return;
     }
-    if (req.url?.startsWith('/api/limits')) {
+    if (pathname === '/api/limits') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ limits: LIMITS, bounds: CONTROL_BOUNDS, plant: PLANT }));
       return;
     }
-    if (req.url?.startsWith('/api/topology')) {
+    if (pathname === '/api/topology') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(
         JSON.stringify({
@@ -866,25 +884,13 @@ async function main(): Promise<void> {
       );
       return;
     }
-    // 测试专用：注入一帧缺字段的快照，用于验证前端容错。
-    // 仅在 TEST_HOOKS=1 时启用；默认关闭，不进入正常部署。
-    if (req.url?.startsWith('/api/__test/bad-frame') && process.env.TEST_HOOKS === '1') {
-      for (const ws of runtime.clients) {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'snapshot', data: { timeMin: 0 } }));
-        }
-      }
-      res.writeHead(200);
-      res.end('sent');
-      return;
-    }
-    if (req.url?.startsWith('/api/history/decisions')) {
+    if (pathname === '/api/history/decisions') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ enabled: store.enabled, decisions: store.recentDecisions(100) }));
       return;
     }
-    if (req.url?.startsWith('/api/history/snapshots')) {
-      const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
+    if (pathname === '/api/history/snapshots') {
+      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
       const from = Number(url.searchParams.get('from') ?? 0);
       const to = Number(url.searchParams.get('to') ?? Number.MAX_SAFE_INTEGER);
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -898,16 +904,24 @@ async function main(): Promise<void> {
       );
       return;
     }
-    if (req.url?.startsWith('/api/history/stats')) {
+    if (pathname === '/api/history/stats') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ enabled: store.enabled, counts: store.count() }));
       return;
     }
-    if (req.url?.startsWith('/api/snapshot')) {
+    if (pathname === '/api/snapshot') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(buildSnapshot()));
       return;
     }
+    // 未匹配的 /api/* 必须 404，不能掉进静态分支返回 index.html：
+    // 客户端把 HTML 当 JSON 解析只会得到一句看不懂的语法错误
+    if (isApi) {
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'not found' }));
+      return;
+    }
+
     serveStatic(req, res).catch((err) => {
       console.error('static handler error', err);
       if (!res.headersSent) {
@@ -959,7 +973,8 @@ async function main(): Promise<void> {
   });
 
   wss.on('connection', (ws) => {
-    metrics.wsConnections += 1;
+    metrics.wsActive += 1;
+    metrics.wsAccepted += 1;
     logger.info('ws connected', { clients: runtime.clients.size + 1 });
     runtime.clients.add(ws);
     ws.on('message', (data) => {
@@ -977,14 +992,13 @@ async function main(): Promise<void> {
     });
     ws.on('close', () => {
       metrics.wsDisconnections += 1;
+      metrics.wsActive = Math.max(0, metrics.wsActive - 1);
       runtime.clients.delete(ws);
       runtime.clientState.delete(ws);
     });
+    // error 之后一定会有 close；这里只记日志，否则同一连接会被计两次断开
     ws.on('error', (err) => {
-      metrics.wsDisconnections += 1;
       logger.warn('ws error', { error: String(err) });
-      runtime.clients.delete(ws);
-      runtime.clientState.delete(ws);
     });
     // heartbeat：清理半开连接，避免 clients 集合泄漏
     const ping = setInterval(() => {

@@ -6,7 +6,7 @@
 
 AquaPilot is a working prototype of a new interaction model for process simulation: instead of an engineer reading curves and turning knobs, an AI operator watches the plant, forecasts, decides, and acts — while the human asks questions and sets boundaries.
 
-![tests](https://img.shields.io/badge/tests-307%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-315%20passing-brightgreen)
 ![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
@@ -36,6 +36,7 @@ Industrial simulators (GPS-X, BioWin, Aspen HYSYS) are powerful but assume the o
 ![AquaPilot demo](docs/media/demo.gif)
 
 _A 30-second walk-through: live flowsheet, AI conversation, decision explanation, control, scenario injection, flowsheet editor._
+[MP4 version](docs/media/demo.mp4) (smaller, no autoplay).
 
 ### Screenshots
 
@@ -55,6 +56,10 @@ _A 30-second walk-through: live flowsheet, AI conversation, decision explanation
 |---|---|
 | ![editor](docs/screenshots/07-editor.jpg) | ![mobile](docs/screenshots/08-mobile.jpg) |
 
+| Desktop, 16:9 |
+|---|
+| ![laptop](docs/screenshots/09-laptop.jpg) |
+
 ## Quick start
 
 ```bash
@@ -73,7 +78,7 @@ Verify:
 
 ```bash
 npm run typecheck  # TypeScript strict + noUnusedLocals/Parameters
-npm run test       # 307 tests
+npm run test       # 315 tests
 npm run build      # client bundle + server bundle
 npm run verify     # all three in order
 npm run ci         # full gate: deps, types, tests, build, smoke, secret scan
@@ -82,6 +87,16 @@ npm run ci         # full gate: deps, types, tests, build, smoke, secret scan
 AQUAPILOT_TOKEN=your-secret npm start
 # then send Authorization: Bearer your-secret, or ?token= for WebSocket
 ```
+
+Or with Docker:
+
+```bash
+docker build -t aquapilot:local .
+docker run --rm -p 5173:5173 -v aquapilot-data:/app/data aquapilot:local
+```
+
+Configuration is environment-only; every variable is optional and documented in
+[.env.example](.env.example).
 
 ## Architecture
 
@@ -105,7 +120,7 @@ src/
   server/        WebSocket simulation loop, REST snapshot, static hosting
   client/        Control-room UI (React + ECharts + SVG flowsheet)
   shared/        Client/server protocol
-tests/           307 tests: physics, conservation, guardrails, topology, cross-engine,
+tests/           315 tests: physics, conservation, guardrails, topology, cross-engine,
                  input validation and crash-boundary regressions
 ```
 
@@ -138,7 +153,7 @@ This is a **simulation prototype**, not a system that can take over a real plant
 Verified **on this machine** by `npm run verify` plus `npm run e2e`:
 - Dependency install, TypeScript strict (0 errors, including unused-code checks)
 - ESLint 9 and Prettier 3 clean
-- 307 tests, all passing; branch coverage 85.2% (Node 24) / 83.0% (Node 20)
+- 315 tests, all passing; branch coverage 85.4% (Node 24) / 83.0% (Node 20)
 - Client + server build, production bundle
 - Browser smoke: 6 KPIs, 17 nodes, 3 charts, 5 tabs, no console errors,
   no connection crossing a unit body, no horizontal overflow on mobile
@@ -183,8 +198,12 @@ Known gaps (tracked in `docs/QUALITY-ROADMAP.md`):
 
 ## Documentation
 
+- [HTTP API and WebSocket protocol](docs/API.md) — every endpoint, status code and frame type
 - [UI architecture](docs/UI-ARCHITECTURE.md) — how a flowsheet becomes a running model
 - [Quality roadmap](docs/QUALITY-ROADMAP.md) — measured gaps, priorities, and the record of what failed and why
+- [SLOs](docs/SLO.md) — service level objectives and suggested alerts
+- [Audit report](docs/AUDIT-REPORT.md) — the independent review, findings and their closure
+- [Scripts](scripts/README.md) — what each helper answers
 - [中文说明](README.zh-CN.md)
 
 ## Licence

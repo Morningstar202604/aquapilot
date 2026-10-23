@@ -46,7 +46,7 @@ stages:
           script: |
             set -e
             npx vitest run --reporter=json --outputFile=test-results.json
-            node -e "const r=require('./test-results.json');if(r.numFailedTests>0){console.error('failed:'+r.numFailedTests);process.exit(1)}if(r.numTotalTests<160){console.error('too few tests:'+r.numTotalTests);process.exit(1)}console.log('tests '+r.numPassedTests+'/'+r.numTotalTests)"
+            node -e "const r=require('./test-results.json');if(r.numFailedTests>0){console.error('failed:'+r.numFailedTests);process.exit(1)}if(r.numTotalTests<300){console.error('too few tests (<300):'+r.numTotalTests);process.exit(1)}console.log('tests '+r.numPassedTests+'/'+r.numTotalTests)"
             rm -f test-results.json
 
         - step: build

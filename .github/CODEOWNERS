@@ -1,0 +1,3 @@
+# Default reviewers for every change. Keep this in sync with the maintainers
+# listed in package.json.
+* @Morningstar202604

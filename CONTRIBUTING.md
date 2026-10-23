@@ -7,9 +7,10 @@ npm ci
 npm run ci        # must be green before any commit
 ```
 
-`npm run ci` runs the same eight gates as CI: dependency install, type check,
-unused-code check, tests, build, production smoke test, secret scan, and
-repository hygiene.
+`npm run ci` runs the same nine gates as CI: dependency install, type check,
+unused-code check, tests with coverage thresholds, build, production smoke test,
+secret scan, dependency audit, and repository hygiene (LICENSE, README,
+CODE_OF_CONDUCT, `.env.example`, Dockerfile, API docs).
 
 ## Ground rules
 
@@ -23,6 +24,12 @@ repository hygiene.
   responses, and bounds.
 - **Document limits.** If something does not work, or works only under
   assumptions, write it in `docs/QUALITY-ROADMAP.md`.
+
+## Environment
+
+Copy [.env.example](.env.example) if you need to override defaults. Never commit
+a real `.env`. `AQUAPILOT_TOKEN` is the only secret the server reads; leave it
+empty for local work.
 
 ## Commit messages
 
