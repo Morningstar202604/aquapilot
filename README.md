@@ -309,9 +309,9 @@ Verified in this repository by `npm run ci` plus `npm run e2e`:
 - TypeScript strict (0 errors, including unused-code checks), ESLint 9 and
   Prettier 3 clean.
 - 381 tests passing; 95.6 % line / 84.7 % branch coverage.
-- Client + server production build; browser smoke asserts 7 KPI tiles, 17 nodes,
-  3 charts, 6 panels, no console errors, no connection crossing a unit body and no
-  horizontal overflow on mobile.
+- Client + server production build; browser smoke asserts 7 KPI tiles, the health
+  pill with 5 sub-scores, 17 nodes, 3 charts, 6 panels, no console errors, no
+  connection crossing a unit body and no horizontal overflow on mobile.
 
 Known gaps (tracked in [docs/QUALITY-ROADMAP.md](docs/QUALITY-ROADMAP.md)):
 
