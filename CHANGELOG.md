@@ -6,6 +6,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [0.3.0] — 2026-10-24
 
+### Changed (branch and hosting cleanup)
+
+- **Default branch is `main` on every remote.** The repository was created on
+  `master`; all five hosted copies now use `main` as the default branch and the
+  `master` refs have been deleted. CI triggers watch `main` only.
+- **AtomGit is GitCode, not a sixth platform.** Both hostnames resolve to the same
+  IPs, share the same API (`api.atomgit.com` and `api.gitcode.com` return the same
+  repository id for `badhope/aquapilot`), and share credentials. The duplicate
+  `atomgit` remote, `.gitcode/workflows/` and the unused `.gitlab-ci.yml` were
+  removed; the delivery surface is five repositories on three services
+  (GitHub ×3, Gitee, GitCode).
+
+
+
 ### Added
 
 - **Robust decision layer.** The decision engine now runs a fixed three-member
