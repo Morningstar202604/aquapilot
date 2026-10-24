@@ -10,6 +10,7 @@ import { SCENARIOS, ScenarioType } from '../sim/scenarios';
 import { NetworkSimState, networkModel, qualityScoreOf, stepNetwork } from '../sim/networkEngine';
 import { CompiledNetwork } from '../sim/network';
 import { estimateMargin } from '../sim/metrics';
+import { attributeAlarm, plantHealth, trendSlopes, type AlarmAttribution } from '../sim/alarmAttribution';
 import type { ClientMessage, PlantSnapshot, ServerMessage, SnapshotPatch, TrendPoint } from '../shared/protocol';
 import { PLANT_TOPOLOGY, ProcessTopology, validateTopology } from '../model/topology';
 import { PRESETS, buildPreset, presetById } from '../model/presets';
@@ -192,6 +193,16 @@ function buildSnapshot(): PlantSnapshot {
       .reverse()
       .map((a) => ({ ...a })),
     activeAlarms: currentAlarms(s),
+    alarmAttribution: buildAttribution(s),
+    health: plantHealth({
+      margins: estimateMargin(effluent),
+      lastDo: s.reactors[s.reactors.length - 1]?.doLevel ?? 0,
+      doSetpoint: s.controls.doSetpoint,
+      srtDays: s.srtDays,
+      blanketM: s.clarifier.blanketM,
+      depth: s.clarifier.depth,
+      activeAlarms: currentAlarms(s).length,
+    }),
     trends: runtime.trend,
     forecast: fc
       ? {
@@ -312,9 +323,47 @@ function buildPatch(client: ClientState): SnapshotPatch | null {
     margins: estimateMargin(s.effluent),
     trendsAppend,
     activeAlarms: currentAlarms(s),
+    alarmAttribution: buildAttribution(s),
+    health: plantHealth({
+      margins: estimateMargin(s.effluent),
+      lastDo: s.reactors[s.reactors.length - 1]?.doLevel ?? 0,
+      doSetpoint: s.controls.doSetpoint,
+      srtDays: s.srtDays,
+      blanketM: s.clarifier.blanketM,
+      depth: s.clarifier.depth,
+      activeAlarms: currentAlarms(s).length,
+    }),
     stormStorageM3: s.stormStorageM3,
     reactorCount: s.reactors.length,
   };
+}
+
+/**
+ * 把当前活跃告警逐条归因。
+ *
+ * 只在服务端算一次：前端拿到的是"原因 + 动作 + 后果"，不需要重复实现工艺规则；
+ * 归因函数本身是纯函数，测试可以脱离服务端跑。
+ */
+function buildAttribution(s: NetworkSimState): Record<string, AlarmAttribution> {
+  const slopes = trendSlopes(runtime.trend, s.effluent.bod);
+  const last = s.reactors[s.reactors.length - 1];
+  const out: Record<string, AlarmAttribution> = {};
+  for (const alarm of currentAlarms(s)) {
+    const attribution = attributeAlarm({
+      code: alarm.code,
+      effluent: s.effluent,
+      srtDays: s.srtDays,
+      lastDo: last?.doLevel ?? 0,
+      doSetpoint: s.controls.doSetpoint,
+      blanketM: s.clarifier.blanketM,
+      depth: s.clarifier.depth,
+      temperature: s.influent.temperature,
+      inhibition: s.inhibition,
+      slopes,
+    });
+    if (attribution) out[alarm.code] = attribution;
+  }
+  return out;
 }
 
 function broadcastPatch(): void {

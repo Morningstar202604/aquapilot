@@ -100,3 +100,30 @@ The snapshot MUST report cumulative inflow, energy and waste from integration, n
 3. **Objection**: LLM 可能编造数字 (`src/ai/llm.ts:1`) — **Mitigation**: 系统提示要求只引用给定 JSON，且回答后做数字白名单校验；失败即降级到规则引擎。
 4. **Objection**: 新增 API 导出可能泄露数据 (`src/server/index.ts:887`) — **Mitigation**: 沿用统一鉴权；CSV 只含仿真数据，不含令牌；测试覆盖 401。
 5. **Objection**: 模板拓扑可能不可运行 (`src/model/presets.ts:1`) — **Mitigation**: 每个模板在测试中跑 readiness + compile + 3 天预热，不通过即失败。
+
+## Round 2 — alarm attribution and health (post-review)
+
+| step | required | evidence | file:line | command/result |
+|---|---|---|---|---|
+| 1. Pattern Mining | yes | 复用 `estimateMargin` 的排序口径与 `metrics` 的纯函数风格；告警 code 沿用引擎已有 `EFF_*` / `DO_LOW` / `SLUDGE_BLANKET` / `SRT_LOW` | `src/sim/metrics.ts:50`、`src/sim/networkEngine.ts:920` | 读取 8 个告警产生点，确认无新增传感器假设 |
+| 2. Behavior Lock | yes | 新增 15 项归因/健康度测试 + 5 项 AuthGate 令牌生命周期测试 + 3 项组件测试（covers: R9, R10） | `tests/alarmAttribution.test.ts:1`、`tests/authGate.test.tsx:1`、`tests/components.test.tsx:155` | 先写失败断言（`getByText(/保存的令牌已失效/)` 在旧实现下失败） |
+| 3. Thin Slice | yes | 归因/健康度写成 `src/sim/alarmAttribution.ts` 纯函数；服务端只组装，前端只渲染 | `src/sim/alarmAttribution.ts:1` | 未改引擎物理、未新增依赖 |
+| 4. Construction Rules | yes | 未知告警返回 null；趋势点不足不写外推；毒性优先于低 DO 归因 | `src/sim/alarmAttribution.ts:59` | 测试覆盖未知 code 与点数不足 |
+| 5. Local Verification | yes | typecheck / lint / format / 370 tests / coverage / build / E2E / ci-gate | `scripts/ci-gate.sh:1` | 全绿；E2E 新增健康度胶囊与 5 个分项断言 |
+| 6. Self Review (5 axes) | yes | 正确性：归因只用快照内量；可读性：原因/动作/后果三段；安全：无新输入面；性能：每次快照一次纯函数 | `src/sim/alarmAttribution.ts`、`src/client/components/AlarmsPanel.tsx` | 毒性场景实测：归因到「生物活性下降 75%」 |
+
+### R9: Alarm attribution never fabricates a cause
+The system MUST return no attribution for an unknown alarm code.
+
+- Scenario S9.1: unknown code
+  - GIVEN an alarm code outside the eight known ones
+  - WHEN attribution runs
+  - THEN the result is null and the raw alarm is still shown
+
+### R10: Stored token must be verified before entering the app
+The client SHALL verify a stored token against `/api/snapshot` before rendering the control room.
+
+- Scenario S10.1: rotated token
+  - GIVEN a stale token in sessionStorage
+  - WHEN the app boots
+  - THEN the token is cleared and the login prompt returns with an explanation

@@ -502,15 +502,16 @@ S_NH 残差分析：绝对差 0.34 gN/m³，折合氮通量的不足 1%——两
 | 工艺模板 | A²/O 标准、强化脱氮、A/O（首池改缺氧） | `release030` 对每个模板跑 readiness + compile |
 | 导出 | 快照 CSV、决策 CSV、Markdown 值班报告 | CSV 转义与报告结构测试；真实 HTTP 200 |
 | 可选 LLM | OpenAI 兼容 `/chat/completions`，只发事实、数字白名单、失败降级 | 用本机 `new-provider-7 / deepseek-v4.1-flash` 实测：回答引用真实氨氮 0.81；端点不可达时回退规则答案 |
-| 五个平台 CI | GitHub Actions（含 release → GHCR）、Gitee Go、GitCode、AtomGit Action、GitLab CI | GitHub 上 CI 与 Release 均 `success`；GHCR 镜像 `linux/amd64 + linux/arm64` 可拉取元数据 |
+| 告警归因与健康度 | `src/sim/alarmAttribution.ts`：8 类告警的原因/动作/后果，五维加权健康度 | `tests/alarmAttribution.test.ts` 15 项 + 组件 3 项；毒性场景实测归因到「生物活性下降 75%」 |
+| 五个平台 CI | GitHub Actions（含 release → GHCR）、Gitee Go、GitCode、AtomGit Action、GitLab CI | GitHub 上 CI 与 Release 均 `success`；GHCR 镜像 `linux/amd64` manifest 已核实（另一条是 attestation） |
 
 ### 13.3 本轮验证
 
 | 命令 | 结果 |
 |---|---|
 | `npm run typecheck` / `npm run lint` / `npm run format` | 0 错误；Prettier 全部符合 |
-| `npm test` | 23 文件 / 347 tests 通过 |
-| `npx vitest run --coverage` | 行 95.66% / 分支 84.25% / 函数 94.84% |
+| `npm test` | 25 文件 / 370 tests 通过 |
+| `npx vitest run --coverage` | 行 95.52% / 分支 82.96% / 函数 94.92% |
 | `bash scripts/ci-gate.sh` | 9/9 全绿 |
 | `npx tsx scripts/e2e-ci.ts` | PASS：7 KPI / 17 节点 / 3 图表 / 6 面板 / 0 console error |
 | `npx tsx scripts/prove-benchmark.ts` | 见 13.2 双跑数据 |

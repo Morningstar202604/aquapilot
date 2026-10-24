@@ -250,6 +250,55 @@ describe('AlarmsPanel', () => {
   });
 });
 
+describe('AlarmsPanel 归因与健康度', () => {
+  it('活跃告警带原因 / 动作 / 后果', () => {
+    render(
+      <AlarmsPanel
+        snap={makeSnapshot({
+          activeAlarms: [
+            { id: 'L1', at: 100, severity: 'critical', code: 'EFF_NH', message: '出水氨氮 6.10 mg/L 超限' },
+          ],
+          alarmAttribution: {
+            EFF_NH: {
+              unit: '好氧区 → 二沉池出水',
+              cause: '好氧区溶解氧仅 0.80 mg/L，低于设定 2.0，硝化受供氧限制',
+              action: '把溶解氧设定上调 0.3–0.5 mg/L，并确认鼓风机出力',
+              consequence: '按当前斜率，4 小时后氨氮约 7.20 mg/L（限值 5）。',
+              confidence: 'high',
+            },
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText(/好氧区溶解氧仅 0.80/)).toBeTruthy();
+    expect(screen.getByText(/上调 0.3–0.5/)).toBeTruthy();
+    expect(screen.getByText(/4 小时后氨氮约 7.20/)).toBeTruthy();
+    expect(screen.getByText('好氧区 → 二沉池出水')).toBeTruthy();
+  });
+
+  it('健康度展示总分与五个分项', () => {
+    render(<AlarmsPanel snap={makeSnapshot()} />);
+    expect(screen.getByText('82')).toBeTruthy();
+    expect(screen.getByText('运行良好')).toBeTruthy();
+    for (const label of ['出水裕度', '溶解氧', '污泥龄', '二沉池', '告警']) {
+      expect(screen.getByText(label)).toBeTruthy();
+    }
+  });
+
+  it('健康度低时给出风险文案', () => {
+    const snap = makeSnapshot();
+    render(
+      <AlarmsPanel
+        snap={{
+          ...snap,
+          health: { ...snap.health, score: 32, grade: 'bad' },
+        }}
+      />,
+    );
+    expect(screen.getByText('存在风险')).toBeTruthy();
+  });
+});
+
 describe('ControlPanel', () => {
   it('渲染全部控制回路', () => {
     render(

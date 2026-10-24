@@ -41,7 +41,7 @@ ffmpeg -y -i docs/media/demo.webm -vf "fps=12,scale=1280:-2" -c:v libx264 -pix_f
 ffmpeg -y -i docs/media/demo.mp4 -vf "fps=8,scale=960:-2:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer" docs/media/demo.gif
 ```
 
-`media.ts` writes nine screenshots into `docs/screenshots/` and a WebM recording
+`media.ts` writes ten screenshots into `docs/screenshots/` and a WebM recording
 into `docs/media/`. It runs against `dist/` with persistence disabled, so output
 never depends on local data. Delete the WebM after converting — it is large and
 not referenced by the READMEs.

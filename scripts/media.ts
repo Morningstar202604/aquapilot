@@ -1,5 +1,5 @@
 import { chromium } from 'playwright-core';
-import { mkdir, rename } from 'node:fs/promises';
+import { mkdir, rename, rm } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
@@ -11,7 +11,7 @@ import { existsSync } from 'node:fs';
  * 生产构建（dist/），不是设计稿。
  *
  * 输出：
- *   docs/screenshots/*.jpg   9 张
+ *   docs/screenshots/*.jpg   10 张
  *   docs/media/demo.webm     原始录制
  *   （外层用 ffmpeg 转 docs/media/demo.mp4 与 demo.gif）
  */
@@ -19,6 +19,7 @@ import { existsSync } from 'node:fs';
 const PORT = 5190;
 const SHOT = 'docs/screenshots';
 const VIDEO_DIR = 'out/video';
+const DB = 'out/media-demo.db';
 
 function fail(msg: string): never {
   console.error(`MEDIA FAIL: ${msg}`);
@@ -27,9 +28,28 @@ function fail(msg: string): never {
 
 await mkdir(SHOT, { recursive: true });
 await mkdir(VIDEO_DIR, { recursive: true });
+for (const suffix of ['', '-wal', '-shm']) {
+  try {
+    await rm(`${DB}${suffix}`, { force: true });
+  } catch {
+    /* nothing to remove */
+  }
+}
 
+/**
+ * 展示录制要开持久化：回放面板的数据只来自 SQLite。
+ * 用 out/ 下的临时库，截图里就能看到真实历史而不是"持久化未启用"。
+ * TICK_MS=200 让 30 秒内积累足够多的抽样点，画面里曲线不是空的。
+ */
 const server = spawn(process.execPath, ['dist/server/index.mjs'], {
-  env: { ...process.env, PORT: String(PORT), AQUAPILOT_PERSIST: '0', SIM_MINUTES_PER_TICK: '4' },
+  env: {
+    ...process.env,
+    PORT: String(PORT),
+    AQUAPILOT_DB: DB,
+    AQUAPILOT_PERSIST: '1',
+    TICK_MS: '200',
+    SIM_MINUTES_PER_TICK: '4',
+  },
   stdio: 'ignore',
 });
 
@@ -100,9 +120,21 @@ try {
   await page.waitForTimeout(1200);
   await snap(page, '05-insights');
 
-  // 回放
+  // 告警归因：注入毒性抑制，让告警真实触发后再截
+  await page.locator('.side-tab', { hasText: '控制与工况' }).click();
+  await page.waitForTimeout(600);
+  await page.locator('.scenario-btn', { hasText: '毒性抑制' }).click();
+  await page.waitForTimeout(6000);
+  await page.locator('.side-tab', { hasText: '告警' }).click();
+  await page.waitForTimeout(1200);
+  await snap(page, '10-alarms');
+
+  // 回放：先让持久化真正写入几轮，再刷新面板
   await page.locator('.side-tab', { hasText: '回放' }).click();
-  await page.waitForTimeout(1800);
+  await page.waitForTimeout(3000);
+  const refresh = page.locator('.scroll-panel .chip', { hasText: '刷新' }).first();
+  if (await refresh.count()) await refresh.click();
+  await page.waitForTimeout(2500);
   await snap(page, '06-replay');
 
   // 工艺编排
@@ -133,7 +165,15 @@ try {
     const raw = await video.path();
     if (existsSync(raw)) await rename(raw, 'docs/media/demo.webm');
   }
-  console.log('MEDIA PASS: 9 screenshots + demo.webm');
+  console.log('MEDIA PASS: 10 screenshots + demo.webm');
 } finally {
   server.kill();
+  await new Promise((r) => setTimeout(r, 500));
+  for (const suffix of ['', '-wal', '-shm']) {
+    try {
+      await rm(`${DB}${suffix}`, { force: true });
+    } catch {
+      /* Windows may hold the handle briefly */
+    }
+  }
 }

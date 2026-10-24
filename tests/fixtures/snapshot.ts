@@ -61,6 +61,18 @@ export function makeSnapshot(overrides: Partial<PlantSnapshot> = {}): PlantSnaps
     ],
     alarms: [],
     activeAlarms: [],
+    alarmAttribution: {},
+    health: {
+      score: 82,
+      grade: 'good',
+      parts: [
+        { label: '出水裕度', score: 82, weight: 0.35, detail: '最紧指标占限值 83%' },
+        { label: '溶解氧', score: 90, weight: 0.15, detail: '2.00 / 设定 2.0' },
+        { label: '污泥龄', score: 85, weight: 0.15, detail: '14.2 d' },
+        { label: '二沉池', score: 80, weight: 0.2, detail: '泥位 0.86 m' },
+        { label: '告警', score: 100, weight: 0.15, detail: '0 条活跃' },
+      ],
+    },
     trends: [],
     forecast: null,
     recommendation: null,

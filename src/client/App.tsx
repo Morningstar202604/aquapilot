@@ -120,6 +120,17 @@ export default function App() {
           <button className="pill" onClick={sim.reset}>
             重置
           </button>
+          <span
+            className="health-pill"
+            data-grade={snap.health.grade}
+            title={
+              `全厂健康度 ${snap.health.score}/100：` +
+              snap.health.parts.map((p) => `${p.label} ${p.detail}`).join('；')
+            }
+            aria-label={`全厂健康度 ${snap.health.score} 分`}
+          >
+            健康度 {snap.health.score}
+          </span>
           <span className="pill" data-tone={aiEnabled ? undefined : 'amber'} data-active={aiEnabled}>
             <span className="dot" data-live={aiEnabled} data-tone={aiEnabled ? undefined : 'amber'} />
             {aiEnabled ? 'AI 自动值守' : 'AI 仅建议'}

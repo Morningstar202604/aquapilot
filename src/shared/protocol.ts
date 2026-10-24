@@ -11,6 +11,7 @@ import type { ControlSettings, Limits } from '../sim/config';
 import type { ScenarioSpec } from '../sim/scenarios';
 import type { Answer, Recommendation } from '../ai/agent';
 import type { EnsembleForecast } from '../sim/ensemble';
+import type { AlarmAttribution, PlantHealth } from '../sim/alarmAttribution';
 import type { BenchmarkSummary } from '../server/benchmark';
 import type { ProcessTopology } from '../model/topology';
 
@@ -49,6 +50,10 @@ export interface PlantSnapshot {
   margins: { metric: string; ratio: number; value: number; limit: number }[];
   alarms: Alarm[];
   activeAlarms: Alarm[];
+  /** 每条活跃告警的归因（原因 / 动作 / 后果），按告警 code 索引 */
+  alarmAttribution: Record<string, AlarmAttribution>;
+  /** 全厂健康度：五个可核对维度的加权分 */
+  health: PlantHealth;
   trends: TrendPoint[];
   forecast: {
     points: {
@@ -119,6 +124,8 @@ export interface SnapshotPatch {
   /** 自上次补丁以来新增的趋势点（通常 0 或 1 个） */
   trendsAppend: TrendPoint[];
   activeAlarms: Alarm[];
+  alarmAttribution: Record<string, AlarmAttribution>;
+  health: PlantHealth;
   stormStorageM3: number;
   reactorCount: number;
 }

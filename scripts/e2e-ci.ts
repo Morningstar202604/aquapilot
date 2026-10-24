@@ -54,6 +54,10 @@ try {
   const kpis = await page.locator('.kpi').count();
   if (kpis < 7) fail(`expected >=7 KPI tiles, got ${kpis}`);
 
+  const health = page.locator('.health-pill');
+  if ((await health.count()) !== 1) fail('health pill missing from the top bar');
+  if (!/健康度\s*\d+/.test((await health.innerText()).trim())) fail(`health pill text: ${await health.innerText()}`);
+
   const nodes = await page.locator('.plant-node').count();
   if (nodes < 10) fail(`expected >=10 flowsheet nodes, got ${nodes}`);
 
@@ -67,6 +71,10 @@ try {
     await page.waitForTimeout(600);
     const panel = await page.locator('.scroll-panel, .side-body').first().isVisible();
     if (!panel) fail(`tab "${tab}" produced no visible panel`);
+    if (tab === '告警') {
+      const parts = await page.locator('.health-part').count();
+      if (parts !== 5) fail(`alarm panel should show 5 health parts, got ${parts}`);
+    }
   }
   await page.screenshot({ path: `${OUT}/ci-replay.png` });
 
@@ -112,7 +120,7 @@ try {
   if (errors.length > 0) fail(`console errors: ${errors.slice(0, 3).join(' | ')}`);
 
   await browser.close();
-  console.log('E2E PASS: 7 KPIs, 17 nodes, 3 charts, 6 panels, 0 console errors');
+  console.log('E2E PASS: 7 KPIs, health pill, 5 health parts, 17 nodes, 3 charts, 6 panels, 0 console errors');
 } finally {
   server.kill();
 }

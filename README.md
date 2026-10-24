@@ -5,8 +5,8 @@
 > An AI-operated wastewater treatment plant simulator.  
 > The plant is a graph, the graph is the model, and an AI operator runs it.
 
-[![tests](https://img.shields.io/badge/tests-347%20passing-brightgreen)](tests)
-[![coverage](https://img.shields.io/badge/line%20coverage-95.7%25-brightgreen)](vitest.config.ts)
+[![tests](https://img.shields.io/badge/tests-370%20passing-brightgreen)](tests)
+[![coverage](https://img.shields.io/badge/line%20coverage-95.5%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520.19-339933)](package.json)
@@ -64,6 +64,10 @@ keeps the auditable parts:
   failure, power outage, winter, chemical shortage.
 - **Operations surface.** Prometheus metrics, structured JSON logs, deep health
   checks, backup/restore, replay, CSV export and a one-page Markdown shift report.
+- **Alarm attribution and plant health.** Every active alarm carries a unit, a
+  likely cause, an executable action and a trend-extrapolated consequence; a
+  five-part weighted health score (effluent margin, DO, SRT, clarifier, alarms)
+  is shown in the top bar and in the alarm panel.
 
 ## Demo
 
@@ -86,9 +90,9 @@ control and scenario injection, benefit comparison, replay, flowsheet editor._
 |---|---|
 | ![insights](docs/screenshots/05-insights.jpg) | ![replay](docs/screenshots/06-replay.jpg) |
 
-| Flowsheet editor | Mobile |
-|---|---|
-| ![editor](docs/screenshots/07-editor.jpg) | ![mobile](docs/screenshots/09-mobile.jpg) |
+| Alarm attribution & health | Flowsheet editor | Mobile |
+|---|---|---|
+| ![alarms](docs/screenshots/10-alarms.jpg) | ![editor](docs/screenshots/07-editor.jpg) | ![mobile](docs/screenshots/09-mobile.jpg) |
 
 | Desktop, 16:9 |
 |---|
@@ -114,7 +118,7 @@ Verify everything the CI runs:
 npm run typecheck  # TypeScript strict + noUnusedLocals/Parameters
 npm run lint       # ESLint 9
 npm run format     # Prettier 3 check
-npm run test       # 347 tests
+npm run test       # 370 tests
 npm run build      # client bundle + server bundle
 npm run verify     # typecheck + lint + test + build
 npm run ci         # full gate: deps, types, tests, build, smoke, audit, hygiene
@@ -154,6 +158,7 @@ src/
     presets.ts     runnable plant templates derived from the standard topology
   sim/           Simulation engines
     kinetics.ts    single source for kinetic constants and tariffs
+    alarmAttribution.ts  alarm cause/action/consequence and the health score
     network.ts     topology -> compiled network, topological order, flow solving
     networkEngine.ts  production engine: N reactors driven by the topology
     engine.ts      reference engine: fixed five-tank, used for calibration/regression
@@ -172,7 +177,7 @@ src/
     trendCursor.ts incremental trend cursor (ring-buffer safe)
   client/        Control-room UI (React + ECharts + SVG flowsheet)
   shared/        Client/server protocol
-tests/           347 tests: physics, conservation, guardrails, topology,
+tests/           370 tests: physics, conservation, guardrails, topology,
                  cross-engine, benchmarks, input validation, crash boundaries
 ```
 
@@ -256,8 +261,8 @@ DO 2.0 mg/L, internal recycle 2.0×Q, RAS 0.8×Q, WAS 2.2 %, PAC 40 mg/L, step f
 | Decision, production engine (nominal) | 153 ms | same |
 | Decision, production engine (robust, 3 candidates × 3 samples) | 215 ms | same |
 | 30-day warm-up | ~110 ms | same |
-| Tests | 347 passing | `npm test` |
-| Coverage | 95.7 % lines / 84.3 % branches | `npx vitest run --coverage` |
+| Tests | 370 passing | `npm test` |
+| Coverage | 95.5 % lines / 83.0 % branches | `npx vitest run --coverage` |
 
 ## How the AI decides
 
@@ -303,7 +308,7 @@ Verified in this repository by `npm run ci` plus `npm run e2e`:
 
 - TypeScript strict (0 errors, including unused-code checks), ESLint 9 and
   Prettier 3 clean.
-- 347 tests passing; 95.7 % line / 84.3 % branch coverage.
+- 370 tests passing; 95.5 % line / 83.0 % branch coverage.
 - Client + server production build; browser smoke asserts 7 KPI tiles, 17 nodes,
   3 charts, 6 panels, no console errors, no connection crossing a unit body and no
   horizontal overflow on mobile.

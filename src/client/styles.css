@@ -330,6 +330,128 @@ button {
   color: var(--water);
 }
 
+/* 全厂健康度：一个可核对的加权分 + 五个分项条 */
+.health-block {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 10px 12px;
+}
+
+.health-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.health-score {
+  font-family: var(--mono);
+  font-size: 26px;
+  line-height: 1;
+  color: var(--water);
+}
+
+.health-block[data-grade='watch'] .health-score {
+  color: var(--amber);
+}
+
+.health-block[data-grade='bad'] .health-score {
+  color: var(--alarm);
+}
+
+.health-label {
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.health-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.health-part {
+  display: grid;
+  grid-template-columns: 58px 1fr 128px;
+  align-items: center;
+  gap: 8px;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+.health-part-track {
+  height: 3px;
+  background: var(--line-soft);
+  position: relative;
+  overflow: hidden;
+}
+
+.health-part-track > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--water-dim);
+}
+
+.health-part-detail {
+  font-family: var(--mono);
+  text-align: right;
+}
+
+/* 告警归因：原因 / 动作 / 后果 三行，跟着告警一起读 */
+.alarm-unit {
+  color: var(--text-3);
+}
+
+.alarm-why {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.alarm-why-key {
+  display: inline-block;
+  min-width: 30px;
+  margin-right: 6px;
+  color: var(--text-3);
+}
+
+/* 顶栏健康度胶囊 */
+.health-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+  background: var(--panel);
+  white-space: nowrap;
+}
+
+.health-pill[data-grade='good'] {
+  border-color: var(--water-dim);
+  color: var(--water);
+}
+
+.health-pill[data-grade='watch'] {
+  border-color: var(--amber-dim);
+  color: var(--amber);
+}
+
+.health-pill[data-grade='bad'] {
+  border-color: var(--alarm-dim);
+  color: var(--alarm);
+}
+
 .process-panel {
   position: relative;
   min-height: 0;

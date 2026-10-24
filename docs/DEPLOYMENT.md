@@ -139,7 +139,7 @@ Docker Hub is identical with `docker.io/<user>/aquapilot`. Never bake tokens or
 ## Demo assets
 
 ```bash
-npx tsx scripts/media.ts     # 9 screenshots + docs/media/demo.webm
+npx tsx scripts/media.ts     # 10 screenshots + docs/media/demo.webm
 ffmpeg -y -i docs/media/demo.webm -vf "fps=12,scale=1280:-2" \
   -c:v libx264 -pix_fmt yuv420p -crf 26 -movflags +faststart docs/media/demo.mp4
 ffmpeg -y -i docs/media/demo.mp4 -vf "fps=8,scale=960:-2:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer" \

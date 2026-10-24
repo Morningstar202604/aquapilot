@@ -126,6 +126,8 @@ export function useSimulation() {
                 margins: p.margins,
                 trends: p.trendsAppend.length > 0 ? [...prev.trends, ...p.trendsAppend].slice(-720) : prev.trends,
                 activeAlarms: p.activeAlarms,
+                alarmAttribution: p.alarmAttribution ?? prev.alarmAttribution,
+                health: p.health ?? prev.health,
                 stormStorageM3: p.stormStorageM3,
                 reactorCount: p.reactorCount,
               };
