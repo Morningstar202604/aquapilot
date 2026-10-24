@@ -472,3 +472,57 @@ S_NH 残差分析：绝对差 0.34 gN/m³，折合氮通量的不足 1%——两
 | 30 天 SLO 窗口验证 | 需要外部 Prometheus 抓取，单进程指标重启即清零，见 `docs/SLO.md` |
 | S_NH 进入 ±10% | 受制于沉降器浓缩区梯度限制（TSS −34% 同源），先以 25% 红线锁定；彻底解决需按路线图改造二沉池数值格式 |
 | Docker 镜像实跑 | Docker Desktop 于本轮期间在本机被卸载（`docker info` 先可用后 `command not found`，`/c/Program Files/Docker/Docker/` 仅剩 tmp-delete），Dockerfile 静态审查结论不变 |
+
+---
+
+## 十三、0.3.0 发布轮（2026-10-24）
+
+本轮把原型推到可发布状态：修真实缺陷、补决策可信度、补对外展示与五平台交付。
+所有数字均来自真实运行；未执行的项目单独列出。
+
+### 13.1 本轮修复的真实缺陷
+
+| 缺陷 | 复现（修复前） | 根因 | 修复 | 复验 |
+|---|---|---|---|---|
+| 趋势曲线写满 720 点后永久停更 | 连接超过 720 个采样点后，前端曲线不再变化，服务端仍在推送空补丁 | 增量游标用"已收到点数"，缓冲滚动后 `slice(count)` 恒为空 | `src/server/trendCursor.ts` 改时间戳游标 | `tests/release030.test.ts` 滚动缓冲用例；E2E 曲线正常 |
+| 稳态出水 SS 长期 11.1 mg/L，超一级 A 的 10 | 30 天预热后 `effluent.ss = 11.1`，AI 每个决策周期都判"预测超标"并进入应急 | 二沉池 2 400 m² 对应表面负荷 0.83 m³/(m²·h)，高于 BSM1 参考的 0.51 | 面积改 3 600 m²（0.56），并同步 config / 编辑器 / 文档 | 稳态 SS 7.6、COD 38.7，决策回到 `adjust`；347 测试全绿 |
+| 累计处理量/电耗用瞬时值外推 | KPI 与效益页在流量波动时系统性偏差 | `totals` 用 `当前流量 × 已运行时间` | `NetworkSimState.totals` 每步积分 | 报告与快照读取积分值；`release030` 覆盖 |
+| 保存的令牌失效后无法重新登录 | 服务端轮换令牌后页面仍进入主界面，WebSocket 被 401 拒绝，永久"断线重连" | `AuthGate` 只看 sessionStorage 是否有值 | 打开前用 `/api/snapshot` 校验，失败则回登录页 | 手工轮换令牌验证 |
+| BOD₅ / TN 超限没有告警 | 出水 BOD 10.9、TN 12.8 时告警面板为空 | 告警只覆盖 COD/NH/TP/SS | 引擎与服务端都补 `EFF_BOD` / `EFF_TN` | 组件与快照测试 |
+| 进水与出水同色 | 两者都是 `#3ee0b5`，流程图上无法区分 | 配色表把 influent 与 effluent 写成同值 | influent 改 `#5b9cf5` | 截图核对 |
+| Docker 以 node 用户运行但 `/app/data` 属 root | 容器内持久化静默降级（日志一行 warn） | Dockerfile 在 `USER node` 前未 chown | 建立目录并 chown | Dockerfile 静态审查；本机 daemon 不可用，未实跑 |
+| 两份 TARIFF / 未使用导出 | `config.ts` 与 `kinetics.ts` 各有一份电价表 | 历史遗留 | 删除 config 副本与 `SETPOINT_LIMITS` | typecheck + 全量测试 |
+
+### 13.2 新增能力与验证
+
+| 能力 | 实现 | 验证 |
+|---|---|---|
+| 鲁棒决策 | 固定三成员参数扰动集合（进水 ±15%、COD/氨氮 ±20%、TP ±15%、水温 ±1.5 ℃、生物量 ±10%），前 3 名 + 维持现状参与评估，超限概率与尾部风险折进排序 | `release030` 覆盖区间单调、概率范围、关闭评估时不伪造 0%；`scripts/bench.ts` 实测 215 ms/次 |
+| 同进水双跑 | 影子厂与主厂同 seed、同进水、同初值、同 30 天预热，只改固定策略 | `scripts/prove-benchmark.ts`：2 日 92.3% vs 56.7% 合规，0.150 vs 0.159 kWh/m³，成本 −27.7% |
+| 工艺模板 | A²/O 标准、强化脱氮、A/O（首池改缺氧） | `release030` 对每个模板跑 readiness + compile |
+| 导出 | 快照 CSV、决策 CSV、Markdown 值班报告 | CSV 转义与报告结构测试；真实 HTTP 200 |
+| 可选 LLM | OpenAI 兼容 `/chat/completions`，只发事实、数字白名单、失败降级 | 用本机 `new-provider-7 / deepseek-v4.1-flash` 实测：回答引用真实氨氮 0.81；端点不可达时回退规则答案 |
+| 五个平台 CI | GitHub Actions（含 release → GHCR）、Gitee Go、GitCode、AtomGit Action、GitLab CI | GitHub 上 CI 与 Release 均 `success`；GHCR 镜像 `linux/amd64 + linux/arm64` 可拉取元数据 |
+
+### 13.3 本轮验证
+
+| 命令 | 结果 |
+|---|---|
+| `npm run typecheck` / `npm run lint` / `npm run format` | 0 错误；Prettier 全部符合 |
+| `npm test` | 23 文件 / 347 tests 通过 |
+| `npx vitest run --coverage` | 行 95.66% / 分支 84.25% / 函数 94.84% |
+| `bash scripts/ci-gate.sh` | 9/9 全绿 |
+| `npx tsx scripts/e2e-ci.ts` | PASS：7 KPI / 17 节点 / 3 图表 / 6 面板 / 0 console error |
+| `npx tsx scripts/prove-benchmark.ts` | 见 13.2 双跑数据 |
+| `npx tsx scripts/bench.ts` | 单步 0.003 ms、预测 1.4 ms、鲁棒决策 215 ms、预热约 110 ms |
+| `AQG_AGENT=codex aqg_construction_check.py --mode staged` | PASSED（path=plan，62 files / 3 496 lines） |
+| 远端 | GitHub `Morningstar202604` / `badhope` / `X33834`、Gitee、GitCode、AtomGit 六个远端 HEAD 一致，tag `v0.3.0` 均已推送 |
+
+### 13.4 本轮未做（如实记录）
+
+| 项 | 原因 |
+|---|---|
+| Docker 镜像本机实跑 | 本机 Docker Desktop daemon 未启动（`docker info` 连接 `dockerDesktopLinuxEngine` 失败）；GHCR 镜像由 GitHub Actions 构建并成功推送，本机未执行 `docker run` |
+| 五平台流水线的国内三家实跑 | Gitee Go / GitCode / AtomGit Action 需要在各平台控制台启用或获得内测额度；仓库内配置文件已按各自规范提供，GitHub 侧已实跑成功 |
+| 30 天 SLO 窗口 | 单进程计数器重启即清零，需要外部 Prometheus 抓取 |
+| S_NH 进入 ±10% | 与二沉池浓缩区梯度限制同源，先以 ±25% 锁定 |
