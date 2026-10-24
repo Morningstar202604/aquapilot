@@ -4,7 +4,95 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-10-24
+
+### Added
+
+- **Robust decision layer.** The decision engine now runs a fixed three-member
+  parameter-perturbation ensemble (inflow ±15 %, COD/NH₄ ±20 %, TP ±15 %,
+  water temperature ±1.5 °C, biomass ±10 %) on the shortlisted candidates and
+  folds the exceedance probability into the ranking. The recommendation reports
+  `exceedanceProbability` and a P10/P50/P90 band; when the model cannot support
+  perturbation (legacy adapter) the UI says "not evaluated" instead of showing a
+  fake 0 %. Measured cost: 215 ms per decision on the production engine
+  (`scripts/bench.ts`), still far inside the 30 s decision cycle.
+- **Shadow benchmark (AI vs fixed strategy).** A second plant runs the same seed,
+  the same influent and the same initial state under a fixed manual control set.
+  Both sides accumulate compliance minutes, energy, cost and effluent score; the
+  Benefits panel shows the live comparison and marks samples shorter than six
+  hours as indicative. A two-day offline run measured 92.3 % vs 56.7 % compliance,
+  0.150 vs 0.159 kWh/m³ and ¥0.142 vs ¥0.196 per m³.
+- **Topology presets.** Three runnable plant layouts (`A²/O standard`,
+  `A²/O enhanced denitrification`, `A/O without anaerobic zone`) are derived from
+  the standard topology and validated by readiness + compile + 30-day warm-up in
+  `tests/release030.test.ts`.
+- **Data export.** `GET /api/export/snapshots.csv`, `/api/export/decisions.csv`
+  and `/api/export/report.md` (a one-page Markdown shift report). The UI downloads
+  them with the session token in a header, never in the URL.
+- **Optional LLM dialogue.** Set `AQUAPILOT_LLM_BASE_URL`, `AQUAPILOT_LLM_MODEL`
+  and optionally `AQUAPILOT_LLM_API_KEY` to add a second, model-written answer on
+  top of the rule engine. The adapter speaks OpenAI-compatible
+  `/chat/completions`, sends only computed facts, rejects answers containing
+  numbers that do not appear in the grounding text, and silently falls back to
+  the rule engine on timeout, HTTP error or ungrounded output. `llmCalls` and
+  `llmFallbacks` are exported as Prometheus counters.
+- **Cumulative-volume integration.** `NetworkSimState.totals` now integrates
+  inflow, energy and waste sludge per step. The four snapshot totals no longer
+  extrapolate from the current rate, which overstated inflow and energy whenever
+  flow was above the instantaneous value.
+- `GET /api/presets`, `tests/release030.test.ts` (20 contract tests), a media
+  generator (`scripts/media.ts`) and refreshed screenshots / demo video.
+
+### Changed
+
+- **Secondary clarifier sized to BSM1 surface loading.** 2 400 → 3 600 m²
+  (0.56 m³/(m²·h) at design flow, BSM1 reference is 0.51). At the old area the
+  steady-state effluent SS sat at 11.1 mg/L, permanently above the 10 mg/L
+  class-1A limit, and the AI entered emergency mode at every decision cycle
+  because of an unattainable constraint. At 3 600 m² the steady state is
+  SS 7.6 mg/L, COD 38.7 mg/L and the recommendation returns to normal mode.
+- **KPI strip** now surfaces effluent TN as a seventh tile, so every discharge
+  limit in `LIMITS` has a visible indicator.
+- Influent and effluent stream colours differ (blue vs teal); previously both
+  used the same hex value and could not be told apart in the flowsheet.
+- Decision candidates carry `exceedanceProbability` in the shared
+  `DecisionCandidate` type so the panel can render it without casts.
+- `stepShadow` resets the shadow plant from the *same* default controls and
+  warm-up as the main plant before switching to the fixed strategy; comparing a
+  differently-initialised plant measures initial conditions, not strategy.
+- Dockerfile creates and chowns `/app/data` before `USER node` (persistence
+  previously failed silently with EACCES when running as the non-root user).
+- Savings metric and KPI now use integrated totals; the "cumulative chemical and
+  sludge" line reads the cumulative ledger rather than today's counter.
+
+### Fixed
+
+- **Trend stream stopped after 720 points.** Incremental patches used the number
+  of received points as a cursor; once the ring buffer filled, `slice(count)` was
+  always empty and every connected client's charts froze while the simulation
+  kept running. Now a timestamp cursor (`src/server/trendCursor.ts`) sends exactly
+  the new points, with a regression test that rolls the buffer.
+- **Stored-token dead end.** `AuthGate` used to accept any token found in
+  sessionStorage without verifying it; after rotation the page loaded but the
+  WebSocket was rejected, leaving a permanent "reconnecting" state with no way
+  to re-enter the token. The gate now probes `/api/snapshot` and re-prompts.
+- **Missing effluent alarms.** BOD₅ and TN exceedances had no alarm code even
+  though both are discharge limits; they now raise `EFF_BOD` / `EFF_TN`.
+- **A/O preset claim.** The first template attempt removed the anaerobic tank by
+  deleting units; that leaves the influent and RAS ports dangling. The preset now
+  re-kinds the tank to anoxic, which is what an A/O plant actually looks like.
+- **Two tariff tables.** `src/sim/config.ts` carried a second `TARIFF` (and an
+  unused `SETPOINT_LIMITS`) alongside `src/sim/kinetics.ts`; the engine now reads
+  the single source and the duplicate is gone.
+- `<meta name="color-scheme">` said `light` on a permanently dark UI, causing
+  light form controls and scrollbars in Firefox.
+
+### Removed
+
+- Unused `TARIFF` / `SETPOINT_LIMITS` exports from `src/sim/config.ts`.
+
 ## [0.2.2] — 2026-10-23
+
 
 ### Fixed
 

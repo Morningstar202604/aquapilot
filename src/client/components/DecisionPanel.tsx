@@ -157,6 +157,34 @@ export function DecisionPanel({ snap, rec, onApply, onRefresh, aiEnabled, onTogg
         </div>
       </div>
 
+      <div>
+        <div className="section-label">不确定性（参数扰动）</div>
+        {rec.robustEvaluated && rec.ensemble ? (
+          <>
+            <div className="alt-row">
+              <span className="alt-name">超限概率</span>
+              <span className="alt-score" data-best={rec.ensemble.exceedanceProbability === 0}>
+                {(rec.ensemble.exceedanceProbability * 100).toFixed(0)}%
+              </span>
+              <span className="alt-score">{rec.ensemble.samples} 样本</span>
+            </div>
+            <div className="alt-row">
+              <span className="alt-name">4 h 末 NH₃-N 区间</span>
+              <span className="alt-score">{bandAtEnd(rec.ensemble, 'nh', snap.limits.nh)}</span>
+            </div>
+            <div className="alt-row">
+              <span className="alt-name">4 h 末 COD 区间</span>
+              <span className="alt-score">{bandAtEnd(rec.ensemble, 'cod', snap.limits.cod)}</span>
+            </div>
+            <div className="control-hint">
+              P10–P90 来自进水 ±15–20%、水温 ±1.5 ℃、生物量 ±10% 的固定扰动集，不是统计置信区间。
+            </div>
+          </>
+        ) : (
+          <div className="empty-note">当前模型未提供不确定性评估（旧引擎适配器）。</div>
+        )}
+      </div>
+
       {scenarioActive && snap.scenario && (
         <div>
           <div className="section-label">进行中的场景</div>
@@ -177,4 +205,15 @@ function formatControl(key: string, value: number): string {
   const meta = CONTROL_BOUNDS[key as keyof typeof CONTROL_BOUNDS];
   if (!meta) return value.toFixed(2);
   return `${value.toFixed(meta.precision)}${meta.unit ? ` ${meta.unit}` : ''}`;
+}
+
+function bandAtEnd(
+  ensemble: NonNullable<Recommendation['ensemble']>,
+  metric: 'nh' | 'cod' | 'tn' | 'tp' | 'ss',
+  limit: number,
+): string {
+  const last = ensemble.points[ensemble.points.length - 1];
+  if (!last) return '—';
+  const b = last[metric];
+  return `${b.p10.toFixed(2)} – ${b.p90.toFixed(2)} / ${limit}`;
 }

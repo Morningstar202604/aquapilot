@@ -3,6 +3,7 @@ import type { EffluentState } from '../sim/plantTypes';
 import { qualityScore, clampControls } from '../sim/metrics';
 import { PlantModel, PlantSnapshotForAi } from '../sim/plantModel';
 import { ScenarioType } from '../sim/scenarios';
+import { forecastEnsemble, type EnsembleForecast } from '../sim/ensemble';
 
 export interface ScoredCandidate extends DecisionCandidate {
   predictedEffluent: EffluentState;
@@ -19,6 +20,8 @@ export interface DecisionCandidate {
   cost: number;
   energyPeak: number;
   quality: number;
+  /** 参数扰动样本中出现超标的比例；未评估时为 null */
+  exceedanceProbability: number | null;
 }
 
 export interface Recommendation {
@@ -36,12 +39,23 @@ export interface Recommendation {
   risks: string[];
   tweaks: { key: keyof Omit<ControlSettings, 'aiEnabled'>; from: number; to: number; reason: string }[];
   generatedAt: number;
+  /**
+   * 选中方案的集合预测（P10/P50/P90）与超限概率。
+   * 未启用鲁棒评估时为 null——界面必须显示"未评估"，不能显示 0%。
+   */
+  ensemble: EnsembleForecast | null;
+  /** 本次决策是否真的跑了扰动样本 */
+  robustEvaluated: boolean;
 }
 
 export interface DecisionContext {
   model: PlantModel;
   horizonMin?: number;
   candidateBudget?: number;
+  /** 是否对入围候选做参数扰动评估（默认开启；旧引擎适配器会自动降级） */
+  robust?: boolean;
+  /** 参与鲁棒评估的候选数量上限，控制决策耗时 */
+  robustTopN?: number;
 }
 
 const KEY_ORDER: (keyof Omit<ControlSettings, 'aiEnabled'>)[] = [
@@ -198,6 +212,7 @@ function scoreCandidate(
     predictedEffluent: last?.effluent ?? state.effluent,
     endSrt: result.endSrt,
     endBlanket: result.endBlanket,
+    exceedanceProbability: null,
   };
 }
 
@@ -321,19 +336,68 @@ export function decide(context: DecisionContext): Recommendation {
   );
 
   candidates.sort((a, b) => b.score - a.score);
-  const best = candidates[0];
+
+  /**
+   * 鲁棒评估（可选）。
+   *
+   * 名义最优常在约束边界上：参数稍偏一点就超标。这里对入围候选
+   * （以及维持现状）跑固定扰动集合，把「超限概率」折进排序分数：
+   * 超标概率每 10% 扣 420 分，最差样本越限再按倍数加罚。
+   *
+   * 只有模型实现了 predictWithUncertainty 才做——旧引擎适配器
+   * 会退化为单点预测，此时 robustEvaluated=false，界面显示"未评估"。
+   */
+  const robustEnabled = context.robust !== false && typeof model.predictWithUncertainty === 'function';
+  const ensembles = new Map<string, EnsembleForecast>();
+  let pool = candidates;
+  if (robustEnabled) {
+    /**
+     * 默认只评估前 3 名 + 维持现状：每多一个候选就是 3 条 4 小时轨迹。
+     * 实测（scripts/bench.ts）：3 名 ≈ 200 ms，4 名 ≈ 255 ms。
+     * 决策周期是 30 s 实时时间，200 ms 的可控阻塞不会挤掉 tick。
+     */
+    const topN = Math.max(1, context.robustTopN ?? 3);
+    const shortlist = candidates.slice(0, topN);
+    const holdCandidate = candidates.find((c) => c.label === CANDIDATE_NAMES.hold);
+    if (holdCandidate && !shortlist.includes(holdCandidate)) shortlist.push(holdCandidate);
+    for (const candidate of shortlist) {
+      const ens = forecastEnsemble(model, candidate.controls, horizonMin, 30, qualityScore);
+      ensembles.set(candidate.label, ens);
+      candidate.exceedanceProbability = ens.exceedanceProbability;
+      const exceedPenalty = ens.exceedanceProbability * 4200;
+      const tailPenalty = Math.max(0, ens.worstRatio - 1) * 6000;
+      candidate.score -= exceedPenalty + tailPenalty;
+    }
+    /**
+     * 只在评估过的候选里选最终方案。
+     * 否则一个没被扣分的边缘候选会靠"未被评估"胜出——那等于用未知风险
+     * 打败已知风险，是这版最危险的排序错误。
+     */
+    pool = shortlist;
+    pool.sort((a, b) => b.score - a.score);
+    candidates.sort((a, b) => b.score - a.score);
+  }
+
+  const best = pool[0];
 
   /**
    * 备选去重：不同幅度的同类调节（如「提高溶解氧」与「大幅提高溶解氧」）
    * 在界面上会显示成重复项，让用户无法区分。这里按标签保留得分最高的一条。
    */
   const seenLabels = new Set<string>([best.label]);
-  const deduped = candidates.filter((c) => {
+  /**
+   * 备选只从「同一评分口径」的候选里取：鲁棒评估后，未评估的候选分数
+   * 没有扣风险项，混在一起展示会让用户误以为它更优。
+   */
+  const ranked = [...candidates]
+    .filter((c) => (robustEnabled ? c.exceedanceProbability !== null : true))
+    .sort((a, b) => b.score - a.score);
+  const deduped = ranked.filter((c) => {
     if (seenLabels.has(c.label)) return false;
     seenLabels.add(c.label);
     return true;
   });
-  const hold = candidates.find((c) => c.label === CANDIDATE_NAMES.hold) ?? best;
+  const hold = ranked.find((c) => c.label === CANDIDATE_NAMES.hold) ?? best;
 
   const tweaks: Recommendation['tweaks'] = [];
   for (const key of KEY_ORDER) {
@@ -372,7 +436,15 @@ export function decide(context: DecisionContext): Recommendation {
     ...scenarioHints(state, (state.scenario?.type as ScenarioType | null) ?? null),
   ];
   const risks = buildRisks(state, best);
+  if (robustEnabled && best.exceedanceProbability !== null) {
+    risks.push(
+      best.exceedanceProbability > 0
+        ? `参数扰动下 ${Math.round(best.exceedanceProbability * 100)}% 的样本出现超标，已按风险折价排序`
+        : '参数扰动样本（进水 ±15–20%、水温 ±1.5 ℃）内均未超标',
+    );
+  }
   const separation = computeDecisionSeparation(best, candidates);
+  const chosenEnsemble = ensembles.get(best.label) ?? null;
 
   return {
     action,
@@ -388,6 +460,8 @@ export function decide(context: DecisionContext): Recommendation {
     risks,
     tweaks,
     generatedAt: state.timeMin,
+    ensemble: chosenEnsemble,
+    robustEvaluated: robustEnabled,
   };
 }
 
@@ -492,6 +566,8 @@ export interface Answer {
   bullets: string[];
   confidence: number;
   kind: 'status' | 'why' | 'whatif' | 'plan' | 'explain' | 'unknown';
+  /** 回答来源：规则引擎或 LLM（失败降级时仍为 rule） */
+  source?: 'rule' | 'llm';
 }
 
 export function answer(question: string, model: PlantModel, recommendation: Recommendation | null): Answer {

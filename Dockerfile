@@ -24,7 +24,10 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 
 # Persisted history lives here; mount a volume to keep it across restarts.
-RUN mkdir -p /app/data
+# 目录必须先建好并 chown 给 node 用户：镜像以 USER node 运行，
+# 运行期再 mkdir -p /app/data 会因为 /app 属主是 root 而 EACCES，
+# 容器会静默降级为不持久化（日志里只有一行 warn）。
+RUN mkdir -p /app/data && chown -R node:node /app/data
 VOLUME ["/app/data"]
 
 USER node

@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { answer, decide, Recommendation } from '../ai/agent';
+import { askLlm, type GroundingContext } from '../ai/llm';
 import { CONTROL_BOUNDS, LIMITS, PLANT } from '../sim/config';
 import { SCENARIOS, ScenarioType } from '../sim/scenarios';
 import { NetworkSimState, networkModel, qualityScoreOf, stepNetwork } from '../sim/networkEngine';
@@ -11,11 +12,15 @@ import { CompiledNetwork } from '../sim/network';
 import { estimateMargin } from '../sim/metrics';
 import type { ClientMessage, PlantSnapshot, ServerMessage, SnapshotPatch, TrendPoint } from '../shared/protocol';
 import { PLANT_TOPOLOGY, ProcessTopology, validateTopology } from '../model/topology';
+import { PRESETS, buildPreset, presetById } from '../model/presets';
 import { applyTopology, checkRunReadiness, createRuntime } from './topologyRuntime';
 import { Store } from './store';
 import { authRequired, authorize } from './auth';
 import { isApiPath, isPublicApiPath, isReadMethod, pathnameOf, shouldFallbackToIndex } from './httpRoutes';
 import { logger, metrics, metricsJson, recordHttp, recordTick, renderPrometheus } from './observability';
+import { buildOperationsReport, decisionsCsv, snapshotsCsv } from './export';
+import { takeNewPoints } from './trendCursor';
+import { createShadowPlant, stepShadow, summarizeBenchmark, type ShadowPlant } from './benchmark';
 import {
   VALID_SCENARIOS,
   sanitizeBoolean,
@@ -38,8 +43,14 @@ interface ClientState {
   /** 上次触发重算决策的时间，用于防止同步阻塞被滥用 */
   lastControlAt: number;
   lastTopologyAt: number;
-  /** 已接收到的趋势点数量，用于增量推送 */
-  trendCount: number;
+  /**
+   * 已推送的最后一个趋势点时刻（仿真分钟）。
+   *
+   * 不能用「已收到的点数量」当游标：趋势是 720 点的环形缓冲，
+   * 一旦写满，`slice(count)` 永远为空，客户端从此收不到新点。
+   * 用时间戳做游标，缓冲滚动后仍然只发新增点。
+   */
+  lastTrendT: number;
 }
 
 interface Runtime {
@@ -57,6 +68,10 @@ interface Runtime {
   clientState: Map<WebSocket, ClientState>;
   /** 人工调整后的优先期截止（仿真分钟）；期内 AI 只建议不覆盖 */
   manualOverrideUntil: number;
+  /** 当前生效的工艺模板 id；自定义拓扑或无模板时为 null */
+  activePresetId: string | null;
+  /** 影子双跑厂（固定策略） */
+  shadow: ShadowPlant;
 }
 
 const store = new Store();
@@ -85,6 +100,8 @@ const runtime: Runtime = {
   clients: new Set(),
   clientState: new Map(),
   manualOverrideUntil: 0,
+  activePresetId: 'a2o-standard',
+  shadow: createShadowPlant(PLANT_TOPOLOGY, 20261019, 0),
 };
 
 function pushTrend(state: NetworkSimState, trend: TrendPoint[]): void {
@@ -192,13 +209,18 @@ function buildSnapshot(): PlantSnapshot {
         }
       : null,
     recommendation: runtime.recommendation,
+    forecastBand: runtime.recommendation?.ensemble ?? null,
+    benchmark: summarizeBenchmark(runtime.shadow.benchmark),
     limits: LIMITS,
     totals: {
-      inflowM3: s.influent.flow * (s.timeMin / 60),
-      energyKwh: s.energy.totalKw * (s.timeMin / 60),
+      inflowM3: s.totals.inflowM3,
+      energyKwh: s.totals.energyKwh,
       cost: s.cost.total,
-      wasteSludgeKg: s.cost.sludge / 0.36,
+      wasteSludgeKg: s.totals.wasteSludgeKg,
       elapsedMin: s.timeMin,
+      energyCost: s.cost.energy,
+      chemicalCost: s.cost.chemical,
+      sludgeCost: s.cost.sludge,
     },
     stormStorageM3: s.stormStorageM3,
     reactorCount: s.reactors.length,
@@ -215,6 +237,10 @@ function currentAlarms(s: NetworkSimState) {
     push('EFF_NH', 'critical', `出水氨氮 ${s.effluent.nh.toFixed(2)} mg/L 超限`, 'nh', s.effluent.nh);
   if (s.effluent.cod > LIMITS.cod)
     push('EFF_COD', 'critical', `出水 COD ${s.effluent.cod.toFixed(1)} mg/L 超限`, 'cod', s.effluent.cod);
+  if (s.effluent.bod > LIMITS.bod)
+    push('EFF_BOD', 'warning', `出水 BOD₅ ${s.effluent.bod.toFixed(1)} mg/L 超限`, 'bod', s.effluent.bod);
+  if (s.effluent.tn > LIMITS.tn)
+    push('EFF_TN', 'warning', `出水总氮 ${s.effluent.tn.toFixed(1)} mg/L 超限`, 'tn', s.effluent.tn);
   if (s.effluent.tp > LIMITS.tp)
     push('EFF_TP', 'warning', `出水总磷 ${s.effluent.tp.toFixed(3)} mg/L 超限`, 'tp', s.effluent.tp);
   if (s.effluent.ss > LIMITS.ss)
@@ -255,13 +281,8 @@ function topologyMessage(): {
  */
 function buildPatch(client: ClientState): SnapshotPatch | null {
   const s = runtime.net;
-  const last = s.reactors[s.reactors.length - 1];
-  void last;
-
-  // 客户端缺失的趋势点（环形缓冲可能已滚出，做下界保护）
-  const from = Math.max(0, Math.min(client.trendCount, runtime.trend.length));
-  const trendsAppend = runtime.trend.slice(from);
-  client.trendCount = runtime.trend.length;
+  // 缓冲可能已滚动：按时间戳取新增点，而不是按数量切片
+  const trendsAppend = takeNewPoints(runtime.trend, client);
 
   return {
     timeMin: s.timeMin,
@@ -299,7 +320,7 @@ function buildPatch(client: ClientState): SnapshotPatch | null {
 function broadcastPatch(): void {
   for (const ws of runtime.clients) {
     if (ws.readyState !== WebSocket.OPEN) continue;
-    const client = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, trendCount: 0 };
+    const client = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0 };
     const patch = buildPatch(client);
     runtime.clientState.set(ws, client);
     if (patch) ws.send(JSON.stringify({ type: 'snapshotPatch', data: patch } satisfies ServerMessage));
@@ -370,6 +391,12 @@ function advance(): void {
     stepNetwork(s, runtime.topology, 1);
     runtime.tick += 1;
     if (runtime.tick % TREND_EVERY_TICKS === 0) pushTrend(s, runtime.trend);
+    try {
+      stepShadow(runtime.shadow, s, 1, runtime.topology);
+    } catch (err) {
+      // 影子链只用于对比展示，任何异常都不能影响主仿真
+      logger.warn('shadow benchmark step failed', { error: String(err) });
+    }
   }
   if (s.scenario && s.timeMin > s.scenario.startedAt + s.scenario.durationMin + 30) {
     s.scenario = null;
@@ -413,7 +440,7 @@ const RATE_LIMIT = {
 };
 
 function rateLimited(ws: WebSocket, kind: 'control' | 'topology'): boolean {
-  const state = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, trendCount: 0 };
+  const state = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0 };
   const now = Date.now();
   if (kind === 'control') {
     if (now - state.lastControlAt < RATE_LIMIT.controlMs) {
@@ -432,6 +459,77 @@ function rateLimited(ws: WebSocket, kind: 'control' | 'topology'): boolean {
   return false;
 }
 
+/**
+ * 把当前状态压成 LLM 可引用的最小事实集。
+ *
+ * 只放已经有数值的量，不放控制器写权限、不放日志、不放环境变量。
+ */
+function buildLlmGrounding(question: string): GroundingContext {
+  const s = runtime.net;
+  const margins = estimateMargin(s.effluent);
+  const rec = runtime.recommendation;
+  const day = Math.floor(s.timeMin / 1440) + 1;
+  const h = Math.floor((s.timeMin % 1440) / 60);
+  const m = Math.floor(s.timeMin % 60);
+  const facts: GroundingContext['facts'] = [
+    { label: '进水流量', value: s.influent.flow.toFixed(0), unit: 'm³/h' },
+    { label: '进水 COD', value: s.influent.cod.toFixed(0), unit: 'mg/L' },
+    { label: '进水氨氮', value: s.influent.nh.toFixed(1), unit: 'mg/L' },
+    { label: '出水 COD', value: s.effluent.cod.toFixed(1), unit: 'mg/L（限值 50）' },
+    { label: '出水氨氮', value: s.effluent.nh.toFixed(2), unit: 'mg/L（限值 5）' },
+    { label: '出水总氮', value: s.effluent.tn.toFixed(2), unit: 'mg/L（限值 15）' },
+    { label: '出水总磷', value: s.effluent.tp.toFixed(3), unit: 'mg/L（限值 0.5）' },
+    { label: '出水 SS', value: s.effluent.ss.toFixed(1), unit: 'mg/L（限值 10）' },
+    { label: '最紧指标', value: margins[0]?.metric ?? '—', unit: `占限值 ${(margins[0]?.ratio ?? 0) * 100}%` },
+    { label: '溶解氧设定', value: s.controls.doSetpoint.toFixed(1), unit: 'mg/L' },
+    { label: '内回流比', value: s.controls.internalRecirc.toFixed(1), unit: '×Q' },
+    { label: '污泥回流比', value: s.controls.rasRatio.toFixed(2), unit: '×Q' },
+    { label: '污泥龄', value: s.srtDays.toFixed(1), unit: 'd' },
+    { label: 'MLSS', value: ((s.biomassKg * 1000) / Math.max(1, s.volume.bio)).toFixed(0), unit: 'mg/L' },
+    { label: '二沉池泥位', value: s.clarifier.blanketM.toFixed(2), unit: 'm' },
+    { label: '吨水电耗', value: (s.energy.totalKw / Math.max(1, s.influent.flow)).toFixed(3), unit: 'kWh/m³' },
+    { label: '活动场景', value: s.scenario ? s.scenario.type : '无' },
+    { label: '活动告警数', value: s.alarms.filter((a) => s.timeMin - a.at < 60).length },
+  ];
+  void question;
+  return {
+    plant: `${PLANT.name} · ${PLANT.code}`,
+    simClock: `第 ${day} 天 ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+    facts,
+    recommendation: rec ? rec.summary : null,
+    risks: rec ? rec.risks : [],
+  };
+}
+
+async function enhanceWithLlm(ws: WebSocket, question: string, ruleAnswer: ReturnType<typeof answer>): Promise<void> {
+  const started = Date.now();
+  const grounding = buildLlmGrounding(question);
+  const result = await askLlm(question, grounding);
+  metrics.llmCalls += 1;
+  if (!result.ok) {
+    metrics.llmFallbacks += 1;
+    logger.debug('llm fallback', { reason: result.reason, ms: Date.now() - started });
+    return;
+  }
+  if (ws.readyState !== WebSocket.OPEN) return;
+  ws.send(
+    JSON.stringify({
+      type: 'chat',
+      question,
+      answer: {
+        ...ruleAnswer,
+        title: `${ruleAnswer.title} · 模型补充`,
+        body: result.text,
+        bullets: [],
+        source: 'llm',
+      },
+    } satisfies ServerMessage),
+  );
+}
+
+/**
+ * 处理一条客户端消息。所有网络输入在这里完成校验，异常不得冒泡到进程。
+ */
 function handleClientMessage(ws: WebSocket, raw: string): void {
   let parsed: unknown;
   try {
@@ -481,8 +579,16 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         );
         break;
       }
-      const contextual = answer(text, networkModel(runtime.topology, runtime.net), runtime.recommendation);
-      ws.send(JSON.stringify({ type: 'chat', question: text, answer: contextual } satisfies ServerMessage));
+      const ruleAnswer = answer(text, networkModel(runtime.topology, runtime.net), runtime.recommendation);
+      ws.send(JSON.stringify({ type: 'chat', question: text, answer: ruleAnswer } satisfies ServerMessage));
+
+      /**
+       * LLM 增强（可选，异步）。
+       *
+       * 先发规则答案保证「任何配置下都有回答」，再尝试 LLM 追问一条补充。
+       * 失败只记指标，不打扰用户——用户已经看到可用答案。
+       */
+      void enhanceWithLlm(ws, text, ruleAnswer);
       break;
     }
     case 'control': {
@@ -585,6 +691,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       if (msg.action === 'resume') runtime.paused = false;
       if (msg.action === 'reset') {
         runtime.net = createRuntime(runtime.topology, 20261019).net;
+        runtime.shadow = createShadowPlant(runtime.topology, 20261019, 0);
         runtime.trend = [];
         runtime.recommendation = null;
         runtime.tick = 0;
@@ -614,6 +721,48 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
     }
     case 'refreshDecision': {
       runAiCycle(true);
+      broadcastSnapshot();
+      break;
+    }
+    case 'preset': {
+      const known = PRESETS.map((p) => p.id);
+      if (typeof msg.id !== 'string' || !known.includes(msg.id)) {
+        ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '未知的工艺模板' } satisfies ServerMessage));
+        break;
+      }
+      const preset = presetById(msg.id);
+      if (!preset) break;
+      const candidate = buildPreset(preset);
+      const rt = {
+        topology: runtime.topology,
+        compiled: runtime.compiled,
+        appliedAt: Date.now(),
+        revision: runtime.topologyRevision,
+        net: runtime.net,
+      };
+      const result = applyTopology(rt, candidate);
+      if (!result.ok) {
+        ws.send(
+          JSON.stringify({
+            type: 'notice',
+            level: 'error',
+            text: `模板无法应用：${result.blockers[0] ?? '未知原因'}`,
+          } satisfies ServerMessage),
+        );
+        break;
+      }
+      runtime.net = rt.net;
+      runtime.compiled = rt.compiled;
+      runtime.topology = candidate;
+      runtime.topologyRevision += 1;
+      runtime.activePresetId = preset.id;
+      runtime.recommendation = null;
+      runtime.trend = [];
+      runtime.shadow = createShadowPlant(runtime.topology, runtime.net.seed, runtime.net.timeMin);
+      pushTrend(runtime.net, runtime.trend);
+      runAiCycle(true);
+      broadcast({ type: 'notice', level: 'info', text: `已切换到模板：${preset.name}` });
+      broadcast({ ...topologyMessage() } satisfies ServerMessage);
       broadcastSnapshot();
       break;
     }
@@ -671,8 +820,10 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         runtime.compiled = rt.compiled;
         runtime.topology = incoming as ProcessTopology;
         runtime.topologyRevision += 1;
+        runtime.activePresetId = null;
         runtime.recommendation = null;
         runtime.trend = [];
+        runtime.shadow = createShadowPlant(runtime.topology, runtime.net.seed, runtime.net.timeMin);
         pushTrend(runtime.net, runtime.trend);
         runAiCycle(true);
         broadcast({
@@ -907,6 +1058,50 @@ async function main(): Promise<void> {
     if (pathname === '/api/history/stats') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ enabled: store.enabled, counts: store.count() }));
+      return;
+    }
+    if (pathname === '/api/presets') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(
+        JSON.stringify({
+          presets: PRESETS.map((p) => ({ id: p.id, name: p.name, description: p.description })),
+          activeId: runtime.activePresetId,
+        }),
+      );
+      return;
+    }
+    if (pathname === '/api/export/snapshots.csv') {
+      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+      const from = Number(url.searchParams.get('from') ?? 0);
+      const to = Number(url.searchParams.get('to') ?? Number.MAX_SAFE_INTEGER);
+      const rows = Number.isFinite(from) && Number.isFinite(to) ? store.snapshotsBetween(from, to) : [];
+      const body = snapshotsCsv(rows);
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="aquapilot-snapshots.csv"',
+        'Cache-Control': 'no-store',
+      });
+      res.end(body);
+      return;
+    }
+    if (pathname === '/api/export/decisions.csv') {
+      const body = decisionsCsv(store.recentDecisions(1000));
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="aquapilot-decisions.csv"',
+        'Cache-Control': 'no-store',
+      });
+      res.end(body);
+      return;
+    }
+    if (pathname === '/api/export/report.md') {
+      const body = buildOperationsReport(buildSnapshot());
+      res.writeHead(200, {
+        'Content-Type': 'text/markdown; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="aquapilot-report.md"',
+        'Cache-Control': 'no-store',
+      });
+      res.end(body);
       return;
     }
     if (pathname === '/api/snapshot') {

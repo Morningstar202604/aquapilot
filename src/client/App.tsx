@@ -262,6 +262,7 @@ export default function App() {
                 onChange={sim.setControls}
                 onStartScenario={sim.startScenario}
                 onClearScenario={sim.clearScenario}
+                onApplyPreset={sim.applyPreset}
                 aiEnabled={aiEnabled}
               />
             )}
@@ -317,6 +318,13 @@ function buildKpis(snap: NonNullable<ReturnType<typeof useSimulation>['snapshot'
       unit: 'mg/L',
       limit: `≤ ${L.ss}`,
       ratio: e.ss / L.ss,
+    },
+    {
+      label: '出水 总氮',
+      value: e.tn.toFixed(1),
+      unit: 'mg/L',
+      limit: `≤ ${L.tn}`,
+      ratio: e.tn / L.tn,
     },
     {
       label: '吨水电耗',

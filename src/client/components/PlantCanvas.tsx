@@ -16,7 +16,9 @@ interface Props {
 }
 
 const STREAM_COLOR: Record<StreamKind, string> = {
-  influent: '#3ee0b5',
+  // 进水和出水必须可区分：都用水绿色时，操作员在总览图上看不出哪条是原水、
+  // 哪条是达标排放。进水用蓝，出水保留水绿。
+  influent: '#5b9cf5',
   mixed_liquor: '#2fa88c',
   return_activated_sludge: '#f0a83c',
   waste_sludge: '#a97b3f',
@@ -667,7 +669,8 @@ function ClarifierBody({
 function isUnitAlarming(kind: UnitKind, id: string, snap: PlantSnapshot): boolean {
   const live = snap.activeAlarms;
   if (!live.length) return false;
-  if (kind === 'outlet') return live.some((a) => ['EFF_NH', 'EFF_COD', 'EFF_TP', 'EFF_SS'].includes(a.code));
+  if (kind === 'outlet')
+    return live.some((a) => ['EFF_NH', 'EFF_COD', 'EFF_TP', 'EFF_SS', 'EFF_TN', 'EFF_BOD'].includes(a.code));
   if (kind === 'clarifier') return live.some((a) => a.code === 'SLUDGE_BLANKET');
   if (kind === 'aerobic') return live.some((a) => a.code === 'DO_LOW');
   if (kind === 'blower') return live.some((a) => a.code === 'DO_LOW' || a.code === 'AERATION_LOW');

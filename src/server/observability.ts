@@ -104,6 +104,9 @@ export const metrics = {
   invalidMessages: 0,
   aiCycles: 0,
   aiCycleErrors: 0,
+  /** LLM 增强调用与降级次数：用于判断"接了模型但一直失败" */
+  llmCalls: 0,
+  llmFallbacks: 0,
   simTicks: 0,
   tickErrors: 0,
   persistenceFlushes: 0,
@@ -132,6 +135,10 @@ const KNOWN_API_ROUTES = new Set([
   '/api/history/decisions',
   '/api/history/snapshots',
   '/api/history/stats',
+  '/api/presets',
+  '/api/export/snapshots.csv',
+  '/api/export/decisions.csv',
+  '/api/export/report.md',
 ]);
 
 /**
@@ -231,6 +238,8 @@ export function renderPrometheus(): string {
   counter('aquapilot_invalid_messages_total', 'Rejected WebSocket messages', metrics.invalidMessages);
   counter('aquapilot_ai_cycles_total', 'Completed AI decision cycles', metrics.aiCycles);
   counter('aquapilot_ai_cycle_errors_total', 'AI decision cycles that threw', metrics.aiCycleErrors);
+  counter('aquapilot_llm_calls_total', 'LLM enhancement attempts', metrics.llmCalls);
+  counter('aquapilot_llm_fallbacks_total', 'LLM enhancement attempts that fell back to rules', metrics.llmFallbacks);
   counter('aquapilot_sim_ticks_total', 'Simulation ticks executed', metrics.simTicks);
   counter('aquapilot_tick_errors_total', 'Simulation ticks that threw', metrics.tickErrors);
   counter('aquapilot_persistence_flushes_total', 'SQLite flush operations', metrics.persistenceFlushes);
@@ -280,7 +289,12 @@ export function metricsJson(): Record<string, unknown> {
       rateLimited: metrics.rateLimited,
       invalidMessages: metrics.invalidMessages,
     },
-    ai: { cycles: metrics.aiCycles, errors: metrics.aiCycleErrors },
+    ai: {
+      cycles: metrics.aiCycles,
+      errors: metrics.aiCycleErrors,
+      llmCalls: metrics.llmCalls,
+      llmFallbacks: metrics.llmFallbacks,
+    },
     simulation: {
       ticks: metrics.simTicks,
       errors: metrics.tickErrors,
@@ -305,6 +319,8 @@ export function resetMetrics(): void {
   metrics.invalidMessages = 0;
   metrics.aiCycles = 0;
   metrics.aiCycleErrors = 0;
+  metrics.llmCalls = 0;
+  metrics.llmFallbacks = 0;
   metrics.simTicks = 0;
   metrics.tickErrors = 0;
   metrics.persistenceFlushes = 0;

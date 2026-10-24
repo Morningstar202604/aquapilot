@@ -110,7 +110,7 @@ const PALETTE: PaletteEntry[] = [
     kind: 'clarifier',
     name: '二沉池',
     role: '泥水分离',
-    area: 2400,
+    area: 3600,
     depth: 4.5,
     ports: [
       { id: 'in', kind: 'in', stream: 'mixed_liquor' },

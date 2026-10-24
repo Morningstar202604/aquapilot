@@ -23,7 +23,26 @@ export function AuthGate({ children }: { children: ReactNode }) {
           return;
         }
         const stored = window.sessionStorage.getItem('aquapilot_token');
-        setState(stored ? 'open' : 'locked');
+        if (!stored) {
+          setState('locked');
+          return;
+        }
+        /**
+         * 存储里的令牌必须真的能通过一次 API 校验才放行。
+         *
+         * 早先只看"有没有存过"：令牌过期或服务端轮换后，页面照常打开，
+         * 但 WebSocket 在握手阶段被拒，界面永远停在"断线重连"，
+         * 用户既看不到错误也没有重新输入入口。
+         */
+        const probe = await fetch('/api/snapshot', { headers: { Authorization: `Bearer ${stored}` } });
+        if (cancelled) return;
+        if (probe.ok) {
+          setState('open');
+        } else {
+          window.sessionStorage.removeItem('aquapilot_token');
+          setError('保存的令牌已失效，请重新输入');
+          setState('locked');
+        }
       } catch {
         if (!cancelled) setState('open');
       }

@@ -9,9 +9,11 @@ server bundle in `dist/server` is self-contained.
 | `npm run build` → `build-server.mjs` | Bundle the server with esbuild | — |
 | `npm run ci` → `ci-gate.sh` | Full local gate: deps, types, tests, build, smoke, secret scan | — |
 | `npm run e2e` → `e2e-ci.ts` | Playwright smoke: renders, tabs, no console errors, no edges crossing units | spawns its own |
+| `npm run media` → `media.ts` | Regenerate README screenshots and the demo recording from the production build | spawns its own |
+| `npm run benchmark:prove` → `prove-benchmark.ts` | AI vs fixed-strategy shadow run: compliance, energy, cost, score | — |
 | `backup.ts` | Consistent `VACUUM INTO` backup, verified restore, list | — |
 | `backup-seed.ts` | Create/verify a database with known row counts (used by CI) | — |
-| `bench.ts` | Step, forecast and decision timings; 30-day spin-up cost | — |
+| `bench.ts` | Step, forecast, decision (nominal and robust) timings; 30-day spin-up cost | — |
 | `bench-server.ts` | Same for the topology runtime + AI cycle | — |
 | `check-takacs.ts` | Settler calibration: effluent SS and solids loading | — |
 | `prove-network-solving.ts` | Adding a reactor really adds a solved reactor | — |
@@ -30,3 +32,16 @@ are not part of CI.
 - `scripts/__*` and `scripts/tmp-*` are scratch prefixes and are excluded from
   `tsconfig.json`; nothing in that shape is committed.
 - Anything a reviewer needs to reproduce belongs in a test, not in a script.
+
+## Media pipeline
+
+```bash
+npm run media
+ffmpeg -y -i docs/media/demo.webm -vf "fps=12,scale=1280:-2" -c:v libx264 -pix_fmt yuv420p -crf 26 -movflags +faststart docs/media/demo.mp4
+ffmpeg -y -i docs/media/demo.mp4 -vf "fps=8,scale=960:-2:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer" docs/media/demo.gif
+```
+
+`media.ts` writes nine screenshots into `docs/screenshots/` and a WebM recording
+into `docs/media/`. It runs against `dist/` with persistence disabled, so output
+never depends on local data. Delete the WebM after converting — it is large and
+not referenced by the READMEs.

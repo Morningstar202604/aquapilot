@@ -247,7 +247,10 @@ export const PLANT_TOPOLOGY: ProcessTopology = {
       kind: 'clarifier',
       name: '二沉池',
       role: '泥水分离',
-      area: 2400,
+      // 面积按 BSM1 的设计表面负荷反推：48 000 m³/d ÷ 3 600 m² = 0.56 m³/(m²·h)，
+      // 与 BSM1 基准厂（1 500 m² / 18 446 m³/d = 0.51）同一量级。
+      // 原 2 400 m² 对应 0.83，模型在该负荷下出水 SS 长期贴近 10 mg/L 上限。
+      area: 3600,
       depth: 4.5,
       ports: [
         P('in', 'in', 'mixed_liquor'),

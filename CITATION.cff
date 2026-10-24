@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use AquaPilot in teaching, research or a comparison study, cite this repository."
+title: "AquaPilot: an AI-operated wastewater treatment plant simulator"
+abstract: >-
+  A runnable open-source prototype that couples a topology-driven ASM1/Takács
+  wastewater treatment simulator with a rolling-horizon AI operator, a
+  fixed-perturbation uncertainty layer and an auditable flowsheet editor.
+authors:
+  - name: "AquaPilot contributors"
+license: MIT
+repository-code: "https://github.com/Morningstar202604/aquapilot"
+url: "https://github.com/Morningstar202604/aquapilot"
+keywords:
+  - wastewater
+  - ASM1
+  - BSM1
+  - digital twin
+  - process control
+  - simulation
+version: "0.3.0"
+date-released: "2026-10-24"

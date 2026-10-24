@@ -4,7 +4,7 @@ import { ScenarioSpec, SCENARIOS } from './scenarios';
 import { CompiledNetwork, compileNetwork, resolveFlows } from './network';
 import { networkSnapshot, PlantModel } from './plantModel';
 import { clampControls, qualityScore } from './metrics';
-import { KINETICS, DESIGN_MLSS } from './kinetics';
+import { KINETICS, DESIGN_MLSS, TARIFF } from './kinetics';
 import { BSM1_SETTLER, SettlerState, createSettler, stepSettler } from './takacs';
 import {
   ASM1_COMPONENTS,
@@ -146,7 +146,17 @@ export interface NetworkSimState {
   cost: { energy: number; chemical: number; sludge: number; total: number };
   /** 当个仿真日（跨日清零） */
   costToday: { energy: number; chemical: number; sludge: number; total: number };
+  /**
+   * 累计物料量：必须按每步流量/功率积分，不能用「当前值 × 已运行时间」外推。
+   * 进水流量、负荷与能耗都是时变量，外推在日内会系统性偏差。
+   */
+  totals: { inflowM3: number; energyKwh: number; wasteSludgeKg: number };
   lastDay: number;
+  /**
+   * 不确定度因子（仅预测克隆使用）：让集合预测可以在同一状态上做参数扰动，
+   * 生产状态保持 undefined，物理路径不变。
+   */
+  uncertainty?: { flow: number; cod: number; nh: number; tp: number; temperature: number; biomass: number };
   stormStorageM3: number;
   volume: { bio: number; aerobic: number; anoxic: number; anaerobic: number };
   edgeFlows: Record<string, number>;
@@ -237,6 +247,7 @@ export function createNetworkState(
     alarmSeq: 0,
     cost: { energy: 0, chemical: 0, sludge: 0, total: 0 },
     costToday: { energy: 0, chemical: 0, sludge: 0, total: 0 },
+    totals: { inflowM3: 0, energyKwh: 0, wasteSludgeKg: 0 },
     lastDay: 0,
     stormStorageM3: 0,
     volume: {
@@ -309,7 +320,8 @@ function deriveInfluent(state: NetworkSimState): NetworkSimState['influent'] {
   }
 
   const clampedCod = clamp(cod, 90, 1400);
-  return {
+  const u = state.uncertainty;
+  const out = {
     flow: clamp(flow, 400, 5200),
     cod: clampedCod,
     bod: clamp(clampedCod * 0.44, 30, 640),
@@ -320,6 +332,18 @@ function deriveInfluent(state: NetworkSimState): NetworkSimState['influent'] {
     temperature: clamp(temperature, 8, 31),
     alkalinity: clamp(alkalinity, 60, 380),
   };
+  if (!u) return out;
+  const scaled = {
+    ...out,
+    flow: clamp(out.flow * u.flow, 200, 6000),
+    cod: clamp(out.cod * u.cod, 40, 1800),
+    nh: clamp(out.nh * u.nh, 4, 180),
+    tp: clamp(out.tp * u.tp, 0.3, 24),
+    temperature: clamp(out.temperature + u.temperature, 5, 35),
+  };
+  scaled.bod = clamp(scaled.cod * 0.44, 20, 800);
+  scaled.tn = clamp(scaled.nh * 1.27 + 4, 8, 220);
+  return scaled;
 }
 
 function toxicSuppression(state: NetworkSimState): number {
@@ -884,9 +908,9 @@ function solveEnergyAndCost(ctx: StepContext, o2DemandKgH: number, wasted: numbe
   const pacKg = (Q * pacDose * dtH) / 1000;
   const carbonKg = (Q * state.controls.carbonDose * dtH) / 1000;
   const alkKg = (Q * state.controls.alkDose * dtH) / 1000;
-  const energyCost = totalKw * dtH * 0.68;
-  const chemCost = pacKg * 2.2 + carbonKg * 3.6 + alkKg * 1.4;
-  const sludgeCost = wasted * 0.36;
+  const energyCost = totalKw * dtH * TARIFF.electricity;
+  const chemCost = pacKg * TARIFF.pac + carbonKg * TARIFF.carbon + alkKg * TARIFF.alk;
+  const sludgeCost = wasted * TARIFF.sludge;
   // 跨日清零当日口径，累计口径保留
   const simDay = Math.floor(state.timeMin / 1440);
   if (simDay > state.lastDay) {
@@ -902,6 +926,11 @@ function solveEnergyAndCost(ctx: StepContext, o2DemandKgH: number, wasted: numbe
   state.costToday.chemical += chemCost;
   state.costToday.sludge += sludgeCost;
   state.costToday.total += energyCost + chemCost + sludgeCost;
+
+  // 按步积分：这是「累计处理量 / 累计电耗 / 累计干泥」的唯一正确口径
+  state.totals.inflowM3 += Q * dtH;
+  state.totals.energyKwh += totalKw * dtH;
+  state.totals.wasteSludgeKg += wasted;
 }
 
 /** 阶段 7：限值告警。 */
@@ -911,6 +940,9 @@ function raiseLimitAlarms(state: NetworkSimState): void {
   if (e.nh > LIMITS.nh) pushAlarm(state, 'critical', 'EFF_NH', `出水氨氮 ${e.nh.toFixed(2)} mg/L 超一级A`, 'nh', e.nh);
   if (e.cod > LIMITS.cod)
     pushAlarm(state, 'critical', 'EFF_COD', `出水 COD ${e.cod.toFixed(1)} mg/L 超一级A`, 'cod', e.cod);
+  if (e.bod > LIMITS.bod)
+    pushAlarm(state, 'warning', 'EFF_BOD', `出水 BOD₅ ${e.bod.toFixed(1)} mg/L 超一级A`, 'bod', e.bod);
+  if (e.tn > LIMITS.tn) pushAlarm(state, 'warning', 'EFF_TN', `出水总氮 ${e.tn.toFixed(1)} mg/L 超一级A`, 'tn', e.tn);
   if (e.tp > LIMITS.tp) pushAlarm(state, 'warning', 'EFF_TP', `出水总磷 ${e.tp.toFixed(3)} mg/L 超一级A`, 'tp', e.tp);
   if (e.ss > LIMITS.ss) pushAlarm(state, 'warning', 'EFF_SS', `出水悬浮物 ${e.ss.toFixed(1)} mg/L 超一级A`, 'ss', e.ss);
   if (clar.blanketM > clar.depth - 0.4)
@@ -1008,6 +1040,7 @@ export function spinUpNetwork(state: NetworkSimState, topo: ProcessTopology, day
   state.alarmSeq = 0;
   state.cost = { energy: 0, chemical: 0, sludge: 0, total: 0 };
   state.costToday = { energy: 0, chemical: 0, sludge: 0, total: 0 };
+  state.totals = { inflowM3: 0, energyKwh: 0, wasteSludgeKg: 0 };
   state.lastDay = 0;
   state.timeMin = 0;
   return state;
@@ -1036,9 +1069,11 @@ export function networkModel(topo: ProcessTopology, state: NetworkSimState): Pla
   return {
     snapshot: () => networkSnapshot(state),
     predict: (controls, horizonMin, sampleEveryMin) =>
-      runForecast(state, topo, controls, horizonMin, sampleEveryMin, null),
+      runForecast(state, topo, controls, horizonMin, sampleEveryMin, null, null),
     predictWithScenario: (controls, horizonMin, sampleEveryMin, scenario) =>
-      runForecast(state, topo, controls, horizonMin, sampleEveryMin, scenario),
+      runForecast(state, topo, controls, horizonMin, sampleEveryMin, scenario, null),
+    predictWithUncertainty: (controls, horizonMin, sampleEveryMin, factor) =>
+      runForecast(state, topo, controls, horizonMin, sampleEveryMin, null, factor),
   };
 }
 
@@ -1049,9 +1084,15 @@ function runForecast(
   horizonMin: number,
   sampleEveryMin: number,
   scenario: import('./scenarios').ScenarioType | null,
+  uncertainty: import('./plantModel').UncertaintyFactor | null,
 ): import('./plantModel').ForecastOutcomeX {
   const clone = structuredClone(state) as NetworkSimState;
   clone.controls = { ...controls };
+  if (uncertainty) {
+    clone.uncertainty = { ...uncertainty };
+    // 生物量扰动直接作用在存量上：低产率/高产率两种工艺假设
+    clone.biomassKg = clone.biomassKg * uncertainty.biomass;
+  }
   if (scenario) {
     clone.scenario = { type: scenario, durationMin: 360, magnitude: 1, startedAt: clone.timeMin };
   }

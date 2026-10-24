@@ -28,8 +28,17 @@ CODE_OF_CONDUCT, `.env.example`, Dockerfile, API docs).
 ## Environment
 
 Copy [.env.example](.env.example) if you need to override defaults. Never commit
-a real `.env`. `AQUAPILOT_TOKEN` is the only secret the server reads; leave it
-empty for local work.
+a real `.env`. `AQUAPILOT_TOKEN` and the optional `AQUAPILOT_LLM_*` variables are
+the only secrets the server reads; leave them empty for local work.
+
+## Adding a decision criterion
+
+1. Add the term to `scoreCandidate` in `src/ai/agent.ts` with a named constant.
+2. If it should survive the robust pass, express it in terms of the ensemble
+   (`exceedanceProbability`, `worstRatio`) rather than a single-point forecast.
+3. Add a test that shows a candidate losing because of the new term — a term that
+   cannot change a ranking is not a criterion.
+4. Update `docs/BENCHMARKS.md` only with a measured number.
 
 ## Commit messages
 

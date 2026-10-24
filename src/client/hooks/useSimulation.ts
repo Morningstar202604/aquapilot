@@ -202,6 +202,7 @@ export function useSimulation() {
   const reset = () => send({ type: 'sim', action: 'reset' });
   const changeSpeed = (value: number) => send({ type: 'speed', value });
   const refreshDecision = () => send({ type: 'refreshDecision' });
+  const applyPreset = (id: string) => send({ type: 'preset', id });
   const requestTopology = () => send({ type: 'topology', action: 'get' });
   const applyTopology = (topo: ProcessTopology) => send({ type: 'topology', action: 'apply', topology: topo });
 
@@ -224,6 +225,7 @@ export function useSimulation() {
     reset,
     changeSpeed,
     refreshDecision,
+    applyPreset,
     topology,
     topologyRevision,
     requestTopology,

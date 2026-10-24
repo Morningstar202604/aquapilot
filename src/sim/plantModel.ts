@@ -45,6 +45,21 @@ export interface ForecastOutcomeX {
   endDilute: number;
 }
 
+/**
+ * 预测用的参数扰动因子。
+ *
+ * 定义在模型抽象层，避免 ensemble ↔ plantModel 之间出现运行时循环依赖；
+ * 具体取值在 ensemble.ts 里给出（固定表，保证可复现）。
+ */
+export interface UncertaintyFactor {
+  flow: number;
+  cod: number;
+  nh: number;
+  tp: number;
+  temperature: number;
+  biomass: number;
+}
+
 export interface PlantModel {
   snapshot(): PlantSnapshotForAi;
   predict(controls: ControlSettings, horizonMin: number, sampleEveryMin: number): ForecastOutcomeX;
@@ -54,6 +69,13 @@ export interface PlantModel {
     horizonMin: number,
     sampleEveryMin: number,
     scenario: ScenarioType,
+  ): ForecastOutcomeX;
+  /** 参数扰动预测；旧引擎适配器不实现时退化为单点预测 */
+  predictWithUncertainty?(
+    controls: ControlSettings,
+    horizonMin: number,
+    sampleEveryMin: number,
+    factor: UncertaintyFactor,
   ): ForecastOutcomeX;
 }
 

@@ -13,11 +13,14 @@ interface Props {
 }
 
 type SeriesKey = 'water' | 'nitrogen' | 'energy';
+type BandMetric = 'cod' | 'nh' | 'tn' | 'tp' | 'ss';
 
 interface ChartSpec {
   key: SeriesKey;
   title: string;
   unit: string;
+  /** 该图叠加预测扇区时使用哪个出水指标 */
+  bandMetric?: BandMetric;
   series: { name: string; color: string; key: keyof PlantSnapshot['trends'][number] }[];
   limits: { value: number; label: string }[];
   yMax?: number;
@@ -28,6 +31,7 @@ const SPECS: ChartSpec[] = [
     key: 'water',
     title: '有机物与悬浮物',
     unit: 'mg/L',
+    bandMetric: 'cod',
     series: [
       { name: '出水 COD', color: '#3ee0b5', key: 'effluentCod' },
       { name: '出水 SS', color: '#f0a83c', key: 'effluentSs' },
@@ -43,6 +47,7 @@ const SPECS: ChartSpec[] = [
     key: 'nitrogen',
     title: '营养盐',
     unit: 'mg/L',
+    bandMetric: 'nh',
     series: [
       { name: '出水 NH₃-N', color: '#4fd6e8', key: 'effluentNh' },
       { name: '出水 TN', color: '#8f7fe8', key: 'effluentTn' },
@@ -110,6 +115,55 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
       yAxisIndex: (s.key as string) === 'influentCod' ? 1 : 0,
     }));
 
+    /**
+     * 预测扇区：把集合预测的 P10–P90 画成半透明带 + P50 虚线。
+     *
+     * 时间轴是分类轴，预测点只能追加在历史之后；为免把 X 轴拉长 5 倍，
+     * 每小时取一个点。扇区只表示"参数不确定性范围"，不是统计置信区间。
+     */
+    const band = snap.forecastBand;
+    let xData2 = xData;
+    if (spec.bandMetric && band && band.points.length > 0) {
+      const hourly = band.points.filter((_, i) => i % 2 === 0);
+      const metric = spec.bandMetric;
+      const pad = Array(xData.length).fill(null) as (number | null)[];
+      const p10 = pad.concat(hourly.map((p) => Number(p[metric].p10.toFixed(3))));
+      const p90 = pad.concat(hourly.map((p) => Number(p[metric].p90.toFixed(3))));
+      const p50 = pad.concat(hourly.map((p) => Number(p[metric].p50.toFixed(3))));
+      for (const s of series) s.data = [...(s.data as number[]), ...Array(hourly.length).fill(null)];
+      xData2 = [...xData, ...hourly.map((p) => `+${Math.round(p.minute / 60)}h`)];
+      series.push(
+        {
+          name: 'P10',
+          type: 'line',
+          showSymbol: false,
+          lineStyle: { width: 0, opacity: 0 },
+          stack: `band-${spec.key}`,
+          data: p10,
+          silent: true,
+        },
+        {
+          name: 'P10–P90 预测区间',
+          type: 'line',
+          showSymbol: false,
+          lineStyle: { width: 0, opacity: 0 },
+          areaStyle: { color: 'rgba(79,214,232,0.16)' },
+          stack: `band-${spec.key}`,
+          data: p90.map((v, i) => (v === null ? null : v - (p10[i] ?? 0))),
+          silent: true,
+        },
+        {
+          name: 'P50 预测',
+          type: 'line',
+          showSymbol: false,
+          smooth: 0.2,
+          lineStyle: { width: 1.2, color: '#4fd6e8', type: 'dashed' },
+          data: p50,
+          silent: true,
+        },
+      );
+    }
+
     if (spec.key === 'water') {
       series[0].markLine = {
         silent: true,
@@ -158,14 +212,14 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
         },
         xAxis: {
           type: 'category',
-          data: xData,
+          data: xData2,
           boundaryGap: false,
           axisLine: { lineStyle: { color: '#1d3b37' } },
           axisTick: { show: false },
           axisLabel: {
             color: '#5f7d78',
             fontSize: 9,
-            interval: Math.max(0, Math.floor(xData.length / 5)),
+            interval: Math.max(0, Math.floor(xData2.length / 5)),
             fontFamily: 'JetBrains Mono, monospace',
           },
           splitLine: { show: false },

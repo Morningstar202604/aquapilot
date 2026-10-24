@@ -1,5 +1,6 @@
 import { CONTROL_BOUNDS, SCENARIO_LABELS, labelOf, precisionOf } from './labels';
 import { SCENARIO_ORDER, SCENARIOS } from '../../sim/scenarios';
+import { PRESETS } from '../../model/presets';
 import type { ControlSettings } from '../../sim/config';
 import type { PlantSnapshot } from '../../shared/protocol';
 import type { ScenarioType } from '../../sim/scenarios';
@@ -9,6 +10,7 @@ interface Props {
   onChange: (patch: Partial<ControlSettings>) => void;
   onStartScenario: (type: ScenarioType) => void;
   onClearScenario: () => void;
+  onApplyPreset: (id: string) => void;
   aiEnabled: boolean;
 }
 
@@ -23,7 +25,7 @@ const ORDER: (keyof Omit<ControlSettings, 'aiEnabled'>)[] = [
   'alkDose',
 ];
 
-export function ControlPanel({ snap, onChange, onStartScenario, onClearScenario, aiEnabled }: Props) {
+export function ControlPanel({ snap, onChange, onStartScenario, onClearScenario, onApplyPreset, aiEnabled }: Props) {
   const activeType = snap.scenario?.type ?? null;
   const activeRemaining = snap.scenario
     ? Math.max(0, snap.scenario.startedAt + snap.scenario.durationMin - snap.timeMin)
@@ -32,6 +34,18 @@ export function ControlPanel({ snap, onChange, onStartScenario, onClearScenario,
 
   return (
     <div className="scroll-panel">
+      <div>
+        <div className="section-label">工艺模板（切换会重建并预热）</div>
+        <div className="preset-list">
+          {PRESETS.map((p) => (
+            <button key={p.id} className="preset-item" onClick={() => onApplyPreset(p.id)}>
+              <span className="preset-name">{p.name}</span>
+              <span className="preset-desc">{p.description}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div>
         <div className="section-label">工艺控制变量</div>
         {ORDER.map((key) => {

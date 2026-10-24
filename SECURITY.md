@@ -20,6 +20,8 @@ exposure and its threat model reflects that:
 | Origin | WebSocket connections restricted to localhost origins |
 | Rate limits | Control operations 500 ms, topology changes 5 s, per client |
 | Secrets | None stored in the repository; CI scans for tokens and private keys |
+| LLM dialogue | Off by default. When enabled, only computed facts are sent; answers whose numbers are absent from those facts are discarded and the rule answer is kept |
+| Exports | Read-only CSV/Markdown generation; auth-gated like every other `/api/*` route |
 
 ## Known limitations
 
@@ -27,6 +29,7 @@ exposure and its threat model reflects that:
 - AI decisions are persisted with their reasoning; manual control changes are not written to an audit log
 - Simulation state is in memory; history (decisions, snapshots) is persisted to SQLite on Node 22+ and used for replay
 - No TLS termination inside the process
+- An enabled LLM endpoint is a trust boundary: the prompt contains plant state. Point it at a provider you are willing to share simulated operating data with, and never at an untrusted proxy
 
 ## Dependency vulnerabilities
 

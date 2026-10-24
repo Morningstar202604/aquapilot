@@ -34,6 +34,7 @@ const recommendation: Recommendation = {
     energyPeak: 300,
     worstRatio: 0.82,
     controls: { ...makeSnapshot().controls, internalRecirc: 1.6 },
+    exceedanceProbability: null,
   },
   alternatives: [],
   predictedEffluent: makeSnapshot().effluent,
@@ -43,6 +44,8 @@ const recommendation: Recommendation = {
   risks: ['当前无高风险项，维持 15 分钟级滚动复核'],
   tweaks: [{ key: 'internalRecirc', from: 2, to: 1.6, reason: '减少缺氧区溶解氧冲击并节电' }],
   generatedAt: 90,
+  ensemble: null,
+  robustEvaluated: false,
 };
 
 describe('DecisionPanel', () => {
@@ -128,6 +131,101 @@ describe('DecisionPanel', () => {
   });
 });
 
+describe('DecisionPanel 不确定性', () => {
+  it('有集合预测时展示超限概率与区间，并声明口径', () => {
+    const rec: Recommendation = {
+      ...recommendation,
+      robustEvaluated: true,
+      ensemble: {
+        points: [
+          {
+            minute: 240,
+            cod: { p10: 30, p50: 35, p90: 42 },
+            nh: { p10: 0.4, p50: 0.6, p90: 0.9 },
+            tn: { p10: 10, p50: 12, p90: 14 },
+            tp: { p10: 0.1, p50: 0.2, p90: 0.3 },
+            ss: { p10: 5, p50: 7, p90: 9 },
+            score: { p10: 60, p50: 70, p90: 80 },
+          },
+        ],
+        exceedanceProbability: 0.33,
+        worstRatio: 0.95,
+        samples: 3,
+      },
+    };
+    render(
+      <DecisionPanel
+        snap={makeSnapshot()}
+        rec={rec}
+        onApply={vi.fn()}
+        onRefresh={vi.fn()}
+        aiEnabled={false}
+        onToggleAi={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('33%')).toBeTruthy();
+    expect(screen.getByText('3 样本')).toBeTruthy();
+    expect(screen.getAllByText(/0\.40 – 0\.90/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/不是统计置信区间/)).toBeTruthy();
+  });
+
+  it('未评估时明确说未提供，而不是显示 0%', () => {
+    render(
+      <DecisionPanel
+        snap={makeSnapshot()}
+        rec={{ ...recommendation, robustEvaluated: false, ensemble: null }}
+        onApply={vi.fn()}
+        onRefresh={vi.fn()}
+        aiEnabled={false}
+        onToggleAi={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/未提供不确定性评估/)).toBeTruthy();
+    expect(screen.queryByText('0%')).toBeNull();
+  });
+});
+
+describe('InsightsPanel 双跑', () => {
+  it('渲染 AI 与固定策略三列与样本提示', () => {
+    render(
+      <InsightsPanel
+        snap={makeSnapshot({
+          benchmark: {
+            ai: {
+              minutes: 600,
+              compliantMinutes: 580,
+              scoreSum: 48000,
+              energyKwh: 120,
+              cost: 3000,
+              inflowM3: 800,
+              specificKwhM3: 0.15,
+            },
+            manual: {
+              minutes: 600,
+              compliantMinutes: 500,
+              scoreSum: 42000,
+              energyKwh: 130,
+              cost: 3600,
+              inflowM3: 800,
+              specificKwhM3: 0.1625,
+            },
+            complianceDeltaPct: 13.3,
+            specificEnergyDelta: -0.0125,
+            costDeltaPct: -16.7,
+            scoreDelta: 10,
+            mature: true,
+          },
+        })}
+        aiEnabled
+      />,
+    );
+    expect(screen.getByText('出水合规率')).toBeTruthy();
+    expect(screen.getByText('96.7%')).toBeTruthy();
+    expect(screen.getByText('83.3%')).toBeTruthy();
+    expect(screen.getByText(/已具备统计意义/)).toBeTruthy();
+  });
+});
+
 describe('AlarmsPanel', () => {
   it('无告警时两个分区都给出明确说明', () => {
     render(<AlarmsPanel snap={makeSnapshot()} />);
@@ -160,6 +258,7 @@ describe('ControlPanel', () => {
         onChange={vi.fn()}
         onStartScenario={vi.fn()}
         onClearScenario={vi.fn()}
+        onApplyPreset={vi.fn()}
         aiEnabled
       />,
     );
@@ -176,6 +275,7 @@ describe('ControlPanel', () => {
         onChange={onChange}
         onStartScenario={vi.fn()}
         onClearScenario={vi.fn()}
+        onApplyPreset={vi.fn()}
         aiEnabled
       />,
     );
@@ -192,6 +292,7 @@ describe('ControlPanel', () => {
         onChange={vi.fn()}
         onStartScenario={onStartScenario}
         onClearScenario={vi.fn()}
+        onApplyPreset={vi.fn()}
         aiEnabled
       />,
     );
@@ -209,6 +310,7 @@ describe('ControlPanel', () => {
         onChange={vi.fn()}
         onStartScenario={vi.fn()}
         onClearScenario={onClearScenario}
+        onApplyPreset={vi.fn()}
         aiEnabled
       />,
     );

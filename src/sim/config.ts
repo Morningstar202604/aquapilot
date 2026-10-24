@@ -42,7 +42,7 @@ export const PLANT = {
     { id: 'aerobic2', name: '好氧池 B', short: '好氧B', kind: 'aerobic', volume: 5000 },
     { id: 'aerobic3', name: '好氧池 C', short: '好氧C', kind: 'aerobic', volume: 5000 },
   ] as TankConfig[],
-  clarifier: { area: 2400, depth: 4.5 },
+  clarifier: { area: 3600, depth: 4.5 },
   siteAreaHa: 4.2,
   dischargeStandard: 'GB 18918-2002 一级 A',
 } as const;
@@ -104,14 +104,3 @@ export const INFLUENT_DESIGN = {
   temperature: 20,
   alkalinity: 320,
 };
-
-export const TARIFF = {
-  electricity: 0.68,
-  pac: 2.2,
-  carbon: 3.6,
-  bicarbonate: 1.4,
-  sludgePerKg: 0.32,
-  waterPerM3: 0.42,
-};
-
-export const SETPOINT_LIMITS = { doMin: 1, doMax: 4 };

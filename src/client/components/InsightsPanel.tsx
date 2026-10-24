@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { PlantSnapshot } from '../../shared/protocol';
 
 interface Props {
@@ -19,12 +20,11 @@ export function InsightsPanel({ snap, aiEnabled }: Props) {
   const pacSaving = ((MANUAL_BASELINE.pacDose - snap.controls.pacDose) / MANUAL_BASELINE.pacDose) * 100;
   // 同一口径：电费 + PAC 药费 + 污泥处置，按当日水量与浓度折算
   const dailyFlowM3 = (snap.totals.inflowM3 / elapsedHours) * 24;
-  const rasKgPerM3 = snap.clarifier.xRas / 1000;
   const actualCostPerDay = (snap.totals.cost / elapsedHours) * 24;
   const baselineCostPerDay =
     dailyFlowM3 * MANUAL_BASELINE.specificKwh * 0.68 +
     dailyFlowM3 * (MANUAL_BASELINE.pacDose / 1000) * 2.2 +
-    dailyFlowM3 * 0.009 * rasKgPerM3 * 0.36;
+    dailyFlowM3 * 0.009 * (snap.clarifier.xRas / 1000) * 0.36;
   const costDelta = ((baselineCostPerDay - actualCostPerDay) / Math.max(1, baselineCostPerDay)) * 100;
   const costPerDay = actualCostPerDay;
   const annualFlowM3 = dailyFlowM3 * 365;
@@ -35,6 +35,7 @@ export function InsightsPanel({ snap, aiEnabled }: Props) {
 
   const margin = snap.margins[0];
   const complianceRisk = margin.ratio > 1 ? '已越限' : margin.ratio > 0.85 ? '裕度不足' : '裕度充足';
+  const bm = snap.benchmark;
 
   return (
     <div className="scroll-panel">
@@ -80,6 +81,58 @@ export function InsightsPanel({ snap, aiEnabled }: Props) {
       </div>
 
       <div>
+        <div className="section-label">AI vs 固定策略（同进水双跑）</div>
+        {bm && bm.ai.minutes > 0 ? (
+          <>
+            <BenchRow
+              label="出水合规率"
+              ai={`${((bm.ai.compliantMinutes / Math.max(1, bm.ai.minutes)) * 100).toFixed(1)}%`}
+              manual={`${((bm.manual.compliantMinutes / Math.max(1, bm.manual.minutes)) * 100).toFixed(1)}%`}
+              delta={`${bm.complianceDeltaPct >= 0 ? '+' : ''}${bm.complianceDeltaPct.toFixed(1)} pct`}
+              good={bm.complianceDeltaPct >= 0}
+            />
+            <BenchRow
+              label="吨水电耗"
+              ai={bm.ai.specificKwhM3.toFixed(3)}
+              manual={bm.manual.specificKwhM3.toFixed(3)}
+              delta={`${bm.specificEnergyDelta >= 0 ? '+' : ''}${bm.specificEnergyDelta.toFixed(3)}`}
+              good={bm.specificEnergyDelta <= 0}
+            />
+            <BenchRow
+              label="运行成本（按吨水）"
+              ai={`¥${(bm.ai.cost / Math.max(1, bm.ai.inflowM3)).toFixed(4)}`}
+              manual={`¥${(bm.manual.cost / Math.max(1, bm.manual.inflowM3)).toFixed(4)}`}
+              delta={`${bm.costDeltaPct >= 0 ? '+' : ''}${bm.costDeltaPct.toFixed(1)}%`}
+              good={bm.costDeltaPct <= 0}
+            />
+            <BenchRow
+              label="平均出水评分"
+              ai={(bm.ai.scoreSum / Math.max(1, bm.ai.minutes)).toFixed(1)}
+              manual={(bm.manual.scoreSum / Math.max(1, bm.manual.minutes)).toFixed(1)}
+              delta={`${bm.scoreDelta >= 0 ? '+' : ''}${bm.scoreDelta.toFixed(1)}`}
+              good={bm.scoreDelta >= 0}
+            />
+            <div className="control-hint" style={{ marginTop: 8 }}>
+              影子链与主链共享 seed 与进水序列，只改控制策略；样本 {Math.round(bm.ai.minutes)} 分钟
+              {bm.mature ? '（已具备统计意义）' : '（样本不足 6 小时，仅供参考）'}。
+            </div>
+          </>
+        ) : (
+          <div className="empty-note">影子双跑刚启动，累计 6 小时后给出对照。</div>
+        )}
+      </div>
+
+      <div>
+        <div className="section-label">数据导出</div>
+        <div className="export-row">
+          <DownloadButton url="/api/export/snapshots.csv" filename="aquapilot-snapshots.csv" label="出水历史 CSV" />
+          <DownloadButton url="/api/export/decisions.csv" filename="aquapilot-decisions.csv" label="决策记录 CSV" />
+          <DownloadButton url="/api/export/report.md" filename="aquapilot-report.md" label="运行报告 MD" />
+        </div>
+        <div className="control-hint">导出当前 run 的抽样点；启用访问控制时以会话令牌请求，不把令牌写进 URL。</div>
+      </div>
+
+      <div>
         <div className="section-label">运行纪律</div>
         <div className="alt-row">
           <span className="alt-name">值守模式</span>
@@ -119,7 +172,7 @@ export function InsightsPanel({ snap, aiEnabled }: Props) {
         </div>
         <div className="alt-row">
           <span className="alt-name">累计药剂与泥耗</span>
-          <span className="alt-score">¥{(snap.cost.chemicalToday + snap.cost.sludgeToday).toFixed(0)}</span>
+          <span className="alt-score">¥{(snap.totals.chemicalCost + snap.totals.sludgeCost).toFixed(0)}</span>
         </div>
         <div className="alt-row">
           <span className="alt-name">年化电费{annualSaving >= 0 ? '节省' : '超支'}（按当前负荷线性外推，仅示意）</span>
@@ -156,6 +209,66 @@ export function InsightsPanel({ snap, aiEnabled }: Props) {
           </span>
         </div>
       </div>
+    </div>
+  );
+}
+
+function DownloadButton({ url, filename, label }: { url: string; filename: string; label: string }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'error'>('idle');
+  const download = async () => {
+    setState('busy');
+    try {
+      const token = (() => {
+        try {
+          return window.sessionStorage.getItem('aquapilot_token');
+        } catch {
+          return null;
+        }
+      })();
+      const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+      setState('idle');
+    } catch {
+      setState('error');
+    }
+  };
+  return (
+    <button className="download-btn" onClick={() => void download()} disabled={state === 'busy'}>
+      {state === 'error' ? '导出失败，重试' : state === 'busy' ? '导出中…' : label}
+    </button>
+  );
+}
+
+function BenchRow({
+  label,
+  ai,
+  manual,
+  delta,
+  good,
+}: {
+  label: string;
+  ai: string;
+  manual: string;
+  delta: string;
+  good: boolean;
+}) {
+  return (
+    <div className="bench-row">
+      <span className="bench-name">{label}</span>
+      <span className="bench-ai">{ai}</span>
+      <span className="bench-manual">{manual}</span>
+      <span className="bench-delta" data-good={good}>
+        {delta}
+      </span>
     </div>
   );
 }

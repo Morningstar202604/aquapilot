@@ -52,7 +52,7 @@ try {
   await page.waitForTimeout(3500);
 
   const kpis = await page.locator('.kpi').count();
-  if (kpis < 6) fail(`expected >=6 KPI tiles, got ${kpis}`);
+  if (kpis < 7) fail(`expected >=7 KPI tiles, got ${kpis}`);
 
   const nodes = await page.locator('.plant-node').count();
   if (nodes < 10) fail(`expected >=10 flowsheet nodes, got ${nodes}`);
@@ -62,7 +62,7 @@ try {
 
   await page.screenshot({ path: `${OUT}/ci-plant.png` });
 
-  for (const tab of ['决策解释', '控制与工况', '告警', '效益', '回放']) {
+  for (const tab of ['AI 对话', '决策解释', '控制与工况', '告警', '效益', '回放']) {
     await page.locator('.side-tab', { hasText: tab }).click();
     await page.waitForTimeout(600);
     const panel = await page.locator('.scroll-panel, .side-body').first().isVisible();
@@ -112,7 +112,7 @@ try {
   if (errors.length > 0) fail(`console errors: ${errors.slice(0, 3).join(' | ')}`);
 
   await browser.close();
-  console.log('E2E PASS: 6 KPIs, 17 nodes, 3 charts, 5 tabs, 0 console errors');
+  console.log('E2E PASS: 7 KPIs, 17 nodes, 3 charts, 6 panels, 0 console errors');
 } finally {
   server.kill();
 }

@@ -95,6 +95,38 @@ given. Also lists all runs.
 
 Row counts for decisions, alarms and snapshots.
 
+### `GET /api/presets`
+
+The shipped process templates and which one is active (`activeId` is `null` after a
+custom topology has been applied).
+
+```json
+{
+  "presets": [{ "id": "a2o-standard", "name": "A²/O 标准厂", "description": "…" }],
+  "activeId": "a2o-standard"
+}
+```
+
+### `GET /api/export/snapshots.csv?from=<min>&to=<min>`
+
+Sampled effluent history for the latest run as RFC 4180 CSV (CRLF line endings,
+quoted fields where needed). Served with `Content-Disposition: attachment`.
+
+### `GET /api/export/decisions.csv`
+
+The last 1000 persisted decisions as CSV, including the summary and the tweak JSON.
+
+### `GET /api/export/report.md`
+
+A one-page Markdown shift report built from the current snapshot: effluent table,
+operating state, current recommendation (including the ensemble exceedance
+probability when evaluated) and the AI-vs-fixed benchmark. It states that the data
+is simulated, not measured.
+
+All export endpoints are read-only and sit behind the same auth gate as every other
+`/api/*` route. The UI downloads them with `fetch` plus an `Authorization` header —
+the token is never placed in a URL.
+
 ## WebSocket protocol
 
 Connect to `/ws`. When `AQUAPILOT_TOKEN` is set, browsers cannot send an
@@ -117,6 +149,7 @@ Frames are JSON objects with a `type`. Client → server:
 | `sim` | `pause` / `resume` / `reset` |
 | `speed` | Simulation speed, 0.25–8 |
 | `topology` | `get` or `apply` a flowsheet (apply is limited to one per 5 s) |
+| `preset` | Apply a shipped template by id (rebuilds and warms up the plant) |
 | `refreshDecision` | Recompute the recommendation immediately |
 
 Server → client: `snapshot`, `snapshotPatch` (incremental), `decision`, `chat`,
@@ -124,3 +157,24 @@ Server → client: `snapshot`, `snapshotPatch` (incremental), `decision`, `chat`
 
 Frames larger than 512 KB are rejected. Every field is validated and range
 checked server-side; unknown keys in a control patch are dropped, not trusted.
+
+### `snapshot` / `snapshotPatch` fields added in 0.3.0
+
+| Field | Meaning |
+|---|---|
+| `forecastBand` | P10/P50/P90 bands for the current recommendation, or `null` when the model cannot be perturbed |
+| `benchmark` | AI vs fixed-strategy shadow totals (compliance minutes, energy, cost, score) |
+| `totals.energyCost` / `chemicalCost` / `sludgeCost` | Cumulative cost split; the previous code only exposed today's counters |
+| `recommendation.ensemble` | Ensemble attached to the chosen candidate |
+| `recommendation.robustEvaluated` | False when only a single-point forecast was possible |
+
+`benchmark.mature` turns true after six simulated hours; before that the UI labels
+the comparison as indicative.
+
+### Chat answers
+
+A `chat` frame from the client always produces a rule-engine answer first. When
+`AQUAPILOT_LLM_BASE_URL` and `AQUAPILOT_LLM_MODEL` are set, a second answer
+(`source: "llm"`) follows if the model returns text whose numbers all appear in
+the grounding facts. Errors, timeouts and ungrounded answers are silent: the user
+keeps the rule-engine answer and `aquapilot_llm_fallbacks_total` increments.

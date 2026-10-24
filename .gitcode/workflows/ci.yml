@@ -1,0 +1,48 @@
+# AtomGit Action workflow (AtomGit reads .gitcode/workflows/, not .github/workflows/).
+# Same gates as the GitHub workflow, without the browser job: the AtomGit runner
+# may not have Playwright browsers preinstalled.
+name: aquapilot-ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: checkout
+      - name: Setup Node
+        uses: setup-nodejs
+        with:
+          node-version: '22'
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Format
+        run: npm run format
+      - name: Tests with coverage
+        run: npx vitest run --coverage
+      - name: Build
+        run: npm run build
+      - name: Smoke
+        run: |
+          set -e
+          PORT=5183 node dist/server/index.mjs &
+          PID=$!
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:5183/api/snapshot > /dev/null; then ok=1; break; fi
+            sleep 1
+          done
+          [ "$ok" -eq 1 ] || { kill $PID 2>/dev/null || true; exit 1; }
+          curl -sf http://127.0.0.1:5183/api/topology | grep -q '"topology"'
+          curl -sf http://127.0.0.1:5183/api/presets | grep -q '"presets"'
+          kill $PID 2>/dev/null || true

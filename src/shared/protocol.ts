@@ -10,6 +10,8 @@ import type {
 import type { ControlSettings, Limits } from '../sim/config';
 import type { ScenarioSpec } from '../sim/scenarios';
 import type { Answer, Recommendation } from '../ai/agent';
+import type { EnsembleForecast } from '../sim/ensemble';
+import type { BenchmarkSummary } from '../server/benchmark';
 import type { ProcessTopology } from '../model/topology';
 
 export interface TrendPoint {
@@ -62,8 +64,21 @@ export interface PlantSnapshot {
     violations: { metric: string; minute: number; value: number; limit: number }[];
   } | null;
   recommendation: Recommendation | null;
+  /** 选中方案的集合预测（P10/P50/P90）；未评估时为 null */
+  forecastBand: EnsembleForecast | null;
+  /** 影子双跑：AI vs 固定策略（同一进水） */
+  benchmark: BenchmarkSummary | null;
   limits: Limits;
-  totals: { inflowM3: number; energyKwh: number; cost: number; wasteSludgeKg: number; elapsedMin: number };
+  totals: {
+    inflowM3: number;
+    energyKwh: number;
+    cost: number;
+    wasteSludgeKg: number;
+    elapsedMin: number;
+    energyCost: number;
+    chemicalCost: number;
+    sludgeCost: number;
+  };
   stormStorageM3: number;
   reactorCount: number;
 }
@@ -79,6 +94,7 @@ export type ClientMessage =
   | { type: 'sim'; action: 'pause' | 'resume' | 'reset' }
   | { type: 'speed'; value: number }
   | { type: 'refreshDecision' }
+  | { type: 'preset'; id: string }
   | { type: 'topology'; action: 'get' }
   | { type: 'topology'; action: 'apply'; topology: ProcessTopology };
 
