@@ -96,7 +96,7 @@ npm run ci         # 完整门禁：依赖、类型、测试、构建、冒烟�
 npm run e2e        # Playwright 浏览器冒烟
 ```
 
-Docker（已发布镜像，含 `linux/amd64` 与 `linux/arm64`）：
+Docker（已发布镜像，`linux/amd64`）：
 
 ```bash
 docker run --rm -p 5173:5173 -v aquapilot-data:/app/data ghcr.io/morningstar202604/aquapilot:v0.3.0
