@@ -103,10 +103,10 @@ npx vitest run --coverage
 | Item | Value |
 |---|---|
 | Test files | 25 |
-| Tests | 370 |
-| Line coverage | 95.5 % |
-| Branch coverage | 83.0 % |
-| Function coverage | 94.9 % |
+| Tests | 381 |
+| Line coverage | 95.6 % |
+| Branch coverage | 84.7 % |
+| Function coverage | 95.2 % |
 
 Coverage thresholds are pinned to the strictest values that hold on both Node 20
 and Node 22 (V8 counts branches differently between versions).

@@ -49,7 +49,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   `tests/alarmAttribution.test.ts` (15 cases) and three component cases.
 - `GET /api/presets`, `tests/release030.test.ts` (20 contract tests), a media
   generator (`scripts/media.ts`) and refreshed screenshots / demo video.
-- Test suite 347 → 370: alarm attribution (15), AuthGate token lifecycle (5),
+- Test suite 347 → 381: alarm attribution (15), AuthGate token lifecycle (5),
   plus component coverage for the health block and attribution rows.
 
 ### Changed

@@ -5,8 +5,8 @@
 > AI 值守的再生水厂仿真台。  
 > 厂是图，图就是模型，AI 值班员来跑。
 
-[![tests](https://img.shields.io/badge/tests-370%20passing-brightgreen)](tests)
-[![coverage](https://img.shields.io/badge/line%20coverage-95.5%25-brightgreen)](vitest.config.ts)
+[![tests](https://img.shields.io/badge/tests-381%20passing-brightgreen)](tests)
+[![coverage](https://img.shields.io/badge/line%20coverage-95.6%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -91,7 +91,7 @@ npm run dev        # 前端 5174，服务端 5173
 ```bash
 npm run typecheck  # TypeScript 严格模式
 npm run lint       # ESLint 9
-npm run test       # 370 项测试
+npm run test       # 381 项测试
 npm run build      # 客户端 + 服务端
 npm run verify     # 上述四项按顺序跑
 npm run ci         # 完整门禁：依赖、类型、测试、构建、冒烟、审计、卫生
@@ -149,7 +149,7 @@ src/
     index.ts        WebSocket 仿真循环、REST、静态托管
   client/           控制室界面（React + ECharts + SVG 工艺图）
   shared/           前后端消息契约
-tests/              370 项测试：物理性质、守恒、AI 护栏、拓扑、双跑、输入校验、崩溃边界
+tests/              381 项测试：物理性质、守恒、AI 护栏、拓扑、双跑、输入校验、崩溃边界
 ```
 
 ### 三层契约
@@ -219,8 +219,8 @@ PAC 40 mg/L、多点进水 0.3×Q），两条链都从同样的 30 天预热开�
 | 生产引擎决策（名义） | 153 ms | 同上 |
 | 生产引擎决策（鲁棒，3 候选 × 3 样本） | 215 ms | 同上 |
 | 30 天预热 | 约 110 ms | 同上 |
-| 测试 | 370 通过 | `npm test` |
-| 覆盖率 | 95.5% 行 / 83.0% 分支 | `npx vitest run --coverage` |
+| 测试 | 381 通过 | `npm test` |
+| 覆盖率 | 95.6% 行 / 84.7% 分支 | `npx vitest run --coverage` |
 
 ## AI 怎么决策
 

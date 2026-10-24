@@ -8,7 +8,7 @@ import { buildPreset, PRESETS } from '../src/model/presets';
 import { compileNetwork } from '../src/sim/network';
 import { checkRunReadiness } from '../src/sim/topologyEngine';
 import { csvEscape, toCsv, snapshotsCsv, decisionsCsv, buildOperationsReport } from '../src/server/export';
-import { buildGroundingText, numbersAreGrounded, readLlmConfig, askLlm } from '../src/ai/llm';
+import { buildGroundingText, numbersAreGrounded, readLlmConfig, askLlm, SYSTEM_PROMPT } from '../src/ai/llm';
 import { createShadowPlant, MANUAL_BASELINE_CONTROLS, stepShadow, summarizeBenchmark } from '../src/server/benchmark';
 import { decide } from '../src/ai/agent';
 import { makeSnapshot } from './fixtures/snapshot';
@@ -119,6 +119,22 @@ describe('工艺模板', () => {
     const ao = buildPreset(PRESETS.find((p) => p.id === 'ao-no-anaerobic')!);
     expect(ao.units.some((u) => u.kind === 'anaerobic')).toBe(false);
     expect(ao.units.find((u) => u.id === 'anaerobic')!.kind).toBe('anoxic');
+  });
+});
+
+describe('集合预测的降级路径', () => {
+  it('模型没有扰动接口时退回单点预测并标记 supported=false', () => {
+    const state = spinUpNetwork(createNetworkState(PLANT_TOPOLOGY, { seed: 3 }), PLANT_TOPOLOGY, 5);
+    const full = networkModel(PLANT_TOPOLOGY, state);
+    const legacy = {
+      snapshot: full.snapshot,
+      predict: full.predict,
+      predictWithScenario: full.predictWithScenario,
+    };
+    const ens = forecastEnsemble(legacy, state.controls, 60, 30, qualityScore);
+    expect(ens.supported).toBe(false);
+    expect(ens.samples).toBe(UNCERTAINTY_VARIANTS.length);
+    expect(ens.points.length).toBeGreaterThan(0);
   });
 });
 
@@ -250,6 +266,181 @@ describe('LLM 适配层的安全边界', () => {
     );
     expect(res.ok).toBe(false);
     expect(res.reason).toBe('network-error');
+  });
+});
+
+describe('LLM 适配层的分支', () => {
+  const ctx = {
+    plant: '澄川',
+    simClock: '第 1 天 00:00',
+    facts: [{ label: '出水氨氮', value: '0.59', unit: 'mg/L' }],
+    recommendation: null as string | null,
+    risks: [] as string[],
+  };
+
+  it('环境变量齐全时读出配置并去掉末尾斜杠', () => {
+    const cfg = readLlmConfig({
+      AQUAPILOT_LLM_BASE_URL: 'https://api.example.com/v1///',
+      AQUAPILOT_LLM_MODEL: 'm',
+      AQUAPILOT_LLM_API_KEY: 'k',
+    } as NodeJS.ProcessEnv)!;
+    expect(cfg.baseUrl).toBe('https://api.example.com/v1');
+    expect(cfg.model).toBe('m');
+    expect(cfg.apiKey).toBe('k');
+    expect(cfg.timeoutMs).toBe(8000);
+  });
+
+  it('缺少 model 时不启用', () => {
+    expect(readLlmConfig({ AQUAPILOT_LLM_BASE_URL: 'https://x' } as NodeJS.ProcessEnv)).toBeNull();
+  });
+
+  it('组织事实文本时包含建议与风险，空建议时写明没有', () => {
+    const withRec = buildGroundingText({ ...ctx, recommendation: '降回流', risks: ['裕度不足'] });
+    expect(withRec).toContain('当前 AI 建议：降回流');
+    expect(withRec).toContain('风险提示：裕度不足');
+    const noRec = buildGroundingText(ctx);
+    expect(noRec).toContain('当前没有待执行的建议');
+    expect(SYSTEM_PROMPT).toContain('不得推算未给出的数字');
+  });
+
+  it('成功响应返回文本并标记 ok', async () => {
+    const original = global.fetch;
+    global.fetch = (async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content: '出水氨氮 0.59 mg/L，稳定。' } }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as unknown as typeof fetch;
+    try {
+      const res = await askLlm('氨氮多少', ctx, {
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'k',
+        model: 'm',
+        timeoutMs: 2000,
+      });
+      expect(res.ok).toBe(true);
+      expect(res.text).toContain('0.59');
+    } finally {
+      global.fetch = original;
+    }
+  });
+
+  it('空响应 / 未 grounding 文本 / HTTP 错误都降级', async () => {
+    const original = global.fetch;
+    const cases: { body: unknown; status: number; reason: string }[] = [
+      { body: { choices: [] }, status: 200, reason: 'empty-response' },
+      {
+        body: { choices: [{ message: { content: '出水氨氮 99.9 mg/L' } }] },
+        status: 200,
+        reason: 'ungrounded-numbers',
+      },
+      { body: {}, status: 500, reason: 'http-500' },
+    ];
+    try {
+      for (const c of cases) {
+        global.fetch = (async () =>
+          new Response(JSON.stringify(c.body), {
+            status: c.status,
+            headers: { 'Content-Type': 'application/json' },
+          })) as unknown as typeof fetch;
+        const res = await askLlm('x', ctx, {
+          baseUrl: 'https://api.example.com/v1',
+          apiKey: '',
+          model: 'm',
+          timeoutMs: 1000,
+        });
+        expect(res.ok, c.reason).toBe(false);
+        expect(res.reason, c.reason).toBe(c.reason);
+      }
+    } finally {
+      global.fetch = original;
+    }
+  });
+});
+
+describe('导出与报告的分支', () => {
+  it('无 runId 的快照导出为空字符串列', () => {
+    const csv = snapshotsCsv([
+      {
+        atMin: 0,
+        effluentCod: 1,
+        effluentNh: 1,
+        effluentTn: 1,
+        effluentTp: 1,
+        effluentSs: 1,
+        mlss: 1,
+        srtDays: 1,
+        energyKw: 1,
+        score: 1,
+      },
+    ]);
+    const lines = csv.split('\r\n');
+    expect(lines[1].startsWith(',')).toBe(true);
+  });
+
+  it('报告在无推荐、无双跑时给出明确的空状态', () => {
+    const report = buildOperationsReport(makeSnapshot({ recommendation: null, benchmark: null }));
+    expect(report).toContain('尚无决策记录');
+    expect(report).toContain('影子双跑样本不足');
+  });
+
+  it('报告在有双跑数据时渲染三列表格', () => {
+    const side = {
+      minutes: 360,
+      compliantMinutes: 340,
+      scoreSum: 360 * 70,
+      energyKwh: 50,
+      cost: 80,
+      inflowM3: 400,
+      specificKwhM3: 0.125,
+    };
+    const report = buildOperationsReport(
+      makeSnapshot({
+        benchmark: {
+          ai: side,
+          manual: { ...side, compliantMinutes: 300 },
+          complianceDeltaPct: 11.1,
+          specificEnergyDelta: -0.01,
+          costDeltaPct: -5,
+          scoreDelta: 2,
+          mature: true,
+        },
+      }),
+    );
+    expect(report).toContain('| 出水合规率 | 94.4% | 83.3% |');
+    expect(report).toContain('样本 360 分钟');
+  });
+});
+
+describe('双跑汇总的分支', () => {
+  it('零样本时全部为 0 且 mature=false', () => {
+    const summary = summarizeBenchmark({
+      ai: { minutes: 0, compliantMinutes: 0, scoreSum: 0, energyKwh: 0, cost: 0, inflowM3: 0, specificKwhM3: 0 },
+      manual: { minutes: 0, compliantMinutes: 0, scoreSum: 0, energyKwh: 0, cost: 0, inflowM3: 0, specificKwhM3: 0 },
+      startedAtMin: 0,
+    });
+    expect(summary.complianceDeltaPct).toBe(0);
+    expect(summary.costDeltaPct).toBe(0);
+    expect(summary.mature).toBe(false);
+  });
+
+  it('六小时以上标记为具备统计意义', () => {
+    const side = {
+      minutes: 360,
+      compliantMinutes: 360,
+      scoreSum: 360 * 80,
+      energyKwh: 60,
+      cost: 100,
+      inflowM3: 400,
+      specificKwhM3: 0.15,
+    };
+    const summary = summarizeBenchmark({
+      ai: side,
+      manual: { ...side, compliantMinutes: 180, cost: 150 },
+      startedAtMin: 0,
+    });
+    expect(summary.mature).toBe(true);
+    expect(summary.complianceDeltaPct).toBeCloseTo(50, 6);
+    expect(summary.costDeltaPct).toBeLessThan(0);
   });
 });
 

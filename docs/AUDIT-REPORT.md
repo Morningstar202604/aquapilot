@@ -510,8 +510,8 @@ S_NH 残差分析：绝对差 0.34 gN/m³，折合氮通量的不足 1%——两
 | 命令 | 结果 |
 |---|---|
 | `npm run typecheck` / `npm run lint` / `npm run format` | 0 错误；Prettier 全部符合 |
-| `npm test` | 25 文件 / 370 tests 通过 |
-| `npx vitest run --coverage` | 行 95.52% / 分支 82.96% / 函数 94.92% |
+| `npm test` | 25 文件 / 381 tests 通过 |
+| `npx vitest run --coverage` | 行 95.53% / 分支 84.67% / 函数 95.16% |
 | `bash scripts/ci-gate.sh` | 9/9 全绿 |
 | `npx tsx scripts/e2e-ci.ts` | PASS：7 KPI / 17 节点 / 3 图表 / 6 面板 / 0 console error |
 | `npx tsx scripts/prove-benchmark.ts` | 见 13.2 双跑数据 |
