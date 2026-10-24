@@ -10,6 +10,8 @@
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520.19-339933)](package.json)
+[![release](https://img.shields.io/badge/release-v0.3.0-blue)](https://github.com/Morningstar202604/aquapilot/releases/tag/v0.3.0)
+[![image](https://img.shields.io/badge/container-ghcr.io-blue)](https://github.com/users/Morningstar202604/packages/container/package/aquapilot)
 
 ![AquaPilot overview](docs/screenshots/01-overview.jpg)
 
@@ -119,7 +121,13 @@ npm run ci         # full gate: deps, types, tests, build, smoke, audit, hygiene
 npm run e2e        # Playwright browser smoke against the production build
 ```
 
-With Docker:
+With Docker (published image, `linux/amd64` + `linux/arm64`):
+
+```bash
+docker run --rm -p 5173:5173 -v aquapilot-data:/app/data ghcr.io/morningstar202604/aquapilot:v0.3.0
+```
+
+Or build locally:
 
 ```bash
 docker build -t aquapilot:local .
