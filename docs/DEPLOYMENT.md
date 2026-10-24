@@ -108,13 +108,15 @@ anything, and is a two-step operation by design.
 
 ## Mirrors and code hosting
 
-The repository ships CI definitions for three platforms out of the box:
+The repository ships CI definitions for five platforms out of the box:
 
 | Platform | File | Notes |
 |---|---|---|
-| GitHub Actions | `.github/workflows/ci.yml` | Node 20 + 22 matrix, coverage, audit, build, smoke, browser smoke, backup round-trip |
+| GitHub Actions | `.github/workflows/ci.yml` + `release.yml` | Node 20 + 22 matrix, coverage, audit, build, smoke, browser smoke, backup round-trip; tag builds and publishes the image to GHCR |
 | Gitee Go | `.workflow/aquapilot-ci.yml` | typecheck, tests with count floor, build, smoke, secret scan |
 | GitCode | `.gitcode/pipeline.yml` | typecheck, test, build, smoke |
+| AtomGit Action | `.gitcode/workflows/ci.yml` | same gates; AtomGit reads `.gitcode/workflows/`, not `.github/workflows/` |
+| GitLab CI | `.gitlab-ci.yml` | verify + quality stages with coverage artifact |
 
 Mirroring does not change the app. Pushing the same commit to several hosts is
 enough; each pipeline is self-contained and uses only `npm ci` plus the repo's own
