@@ -9,12 +9,10 @@ triggers:
   push:
     branches:
       include:
-        - master
         - main
   pull_request:
     branches:
       include:
-        - master
         - main
 
 variables:

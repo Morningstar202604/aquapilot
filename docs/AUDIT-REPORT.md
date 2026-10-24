@@ -477,7 +477,7 @@ S_NH 残差分析：绝对差 0.34 gN/m³，折合氮通量的不足 1%——两
 
 ## 十三、0.3.0 发布轮（2026-10-24）
 
-本轮把原型推到可发布状态：修真实缺陷、补决策可信度、补对外展示与五平台交付。
+本轮把原型推到可发布状态：修真实缺陷、补决策可信度、补对外展示，并交付到 5 个仓库（GitHub ×3、Gitee、GitCode）。
 所有数字均来自真实运行；未执行的项目单独列出。
 
 ### 13.1 本轮修复的真实缺陷
@@ -503,7 +503,7 @@ S_NH 残差分析：绝对差 0.34 gN/m³，折合氮通量的不足 1%——两
 | 导出 | 快照 CSV、决策 CSV、Markdown 值班报告 | CSV 转义与报告结构测试；真实 HTTP 200 |
 | 可选 LLM | OpenAI 兼容 `/chat/completions`，只发事实、数字白名单、失败降级 | 用本机 `new-provider-7 / deepseek-v4.1-flash` 实测：回答引用真实氨氮 0.81；端点不可达时回退规则答案 |
 | 告警归因与健康度 | `src/sim/alarmAttribution.ts`：8 类告警的原因/动作/后果，五维加权健康度 | `tests/alarmAttribution.test.ts` 15 项 + 组件 3 项；毒性场景实测归因到「生物活性下降 75%」 |
-| 五个平台 CI | GitHub Actions（含 release → GHCR）、Gitee Go、GitCode、AtomGit Action、GitLab CI | GitHub 上 CI 与 Release 均 `success`；GHCR 镜像 `linux/amd64` manifest 已核实（另一条是 attestation） |
+| 多仓库 CI | GitHub Actions（含 release → GHCR）、Gitee Go、GitCode Pipeline | GitHub 上 CI 与 Release 均 `success`；GHCR 镜像 `linux/amd64` manifest 已核实（另一条是 attestation）。AtomGit 与 GitCode 是同一服务，不重复计算 |
 
 ### 13.3 本轮验证
 
@@ -517,13 +517,13 @@ S_NH 残差分析：绝对差 0.34 gN/m³，折合氮通量的不足 1%——两
 | `npx tsx scripts/prove-benchmark.ts` | 见 13.2 双跑数据 |
 | `npx tsx scripts/bench.ts` | 单步 0.003 ms、预测 1.4 ms、鲁棒决策 215 ms、预热约 110 ms |
 | `AQG_AGENT=codex aqg_construction_check.py --mode staged` | PASSED（path=plan，62 files / 3 496 lines） |
-| 远端 | GitHub `Morningstar202604` / `badhope` / `X33834`、Gitee、GitCode、AtomGit 六个远端 HEAD 一致，tag `v0.3.0` 均已推送 |
+| 远端 | 5 个仓库（GitHub `Morningstar202604` / `badhope` / `X33834`、Gitee、GitCode）的 `main` 与 tag `v0.3.0` 一致 |
 
 ### 13.4 本轮未做（如实记录）
 
 | 项 | 原因 |
 |---|---|
 | Docker 镜像本机实跑 | 本机 Docker Desktop daemon 未启动（`docker info` 连接 `dockerDesktopLinuxEngine` 失败）；GHCR 镜像由 GitHub Actions 构建并成功推送，本机未执行 `docker run` |
-| 五平台流水线的国内三家实跑 | Gitee Go / GitCode / AtomGit Action 需要在各平台控制台启用或获得内测额度；仓库内配置文件已按各自规范提供，GitHub 侧已实跑成功 |
+| Gitee / GitCode 流水线实跑 | 需在各自控制台启用；仓库内配置已按平台规范提供，GitHub 侧已实跑成功 |
 | 30 天 SLO 窗口 | 单进程计数器重启即清零，需要外部 Prometheus 抓取 |
 | S_NH 进入 ±10% | 与二沉池浓缩区梯度限制同源，先以 ±25% 锁定 |

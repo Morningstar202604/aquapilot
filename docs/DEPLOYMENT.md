@@ -108,19 +108,23 @@ anything, and is a two-step operation by design.
 
 ## Mirrors and code hosting
 
-The repository ships CI definitions for five platforms out of the box:
+The project is published as **five repositories on three services**:
 
-| Platform | File | Notes |
+| Repository | Service | CI definition |
 |---|---|---|
-| GitHub Actions | `.github/workflows/ci.yml` + `release.yml` | Node 20 + 22 matrix, coverage, audit, build, smoke, browser smoke, backup round-trip; tag builds and publishes the image to GHCR |
-| Gitee Go | `.workflow/aquapilot-ci.yml` | typecheck, tests with count floor, build, smoke, secret scan |
-| GitCode | `.gitcode/pipeline.yml` | typecheck, test, build, smoke |
-| AtomGit Action | `.gitcode/workflows/ci.yml` | same gates; AtomGit reads `.gitcode/workflows/`, not `.github/workflows/` |
-| GitLab CI | `.gitlab-ci.yml` | verify + quality stages with coverage artifact |
+| `Morningstar202604/aquapilot` (canonical) | GitHub | `.github/workflows/ci.yml` + `release.yml` |
+| `badhope/aquapilot` | GitHub | same workflow (the repo carries the same tree) |
+| `X33834/aquapilot` | GitHub | same workflow |
+| `badhope/aquapilot` | Gitee | `.workflow/aquapilot-ci.yml` |
+| `badhope/aquapilot` | GitCode | `.gitcode/pipeline.yml` |
+
+AtomGit is the same service as GitCode (same hosts, same API, same repository id),
+so it is not a separate target and there is no separate AtomGit remote.
 
 Mirroring does not change the app. Pushing the same commit to several hosts is
 enough; each pipeline is self-contained and uses only `npm ci` plus the repo's own
-scripts.
+scripts. The default branch is `main` everywhere; `master` no longer exists on any
+remote.
 
 ## Publishing a Docker image
 
