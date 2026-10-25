@@ -19,6 +19,7 @@ import { ControlPanel } from './components/ControlPanel';
 import { AlarmsPanel } from './components/AlarmsPanel';
 import { InsightsPanel } from './components/InsightsPanel';
 import { ReplayPanel } from './components/ReplayPanel';
+import { ModelSettingsPanel } from './components/ModelSettingsPanel';
 import { PLANT } from '../sim/config';
 
 type Tab = 'chat' | 'decision' | 'control' | 'alarms' | 'insights' | 'replay';
@@ -29,6 +30,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('chat');
   const [view, setView] = useState<View>('plant');
   const [selectedTank, setSelectedTank] = useState<string | null>(null);
+  const [modelPanelOpen, setModelPanelOpen] = useState(false);
 
   /**
    * 拓扑编辑历史（撤销/重做）。
@@ -176,6 +178,23 @@ export default function App() {
           </div>
           <button className="pill" onClick={sim.reset}>
             重置
+          </button>
+          <button
+            className="pill model-entry"
+            onClick={() => setModelPanelOpen(true)}
+            aria-haspopup="dialog"
+            title={
+              sim.llm.config
+                ? `当前模型：${sim.llm.config.model}`
+                : '配置自定义模型（OpenAI 兼容 / Anthropic / Gemini）'
+            }
+          >
+            <span
+              className="dot"
+              data-live={Boolean(sim.llm.config)}
+              data-tone={sim.llm.config ? undefined : 'amber'}
+            />
+            模型设置
           </button>
           <span
             className="health-pill"
@@ -352,6 +371,8 @@ export default function App() {
           </aside>
         )}
       </div>
+
+      <ModelSettingsPanel llm={sim.llm} open={modelPanelOpen} onClose={() => setModelPanelOpen(false)} />
 
       <div className="notice-stack" aria-live="polite">
         {sim.notices.slice(0, 3).map((n) => (

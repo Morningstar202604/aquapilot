@@ -12,13 +12,20 @@
  *
  * 用 OpenAI 兼容的 /chat/completions 协议而不是某个厂商 SDK：
  * 这样 DeepSeek、GLM、Qwen、Ollama、vLLM 都能直接接，不新增依赖。
+ * 界面上另行支持 Anthropic Messages 与 Google Gemini，由 providers.ts 承担。
  */
+
+import type { LlmProtocol } from '../shared/llm';
+import { chatComplete } from './providers';
 
 export interface LlmConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
   timeoutMs: number;
+  /** 缺省按 OpenAI 兼容处理，保持既有环境变量行为不变 */
+  protocol?: LlmProtocol;
+  maxOutput?: number;
 }
 
 export interface GroundingFact {
@@ -97,14 +104,11 @@ export interface LlmAnswer {
   reason: string | null;
 }
 
-interface ChatCompletionResponse {
-  choices?: { message?: { content?: string } }[];
-}
-
 /**
- * 调用 OpenAI 兼容端点。永不抛出：失败返回 { ok:false }，调用方降级。
+ * 调用已配置的端点。永不抛出：失败返回 { ok:false }，调用方降级。
  *
  * 不记录 apiKey，也不把请求体写日志（其中可能包含运行数据）。
+ * 协议由 config.protocol 决定（缺省 OpenAI 兼容），三协议共用 providers.ts 的适配层。
  */
 export async function askLlm(
   question: string,
@@ -113,37 +117,23 @@ export async function askLlm(
 ): Promise<LlmAnswer> {
   if (!config) return { ok: false, text: '', reason: 'not-configured' };
   const grounding = buildGroundingText(context);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
-  try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
-    const res = await fetch(`${config.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers,
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: config.model,
-        temperature: 0.2,
-        max_tokens: 500,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: `${grounding}\n\n操作员问题：${question}` },
-        ],
-      }),
-    });
-    if (!res.ok) return { ok: false, text: '', reason: `http-${res.status}` };
-    const json = (await res.json()) as ChatCompletionResponse;
-    const text = json.choices?.[0]?.message?.content?.trim() ?? '';
-    if (!text) return { ok: false, text: '', reason: 'empty-response' };
-    if (!numbersAreGrounded(text, grounding)) {
-      return { ok: false, text: '', reason: 'ungrounded-numbers' };
-    }
-    return { ok: true, text, reason: null };
-  } catch (err) {
-    const reason = err instanceof Error && err.name === 'AbortError' ? 'timeout' : 'network-error';
-    return { ok: false, text: '', reason };
-  } finally {
-    clearTimeout(timer);
+  const result = await chatComplete(
+    {
+      protocol: config.protocol ?? 'openai',
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      model: config.model,
+      maxOutput: config.maxOutput ?? 500,
+    },
+    SYSTEM_PROMPT,
+    `${grounding}\n\n操作员问题：${question}`,
+    config.timeoutMs,
+  );
+  if (!result.ok) return { ok: false, text: '', reason: result.reason };
+  const text = result.text.trim();
+  if (!text) return { ok: false, text: '', reason: 'empty-response' };
+  if (!numbersAreGrounded(text, grounding)) {
+    return { ok: false, text: '', reason: 'ungrounded-numbers' };
   }
+  return { ok: true, text, reason: null };
 }

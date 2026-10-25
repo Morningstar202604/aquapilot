@@ -5,7 +5,7 @@
 > AI 值守的再生水厂仿真台。  
 > 厂是图，图就是模型，AI 值班员来跑。
 
-[![tests](https://img.shields.io/badge/tests-381%20passing-brightgreen)](tests)
+[![tests](https://img.shields.io/badge/tests-446%20passing-brightgreen)](tests)
 [![coverage](https://img.shields.io/badge/line%20coverage-95.6%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -22,13 +22,13 @@
 这个项目换一种分工：**AI 看盘、AI 操作、人提问**。同时保留工程上真正重要的部分——
 模型有出处、决策可复核、边界说得准。
 
-| 传统仿真器 | AquaPilot |
-|---|---|
-| 工程师搭流程 | 工程师画厂，求解器编译 |
-| 工程师读曲线 | AI 用数字解释每次决策 |
+| 传统仿真器     | AquaPilot                         |
+| -------------- | --------------------------------- |
+| 工程师搭流程   | 工程师画厂，求解器编译            |
+| 工程师读曲线   | AI 用数字解释每次决策             |
 | 工程师调设定值 | AI 提议、硬护栏约束、人可随时接管 |
-| 离线设计研究 | 在线运行 + 工况注入 + 回放 |
-| 单点预测 | 固定扰动集合，输出 P10–P90 |
+| 离线设计研究   | 在线运行 + 工况注入 + 回放        |
+| 单点预测       | 固定扰动集合，输出 P10–P90        |
 
 ## 核心能力
 
@@ -56,20 +56,20 @@ _30 秒走查：实时工艺图、AI 对话、决策解释、控制与工况、�
 
 [MP4 版本](docs/media/demo.mp4) · [全部截图](docs/screenshots)
 
-| 运行监视 | AI 对话 |
-|---|---|
+| 运行监视                                      | AI 对话                               |
+| --------------------------------------------- | ------------------------------------- |
 | ![overview](docs/screenshots/01-overview.jpg) | ![chat](docs/screenshots/02-chat.jpg) |
 
-| 决策解释 | 控制与工况 |
-|---|---|
+| 决策解释                                      | 控制与工况                                  |
+| --------------------------------------------- | ------------------------------------------- |
 | ![decision](docs/screenshots/03-decision.jpg) | ![control](docs/screenshots/04-control.jpg) |
 
-| 效益对比 | 历史回放 |
-|---|---|
+| 效益对比                                      | 历史回放                                  |
+| --------------------------------------------- | ----------------------------------------- |
 | ![insights](docs/screenshots/05-insights.jpg) | ![replay](docs/screenshots/06-replay.jpg) |
 
-| 告警归因与健康度 | 工艺编排 | 移动端 |
-|---|---|---|
+| 告警归因与健康度                          | 工艺编排                                  | 移动端                                    |
+| ----------------------------------------- | ----------------------------------------- | ----------------------------------------- |
 | ![alarms](docs/screenshots/10-alarms.jpg) | ![editor](docs/screenshots/07-editor.jpg) | ![mobile](docs/screenshots/09-mobile.jpg) |
 
 ## 快速开始
@@ -111,14 +111,29 @@ docker build -t aquapilot:local .
 docker run --rm -p 5173:5173 -v aquapilot-data:/app/data aquapilot:local
 ```
 
-可选配置全部走环境变量（见 [.env.example](.env.example)）：
+可选配置在界面顶栏 **模型设置** 里完成，也可以继续用环境变量（见 [.env.example](.env.example)）：
 
 ```bash
 AQUAPILOT_TOKEN=...            # /api/* 与 WebSocket 握手需要 Bearer 令牌
-AQUAPILOT_LLM_BASE_URL=...     # 任何 OpenAI 兼容端点（DeepSeek / GLM / Qwen / Ollama / vLLM）
+AQUAPILOT_LLM_BASE_URL=...     # 界面未保存配置时的回退值
 AQUAPILOT_LLM_MODEL=...
 AQUAPILOT_LLM_API_KEY=...
 ```
+
+### 自定义模型接入
+
+顶栏 **模型设置** 是接入模型的正式入口，原生支持三种主流协议：
+OpenAI 兼容（`/chat/completions` + `/models`）、Anthropic Messages、Google Gemini，
+不新增任何依赖。
+
+- 选协议、填 Base URL（常用地址一键填入）、贴 API Key。对话框会从端点实时拉取
+  模型列表、自动展开供选择，并支持输入筛选。
+- 上下文窗口、输出上限与能力项（工具调用 / 图像 / 推理 / 流式）按端点元数据
+  自动匹配，缺失时按模型命名推断；点「自动」可切到「自定义」手动覆盖。
+- **连接测试**会发一次真实对话请求，返回延迟与模型回复；失败给出可读原因
+  （密钥无效、路径不对、限流、超时）。
+- 保存后的配置在 `data/llm-config.json`（权限 0600），下一轮提问立即生效，无需重启。
+  浏览器只拿到掩码与 `hasKey`，密钥输入框留空表示沿用已保存的密钥。
 
 ## 架构
 
@@ -174,13 +189,13 @@ topology  →  layout  →  render
 
 `npx vitest run tests/bsm1-benchmark.test.ts`：
 
-| 指标 | 本引擎 | 官方 Table 6 | 偏差 | 门槛 |
-|---|---:|---:|---:|---|
-| S_S | 0.866 | 0.889 | −2.6% | ±10% |
-| S_NO | 11.18 | 10.415 | +7.4% | ±10% |
-| S_NH | 1.393 | 1.733 | −19.6% | ±25%（沉降器已知限制） |
-| S_ALK | 4.05 | 4.13 | −2.0% | ±10% |
-| S_O | 0.53 | 0.491 | +7.6% | ±10% |
+| 指标  | 本引擎 | 官方 Table 6 |   偏差 | 门槛                   |
+| ----- | -----: | -----------: | -----: | ---------------------- |
+| S_S   |  0.866 |        0.889 |  −2.6% | ±10%                   |
+| S_NO  |  11.18 |       10.415 |  +7.4% | ±10%                   |
+| S_NH  |  1.393 |        1.733 | −19.6% | ±25%（沉降器已知限制） |
+| S_ALK |   4.05 |         4.13 |  −2.0% | ±10%                   |
+| S_O   |   0.53 |        0.491 |  +7.6% | ±10%                   |
 
 S_NH 绝对差 0.34 gN/m³，不足氮通量的 1%，与二沉池 TSS 偏低同源。
 
@@ -188,12 +203,12 @@ S_NH 绝对差 0.34 gN/m³，不足氮通量的 1%，与二沉池 TSS 偏低同�
 
 `npx tsx scripts/prove-benchmark.ts`：2 个仿真日、seed 20261019、96 个决策周期。
 
-| 指标 | AI 值守 | 固定策略 | 差值 |
-|---|---:|---:|---:|
-| 出水合规率 | 92.3% | 56.7% | +35.6 个百分点 |
-| 吨水电耗 | 0.150 kWh/m³ | 0.159 kWh/m³ | −5.6% |
-| 吨水成本 | ¥0.1420 | ¥0.1963 | −27.7% |
-| 平均出水评分 | 57.8 | 46.4 | +11.3 |
+| 指标         |      AI 值守 |     固定策略 |           差值 |
+| ------------ | -----------: | -----------: | -------------: |
+| 出水合规率   |        92.3% |        56.7% | +35.6 个百分点 |
+| 吨水电耗     | 0.150 kWh/m³ | 0.159 kWh/m³ |          −5.6% |
+| 吨水成本     |      ¥0.1420 |      ¥0.1963 |         −27.7% |
+| 平均出水评分 |         57.8 |         46.4 |          +11.3 |
 
 固定策略是可辩护的保守运行点（DO 2.0、内回流 2.0×Q、RAS 0.8×Q、排泥 2.2%、
 PAC 40 mg/L、多点进水 0.3×Q），两条链都从同样的 30 天预热开始。
@@ -202,25 +217,25 @@ PAC 40 mg/L、多点进水 0.3×Q），两条链都从同样的 30 天预热开�
 
 `npx tsx scripts/prove-network-solving.ts`、`scripts/prove-topology-matters.ts`：
 
-| 改动 | 结果 |
-|---|---|
-| 增加一个缺氧池 | 5 → 6 反应器，TN 9.74 → 9.15 mg/L |
-| 增加两个好氧池 | 7 反应器，NH₄ 0.03 mg/L |
-| 只保留一个好氧池 | 3 反应器，NH₄ 7.01 mg/L（超标） |
-| 好氧池容积 ×2 / ÷2 | NH₄ 0.074 → 0.034 / 1.149 mg/L |
-| 二沉池面积 ×2 | 泥位 1.15 → 0.66 m |
+| 改动               | 结果                              |
+| ------------------ | --------------------------------- |
+| 增加一个缺氧池     | 5 → 6 反应器，TN 9.74 → 9.15 mg/L |
+| 增加两个好氧池     | 7 反应器，NH₄ 0.03 mg/L           |
+| 只保留一个好氧池   | 3 反应器，NH₄ 7.01 mg/L（超标）   |
+| 好氧池容积 ×2 / ÷2 | NH₄ 0.074 → 0.034 / 1.149 mg/L    |
+| 二沉池面积 ×2      | 泥位 1.15 → 0.66 m                |
 
 ### 工程指标
 
-| 项目 | 实测 | 命令 |
-|---|---|---|
-| 单步仿真（1 min） | 0.003 ms | `npx tsx scripts/bench.ts` |
-| 单次 4 h 预测 | 1.4 ms | 同上 |
-| 生产引擎决策（名义） | 153 ms | 同上 |
-| 生产引擎决策（鲁棒，3 候选 × 3 样本） | 215 ms | 同上 |
-| 30 天预热 | 约 110 ms | 同上 |
-| 测试 | 381 通过 | `npm test` |
-| 覆盖率 | 95.6% 行 / 84.7% 分支 | `npx vitest run --coverage` |
+| 项目                                  | 实测                  | 命令                        |
+| ------------------------------------- | --------------------- | --------------------------- |
+| 单步仿真（1 min）                     | 0.003 ms              | `npx tsx scripts/bench.ts`  |
+| 单次 4 h 预测                         | 1.4 ms                | 同上                        |
+| 生产引擎决策（名义）                  | 153 ms                | 同上                        |
+| 生产引擎决策（鲁棒，3 候选 × 3 样本） | 215 ms                | 同上                        |
+| 30 天预热                             | 约 110 ms             | 同上                        |
+| 测试                                  | 381 通过              | `npm test`                  |
+| 覆盖率                                | 95.6% 行 / 84.7% 分支 | `npx vitest run --coverage` |
 
 ## AI 怎么决策
 
@@ -237,14 +252,14 @@ PAC 40 mg/L、多点进水 0.3×Q），两条链都从同样的 30 天预热开�
 
 详见 [docs/COMPARISON.md](docs/COMPARISON.md)（2026-10-24 查询）。
 
-| 项目 | Star | 许可 | 模型深度 | 实时界面 | AI 操作 | 拓扑编辑 |
-|---|---:|---|---|---|---|---|
-| **AquaPilot** | — | MIT | ASM1 + Takács + BSM1 门禁 | 有 | 有 | 有 |
-| [fau-evt/bsm2-python](https://github.com/fau-evt/bsm2-python) | 44 | BSD-3 | BSM1/BSM2、ADM1 | 无 | 无 | 无 |
-| [toogad/PooPyLab_Project](https://github.com/toogad/PooPyLab_Project) | 79 | GPL-3.0 | ASM 系列、稳态 | 无 | 无 | 图示文件 |
-| [modelica-3rdparty/WasteWater](https://github.com/modelica-3rdparty/WasteWater) | 75 | — | Modelica 库 | 无 | 无 | Modelica |
-| [endearqb/AutoWaterSimu](https://github.com/endearqb/AutoWaterSimu) | 15 | NOASSERTION | ASM1/ASM3/UDM | 有 | 部分 | 有 |
-| [USEPA/Stormwater-Management-Model](https://github.com/USEPA/Stormwater-Management-Model) | 376 | — | 水文水力 | 桌面 | 无 | 网络编辑 |
+| 项目                                                                                      | Star | 许可        | 模型深度                  | 实时界面 | AI 操作 | 拓扑编辑 |
+| ----------------------------------------------------------------------------------------- | ---: | ----------- | ------------------------- | -------- | ------- | -------- |
+| **AquaPilot**                                                                             |    — | MIT         | ASM1 + Takács + BSM1 门禁 | 有       | 有      | 有       |
+| [fau-evt/bsm2-python](https://github.com/fau-evt/bsm2-python)                             |   44 | BSD-3       | BSM1/BSM2、ADM1           | 无       | 无      | 无       |
+| [toogad/PooPyLab_Project](https://github.com/toogad/PooPyLab_Project)                     |   79 | GPL-3.0     | ASM 系列、稳态            | 无       | 无      | 图示文件 |
+| [modelica-3rdparty/WasteWater](https://github.com/modelica-3rdparty/WasteWater)           |   75 | —           | Modelica 库               | 无       | 无      | Modelica |
+| [endearqb/AutoWaterSimu](https://github.com/endearqb/AutoWaterSimu)                       |   15 | NOASSERTION | ASM1/ASM3/UDM             | 有       | 部分    | 有       |
+| [USEPA/Stormwater-Management-Model](https://github.com/USEPA/Stormwater-Management-Model) |  376 | —           | 水文水力                  | 桌面     | 无      | 网络编辑 |
 
 AquaPilot 不替代设计级仿真器。它要成为的是"AI 操作员 + 真实求解器 + 可审计工艺图"
 这套组合的最佳开源示范，并且用 BSM1 门禁把模型可信度钉住。

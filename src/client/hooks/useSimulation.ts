@@ -4,7 +4,25 @@ import type { Answer, Recommendation } from '../../ai/agent';
 import type { ControlSettings } from '../../sim/config';
 import type { ScenarioType } from '../../sim/scenarios';
 import type { ProcessTopology } from '../../model/topology';
+import type { DiscoveredModel, LlmDraft, LlmProtocol, LlmPublicConfig, LlmTestResult } from '../../shared/llm';
 import { nextSendPlan, reconnectDelayMs } from './wsPolicy';
+
+export interface LlmConfigApi {
+  /** 保存的配置（含掩码，无明文 key） */
+  config: LlmPublicConfig | null;
+  models: DiscoveredModel[];
+  discovering: boolean;
+  testing: boolean;
+  busy: boolean;
+  lastError: string | null;
+  lastDiscoverAt: number | null;
+  testResult: LlmTestResult | null;
+  discover: (input: { protocol: LlmProtocol; baseUrl: string; apiKey?: string }) => void;
+  test: (input: { protocol: LlmProtocol; baseUrl: string; apiKey?: string; model: string; maxOutput?: number }) => void;
+  save: (draft: LlmDraft) => void;
+  clear: () => void;
+  reload: () => void;
+}
 
 export interface ChatEntry {
   id: number;
@@ -70,6 +88,19 @@ export function useSimulation() {
   const retry = useRef(0);
   /** 背压合并缓冲：发送快于带宽时保留「最后一条」意图，不丢用户操作 */
   const pendingSendRef = useRef<ClientMessage | null>(null);
+
+  // 自定义模型配置：请求带 requestId，只认最后一次请求的响应，过期响应直接丢弃
+  const [llmConfig, setLlmConfig] = useState<LlmPublicConfig | null>(null);
+  const [llmModels, setLlmModels] = useState<DiscoveredModel[]>([]);
+  const [llmDiscovering, setLlmDiscovering] = useState(false);
+  const [llmTesting, setLlmTesting] = useState(false);
+  const [llmSaving, setLlmSaving] = useState(false);
+  const [llmError, setLlmError] = useState<string | null>(null);
+  const [llmLastDiscoverAt, setLlmLastDiscoverAt] = useState<number | null>(null);
+  const [llmTestResult, setLlmTestResult] = useState<LlmTestResult | null>(null);
+  const llmRequestId = useRef(0);
+  const llmPending = useRef<Record<string, 'discover' | 'test' | 'save' | 'clear'>>({});
+  const llmSaveResolve = useRef<((ok: boolean) => void) | null>(null);
 
   useEffect(() => {
     let closed = false;
@@ -175,6 +206,51 @@ export function useSimulation() {
             setTopology(msg.data);
             setTopologyRevision((r) => r + 1);
             break;
+          case 'llmConfig':
+            if (msg.action === 'config') {
+              setLlmConfig(msg.config);
+              setLlmError(null);
+              break;
+            }
+            if (msg.action === 'discovered') {
+              setLlmModels(msg.models);
+              setLlmDiscovering(false);
+              setLlmLastDiscoverAt(Date.now());
+              setLlmError(null);
+              delete llmPending.current[msg.requestId];
+              break;
+            }
+            if (msg.action === 'tested') {
+              setLlmTesting(false);
+              setLlmTestResult(msg.result);
+              delete llmPending.current[msg.requestId];
+              break;
+            }
+            if (msg.action === 'saved') {
+              setLlmSaving(false);
+              if (msg.ok) {
+                if (msg.config) setLlmConfig(msg.config);
+                else setLlmConfig(null);
+                setLlmError(null);
+                setLlmTestResult(null);
+              } else {
+                setLlmError(msg.error ?? '保存失败');
+              }
+              llmSaveResolve.current?.(msg.ok);
+              llmSaveResolve.current = null;
+              delete llmPending.current[msg.requestId];
+              break;
+            }
+            if (msg.action === 'error') {
+              setLlmDiscovering(false);
+              setLlmTesting(false);
+              setLlmSaving(false);
+              setLlmError(msg.error);
+              if (msg.requestId) delete llmPending.current[msg.requestId];
+              llmSaveResolve.current?.(false);
+              llmSaveResolve.current = null;
+            }
+            break;
           default:
             break;
         }
@@ -236,6 +312,61 @@ export function useSimulation() {
   const requestTopology = () => send({ type: 'topology', action: 'get' });
   const applyTopology = (topo: ProcessTopology) => send({ type: 'topology', action: 'apply', topology: topo });
 
+  const nextLlmRequestId = () => {
+    llmRequestId.current += 1;
+    return `llm-${llmRequestId.current}`;
+  };
+  const llmReload = () => send({ type: 'llmConfig', action: 'get' });
+  const llmDiscover = (input: { protocol: LlmProtocol; baseUrl: string; apiKey?: string }) => {
+    const requestId = nextLlmRequestId();
+    llmPending.current[requestId] = 'discover';
+    setLlmDiscovering(true);
+    setLlmError(null);
+    send({ type: 'llmConfig', action: 'discover', requestId, ...input });
+  };
+  const llmTest = (input: {
+    protocol: LlmProtocol;
+    baseUrl: string;
+    apiKey?: string;
+    model: string;
+    maxOutput?: number;
+  }) => {
+    const requestId = nextLlmRequestId();
+    llmPending.current[requestId] = 'test';
+    setLlmTesting(true);
+    setLlmTestResult(null);
+    send({ type: 'llmConfig', action: 'test', requestId, ...input });
+  };
+  const llmSave = (draft: LlmDraft) => {
+    const requestId = nextLlmRequestId();
+    llmPending.current[requestId] = 'save';
+    setLlmSaving(true);
+    setLlmError(null);
+    send({ type: 'llmConfig', action: 'save', requestId, draft });
+  };
+  const llmClear = () => {
+    const requestId = nextLlmRequestId();
+    llmPending.current[requestId] = 'clear';
+    setLlmModels([]);
+    send({ type: 'llmConfig', action: 'clear', requestId });
+  };
+
+  const llm: LlmConfigApi = {
+    config: llmConfig,
+    models: llmModels,
+    discovering: llmDiscovering,
+    testing: llmTesting,
+    busy: llmDiscovering || llmTesting || llmSaving,
+    lastError: llmError,
+    lastDiscoverAt: llmLastDiscoverAt,
+    testResult: llmTestResult,
+    discover: llmDiscover,
+    test: llmTest,
+    save: llmSave,
+    clear: llmClear,
+    reload: llmReload,
+  };
+
   return {
     snapshot,
     recommendation,
@@ -260,6 +391,7 @@ export function useSimulation() {
     topologyRevision,
     requestTopology,
     applyTopology,
+    llm,
   };
 }
 

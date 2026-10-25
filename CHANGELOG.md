@@ -4,6 +4,39 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — model onboarding
+
+### Added — custom model onboarding in the UI
+
+- **模型设置 dialog (top bar).** Connecting a model is now
+  a real UI flow: pick a protocol, paste a base URL (one-click presets for
+  OpenAI, DeepSeek, 智谱 GLM, 通义千问, Kimi, UniSound MaaS and local Ollama),
+  paste the key, and the dialog discovers the live model list from the endpoint.
+  The list expands for selection with a filter field; clicking a model fills its
+  id and locks in the matched capabilities.
+- **Three native protocols, zero new dependencies.** `src/ai/providers.ts`
+  speaks OpenAI-compatible (`/models`, `/chat/completions`), Anthropic Messages
+  (`/v1/models`, `/v1/messages`) and Google Gemini
+  (`/v1beta/models`, `:generateContent`). The existing `AQUAPILOT_LLM_*`
+  environment variables still work as a headless fallback.
+- **Automatic capability matching.** Context window, output limit and the tools /
+  vision / reasoning / streaming flags come from endpoint metadata when present
+  and from model-name inference otherwise. 自动 can be switched to 自定义 to
+  override every value; the override is what gets saved.
+- **连接测试 button.** Issues a real chat completion and reports latency plus the
+  model's reply, or a readable cause (`鉴权失败（HTTP 401）…`, `端点不存在`,
+  `触发限流`, `请求超时`). Reasoning models that burn a small budget on
+  `reasoning_content` and return an empty `content` with `finish_reason: length`
+  are retried once with a larger budget instead of being reported as failures.
+- **Server-side configuration store.** `data/llm-config.json` (mode 0600) is
+  hot-read on every chat turn; the browser only ever receives
+  `hasKey` + `apiKeyMasked`, and an empty key field keeps the stored secret.
+  Requests travel over the existing WebSocket (`llmConfig` frames) with a
+  `requestId` and an 800 ms per-socket rate limit.
+- **SSRF guard on user-supplied base URLs.** Only `http(s)`, no embedded
+  credentials, and cloud metadata hosts plus `169.254.0.0/16` are refused, while
+  localhost and private ranges stay usable for self-hosted endpoints.
+
 ## [0.3.0] — 2026-10-24
 
 ### Changed (branch and hosting cleanup)
@@ -17,8 +50,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   `atomgit` remote, `.gitcode/workflows/` and the unused `.gitlab-ci.yml` were
   removed; the delivery surface is five repositories on three services
   (GitHub ×3, Gitee, GitCode).
-
-
 
 ### Added
 
@@ -80,7 +111,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   used the same hex value and could not be told apart in the flowsheet.
 - Decision candidates carry `exceedanceProbability` in the shared
   `DecisionCandidate` type so the panel can render it without casts.
-- `stepShadow` resets the shadow plant from the *same* default controls and
+- `stepShadow` resets the shadow plant from the _same_ default controls and
   warm-up as the main plant before switching to the fixed strategy; comparing a
   differently-initialised plant measures initial conditions, not strategy.
 - Dockerfile creates and chowns `/app/data` before `USER node` (persistence
@@ -115,7 +146,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - Unused `TARIFF` / `SETPOINT_LIMITS` exports from `src/sim/config.ts`.
 
 ## [0.2.2] — 2026-10-23
-
 
 ### Fixed
 

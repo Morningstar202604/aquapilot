@@ -5,7 +5,7 @@
 > An AI-operated wastewater treatment plant simulator.  
 > The plant is a graph, the graph is the model, and an AI operator runs it.
 
-[![tests](https://img.shields.io/badge/tests-381%20passing-brightgreen)](tests)
+[![tests](https://img.shields.io/badge/tests-446%20passing-brightgreen)](tests)
 [![coverage](https://img.shields.io/badge/line%20coverage-95.6%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -27,16 +27,16 @@ solve.
 ## Why
 
 Commercial simulators (GPS-X, BioWin, Aspen HYSYS, SIMBA#) are powerful but assume
-the operator *is* the process engineer. AquaPilot inverts that assumption and
+the operator _is_ the process engineer. AquaPilot inverts that assumption and
 keeps the auditable parts:
 
-| Traditional simulator | AquaPilot |
-|---|---|
-| Engineer configures the flowsheet | Engineer draws the plant, the solver compiles it |
-| Engineer reads trends | AI explains every decision with numbers |
-| Engineer tunes setpoints | AI proposes, hard guardrails constrain, human can override |
-| Offline design study | Live operation with scenario injection and replay |
-| Single point forecast | Fixed-perturbation ensemble with P10–P90 bands |
+| Traditional simulator             | AquaPilot                                                  |
+| --------------------------------- | ---------------------------------------------------------- |
+| Engineer configures the flowsheet | Engineer draws the plant, the solver compiles it           |
+| Engineer reads trends             | AI explains every decision with numbers                    |
+| Engineer tunes setpoints          | AI proposes, hard guardrails constrain, human can override |
+| Offline design study              | Live operation with scenario injection and replay          |
+| Single point forecast             | Fixed-perturbation ensemble with P10–P90 bands             |
 
 ## What it does
 
@@ -59,7 +59,7 @@ keeps the auditable parts:
   strategy — not initial conditions — live.
 - **Explainable by construction.** Every recommendation carries the predicted
   effluent, the candidate ranking, a per-tweak reason and a separation figure
-  (explicitly *not* a probability).
+  (explicitly _not_ a probability).
 - **Scenario injection.** Storm, shock load, toxicity, blower failure, RAS
   failure, power outage, winter, chemical shortage.
 - **Operations surface.** Prometheus metrics, structured JSON logs, deep health
@@ -78,24 +78,24 @@ control and scenario injection, benefit comparison, replay, flowsheet editor._
 
 [MP4 version](docs/media/demo.mp4) · [full-size screenshots](docs/screenshots)
 
-| Run monitoring | AI conversation |
-|---|---|
+| Run monitoring                                | AI conversation                       |
+| --------------------------------------------- | ------------------------------------- |
 | ![overview](docs/screenshots/01-overview.jpg) | ![chat](docs/screenshots/02-chat.jpg) |
 
-| Decision explanation | Control & scenarios |
-|---|---|
+| Decision explanation                          | Control & scenarios                         |
+| --------------------------------------------- | ------------------------------------------- |
 | ![decision](docs/screenshots/03-decision.jpg) | ![control](docs/screenshots/04-control.jpg) |
 
-| Benefit comparison | History replay |
-|---|---|
+| Benefit comparison                            | History replay                            |
+| --------------------------------------------- | ----------------------------------------- |
 | ![insights](docs/screenshots/05-insights.jpg) | ![replay](docs/screenshots/06-replay.jpg) |
 
-| Alarm attribution & health | Flowsheet editor | Mobile |
-|---|---|---|
+| Alarm attribution & health                | Flowsheet editor                          | Mobile                                    |
+| ----------------------------------------- | ----------------------------------------- | ----------------------------------------- |
 | ![alarms](docs/screenshots/10-alarms.jpg) | ![editor](docs/screenshots/07-editor.jpg) | ![mobile](docs/screenshots/09-mobile.jpg) |
 
-| Desktop, 16:9 |
-|---|
+| Desktop, 16:9                             |
+| ----------------------------------------- |
 | ![laptop](docs/screenshots/08-laptop.jpg) |
 
 ## Quick start
@@ -138,15 +138,35 @@ docker build -t aquapilot:local .
 docker run --rm -p 5173:5173 -v aquapilot-data:/app/data aquapilot:local
 ```
 
-Optional access control and optional LLM dialogue are environment-only and
-documented in [.env.example](.env.example):
+Optional access control and the LLM dialogue are configured in the UI
+(**模型设置** in the top bar) or through the environment, documented in
+[.env.example](.env.example):
 
 ```bash
 AQUAPILOT_TOKEN=...            # require a bearer token on /api/* and the WS handshake
-AQUAPILOT_LLM_BASE_URL=...     # any OpenAI-compatible endpoint
+AQUAPILOT_LLM_BASE_URL=...     # fallback when nothing is saved in the UI
 AQUAPILOT_LLM_MODEL=...
 AQUAPILOT_LLM_API_KEY=...
 ```
+
+### Custom model onboarding
+
+The top-bar **模型设置** dialog is the supported way to connect a model; it
+speaks three protocols natively — OpenAI-compatible (`/chat/completions` +
+`/models`), Anthropic Messages and Google Gemini — and needs no new dependency.
+
+- Pick a protocol, paste the base URL (common hosts are one-click presets) and
+  the API key. The dialog discovers the live model list from the endpoint,
+  expands it for selection, and filters as you type.
+- Context window, output limit and the capability flags (tools, vision,
+  reasoning, streaming) are matched automatically from the endpoint metadata,
+  falling back to model-name inference. Switch 自动 to 自定义 to override them.
+- **连接测试** performs a real chat request and reports latency plus the model's
+  reply, or a readable cause (bad key, wrong path, rate limit, timeout).
+- Saved configuration lives in `data/llm-config.json` (mode 0600) and takes
+  effect on the next question without a restart. The browser only ever receives
+  a masked key plus a `hasKey` flag; leaving the key field empty keeps the stored
+  one.
 
 ## Architecture
 
@@ -211,14 +231,14 @@ Every claim below is reproducible from the repository.
 `npx vitest run tests/bsm1-benchmark.test.ts` — five-tank BSM1 configuration,
 Qintr = 55 338 m³/d, KLa 240/240/84 d⁻¹, Henze-1987 parameter set:
 
-| Metric | This engine | Official Table 6 | Deviation | Gate |
-|---|---:|---:|---:|---|
-| S_S | 0.866 | 0.889 | −2.6 % | ±10 % |
-| S_NO | 11.18 | 10.415 | +7.4 % | ±10 % |
-| S_NH | 1.393 | 1.733 | −19.6 % | ±25 % (known settler limit) |
-| S_ALK | 4.05 | 4.13 | −2.0 % | ±10 % |
-| S_O | 0.53 | 0.491 | +7.6 % | ±10 % |
-| X_B,A | 155 | 152–154 (closed-loop range) | same order | informational |
+| Metric | This engine |            Official Table 6 |  Deviation | Gate                        |
+| ------ | ----------: | --------------------------: | ---------: | --------------------------- |
+| S_S    |       0.866 |                       0.889 |     −2.6 % | ±10 %                       |
+| S_NO   |       11.18 |                      10.415 |     +7.4 % | ±10 %                       |
+| S_NH   |       1.393 |                       1.733 |    −19.6 % | ±25 % (known settler limit) |
+| S_ALK  |        4.05 |                        4.13 |     −2.0 % | ±10 %                       |
+| S_O    |        0.53 |                       0.491 |     +7.6 % | ±10 %                       |
+| X_B,A  |         155 | 152–154 (closed-loop range) | same order | informational               |
 
 The S_NH gap is 0.34 gN/m³ absolute — under 1 % of the nitrogen flux — and shares
 its root cause with the settler's known TSS deviation.
@@ -228,12 +248,12 @@ its root cause with the settler's known TSS deviation.
 `npx tsx scripts/prove-benchmark.ts` — two simulated days, seed 20261019, 96
 decision cycles, shadow plant shares seed and influent:
 
-| Metric | AI operator | Fixed strategy | Delta |
-|---|---:|---:|---:|
-| Effluent compliance rate | 92.3 % | 56.7 % | +35.6 pp |
-| Specific energy | 0.150 kWh/m³ | 0.159 kWh/m³ | −5.6 % |
-| Cost per m³ | ¥0.1420 | ¥0.1963 | −27.7 % |
-| Mean effluent score | 57.8 | 46.4 | +11.3 |
+| Metric                   |  AI operator | Fixed strategy |    Delta |
+| ------------------------ | -----------: | -------------: | -------: |
+| Effluent compliance rate |       92.3 % |         56.7 % | +35.6 pp |
+| Specific energy          | 0.150 kWh/m³ |   0.159 kWh/m³ |   −5.6 % |
+| Cost per m³              |      ¥0.1420 |        ¥0.1963 |  −27.7 % |
+| Mean effluent score      |         57.8 |           46.4 |    +11.3 |
 
 The fixed strategy is a plausible conservative operating point, not a strawman:
 DO 2.0 mg/L, internal recycle 2.0×Q, RAS 0.8×Q, WAS 2.2 %, PAC 40 mg/L, step feed
@@ -243,26 +263,26 @@ DO 2.0 mg/L, internal recycle 2.0×Q, RAS 0.8×Q, WAS 2.2 %, PAC 40 mg/L, step f
 
 `npx tsx scripts/prove-network-solving.ts` and `scripts/prove-topology-matters.ts`:
 
-| Change | Result |
-|---|---|
-| Add one anoxic tank | 5 → 6 reactors, TN 9.74 → 9.15 mg/L |
-| Add two aerobic tanks | 7 reactors, NH₄ 0.03 mg/L |
+| Change                     | Result                                    |
+| -------------------------- | ----------------------------------------- |
+| Add one anoxic tank        | 5 → 6 reactors, TN 9.74 → 9.15 mg/L       |
+| Add two aerobic tanks      | 7 reactors, NH₄ 0.03 mg/L                 |
 | Keep only one aerobic tank | 3 reactors, NH₄ 7.01 mg/L (exceeds limit) |
-| Aerobic volume ×2 | NH₄ 0.074 → 0.034 mg/L |
-| Aerobic volume ÷2 | NH₄ 0.074 → 1.149 mg/L |
-| Clarifier area ×2 | blanket 1.15 → 0.66 m |
+| Aerobic volume ×2          | NH₄ 0.074 → 0.034 mg/L                    |
+| Aerobic volume ÷2          | NH₄ 0.074 → 1.149 mg/L                    |
+| Clarifier area ×2          | blanket 1.15 → 0.66 m                     |
 
 ### Engineering numbers
 
-| Item | Measured | Command |
-|---|---|---|
-| Single 1-min step | 0.003 ms | `npx tsx scripts/bench.ts` |
-| One 4-hour forecast | 1.4 ms | same |
-| Decision, production engine (nominal) | 153 ms | same |
-| Decision, production engine (robust, 3 candidates × 3 samples) | 215 ms | same |
-| 30-day warm-up | ~110 ms | same |
-| Tests | 381 passing | `npm test` |
-| Coverage | 95.5 % lines / 83.0 % branches | `npx vitest run --coverage` |
+| Item                                                           | Measured                       | Command                     |
+| -------------------------------------------------------------- | ------------------------------ | --------------------------- |
+| Single 1-min step                                              | 0.003 ms                       | `npx tsx scripts/bench.ts`  |
+| One 4-hour forecast                                            | 1.4 ms                         | same                        |
+| Decision, production engine (nominal)                          | 153 ms                         | same                        |
+| Decision, production engine (robust, 3 candidates × 3 samples) | 215 ms                         | same                        |
+| 30-day warm-up                                                 | ~110 ms                        | same                        |
+| Tests                                                          | 381 passing                    | `npm test`                  |
+| Coverage                                                       | 95.5 % lines / 83.0 % branches | `npx vitest run --coverage` |
 
 ## How the AI decides
 
@@ -272,7 +292,7 @@ DO 2.0 mg/L, internal recycle 2.0×Q, RAS 0.8×Q, WAS 2.2 %, PAC 40 mg/L, step f
 3. **Score.** Compliance violation penalties dominate; margin shortfall is a medium
    penalty; cost and control movement are light penalties; SRT deviation and
    process guardrails add their own terms.
-4. **Robust pass.** Re-run the top three plus *hold* under three fixed
+4. **Robust pass.** Re-run the top three plus _hold_ under three fixed
    parameter-perturbation members; subtract exceedance and tail penalties; choose
    only among evaluated candidates. A candidate must never win by being unmeasured.
 5. **Explain.** Return the chosen controls, per-tweak reasons, candidate ranking,
@@ -286,18 +306,18 @@ floor, WAS window, SRT window — each has scenario-specific tightening.
 
 Details and sources: [docs/COMPARISON.md](docs/COMPARISON.md) (queried 2026-10-24).
 
-| Project | Stars | License | Model depth | Live UI | AI operator | Topology editing |
-|---|---:|---|---|---|---|---|
-| **AquaPilot** | — | MIT | ASM1 + Takács + BSM1 gate | Yes | Yes | Yes |
-| [fau-evt/bsm2-python](https://github.com/fau-evt/bsm2-python) | 44 | BSD-3 | BSM1/BSM2, ADM1 | No | No | No |
-| [toogad/PooPyLab_Project](https://github.com/toogad/PooPyLab_Project) | 79 | GPL-3.0 | ASM family, steady state | No | No | Diagram files |
-| [modelica-3rdparty/WasteWater](https://github.com/modelica-3rdparty/WasteWater) | 75 | — | Modelica library | No | No | Modelica |
-| [endearqb/AutoWaterSimu](https://github.com/endearqb/AutoWaterSimu) | 15 | NOASSERTION | ASM1/ASM3/UDM | Yes | Partial | Yes |
-| [USEPA/Stormwater-Management-Model](https://github.com/USEPA/Stormwater-Management-Model) | 376 | — | Hydrology/hydraulics | Desktop | No | Network editor |
+| Project                                                                                   | Stars | License     | Model depth               | Live UI | AI operator | Topology editing |
+| ----------------------------------------------------------------------------------------- | ----: | ----------- | ------------------------- | ------- | ----------- | ---------------- |
+| **AquaPilot**                                                                             |     — | MIT         | ASM1 + Takács + BSM1 gate | Yes     | Yes         | Yes              |
+| [fau-evt/bsm2-python](https://github.com/fau-evt/bsm2-python)                             |    44 | BSD-3       | BSM1/BSM2, ADM1           | No      | No          | No               |
+| [toogad/PooPyLab_Project](https://github.com/toogad/PooPyLab_Project)                     |    79 | GPL-3.0     | ASM family, steady state  | No      | No          | Diagram files    |
+| [modelica-3rdparty/WasteWater](https://github.com/modelica-3rdparty/WasteWater)           |    75 | —           | Modelica library          | No      | No          | Modelica         |
+| [endearqb/AutoWaterSimu](https://github.com/endearqb/AutoWaterSimu)                       |    15 | NOASSERTION | ASM1/ASM3/UDM             | Yes     | Partial     | Yes              |
+| [USEPA/Stormwater-Management-Model](https://github.com/USEPA/Stormwater-Management-Model) |   376 | —           | Hydrology/hydraulics      | Desktop | No          | Network editor   |
 
 AquaPilot does not aim to replace a design-grade simulator. It aims to be the
-best open demonstration of *how an AI operator, a real solver and an auditable
-flowsheet fit together* — with a benchmark gate strong enough to keep the model
+best open demonstration of _how an AI operator, a real solver and an auditable
+flowsheet fit together_ — with a benchmark gate strong enough to keep the model
 honest.
 
 ## Status and limits

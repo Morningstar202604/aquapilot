@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { answer, decide, Recommendation } from '../ai/agent';
-import { askLlm, type GroundingContext } from '../ai/llm';
+import { askLlm, readLlmConfig, type GroundingContext } from '../ai/llm';
 import { CONTROL_BOUNDS, LIMITS, PLANT } from '../sim/config';
 import { SCENARIOS, ScenarioType } from '../sim/scenarios';
 import { NetworkSimState, networkModel, qualityScoreOf, stepNetwork } from '../sim/networkEngine';
@@ -23,6 +23,8 @@ import { logger, metrics, metricsJson, recordHttp, recordTick, renderPrometheus 
 import { buildOperationsReport, decisionsCsv, snapshotsCsv } from './export';
 import { takeNewPoints } from './trendCursor';
 import { createShadowPlant, stepShadow, summarizeBenchmark, type ShadowPlant } from './benchmark';
+import { llmConfigStore, sanitizeDraft } from './llmConfig';
+import { discoverModels, testConnection } from '../ai/providers';
 import {
   VALID_SCENARIOS,
   sanitizeBoolean,
@@ -53,6 +55,8 @@ interface ClientState {
    * 用时间戳做游标，缓冲滚动后仍然只发新增点。
    */
   lastTrendT: number;
+  /** 上次模型发现/连接测试的时间，防止界面连续点击打爆第三方端点 */
+  lastLlmAt: number;
 }
 
 interface Runtime {
@@ -392,7 +396,7 @@ function buildAttribution(s: NetworkSimState): Record<string, AlarmAttribution> 
 function broadcastPatch(): void {
   for (const ws of runtime.clients) {
     if (ws.readyState !== WebSocket.OPEN) continue;
-    const client = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0 };
+    const client = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0, lastLlmAt: 0 };
     const patch = buildPatch(client);
     runtime.clientState.set(ws, client);
     if (patch) ws.send(JSON.stringify({ type: 'snapshotPatch', data: patch } satisfies ServerMessage));
@@ -512,7 +516,7 @@ const RATE_LIMIT = {
 };
 
 function rateLimited(ws: WebSocket, kind: 'control' | 'topology'): boolean {
-  const state = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0 };
+  const state = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0, lastLlmAt: 0 };
   const now = Date.now();
   if (kind === 'control') {
     if (now - state.lastControlAt < RATE_LIMIT.controlMs) {
@@ -576,7 +580,22 @@ function buildLlmGrounding(question: string): GroundingContext {
 async function enhanceWithLlm(ws: WebSocket, question: string, ruleAnswer: ReturnType<typeof answer>): Promise<void> {
   const started = Date.now();
   const grounding = buildLlmGrounding(question);
-  const result = await askLlm(question, grounding);
+  // 界面保存的配置优先；没有才落回环境变量，保持既有部署方式可用
+  const saved = llmConfigStore.getRuntime();
+  const result = await askLlm(
+    question,
+    grounding,
+    saved
+      ? {
+          baseUrl: saved.baseUrl,
+          apiKey: saved.apiKey,
+          model: saved.model,
+          timeoutMs: saved.timeoutMs,
+          protocol: saved.protocol,
+          maxOutput: saved.maxOutput,
+        }
+      : readLlmConfig(),
+  );
   metrics.llmCalls += 1;
   if (!result.ok) {
     metrics.llmFallbacks += 1;
@@ -908,9 +927,104 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       }
       break;
     }
+    case 'llmConfig': {
+      void handleLlmConfig(ws, msg as Extract<ClientMessage, { type: 'llmConfig' }>);
+      break;
+    }
     default:
       break;
   }
+}
+
+/**
+ * 自定义模型配置（界面驱动）。
+ *
+ * 全部走 WS 的 request/response，附带 requestId 以便前端丢弃过期响应。
+ * 发现与测试是出站网络请求：带超时、限流，失败只回错误文本。
+ */
+const LLM_RATE_LIMIT_MS = 800;
+
+async function handleLlmConfig(ws: WebSocket, msg: Extract<ClientMessage, { type: 'llmConfig' }>): Promise<void> {
+  const requestId = 'requestId' in msg ? msg.requestId : undefined;
+  const send = (payload: ServerMessage) => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+  };
+
+  if (msg.action === 'get') {
+    send({ type: 'llmConfig', action: 'config', requestId, config: llmConfigStore.getPublic() });
+    return;
+  }
+
+  if (msg.action === 'clear') {
+    llmConfigStore.clear();
+    send({ type: 'llmConfig', action: 'saved', requestId: requestId ?? '', ok: true });
+    return;
+  }
+
+  const state = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0, lastLlmAt: 0 };
+  const now = Date.now();
+  if (now - state.lastLlmAt < LLM_RATE_LIMIT_MS) {
+    send({ type: 'llmConfig', action: 'error', requestId, error: '操作过于频繁，请稍后再试' });
+    return;
+  }
+  state.lastLlmAt = now;
+  runtime.clientState.set(ws, state);
+
+  if (msg.action === 'discover') {
+    if (typeof msg.baseUrl !== 'string' || msg.baseUrl.length > 500) {
+      send({ type: 'llmConfig', action: 'error', requestId: msg.requestId, error: 'Base URL 不合法' });
+      return;
+    }
+    try {
+      const models = await discoverModels({
+        protocol: msg.protocol,
+        baseUrl: msg.baseUrl,
+        apiKey: llmConfigStore.resolveKey(typeof msg.apiKey === 'string' ? msg.apiKey.trim() : ''),
+      });
+      send({ type: 'llmConfig', action: 'discovered', requestId: msg.requestId, models });
+    } catch (err) {
+      send({ type: 'llmConfig', action: 'error', requestId: msg.requestId, error: errorText(err) });
+    }
+    return;
+  }
+
+  if (msg.action === 'test') {
+    if (typeof msg.baseUrl !== 'string' || typeof msg.model !== 'string' || !msg.model.trim()) {
+      send({ type: 'llmConfig', action: 'error', requestId: msg.requestId, error: '请先填写地址与模型' });
+      return;
+    }
+    const result = await testConnection({
+      protocol: msg.protocol,
+      baseUrl: msg.baseUrl,
+      apiKey: llmConfigStore.resolveKey(typeof msg.apiKey === 'string' ? msg.apiKey.trim() : ''),
+      model: msg.model.trim(),
+      maxOutput: typeof msg.maxOutput === 'number' ? msg.maxOutput : undefined,
+    });
+    send({ type: 'llmConfig', action: 'tested', requestId: msg.requestId, result });
+    return;
+  }
+
+  if (msg.action === 'save') {
+    const parsed = sanitizeDraft(msg.draft);
+    if (!parsed.ok) {
+      send({ type: 'llmConfig', action: 'saved', requestId: msg.requestId, ok: false, error: parsed.error });
+      return;
+    }
+    const saved = llmConfigStore.save(parsed.draft);
+    if (!saved.ok) {
+      send({ type: 'llmConfig', action: 'saved', requestId: msg.requestId, ok: false, error: saved.error });
+      return;
+    }
+    send({ type: 'llmConfig', action: 'saved', requestId: msg.requestId, ok: true, config: saved.config });
+    return;
+  }
+
+  send({ type: 'llmConfig', action: 'error', requestId, error: '未知的配置动作' });
+}
+
+function errorText(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return '请求失败';
 }
 
 const MIME: Record<string, string> = {

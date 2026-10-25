@@ -14,6 +14,7 @@ import type { EnsembleForecast } from '../sim/ensemble';
 import type { AlarmAttribution, PlantHealth } from '../sim/alarmAttribution';
 import type { BenchmarkSummary } from '../server/benchmark';
 import type { ProcessTopology } from '../model/topology';
+import type { DiscoveredModel, LlmDraft, LlmProtocol, LlmPublicConfig, LlmTestResult } from './llm';
 
 export interface TrendPoint {
   t: number;
@@ -103,7 +104,28 @@ export type ClientMessage =
   | { type: 'refreshDecision' }
   | { type: 'preset'; id: string }
   | { type: 'topology'; action: 'get' }
-  | { type: 'topology'; action: 'apply'; topology: ProcessTopology };
+  | { type: 'topology'; action: 'apply'; topology: ProcessTopology }
+  | { type: 'llmConfig'; action: 'get'; requestId?: string }
+  | {
+      type: 'llmConfig';
+      action: 'discover';
+      requestId: string;
+      protocol: LlmProtocol;
+      baseUrl: string;
+      apiKey?: string;
+    }
+  | {
+      type: 'llmConfig';
+      action: 'test';
+      requestId: string;
+      protocol: LlmProtocol;
+      baseUrl: string;
+      apiKey?: string;
+      model: string;
+      maxOutput?: number;
+    }
+  | { type: 'llmConfig'; action: 'save'; requestId: string; draft: LlmDraft }
+  | { type: 'llmConfig'; action: 'clear'; requestId: string };
 
 /**
  * 增量快照：只包含每个 tick 都会变的字段。
@@ -149,4 +171,9 @@ export type ServerMessage =
         warnings: string[];
         derived: { trainUnits: number; bioVolume: number; hrtHours: number; aerobicVolume: number };
       };
-    };
+    }
+  | { type: 'llmConfig'; action: 'config'; requestId?: string; config: LlmPublicConfig | null }
+  | { type: 'llmConfig'; action: 'discovered'; requestId: string; models: DiscoveredModel[] }
+  | { type: 'llmConfig'; action: 'tested'; requestId: string; result: LlmTestResult }
+  | { type: 'llmConfig'; action: 'saved'; requestId: string; ok: boolean; config?: LlmPublicConfig; error?: string }
+  | { type: 'llmConfig'; action: 'error'; requestId?: string; error: string };

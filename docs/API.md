@@ -21,13 +21,13 @@ Tokens are compared in constant time over SHA-256 digests.
 
 ## Errors
 
-| Status | When |
-|---|---|
-| 400 | Malformed URL encoding on a static path |
-| 401 | Auth required and token missing/invalid |
-| 403 | Static path escapes `dist/client` |
-| 404 | Unknown `/api/*` route, or a missing static asset with an extension |
-| 405 | Any non-`GET`/`HEAD` request to an `/api/*` route; `Allow: GET, HEAD` |
+| Status | When                                                                  |
+| ------ | --------------------------------------------------------------------- |
+| 400    | Malformed URL encoding on a static path                               |
+| 401    | Auth required and token missing/invalid                               |
+| 403    | Static path escapes `dist/client`                                     |
+| 404    | Unknown `/api/*` route, or a missing static asset with an extension   |
+| 405    | Any non-`GET`/`HEAD` request to an `/api/*` route; `Allow: GET, HEAD` |
 
 `HEAD` is answered like `GET` without a body.
 
@@ -51,8 +51,12 @@ loop is paused **because it threw**.
 
 ```json
 {
-  "ok": true, "paused": false, "tickErrors": 0, "lastTickMs": 3.1,
-  "persistence": "enabled", "simulationMinutes": 1234
+  "ok": true,
+  "paused": false,
+  "tickErrors": 0,
+  "lastTickMs": 3.1,
+  "persistence": "enabled",
+  "simulationMinutes": 1234
 }
 ```
 
@@ -138,19 +142,20 @@ new WebSocket('ws://127.0.0.1:5173/ws', [`token.${token}`]);
 
 Frames are JSON objects with a `type`. Client → server:
 
-| `type` | Purpose |
-|---|---|
-| `hello` | Ask for a full snapshot, sim state, current decision and topology |
-| `chat` | Ask a question about the current state (`text`, ≤ 2000 chars) |
-| `control` | Apply a control patch (rate-limited to one per 500 ms) |
-| `aiEnabled` | Switch between automatic and advisory mode |
-| `applyRecommendation` | Accept the current AI recommendation |
-| `scenario` | Inject or clear a scenario |
-| `sim` | `pause` / `resume` / `reset` |
-| `speed` | Simulation speed, 0.25–8 |
-| `topology` | `get` or `apply` a flowsheet (apply is limited to one per 5 s) |
-| `preset` | Apply a shipped template by id (rebuilds and warms up the plant) |
-| `refreshDecision` | Recompute the recommendation immediately |
+| `type`                | Purpose                                                                         |
+| --------------------- | ------------------------------------------------------------------------------- |
+| `hello`               | Ask for a full snapshot, sim state, current decision and topology               |
+| `chat`                | Ask a question about the current state (`text`, ≤ 2000 chars)                   |
+| `control`             | Apply a control patch (rate-limited to one per 500 ms)                          |
+| `aiEnabled`           | Switch between automatic and advisory mode                                      |
+| `applyRecommendation` | Accept the current AI recommendation                                            |
+| `scenario`            | Inject or clear a scenario                                                      |
+| `sim`                 | `pause` / `resume` / `reset`                                                    |
+| `speed`               | Simulation speed, 0.25–8                                                        |
+| `topology`            | `get` or `apply` a flowsheet (apply is limited to one per 5 s)                  |
+| `preset`              | Apply a shipped template by id (rebuilds and warms up the plant)                |
+| `refreshDecision`     | Recompute the recommendation immediately                                        |
+| `llmConfig`           | Custom model onboarding: `get`, `discover`, `test`, `save`, `clear` (see below) |
 
 Server → client: `snapshot`, `snapshotPatch` (incremental), `decision`, `chat`,
 `notice`, `simState`, `topology`.
@@ -160,16 +165,50 @@ checked server-side; unknown keys in a control patch are dropped, not trusted.
 
 ### `snapshot` / `snapshotPatch` fields added in 0.3.0
 
-| Field | Meaning |
-|---|---|
-| `forecastBand` | P10/P50/P90 bands for the current recommendation, or `null` when the model cannot be perturbed |
-| `benchmark` | AI vs fixed-strategy shadow totals (compliance minutes, energy, cost, score) |
-| `totals.energyCost` / `chemicalCost` / `sludgeCost` | Cumulative cost split; the previous code only exposed today's counters |
-| `recommendation.ensemble` | Ensemble attached to the chosen candidate |
-| `recommendation.robustEvaluated` | False when only a single-point forecast was possible |
+| Field                                               | Meaning                                                                                        |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `forecastBand`                                      | P10/P50/P90 bands for the current recommendation, or `null` when the model cannot be perturbed |
+| `benchmark`                                         | AI vs fixed-strategy shadow totals (compliance minutes, energy, cost, score)                   |
+| `totals.energyCost` / `chemicalCost` / `sludgeCost` | Cumulative cost split; the previous code only exposed today's counters                         |
+| `recommendation.ensemble`                           | Ensemble attached to the chosen candidate                                                      |
+| `recommendation.robustEvaluated`                    | False when only a single-point forecast was possible                                           |
 
 `benchmark.mature` turns true after six simulated hours; before that the UI labels
 the comparison as indicative.
+
+### Custom model configuration (`llmConfig`)
+
+The dialog writes through the same WebSocket; there is no HTTP write endpoint.
+Every request carries a `requestId` so the client can discard stale responses.
+`discover` and `test` are rate-limited to one call per 800 ms per socket.
+
+| Frame                                                                                         | Fields                                                                  | Response                                                               |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `{type:"llmConfig", action:"get"}`                                                            | —                                                                       | `{action:"config", config: LlmPublicConfig \| null}`                   |
+| `{type:"llmConfig", action:"discover", requestId, protocol, baseUrl, apiKey?}`                | `protocol`: `openai` / `anthropic` / `google`                           | `{action:"discovered", requestId, models: DiscoveredModel[]}`          |
+| `{type:"llmConfig", action:"test", requestId, protocol, baseUrl, apiKey?, model, maxOutput?}` | —                                                                       | `{action:"tested", requestId, result:{ok, latencyMs, reply?, error?}}` |
+| `{type:"llmConfig", action:"save", requestId, draft}`                                         | draft: protocol, baseUrl, apiKey, model, capabilities, autoCapabilities | `{action:"saved", requestId, ok, config?, error?}`                     |
+| `{type:"llmConfig", action:"clear", requestId}`                                               | —                                                                       | `{action:"saved", requestId, ok:true}`                                 |
+
+Failure of any action returns `{action:"error", requestId?, error}` with a
+readable Chinese cause (bad key, wrong path, rate limit, timeout, SSRF refusal).
+
+`LlmPublicConfig` never contains the plaintext key: it exposes `hasKey` and
+`apiKeyMasked` (`sk-••••1234`). An empty `apiKey` on save keeps the stored one.
+
+`baseUrl` is trust-boundary input. It must be `http(s)`, must not embed
+credentials, and must not point at cloud metadata hosts
+(`169.254.169.254`, `metadata.google.internal`, `100.100.100.200`) or any
+`169.254.0.0/16` address. Localhost and private ranges are allowed because
+self-hosted Ollama/vLLM live there.
+
+Protocol endpoints used:
+
+| Protocol    | Discovery                         | Chat                                                      |
+| ----------- | --------------------------------- | --------------------------------------------------------- |
+| `openai`    | `GET {base}/models`               | `POST {base}/chat/completions`                            |
+| `anthropic` | `GET {base}/v1/models?limit=1000` | `POST {base}/v1/messages`                                 |
+| `google`    | `GET {base}/v1beta/models?key=…`  | `POST {base}/v1beta/models/{model}:generateContent?key=…` |
 
 ### Chat answers
 
