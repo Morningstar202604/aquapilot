@@ -8,7 +8,7 @@ import type { ClientMessage } from '../../shared/protocol';
  *   不丢弃用户最新的控制意图，也不无限堆积历史帧。
  */
 
-/** 重连退避：base × retry，封顶 cap，再加 ≤jitterMs 的随机抖动 */
+/** 重连退避：base × retry + 抖动，整体封顶 cap（抖动不突破上限） */
 export function reconnectDelayMs(
   retry: number,
   opts: { base?: number; cap?: number; jitter?: () => number } = {},
@@ -16,7 +16,7 @@ export function reconnectDelayMs(
   const base = opts.base ?? 600;
   const cap = opts.cap ?? 8000;
   const jitter = opts.jitter ?? (() => Math.random() * 400);
-  return Math.min(cap, base * retry) + jitter();
+  return Math.min(cap, base * retry + jitter());
 }
 
 /** 发送缓冲高水位（128 KiB）。超过即触发背压合并 */

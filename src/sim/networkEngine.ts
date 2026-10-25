@@ -160,33 +160,23 @@ export interface NetworkSimState {
   stormStorageM3: number;
   volume: { bio: number; aerobic: number; anoxic: number; anaerobic: number };
   edgeFlows: Record<string, number>;
+  /**
+   * 编译缓存随状态走（而非模块全局）：
+   * - 每个仿真实例持有自己的 topo 引用与编译结果，影子双跑/多实例互不干扰；
+   * - stepNetwork 只按「对象身份」判断是否需要重编译，同一张图不反复编译；
+   * - 彻底消除「同一拓扑对象被就地修改后命中过期编译」这一类隐患。
+   */
+  topo: ProcessTopology;
+  net: CompiledNetwork;
 }
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
-
-/**
- * 热循环编译缓存（按拓扑对象身份）。
- *
- * 生产路径每个仿真步都会调用 stepNetwork，而拓扑只有在「应用到仿真」时才更换对象；
- * 反复编译同一张图是纯浪费。这里只缓存「同一个对象」的编译结果——对象不变即内容不变，
- * 不需要做内容指纹，也不会被测试里就地修改拓扑的场景污染（那些场景用的是新对象，
- * 缓存必然 miss）。对外导出的 compileNetwork 保持原样，直接调用永远拿最新结果。
- */
-let lastCompiledTopo: ProcessTopology | null = null;
-let lastCompiledNet: CompiledNetwork | null = null;
-function compileForRun(topo: ProcessTopology): CompiledNetwork {
-  if (lastCompiledTopo !== topo) {
-    lastCompiledNet = compileNetwork(topo);
-    lastCompiledTopo = topo;
-  }
-  return lastCompiledNet!;
-}
 
 export function createNetworkState(
   topo: ProcessTopology,
   options: { seed?: number; controls?: Partial<ControlSettings>; model?: KineticModel } = {},
 ): NetworkSimState {
-  const net = compileForRun(topo);
+  const net = compileNetwork(topo);
   if (net.problems.length) throw new Error(`拓扑无法编译：${net.problems.join('；')}`);
 
   /**
@@ -275,6 +265,8 @@ export function createNetworkState(
       anaerobic: net.anaerobicVolume,
     },
     edgeFlows: {},
+    topo,
+    net,
   };
 }
 
@@ -994,7 +986,12 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
   state.timeMin += dtMin;
   state.rngCount += 1;
 
-  const net: CompiledNetwork = compileForRun(topo);
+  // 编译缓存随状态走：同一拓扑对象不反复编译；换对象（含克隆）按身份判重后重编译一次
+  if (topo !== state.topo) {
+    state.topo = topo;
+    state.net = compileNetwork(topo);
+  }
+  const net: CompiledNetwork = state.net;
   if (net.problems.length) {
     throw new Error(`运行中拓扑失效：${net.problems.join('；')}`);
   }

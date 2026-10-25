@@ -70,6 +70,8 @@ interface Runtime {
   clientState: Map<WebSocket, ClientState>;
   /** 人工调整后的优先期截止（仿真分钟）；期内 AI 只建议不覆盖 */
   manualOverrideUntil: number;
+  /** 快照附带的 4h 预测缓存：键 = timeMin|controls，预测只随两者变化，避免 tick 间重复重算 */
+  forecastCache: { key: string | null; value: ForecastOutcomeX | null };
   /** 当前生效的工艺模板 id；自定义拓扑或无模板时为 null */
   activePresetId: string | null;
   /** 影子双跑厂（固定策略） */
@@ -102,6 +104,7 @@ const runtime: Runtime = {
   clients: new Set(),
   clientState: new Map(),
   manualOverrideUntil: 0,
+  forecastCache: { key: null, value: null },
   activePresetId: 'a2o-standard',
   shadow: createShadowPlant(PLANT_TOPOLOGY, 20261019, 0),
 };
@@ -133,19 +136,17 @@ function pushTrend(state: NetworkSimState, trend: TrendPoint[]): void {
  * buildSnapshot 在每次控制变更、客户端接入、AI 周期结束都会触发；
  * 而预测只随 (timeMin, controls) 变化，tick 之间频繁重算同一结果是纯浪费。
  * 缓存命中即复用，控制量或时刻变化自动失效。
+ * 缓存挂在 runtime 上而非模块级，避免任何跨运行实例共享可变状态。
  */
-let forecastCacheKey: string | null = null;
-let forecastCacheValue: ForecastOutcomeX | null = null;
-
 function forecastForSnapshot(): ForecastOutcomeX | null {
   const s = runtime.net;
   if (!runtime.recommendation) return null;
   const key = `${s.timeMin}|${JSON.stringify(s.controls)}`;
-  if (forecastCacheKey === key && forecastCacheValue) return forecastCacheValue;
+  if (runtime.forecastCache.key === key && runtime.forecastCache.value) return runtime.forecastCache.value;
   const model = networkModel(runtime.topology, s);
-  forecastCacheValue = model.predict(s.controls, 240, 30);
-  forecastCacheKey = key;
-  return forecastCacheValue;
+  runtime.forecastCache.value = model.predict(s.controls, 240, 30);
+  runtime.forecastCache.key = key;
+  return runtime.forecastCache.value;
 }
 
 function buildSnapshot(): PlantSnapshot {

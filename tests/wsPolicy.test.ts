@@ -16,6 +16,12 @@ describe('wsPolicy 重连退避', () => {
     expect(reconnectDelayMs(2, withJitter)).toBe(1600);
   });
 
+  it('抖动不突破封顶上限', () => {
+    // 即使每次加满 400ms 抖动，重试 20/100 次也不得超过 cap=8000
+    expect(reconnectDelayMs(20, { jitter: () => 400 })).toBe(8000);
+    expect(reconnectDelayMs(100, { jitter: () => 400 })).toBe(8000);
+  });
+
   it('抖动引入分散，避免多客户端同步撞击', () => {
     const seen = new Set<number>();
     let seed = 1;
