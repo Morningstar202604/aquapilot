@@ -4,7 +4,7 @@ path: plan
 created_at: 2026-10-25T18:40:00Z
 session_agent: zcode
 skipped_checks: []
-objections_diff_coverage_exception: null
+objections_diff_coverage_exception: "本次提交仅更新 AQG 台账验证行，不含代码改动；代码与其 objections 已在 59119cb 提交审查"
 behavior_contract_exception: null
 ---
 
@@ -16,7 +16,7 @@ behavior_contract_exception: null
 | 2. Behavior Lock | yes | 先写失败测试：三协议模型发现/连接测试/能力推断/SSRF 守卫、配置存储与脱敏、设置面板自动拉模型+展开+测试+保存（covers: R1, R2, R3, R4, R5） | `tests/llmProviders.test.ts`、`tests/llmConfig.test.ts`、`tests/modelSettings.test.tsx` | 先 RED 后 GREEN，见第 5 步 |
 | 3. Thin Slice | yes | 每个切片一条链路：协议适配层 → 配置存储 → WS 协议 → 设置面板 → 顶栏入口；不改仿真/决策引擎 | `src/ai/providers.ts`、`src/server/llmConfig.ts`、`src/client/components/ModelSettingsPanel.tsx` | 不实现工具调用执行、不做多供应商并行路由 |
 | 4. Construction Rules | yes | 复用内置 fetch（零新依赖）；URL 只在服务端校验；错误统一映射为可读中文；配置原子写 + 密钥不回传 | `src/ai/providers.ts`、`src/server/llmConfig.ts` | 运行时依赖仍为 echarts/react/react-dom/ws |
-| 5. Local Verification | yes | 聚焦测试 → 全量 tests → typecheck → lint → build → 浏览器真实鼠标键盘验收 | `tests/llmProviders.test.ts` | 见收尾记录 |
+| 5. Local Verification | yes | 聚焦测试 → 全量 tests → typecheck → lint → prettier → build → 浏览器真实鼠标键盘验收（点击/输入/选择/测试/保存/提问） | `tests/llmProviders.test.ts`、`tests/llmConfig.test.ts`、`tests/modelSettings.test.tsx` | `npx vitest run --coverage` 446 passed / 30 files（覆盖率 94.87 lines）；`tsc --noEmit` 0；`eslint src tests` 0；`prettier --check` 通过；`npm run build` 成功；UI 验收：u2-flash 拉取 29 模型、连接测试 1670ms 成功、错误密钥 401 可读、保存后 `data/llm-config.json` 生效、重新打开仅显掩码、提问出现「· 模型补充」 |
 | 6. Self Review (5 axes) | yes | 正确性：分协议请求/解析各有测试；可读性：适配层单文件纯函数；架构：UI→WS→server→providers 单向；安全：SSRF 守卫、密钥脱敏、日志不落 key；性能：模型探测 10s 超时、测试 30s 超时、面板按需请求 | `src/ai/providers.ts`、`src/server/llmConfig.ts`、`src/server/index.ts` | 人工复核 diff |
 
 ## Behavior Contract
