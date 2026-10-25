@@ -1,83 +1,15 @@
-import { CONTROL_BOUNDS, ControlSettings, INFLUENT_DESIGN, LIMITS } from '../sim/config';
-import {
-  Connection,
-  ProcessTopology,
-  UnitSpec,
-  deriveTrain,
-  hydraulicRetention,
-  totalTrainVolume,
-} from '../model/topology';
-import { SCENARIOS, ScenarioSpec } from '../sim/scenarios';
+import { CONTROL_BOUNDS, INFLUENT_DESIGN, LIMITS } from '../sim/config';
+import { ProcessTopology, deriveTrain, hydraulicRetention, totalTrainVolume } from '../model/topology';
+import { SCENARIOS } from '../sim/scenarios';
 
 /**
- * 由拓扑驱动的仿真引擎（v2，进行中）。
+ * 拓扑工程辅助层（仿真求解本体在 networkEngine）。
  *
- * 与 v1 的关键差别：池不是写死的 5 个，而是从 topo.train 生成；
- * 每个单元的容积、进出流股来自拓扑；控制变量的作用点由单元声明。
- * 这样"在界面上改图"与"引擎实际行为"才可能一致。
+ * 本模块提供：运行就绪校验（checkRunReadiness，服务端/编排器共用）、
+ * 可干预控制项枚举、停留时间分解与限值查询。
+ * 注意：早期这里承载过一个"由拓扑驱动的求解引擎（v2，进行中）"，
+ * 求解职责已由 networkEngine 完全承接，本模块只保留校验与元信息。
  */
-
-export interface StreamState {
-  flow: number;
-  cod: number;
-  nh: number;
-  no3: number;
-  tp: number;
-  ss: number;
-  do: number;
-  alkalinity: number;
-  temperature: number;
-  mlss: number;
-}
-
-export interface UnitState {
-  id: string;
-  kind: UnitSpec['kind'];
-  name: string;
-  volume: number;
-  /** 单元内液相状态；无液相单元（风机/加药）为 null */
-  liquor: StreamState | null;
-  /** 单元专属状态：二沉池泥位、调蓄池存量等 */
-  extras: Record<string, number>;
-}
-
-export interface LinkState {
-  id: string;
-  stream: Connection['stream'];
-  flow: number;
-  from: string;
-  to: string;
-}
-
-export interface TopoSimState {
-  timeMin: number;
-  seed: number;
-  rngCount: number;
-  topologyId: string;
-  units: UnitState[];
-  links: LinkState[];
-  influent: StreamState;
-  effluent: StreamState;
-  controls: ControlSettings;
-  scenario: ScenarioSpec | null;
-  biomassKg: number;
-  srtDays: number;
-  inhibition: number;
-  aerationCapacity: number;
-  energy: { blowerKw: number; mixerKw: number; pumpKw: number; totalKw: number };
-  alarms: {
-    id: string;
-    at: number;
-    severity: 'warning' | 'critical';
-    code: string;
-    message: string;
-    unitId?: string;
-  }[];
-  alarmSeq: number;
-  cost: { energy: number; chemical: number; sludge: number; total: number };
-  stormStorageM3: number;
-  accountingStartMin: number;
-}
 
 export interface RunReadiness {
   ready: boolean;
@@ -149,14 +81,12 @@ export function checkRunReadiness(topo: ProcessTopology, flowM3h = INFLUENT_DESI
   }
 
   // 新增但未接线的工艺单元必须阻断：图上画了却不在物流里，是最危险的假象
-  const trainIds = new Set(train.map((t) => t.spec.id));
   for (const t of train) {
     const hasIn = topo.connections.some((c) => c.to.unit === t.spec.id);
     const hasOut = topo.connections.some((c) => c.from.unit === t.spec.id);
     if (!hasIn) blockers.push(`${t.spec.name} 没有入口物流：已加入主序列但未接入水路，无法参与反应`);
     if (!hasOut) blockers.push(`${t.spec.name} 没有出口物流：反应后的水无处可去`);
   }
-  void trainIds;
 
   const hasRas = topo.connections.some((c) => c.stream === 'return_activated_sludge');
   if (!hasRas) warnings.push('没有污泥回流：生物量会随出水流失，系统无法维持');
@@ -197,4 +127,3 @@ export function controlBoundsOf() {
 }
 
 export { SCENARIOS };
-export type { Connection };

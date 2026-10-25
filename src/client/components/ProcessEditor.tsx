@@ -20,6 +20,10 @@ interface Props {
   onChange: (topo: ProcessTopology) => void;
   onApply: () => void;
   dirty: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
 }
 
 interface PaletteEntry {
@@ -207,7 +211,7 @@ function nextId(topo: ProcessTopology, kind: UnitKind): string {
   return `${kind}${i}`;
 }
 
-export function ProcessEditor({ snap, topology, onChange, onApply, dirty }: Props) {
+export function ProcessEditor({ snap, topology, onChange, onApply, dirty, canUndo, canRedo, onUndo, onRedo }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const [pane, setPane] = useState<'inspector' | 'connections' | 'check'>('inspector');
   const [connectMode, setConnectMode] = useState<{ fromUnit: string; port: string; stream: StreamKind } | null>(null);
@@ -338,6 +342,12 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty }: Prop
             </span>
           )}
 
+          <button className="pill" onClick={onUndo} disabled={!canUndo} title="撤销上一步编辑（Ctrl/Cmd+Z）">
+            ↶ 撤销
+          </button>
+          <button className="pill" onClick={onRedo} disabled={!canRedo} title="重做（Ctrl/Cmd+Shift+Z）">
+            ↷ 重做
+          </button>
           <button className="pill" onClick={() => onChange(PLANT_TOPOLOGY)}>
             恢复标准厂
           </button>

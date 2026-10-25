@@ -8,6 +8,7 @@ import { askLlm, type GroundingContext } from '../ai/llm';
 import { CONTROL_BOUNDS, LIMITS, PLANT } from '../sim/config';
 import { SCENARIOS, ScenarioType } from '../sim/scenarios';
 import { NetworkSimState, networkModel, qualityScoreOf, stepNetwork } from '../sim/networkEngine';
+import type { ForecastOutcomeX } from '../sim/plantModel';
 import { CompiledNetwork } from '../sim/network';
 import { estimateMargin } from '../sim/metrics';
 import { attributeAlarm, plantHealth, trendSlopes, type AlarmAttribution } from '../sim/alarmAttribution';
@@ -126,10 +127,30 @@ function pushTrend(state: NetworkSimState, trend: TrendPoint[]): void {
   if (trend.length > 720) trend.splice(0, trend.length - 720);
 }
 
+/**
+ * 快照附带的 4h 预测：同一仿真时刻 + 同一控制量下只算一次。
+ *
+ * buildSnapshot 在每次控制变更、客户端接入、AI 周期结束都会触发；
+ * 而预测只随 (timeMin, controls) 变化，tick 之间频繁重算同一结果是纯浪费。
+ * 缓存命中即复用，控制量或时刻变化自动失效。
+ */
+let forecastCacheKey: string | null = null;
+let forecastCacheValue: ForecastOutcomeX | null = null;
+
+function forecastForSnapshot(): ForecastOutcomeX | null {
+  const s = runtime.net;
+  if (!runtime.recommendation) return null;
+  const key = `${s.timeMin}|${JSON.stringify(s.controls)}`;
+  if (forecastCacheKey === key && forecastCacheValue) return forecastCacheValue;
+  const model = networkModel(runtime.topology, s);
+  forecastCacheValue = model.predict(s.controls, 240, 30);
+  forecastCacheKey = key;
+  return forecastCacheValue;
+}
+
 function buildSnapshot(): PlantSnapshot {
   const s = runtime.net;
-  const model = networkModel(runtime.topology, s);
-  const fc = runtime.recommendation ? model.predict(s.controls, 240, 30) : null;
+  const fc = forecastForSnapshot();
 
   // 把拓扑反应器映射成前端沿用的 tank 结构，保持界面契约不变
   const tanks = s.reactors.map((r) => ({
@@ -161,6 +182,7 @@ function buildSnapshot(): PlantSnapshot {
     simulatedAt: new Date().toISOString(),
     speed: runtime.speed,
     paused: runtime.paused,
+    modelMode: s.modelMode,
     influent: { ...s.influent, bod: s.influent.cod * 0.44, ph: 7.2 },
     effluent,
     tanks,

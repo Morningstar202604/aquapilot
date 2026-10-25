@@ -4,6 +4,7 @@ import type { Answer, Recommendation } from '../../ai/agent';
 import type { ControlSettings } from '../../sim/config';
 import type { ScenarioType } from '../../sim/scenarios';
 import type { ProcessTopology } from '../../model/topology';
+import { nextSendPlan, reconnectDelayMs } from './wsPolicy';
 
 export interface ChatEntry {
   id: number;
@@ -16,6 +17,8 @@ export interface ChatEntry {
 export interface LinkState {
   connected: boolean;
   error: string | null;
+  /** 最近一次收到服务端数据的时间戳（ms）；用于界面提示「数据最后更新时间」 */
+  lastUpdateAt: number | null;
 }
 
 /**
@@ -56,7 +59,7 @@ export function useSimulation() {
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [chat, setChat] = useState<ChatEntry[]>([]);
   const [notices, setNotices] = useState<{ id: number; level: string; text: string }[]>([]);
-  const [link, setLink] = useState<LinkState>({ connected: false, error: null });
+  const [link, setLink] = useState<LinkState>({ connected: false, error: null, lastUpdateAt: null });
   const [paused, setPaused] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [topology, setTopology] = useState<ProcessTopology | null>(null);
@@ -65,6 +68,8 @@ export function useSimulation() {
   const chatId = useRef(0);
   const noticeId = useRef(0);
   const retry = useRef(0);
+  /** 背压合并缓冲：发送快于带宽时保留「最后一条」意图，不丢用户操作 */
+  const pendingSendRef = useRef<ClientMessage | null>(null);
 
   useEffect(() => {
     let closed = false;
@@ -82,11 +87,20 @@ export function useSimulation() {
       socketRef.current = ws;
 
       ws.onopen = () => {
-        setLink({ connected: true, error: null });
+        setLink({ connected: true, error: null, lastUpdateAt: null });
         retry.current = 0;
         ws.send(JSON.stringify({ type: 'hello' } satisfies ClientMessage));
       };
+      // 发送缓冲降到低水位时冲刷背压积压的最后一条意图
+      ws.addEventListener('bufferedamountlow', () => {
+        const live = socketRef.current;
+        if (!pendingSendRef.current || !live || live.readyState !== WebSocket.OPEN) return;
+        const msg = pendingSendRef.current;
+        pendingSendRef.current = null;
+        live.send(JSON.stringify(msg));
+      });
       ws.onmessage = (event) => {
+        setLink((prev) => ({ ...prev, lastUpdateAt: Date.now() }));
         let msg: ServerMessage;
         try {
           msg = JSON.parse(event.data as string) as ServerMessage;
@@ -166,13 +180,14 @@ export function useSimulation() {
         }
       };
       ws.onclose = () => {
-        setLink({ connected: false, error: '与仿真服务的连接已断开' });
+        setLink((prev) => ({ ...prev, connected: false, error: '与仿真服务的连接已断开' }));
         if (closed) return;
         retry.current += 1;
-        setTimeout(connect, Math.min(8000, 600 * retry.current));
+        // 抖动退避：多客户端同时断线时避免重连请求同步撞击服务端
+        setTimeout(connect, reconnectDelayMs(retry.current));
       };
       ws.onerror = () => {
-        setLink({ connected: false, error: '连接仿真服务失败' });
+        setLink((prev) => ({ ...prev, connected: false, error: '连接仿真服务失败' }));
       };
     };
     connect();
@@ -184,7 +199,20 @@ export function useSimulation() {
 
   const send = (msg: ClientMessage) => {
     const ws = socketRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      // 未连接：暂存为待发，重连成功后由 bufferedamountlow 或下一次发送冲刷
+      pendingSendRef.current = msg;
+      return;
+    }
+    const plan = nextSendPlan(pendingSendRef.current, msg, ws.bufferedAmount ?? 0);
+    pendingSendRef.current = plan.pending;
+    for (const m of plan.toSend) ws.send(JSON.stringify(m));
+    // 缓冲降到低水位以下时冲刷积压（部分浏览器 API；不支持则等下一次发送自然带出）
+    try {
+      (ws as unknown as { bufferedAmountLowThreshold?: number }).bufferedAmountLowThreshold = 32 * 1024;
+    } catch {
+      /* 某些环境不支持该属性，忽略 */
+    }
   };
 
   const ask = (text: string) => {

@@ -432,7 +432,7 @@ export function decide(context: DecisionContext): Recommendation {
             .join('，')}。`;
 
   const rationale = [
-    ...buildRationale(state, best, hold),
+    ...buildRationale(state, best, hold, horizonMin),
     ...scenarioHints(state, (state.scenario?.type as ScenarioType | null) ?? null),
   ];
   const risks = buildRisks(state, best);
@@ -493,7 +493,12 @@ function explainTweak(key: keyof Omit<ControlSettings, 'aiEnabled'>, from: numbe
   }
 }
 
-function buildRationale(state: PlantSnapshotForAi, best: DecisionCandidate, hold: DecisionCandidate): string[] {
+function buildRationale(
+  state: PlantSnapshotForAi,
+  best: DecisionCandidate,
+  hold: DecisionCandidate,
+  horizonMin: number,
+): string[] {
   const margins = marginsOf(state.effluent);
   const tight = margins[0];
   const lines: string[] = [];
@@ -502,7 +507,7 @@ function buildRationale(state: PlantSnapshotForAi, best: DecisionCandidate, hold
   );
   if (hold.violations > 0) {
     lines.push(
-      `维持现状在未来 ${Math.round(best.cost > 0 ? 4 : 4)} 小时窗口内预计出现 ${hold.violations} 次超标采样点。`,
+      `维持现状在未来 ${Math.max(1, Math.round(horizonMin / 60))} 小时窗口内预计出现 ${hold.violations} 次超标采样点。`,
     );
   } else {
     lines.push(`当前控制在预测窗口内无超标，方案优化目标转为「保达标前提下降低能耗与药耗」。`);

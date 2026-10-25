@@ -1,5 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSimulation } from './hooks/useSimulation';
+import {
+  canRedoHistory,
+  canUndoHistory,
+  commitHistory,
+  emptyHistory,
+  redoHistory,
+  seedHistory,
+  undoHistory,
+} from './hooks/topoHistory';
 import { PlantCanvas } from './components/PlantCanvas';
 import { ProcessEditor } from './components/ProcessEditor';
 import { PLANT_TOPOLOGY, ProcessTopology } from '../model/topology';
@@ -20,12 +29,60 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('chat');
   const [view, setView] = useState<View>('plant');
   const [selectedTank, setSelectedTank] = useState<string | null>(null);
-  const [draft, setDraft] = useState<ProcessTopology | null>(null);
+
+  /**
+   * 拓扑编辑历史（撤销/重做）。
+   *
+   * draft 直接由历史栈推导，避免「历史状态」与「当前草稿」两套真相漂移。
+   * 具体合并/裁剪逻辑在 hooks/topoHistory（纯函数，有单测）。
+   */
+  const [hist, setHist] = useState(emptyHistory);
+  const draft: ProcessTopology | null = hist.idx >= 0 ? hist.stack[hist.idx] : null;
+  const canUndo = canUndoHistory(hist);
+  const canRedo = canRedoHistory(hist);
+
+  const seedDraft = (base: ProcessTopology) => setHist((h) => seedHistory(h, base));
+  const commitDraft = (next: ProcessTopology) => setHist((h) => commitHistory(h, next));
+  const undo = () => setHist(undoHistory);
+  const redo = () => setHist(redoHistory);
+
+  // 编辑器内 Ctrl/Cmd+Z 撤销、Ctrl/Cmd+Shift+Z 或 Ctrl+Y 重做
+  useEffect(() => {
+    if (view !== 'editor') return;
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      if (e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+      } else if (e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [view, canUndo, canRedo]);
 
   const snap = sim.snapshot;
 
   const aiEnabled = snap?.controls.aiEnabled ?? true;
   const alarmCount = snap?.activeAlarms.length ?? 0;
+
+  // 每秒跳一次，让「数据最后更新时间」在暂停/断流时也能真实刷新
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const staleSeconds =
+    sim.link.connected && sim.link.lastUpdateAt ? Math.max(0, Math.round((now - sim.link.lastUpdateAt) / 1000)) : null;
+  const linkLabel = !sim.link.connected
+    ? '断线重连'
+    : staleSeconds !== null && staleSeconds > 5
+      ? `数据 ${staleSeconds}s 前更新`
+      : '链路正常';
 
   const dateLabel = useMemo(() => {
     if (!snap) return '';
@@ -44,7 +101,6 @@ export default function App() {
   }
 
   const kpis = buildKpis(snap);
-
   return (
     <div className="app">
       <header className="topbar">
@@ -70,7 +126,8 @@ export default function App() {
           <div className="meta-item">
             <span className="meta-label">求解结构</span>
             <span className="meta-value">
-              {snap.reactorCount} 反应器 · {snap.tanks.reduce((a, t) => a + t.volume, 0).toLocaleString()} m³
+              {snap.modelMode === 'asm1' ? 'ASM1 13 组分' : '经验动力学'} · {snap.reactorCount} 反应器 ·{' '}
+              {snap.tanks.reduce((a, t) => a + t.volume, 0).toLocaleString()} m³
             </span>
           </div>
           <div className="meta-item">
@@ -90,7 +147,7 @@ export default function App() {
             </button>
             <button
               onClick={() => {
-                setDraft((d) => d ?? sim.topology ?? PLANT_TOPOLOGY);
+                seedDraft(sim.topology ?? PLANT_TOPOLOGY);
                 setView('editor');
               }}
               data-active={view === 'editor'}
@@ -135,9 +192,17 @@ export default function App() {
             <span className="dot" data-live={aiEnabled} data-tone={aiEnabled ? undefined : 'amber'} />
             {aiEnabled ? 'AI 自动值守' : 'AI 仅建议'}
           </span>
-          <span className="pill" style={{ borderColor: sim.link.connected ? 'var(--water-dim)' : 'var(--alarm-dim)' }}>
+          <span
+            className="pill"
+            style={{ borderColor: sim.link.connected ? 'var(--water-dim)' : 'var(--alarm-dim)' }}
+            title={
+              sim.link.lastUpdateAt
+                ? `最近一次收到服务端数据：${new Date(sim.link.lastUpdateAt).toLocaleTimeString()}`
+                : undefined
+            }
+          >
             <span className="dot" data-live={sim.link.connected} data-tone={sim.link.connected ? undefined : 'alarm'} />
-            {sim.link.connected ? '链路正常' : '断线重连'}
+            {linkLabel}
           </span>
         </div>
       </header>
@@ -147,7 +212,7 @@ export default function App() {
           {view === 'plant' && (
             <div className="kpi-strip">
               {kpis.map((k) => (
-                <div className="kpi" key={k.label} data-state={k.state}>
+                <div className="kpi" key={k.label} data-state={k.state} title={k.hint}>
                   <div className="kpi-label">
                     <span>{k.label}</span>
                     <span className="kpi-limit">{k.limit}</span>
@@ -184,7 +249,7 @@ export default function App() {
             <ProcessEditor
               snap={snap}
               topology={draft ?? sim.topology ?? PLANT_TOPOLOGY}
-              onChange={setDraft}
+              onChange={commitDraft}
               onApply={() => {
                 if (draft) {
                   sim.applyTopology(draft);
@@ -192,6 +257,10 @@ export default function App() {
                 }
               }}
               dirty={Boolean(draft) && JSON.stringify(draft) !== JSON.stringify(sim.topology ?? PLANT_TOPOLOGY)}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              onUndo={undo}
+              onRedo={redo}
             />
           )}
         </section>
@@ -301,6 +370,11 @@ const DAY_COST_BASELINE = 48000 * 0.28 * 0.68 + 48000 * 0.038 * 2.2;
 function buildKpis(snap: NonNullable<ReturnType<typeof useSimulation>['snapshot']>) {
   const L = snap.limits;
   const e = snap.effluent;
+  // ASM1 不含生物除磷：TP 为惰性示踪 + 化学除磷（PAC）口径，如实标注避免误解
+  const tpHint =
+    snap.modelMode === 'asm1'
+      ? 'ASM1 模型不含生物除磷：出水总磷 = 惰性示踪输运 − PAC 化学去除，稳态值会高于含生物除磷的经验模型'
+      : '总磷 = 生物除磷（厌氧释磷/好氧吸磷）+ PAC 化学除磷';
   const items = [
     {
       label: '出水 COD',
@@ -308,6 +382,7 @@ function buildKpis(snap: NonNullable<ReturnType<typeof useSimulation>['snapshot'
       unit: 'mg/L',
       limit: `≤ ${L.cod}`,
       ratio: e.cod / L.cod,
+      hint: '化学需氧量，溶解性组分 + 出水悬浮物折算',
     },
     {
       label: '出水 NH₃-N',
@@ -315,6 +390,7 @@ function buildKpis(snap: NonNullable<ReturnType<typeof useSimulation>['snapshot'
       unit: 'mg/L',
       limit: `≤ ${L.nh}`,
       ratio: e.nh / L.nh,
+      hint: '氨氮，硝化效果的直接指标',
     },
     {
       label: '出水 总磷',
@@ -322,6 +398,7 @@ function buildKpis(snap: NonNullable<ReturnType<typeof useSimulation>['snapshot'
       unit: 'mg/L',
       limit: `≤ ${L.tp}`,
       ratio: e.tp / L.tp,
+      hint: tpHint,
     },
     {
       label: '出水 SS',
@@ -329,6 +406,7 @@ function buildKpis(snap: NonNullable<ReturnType<typeof useSimulation>['snapshot'
       unit: 'mg/L',
       limit: `≤ ${L.ss}`,
       ratio: e.ss / L.ss,
+      hint: '悬浮物，由二沉池出水层给出',
     },
     {
       label: '出水 总氮',
@@ -336,6 +414,7 @@ function buildKpis(snap: NonNullable<ReturnType<typeof useSimulation>['snapshot'
       unit: 'mg/L',
       limit: `≤ ${L.tn}`,
       ratio: e.tn / L.tn,
+      hint: '总氮 = 氨氮 + 硝态氮 + 悬浮物折算；依赖内回流与碳源',
     },
     {
       label: '吨水电耗',
@@ -343,6 +422,7 @@ function buildKpis(snap: NonNullable<ReturnType<typeof useSimulation>['snapshot'
       unit: 'kWh/m³',
       limit: '设计 0.28',
       ratio: snap.energy.specificKwhM3 / 0.28,
+      hint: '吨水电耗 = 鼓风 + 搅拌 + 泵送总功率 ÷ 进水量',
     },
     {
       label: '今日运行成本',
@@ -350,6 +430,7 @@ function buildKpis(snap: NonNullable<ReturnType<typeof useSimulation>['snapshot'
       unit: '元',
       limit: `基准 ¥${(DAY_COST_BASELINE / 1000).toFixed(0)}k`,
       ratio: snap.cost.totalToday / DAY_COST_BASELINE,
+      hint: '当日电耗 + 药耗 + 污泥处置成本（跨日清零）',
     },
   ];
   return items.map((i) => {

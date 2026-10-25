@@ -36,6 +36,8 @@ export interface PlantSnapshot {
   simulatedAt: string;
   speed: number;
   paused: boolean;
+  /** 当前求解模型：'simple' 经验动力学 / 'asm1' 活性污泥模型（影响 TP 等组分口径） */
+  modelMode: 'simple' | 'asm1';
   influent: InfluentState;
   effluent: EffluentState;
   tanks: TankState[];

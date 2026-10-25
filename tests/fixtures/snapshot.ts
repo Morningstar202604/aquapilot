@@ -13,6 +13,7 @@ export function makeSnapshot(overrides: Partial<PlantSnapshot> = {}): PlantSnaps
     simulatedAt: new Date(0).toISOString(),
     speed: 1,
     paused: false,
+    modelMode: 'simple',
     influent: {
       flow: 2000,
       cod: 320,

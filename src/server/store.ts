@@ -3,6 +3,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { logger, metrics } from './observability';
 
+/** 持久化表名白名单：任何拼进 SQL 的表名都必须出自这里，禁止任意字符串拼接 */
+export const PERSIST_TABLES = ['decisions', 'alarms', 'snapshots'] as const;
+export type PERSIST_TABLE = (typeof PERSIST_TABLES)[number];
+
 /**
  * node:sqlite 是 Node 22+ 的内置模块；Node 20 上不存在。
  *
@@ -138,7 +142,7 @@ export class Store {
         CREATE INDEX IF NOT EXISTS idx_snapshots_run ON snapshots(run_id);
       `);
       // 迁移：给旧表补 run_id 列（SQLite 不支持 IF NOT EXISTS 加列，用 try 包裹）
-      for (const table of ['decisions', 'snapshots']) {
+      for (const table of PERSIST_TABLES) {
         try {
           this.db.exec(`ALTER TABLE ${table} ADD COLUMN run_id TEXT`);
         } catch {
@@ -279,7 +283,8 @@ export class Store {
 
   count(): { decisions: number; alarms: number; snapshots: number } {
     if (!this.db) return { decisions: 0, alarms: 0, snapshots: 0 };
-    const one = (table: string) =>
+    // 表名只能来自白名单常量，不允许字符串拼接进 SQL（防御性约束，防未来误用）
+    const one = (table: PERSIST_TABLE) =>
       (this.db!.prepare(`SELECT COUNT(*) as c FROM ${table}`).get() as unknown as { c: number }).c;
     return { decisions: one('decisions'), alarms: one('alarms'), snapshots: one('snapshots') };
   }

@@ -164,11 +164,29 @@ export interface NetworkSimState {
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
+/**
+ * 热循环编译缓存（按拓扑对象身份）。
+ *
+ * 生产路径每个仿真步都会调用 stepNetwork，而拓扑只有在「应用到仿真」时才更换对象；
+ * 反复编译同一张图是纯浪费。这里只缓存「同一个对象」的编译结果——对象不变即内容不变，
+ * 不需要做内容指纹，也不会被测试里就地修改拓扑的场景污染（那些场景用的是新对象，
+ * 缓存必然 miss）。对外导出的 compileNetwork 保持原样，直接调用永远拿最新结果。
+ */
+let lastCompiledTopo: ProcessTopology | null = null;
+let lastCompiledNet: CompiledNetwork | null = null;
+function compileForRun(topo: ProcessTopology): CompiledNetwork {
+  if (lastCompiledTopo !== topo) {
+    lastCompiledNet = compileNetwork(topo);
+    lastCompiledTopo = topo;
+  }
+  return lastCompiledNet!;
+}
+
 export function createNetworkState(
   topo: ProcessTopology,
   options: { seed?: number; controls?: Partial<ControlSettings>; model?: KineticModel } = {},
 ): NetworkSimState {
-  const net = compileNetwork(topo);
+  const net = compileForRun(topo);
   if (net.problems.length) throw new Error(`拓扑无法编译：${net.problems.join('；')}`);
 
   /**
@@ -668,6 +686,14 @@ function solveReactors(ctx: StepContext): {
       o2DemandKgH += (reactor.o2Demand * reactor.volume) / 1000;
       codOxidizedKgH += (Math.max(0, -r.S_S) * reactor.volume) / 1000;
       nhOxidizedKgH += (Math.max(0, -r.S_NH) * reactor.volume) / 1000;
+
+      // ── TP 惰性示踪（ASM1 无磷组分）──
+      // ASM1 不建模生物除磷。若放任 reactor.tp 停留在初值，出水 TP 会永远贴着下限 0.01，
+      // PAC 投加与进水 TP 冲击对结果毫无影响，TP 告警/决策维度完全失效。
+      // 这里把 TP 当作保守示踪剂随水力稀释输运（入流 TP 经 RAS 回流累积到与进水同量级），
+      // 化学除磷（PAC）在出水阶段统一扣除——进水冲击与药剂决策因此真实可感。
+      // 模型边界如实标注：本模式的 TP 不含生物除磷，稳态值会高于 simple 模式。
+      reactor.tp = Math.max(0.005, (reactor.tp + dtH * qOverV * tpIn) / (1 + dtH * qOverV));
       continue;
     }
 
@@ -968,7 +994,7 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
   state.timeMin += dtMin;
   state.rngCount += 1;
 
-  const net: CompiledNetwork = compileNetwork(topo);
+  const net: CompiledNetwork = compileForRun(topo);
   if (net.problems.length) {
     throw new Error(`运行中拓扑失效：${net.problems.join('；')}`);
   }
@@ -995,9 +1021,12 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
   const Qr = Q * rec.ras;
   const Qw = Q * rec.was;
   const Qe = Math.max(1, Q - Qw);
-  const lastReactor = [...state.reactors].sort(
-    (a, b) => net.reactors.find((r) => r.id === b.id)!.order - net.reactors.find((r) => r.id === a.id)!.order,
-  )[0];
+  // 最后一个反应器 = 拓扑序最大的那个；单趟取最大值，取代 sort+find 的 O(n²) 写法
+  const orderById = new Map(net.reactors.map((r) => [r.id, r.order]));
+  let lastReactor = state.reactors[0];
+  for (const r of state.reactors) {
+    if ((orderById.get(r.id) ?? -1) > (orderById.get(lastReactor.id) ?? -1)) lastReactor = r;
+  }
 
   const ctx: StepContext = {
     state,

@@ -71,6 +71,12 @@ const SPECS: ChartSpec[] = [
   },
 ];
 
+/** #rrggbb → rgba(r, g, b, a)，给面积渐变用的极简工具 */
+function withAlpha(hex: string, alpha: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
 function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
   const el = useRef<HTMLDivElement | null>(null);
   const chart = useRef<echarts.ECharts | null>(null);
@@ -103,14 +109,24 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
       return `D${day} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
     });
 
-    const series: LineSeriesOption[] = spec.series.map((s) => ({
+    const series: LineSeriesOption[] = spec.series.map((s, idx) => ({
       name: s.name,
       type: 'line',
       showSymbol: false,
       smooth: 0.25,
-      lineStyle: { width: 1.4, color: s.color },
+      lineStyle: { width: idx === 0 ? 1.8 : 1.3, color: s.color },
       itemStyle: { color: s.color },
-      emphasis: { focus: 'series' },
+      emphasis: { focus: 'series', lineStyle: { width: 2.4 } },
+      // 主序列带一条从实到透明的面积底，读起来有厚度
+      areaStyle:
+        idx === 0
+          ? {
+              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: withAlpha(s.color, 0.14) },
+                { offset: 1, color: withAlpha(s.color, 0) },
+              ]),
+            }
+          : undefined,
       data: trend.map((p) => Number((p[s.key] as number).toFixed(3))),
       yAxisIndex: (s.key as string) === 'influentCod' ? 1 : 0,
     }));
@@ -200,24 +216,26 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
     instance.setOption(
       {
         animation: false,
-        grid: { left: 42, right: 12, top: 22, bottom: 20 },
+        grid: { left: 42, right: 12, top: 20, bottom: 20 },
         tooltip: {
           trigger: 'axis',
-          backgroundColor: 'rgba(8,22,21,0.96)',
-          borderColor: '#1d3b37',
+          backgroundColor: 'rgba(8,22,21,0.97)',
+          borderColor: 'rgba(62,224,181,0.2)',
           borderWidth: 1,
+          padding: [6, 9],
+          extraCssText: 'border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,0.45);backdrop-filter:blur(4px);',
           textStyle: { color: '#e4f2ee', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' },
-          axisPointer: { type: 'line', lineStyle: { color: '#1d3b37' } },
+          axisPointer: { type: 'line', lineStyle: { color: 'rgba(62,224,181,0.25)', width: 1 } },
           valueFormatter: (v: unknown) => (typeof v === 'number' ? v.toFixed(2) : String(v)),
         },
         xAxis: {
           type: 'category',
           data: xData2,
           boundaryGap: false,
-          axisLine: { lineStyle: { color: '#1d3b37' } },
+          axisLine: { lineStyle: { color: 'rgba(29,59,55,0.7)' } },
           axisTick: { show: false },
           axisLabel: {
-            color: '#5f7d78',
+            color: '#72948d',
             fontSize: 9,
             interval: Math.max(0, Math.floor(xData2.length / 5)),
             fontFamily: 'JetBrains Mono, monospace',
@@ -232,12 +250,12 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
             axisLine: { show: false },
             axisTick: { show: false },
             axisLabel: {
-              color: '#5f7d78',
+              color: '#72948d',
               fontSize: 9,
               fontFamily: 'JetBrains Mono, monospace',
               formatter: (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1)),
             },
-            splitLine: { lineStyle: { color: 'rgba(29,59,55,0.5)' } },
+            splitLine: { lineStyle: { color: 'rgba(29,59,55,0.35)', type: 'dashed' } },
           },
           {
             type: 'value',
@@ -272,10 +290,20 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
   return (
     <div className="trend-cell">
       <div className="trend-head">
-        <span className="trend-title">{spec.title}</span>
-        <span className="trend-now" style={{ color: spec.series[0].color }}>
-          {readout}
-        </span>
+        <div className="trend-title-row">
+          <span className="trend-title">{spec.title}</span>
+          <span className="trend-now" style={{ color: spec.series[0].color }}>
+            {readout}
+          </span>
+        </div>
+        <div className="trend-legend">
+          {spec.series.map((s) => (
+            <span className="trend-legend-item" key={s.key}>
+              <span className="trend-legend-dot" style={{ background: s.color }} />
+              {s.name}
+            </span>
+          ))}
+        </div>
       </div>
       <div className="trend-canvas" ref={el} role="img" aria-label={`${spec.title} 趋势图，单位 ${spec.unit}`} />
     </div>

@@ -384,3 +384,40 @@ describe('plantModel 空状态边界', () => {
     expect(b.ph).toBe(7);
   });
 });
+
+describe('回归：多点进水与 TP 维度（修复 H1/H2）', () => {
+  it('多点进水按端口语义分配，与边声明顺序无关', () => {
+    const reorder = clone();
+    const anaEdge = reorder.connections.find((c) => c.id === 'c-primary-anaerobic')!;
+    const stepEdge = reorder.connections.find((c) => c.id === 'c-primary-anoxic-stepfeed')!;
+    const stormEdge = reorder.connections.find((c) => c.id === 'c-storm-anaerobic')!;
+    // 把多点进水边与调蓄回流边全部挪到主进水边之前（声明顺序逆序场景）
+    reorder.connections = [
+      stepEdge,
+      stormEdge,
+      ...reorder.connections.filter((c) => c !== anaEdge && c !== stepEdge && c !== stormEdge),
+      anaEdge,
+    ];
+    const net = compileNetwork(reorder);
+    const f = resolveFlows(net, 1500, { ras: 0.8, ir: 2.0, was: 0.0085, stepFeed: 0.3 });
+    // 主流仍进厌氧池主进水边，多点进水进缺氧池，调蓄回流不单列（并入主进水口径）
+    expect(f.edgeFlow.get(anaEdge.id)).toBeCloseTo(1500 * 0.7, 0);
+    expect(f.edgeFlow.get(stepEdge.id)).toBeCloseTo(1500 * 0.3, 0);
+    expect(f.edgeFlow.get(stormEdge.id)).toBe(0);
+    expect(f.reactorInflow.get('anaerobic')).toBeCloseTo(1500 * 0.7 + 1500 * 0.8, 0);
+  });
+
+  it('ASM1 模式 TP 是真实维度：响应 PAC 且不再贴地（修复 H2）', () => {
+    const run = (pacDose: number) =>
+      spinUpNetwork(
+        createNetworkState(PLANT_TOPOLOGY, { seed: 7, model: 'asm1', controls: { pacDose } }),
+        PLANT_TOPOLOGY,
+        5,
+      );
+    const noPac = run(0);
+    const maxPac = run(60);
+    expect(noPac.effluent.tp).toBeGreaterThan(1); // 无化学除磷时 TP 随进水负荷累积
+    expect(maxPac.effluent.tp).toBeLessThan(noPac.effluent.tp - 0.5); // PAC 真实拉低 TP
+    expect(maxPac.effluent.tp).toBeGreaterThan(0.05); // 不再是永远贴着下限 0.01
+  });
+});

@@ -36,11 +36,19 @@ export interface CompiledEdge {
   id: string;
   from: string;
   to: string;
+  fromPort: string;
+  toPort: string;
   stream: StreamKind;
   /** 回流边：流量由控制变量决定，不由物料平衡推导 */
   recycle: boolean;
   /** 回流类型，用于取对应的控制量 */
   recycleKind?: 'ras' | 'internal' | 'was';
+  /**
+   * 厂外来水的语义表达式名：'influentFlow'=主进水干管，'stepFeedFraction'=多点进水，
+   * 'returnFlow'=调蓄回流，'stormDivertFlow'=暴雨旁通（不进反应器）。
+   * 流量分流必须按此语义确定，不能依赖边的声明顺序。
+   */
+  flowRef?: string;
 }
 
 export interface CompiledNetwork {
@@ -125,9 +133,12 @@ export function compileNetwork(topo: ProcessTopology): CompiledNetwork {
       id: conn.id,
       from: conn.from.unit,
       to: conn.to.unit,
+      fromPort: conn.from.port,
+      toPort: conn.to.port,
       stream: conn.stream,
       recycle,
       recycleKind,
+      flowRef: conn.flowRef,
     });
   }
 
@@ -160,7 +171,10 @@ export function compileNetwork(topo: ProcessTopology): CompiledNetwork {
   for (const r of reactors) r.order = orderIndex.get(r.id) ?? reactors.length;
 
   // 二沉池的来水：主序列里最靠后的反应器（没有前向出边的那个）
-  const lastReactor = [...reactors].sort((a, b) => b.order - a.order)[0];
+  let lastReactor = reactors[0];
+  for (const r of reactors) {
+    if (r.order > lastReactor.order) lastReactor = r;
+  }
   const clarifierFrom = lastReactor?.id ?? '';
 
   const bioVolume = reactors.reduce((s, r) => s + r.volume, 0);
@@ -244,9 +258,13 @@ export function resolveFlows(
   }
 
   // 2. 按拓扑序做一次水力传播。每个节点的入流只由「已确定的上游出流」+「回流」+「厂外来水」组成。
+  // 厂外来水的主进水分配整张拓扑只执行一次：若每个反应器各自分配，第二个带外部边的反应器
+  // 会再凭空拿走一份 (inflow - stepFeedFlow)，破坏质量守恒（预存缺陷，一并修复）。
+  let externalAssigned = false;
+  let mainEdgeId: string | null = null;
+
   for (const reactor of ordered) {
     let qIn = 0;
-    let externalAssigned = false;
 
     for (const e of hydraulicIn(reactor.id)) {
       if (e.recycle) {
@@ -259,20 +277,25 @@ export function resolveFlows(
         continue;
       }
       if (edgeFlow.has(e.id)) {
-        // 多点进水等已在上游分配过的厂外支线
-        qIn += edgeFlow.get(e.id) ?? 0;
+        // 多点进水等已在上游分配过的厂外支线；主进水边的流量在分配处已计入，跳过避免重复
+        if (e.id !== mainEdgeId) qIn += edgeFlow.get(e.id) ?? 0;
         continue;
       }
       /**
-       * 厂外来水分配。
+       * 厂外来水分配（全图仅执行一次）。
        *
-       * 支持多点进水：直接进入缺氧池的那条支线按 stepFeed 比例分走一部分原水，
-       * 其余原水进首个反应器（厌氧池）。这样缺氧区才有碳源做反硝化，
-       * 否则内回流会把 COD 稀释到几 mg/L，硝酸盐累积、TN 超标。
+       * 支持多点进水：直接进入缺氧池的那条支线（flowRef='stepFeedFraction'）
+       * 按 stepFeed 比例分走一部分原水，其余原水进主进水边。这样缺氧区才有碳源
+       * 做反硝化，否则内回流会把 COD 稀释到几 mg/L，硝酸盐累积、TN 超标。
+       *
+       * 主进水边按 flowRef='influentFlow' 语义确定，而不是按边的声明顺序：
+       * 早先"第一个被遍历到的外部进水边拿走主流量"，一旦用户在编排器里新画边
+       * （新边追加在数组末尾）或重排边顺序，主流会被静默灌进缺氧池/旁路，
+       * 多点进水比例错乱且难以察觉。
        */
       if (!externalAssigned) {
         const stepFeedEdges = network.edges.filter(
-          (x) => x.stream === 'influent' && x.to !== reactor.id && !reactorIds.has(x.from) && !x.recycle,
+          (x) => x.flowRef === 'stepFeedFraction' && !reactorIds.has(x.from) && !x.recycle,
         );
         const stepFeedShare = Math.min(0.5, Math.max(0, controls.stepFeed ?? 0));
         const stepFeedFlow = stepFeedEdges.length > 0 ? inflow * stepFeedShare : 0;
@@ -281,8 +304,19 @@ export function resolveFlows(
           edgeFlow.set(se.id, stepFeedFlow / stepFeedEdges.length);
         }
 
-        edgeFlow.set(e.id, inflow - stepFeedFlow);
+        // 主进水边：外部进水边中带 'influentFlow' 语义的那条；没有则退化为第一条（确定性兜底）
+        const extInfluent = hydraulicIn(reactor.id).filter(
+          (x) => !reactorIds.has(x.from) && !x.recycle && x.stream === 'influent',
+        );
+        const mainEdge = extInfluent.find((x) => x.flowRef === 'influentFlow') ?? extInfluent[0];
+        edgeFlow.set(mainEdge.id, inflow - stepFeedFlow);
         qIn += inflow - stepFeedFlow;
+        mainEdgeId = mainEdge.id;
+        // 其余外部进水边（如调蓄回流）不重复计流量：水量已并入主进水口径，
+        // 这里显式写 0，保证每条边的流入口径都存在（否则前端会显示 undefined）
+        for (const x of extInfluent) {
+          if (!edgeFlow.has(x.id)) edgeFlow.set(x.id, 0);
+        }
         externalAssigned = true;
       } else {
         edgeFlow.set(e.id, edgeFlow.get(e.id) ?? 0);
