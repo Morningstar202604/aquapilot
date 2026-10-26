@@ -22,10 +22,10 @@ export interface AgentConfigApi {
   reload: () => void;
   requestPreview: (question?: string, config?: AgentConfig) => void;
   importSkill: (skill: {
-    name: string;
-    description: string;
-    triggers: string[];
-    content: string;
+    name?: string;
+    description?: string;
+    triggers?: string[];
+    content?: string;
     url?: string;
   }) => void;
 }

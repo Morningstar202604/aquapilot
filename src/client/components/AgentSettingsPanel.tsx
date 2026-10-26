@@ -143,6 +143,7 @@ export function AgentSettingsPanel({ agent, open, onClose }: Props) {
   const importSkill = () => {
     const url = importUrl.trim();
     if (!url) return;
+    // 只传 url：正文由服务端抓取（浏览器直连会撞 CORS，也绕不开 SSRF 守卫）
     agent.importSkill({
       name:
         url
@@ -151,7 +152,6 @@ export function AgentSettingsPanel({ agent, open, onClose }: Props) {
           ?.replace(/\.(md|txt|json)$/i, '') || '导入技能',
       description: `从 ${url} 导入`,
       triggers: [],
-      content: url,
       url,
     });
     setImportUrl('');
