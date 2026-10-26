@@ -155,6 +155,14 @@ export function useSimulation() {
         setLink({ connected: true, error: null, lastUpdateAt: null });
         retry.current = 0;
         ws.send(JSON.stringify({ type: 'hello' } satisfies ClientMessage));
+        /**
+         * 连接建立后主动拉一次配置。
+         *
+         * 否则顶栏「设置」菜单和状态点在用户打开面板前永远是「未配置」，
+         * 明明已经配好模型/角色也显示空——这是实测发现的误导。
+         */
+        ws.send(JSON.stringify({ type: 'llmConfig', action: 'get' } satisfies ClientMessage));
+        ws.send(JSON.stringify({ type: 'agentConfig', action: 'get' } satisfies ClientMessage));
       };
       // 发送缓冲降到低水位时冲刷背压积压的最后一条意图
       ws.addEventListener('bufferedamountlow', () => {

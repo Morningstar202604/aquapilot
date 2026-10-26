@@ -2,6 +2,7 @@ import { CONTROL_BOUNDS, labelOf, precisionOf } from './labels';
 import type { ControlSettings } from '../../sim/config';
 import type { PlantSnapshot } from '../../shared/protocol';
 import type { ProcessTopology, UnitSpec } from '../../model/topology';
+import { UNIT_KIND_ICON } from './unitIcons';
 
 interface Props {
   snap: PlantSnapshot;
@@ -54,7 +55,10 @@ export function UnitInspector({ snap, topo, unit, onClose, onSelect, onChangeCon
   return (
     <div className="unit-inspector" role="dialog" aria-label={`${unit.name} 属性`}>
       <div className="unit-inspector-head">
-        <span className="unit-kind-badge">{KIND_LABEL[unit.kind] ?? unit.kind}</span>
+        <span className="unit-kind-badge" aria-hidden="true">
+          {UNIT_KIND_ICON[unit.kind] ?? '▢'}
+        </span>
+        <span className="unit-kind-label">{KIND_LABEL[unit.kind] ?? unit.kind}</span>
         <span className="unit-inspector-title">{unit.name}</span>
         <button className="model-close" onClick={onClose} aria-label="关闭单元属性">
           ×
@@ -115,6 +119,32 @@ export function UnitInspector({ snap, topo, unit, onClose, onSelect, onChangeCon
             进 {incoming.length} · 出 {outgoing.length}
           </b>
         </div>
+        {unit.meta && Object.keys(unit.meta).length > 0 && (
+          <details className="unit-meta">
+            <summary>设备参数（{Object.keys(unit.meta).length}）</summary>
+            {Object.entries(unit.meta).map(([k, v]) => (
+              <div className="unit-inspector-row" key={k}>
+                <span>{k}</span>
+                <b>{String(v)}</b>
+              </div>
+            ))}
+          </details>
+        )}
+        {incoming.length > 0 && (
+          <details className="unit-meta">
+            <summary>连接的物流（{incoming.length + outgoing.length}）</summary>
+            {incoming.map((c) => (
+              <div className="unit-link-row" key={c.id}>
+                <span className="unit-link-dot" data-stream={c.stream} />进 · {c.from.unit}.{c.from.port}
+              </div>
+            ))}
+            {outgoing.map((c) => (
+              <div className="unit-link-row" key={c.id}>
+                <span className="unit-link-dot" data-stream={c.stream} />出 · {c.to.unit}.{c.to.port}
+              </div>
+            ))}
+          </details>
+        )}
 
         {tickets.length > 0 && (
           <>

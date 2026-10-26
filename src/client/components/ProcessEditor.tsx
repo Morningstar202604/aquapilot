@@ -11,6 +11,8 @@ import {
   deriveTrain,
 } from '../../model/topology';
 import { checkRunReadiness } from '../../sim/topologyEngine';
+import { layoutTopology } from '../../model/layout';
+import { alignNodes, distributeNodes, type AlignMode } from '../hooks/editorSelection';
 import { PlantCanvas } from './PlantCanvas';
 import type { PlantSnapshot } from '../../shared/protocol';
 
@@ -24,6 +26,9 @@ interface Props {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  /** 外部（App 的 Delete 快捷键）需要知道当前选中项 */
+  selectedId?: string | null;
+  onSelectedChange?: (id: string | null) => void;
 }
 
 interface PaletteEntry {
@@ -211,8 +216,30 @@ function nextId(topo: ProcessTopology, kind: UnitKind): string {
   return `${kind}${i}`;
 }
 
-export function ProcessEditor({ snap, topology, onChange, onApply, dirty, canUndo, canRedo, onUndo, onRedo }: Props) {
-  const [selected, setSelected] = useState<string | null>(null);
+export function ProcessEditor({
+  snap,
+  topology,
+  onChange,
+  onApply,
+  dirty,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
+  selectedId,
+  onSelectedChange,
+}: Props) {
+  const [internalSelected, setInternalSelected] = useState<string | null>(null);
+  /**
+   * 选中项可以是外部受控（App 的 Delete 快捷键要用），也可以是本地状态。
+   * 两者同步：外部给了就用外部，否则用内部，任何变化都回调出去。
+   */
+  const selected = selectedId !== undefined ? selectedId : internalSelected;
+  const setSelected = (id: string | null) => {
+    setInternalSelected(id);
+    onSelectedChange?.(id);
+  };
+  const [selection, setSelection] = useState<string[]>([]);
   const [pane, setPane] = useState<'inspector' | 'connections' | 'check'>('inspector');
   const [connectMode, setConnectMode] = useState<{ fromUnit: string; port: string; stream: StreamKind } | null>(null);
 
@@ -322,6 +349,20 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty, canUnd
     addUnit(entry, { x, y });
   };
 
+  /**
+   * 多选对齐/分布。
+   *
+   * 几何计算全在 hooks/editorSelection（纯函数，有单测），这里只负责
+   * 把结果合并进拓扑的 positions，走同一条撤销栈。
+   */
+  const layoutNodes = useMemo(() => layoutTopology(topology, { laneGap: 96 }).nodes, [topology]);
+  const applyMoves = (moves: Record<string, { x: number; y: number }>) => {
+    if (Object.keys(moves).length === 0) return;
+    onChange({ ...topology, positions: { ...(topology.positions ?? {}), ...moves } });
+  };
+  const alignNodesBy = (mode: AlignMode) => alignNodes(layoutNodes, selection, mode);
+  const distributeNodesBy = (axis: 'x' | 'y') => distributeNodes(layoutNodes, selection, axis);
+
   const beginConnect = (unitId: string, port: string, stream: StreamKind) => {
     setConnectMode({ fromUnit: unitId, port, stream });
     setPane('connections');
@@ -421,6 +462,11 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty, canUnd
             {topology.units.length} 单元 · {topology.connections.length} 物流
           </span>
           <span className="pill">{errors.length} 错误</span>
+          {selection.length > 1 && (
+            <span className="pill" data-tone="amber" data-active>
+              已选 {selection.length} 个
+            </span>
+          )}
           <span className="toolbar-spacer" />
           {connectMode && (
             <span className="pill" data-tone="amber">
@@ -455,8 +501,75 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty, canUnd
           <button className="pill" data-active={readiness.ready} onClick={onApply} disabled={!readiness.ready}>
             应用到仿真
           </button>
+          {selection.length >= 2 && (
+            <span className="editor-align-group" role="group" aria-label="对齐">
+              <button
+                className="pill"
+                title="左对齐"
+                aria-label="左对齐"
+                onClick={() => applyMoves(alignNodesBy('left'))}
+              >
+                左对齐
+              </button>
+              <button
+                className="pill"
+                title="顶部对齐"
+                aria-label="顶部对齐"
+                onClick={() => applyMoves(alignNodesBy('top'))}
+              >
+                顶对齐
+              </button>
+              <button
+                className="pill"
+                title="右对齐"
+                aria-label="右对齐"
+                onClick={() => applyMoves(alignNodesBy('right'))}
+              >
+                右对齐
+              </button>
+              <button
+                className="pill"
+                title="底部对齐"
+                aria-label="底部对齐"
+                onClick={() => applyMoves(alignNodesBy('bottom'))}
+              >
+                底对齐
+              </button>
+              {selection.length >= 3 && (
+                <>
+                  <button
+                    className="pill"
+                    title="水平等距"
+                    aria-label="水平等距"
+                    onClick={() => applyMoves(distributeNodesBy('x'))}
+                  >
+                    横等距
+                  </button>
+                  <button
+                    className="pill"
+                    title="垂直等距"
+                    aria-label="垂直等距"
+                    onClick={() => applyMoves(distributeNodesBy('y'))}
+                  >
+                    竖等距
+                  </button>
+                </>
+              )}
+              <button
+                className="pill"
+                title="取消多选（Esc）"
+                aria-label="取消多选"
+                onClick={() => setSelection(selected ? [selected] : [])}
+              >
+                取消
+              </button>
+            </span>
+          )}
         </div>
 
+        <div className="editor-hint-bar" role="note">
+          拖动移动 · Shift 点选多个 · 空白处拖框选 · 点出口→点入口连线 · 方向键微调 · Del 删除 · Ctrl+Z 撤销
+        </div>
         {dirty && (
           <div className="draft-banner">
             拓扑已修改但尚未应用。运行中的厂仍是旧拓扑；点「应用到仿真」会以当前拓扑重建厂并重跑预热。
@@ -477,7 +590,15 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty, canUnd
             topology={topology}
             snap={snap}
             selected={selected}
-            onSelect={setSelected}
+            selection={selection}
+            onSelectionChange={(ids) => {
+              setSelection(ids);
+              setSelected(ids[ids.length - 1] ?? null);
+            }}
+            onSelect={(id) => {
+              setSelected(id);
+              setSelection(id ? [id] : []);
+            }}
             connectMode={connectMode}
             onCancelConnect={() => setConnectMode(null)}
             invalidIds={new Set(errors.map((e) => e.unitId).filter(Boolean) as string[])}
@@ -743,6 +864,8 @@ function EditorCanvas({
   onChange,
   onBeginConnect,
   onCompleteConnect,
+  selection,
+  onSelectionChange,
 }: {
   topology: ProcessTopology;
   snap: PlantSnapshot;
@@ -754,9 +877,14 @@ function EditorCanvas({
   onChange: (topo: ProcessTopology) => void;
   onBeginConnect: (unitId: string, portId: string) => void;
   onCompleteConnect: (unitId: string, portId: string) => void;
+  selection: string[];
+  onSelectionChange: (ids: string[]) => void;
 }) {
   const moveUnit = (id: string, x: number, y: number) => {
     onChange({ ...topology, positions: { ...(topology.positions ?? {}), [id]: { x, y } } });
+  };
+  const moveUnits = (moves: Record<string, { x: number; y: number }>) => {
+    onChange({ ...topology, positions: { ...(topology.positions ?? {}), ...moves } });
   };
   return (
     <div className="editor-stage">
@@ -767,7 +895,10 @@ function EditorCanvas({
         onSelect={onSelect}
         fit="flow"
         editable
+        selection={selection}
+        onSelectionChange={onSelectionChange}
         onMoveUnit={moveUnit}
+        onMoveUnits={moveUnits}
         connectFrom={connectMode ? { unitId: connectMode.fromUnit, portId: connectMode.port } : null}
         onPortClick={(unitId, portId, kind) => {
           if (connectMode) {

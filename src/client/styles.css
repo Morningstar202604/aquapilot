@@ -2013,11 +2013,15 @@ button {
 .editor-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  row-gap: 6px;
   gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(62, 224, 181, 0.025), transparent 60%), var(--panel);
   flex: none;
+  /* 1280 宽下多选时会同时出现 4 个对齐按钮，必须允许换行，否则挤压右侧面板 */
+  min-height: 0;
 }
 
 .toolbar-spacer {
@@ -3507,4 +3511,217 @@ button {
   color: var(--text);
   font-family: var(--mono);
   font-weight: 500;
+}
+
+/* 框选矩形 */
+.marquee-rect {
+  fill: rgba(62, 224, 181, 0.08);
+  stroke: var(--water);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
+.plant-node[data-multi='true'] rect:first-of-type {
+  stroke: var(--water);
+  stroke-width: 2;
+}
+
+.editor-align-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 0 2px 8px;
+  margin-left: 2px;
+  border-left: 1px solid var(--line);
+}
+
+.editor-hint-bar {
+  flex: none;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(62, 224, 181, 0.03);
+  font-size: 10px;
+  color: var(--text-3);
+  letter-spacing: 0.02em;
+}
+
+.unit-meta {
+  margin-top: 6px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.unit-meta summary {
+  cursor: pointer;
+  padding: 5px 0;
+  font-size: 10.5px;
+  color: var(--text-3);
+  list-style: none;
+}
+
+.unit-meta summary::-webkit-details-marker {
+  display: none;
+}
+
+.unit-meta summary::before {
+  content: '▸ ';
+  font-size: 9px;
+}
+
+.unit-meta[open] summary::before {
+  content: '▾ ';
+}
+
+.unit-meta summary:hover {
+  color: var(--water);
+}
+
+.unit-kind-label {
+  flex: none;
+  font-size: 9.5px;
+  color: var(--text-3);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1px 5px;
+}
+
+.unit-kind-badge {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--water);
+  line-height: 1;
+}
+
+.unit-icon {
+  font-family: var(--mono);
+  font-size: 11px;
+  fill: var(--water-dim);
+  pointer-events: none;
+}
+
+.port-label {
+  font-size: 8.5px;
+  fill: var(--text-3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+
+/**
+ * 端口标签只在两种时刻出现：鼠标悬停该端口，或正处于连线模式。
+ *
+ * 常显试过：池子间距只有 30px，8.5px 的「进水」会压到右边节点的标题上，
+ * 整张图反而更糊。颜色（进水蓝/混合液绿/回流黄/空气浅蓝）已经能分区，
+ * 标签只在需要精确确认时出现。
+ */
+.plant-canvas-flow .port-dot[data-active='true'] + .port-label,
+.plant-canvas-flow.connecting .port-label {
+  opacity: 0.9;
+}
+
+.port-dot:hover + .port-label {
+  opacity: 1;
+  fill: var(--text);
+}
+
+/* 顶栏设置菜单 */
+.topbar-menu {
+  position: relative;
+}
+
+.topbar-menu-caret {
+  font-size: 8px;
+  color: var(--text-3);
+  margin-left: 1px;
+}
+
+.topbar-menu-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  /* 菜单比触发按钮宽很多：右对齐到按钮会伸到侧栏上，改为左对齐 */
+  left: 0;
+  min-width: 208px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  z-index: 30;
+}
+
+.topbar-menu-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: var(--radius);
+  text-align: left;
+}
+
+.topbar-menu-item:hover,
+.topbar-menu-item:focus-visible {
+  background: rgba(62, 224, 181, 0.08);
+}
+
+.topbar-menu-label {
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+.topbar-menu-hint {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-3);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unit-link-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.unit-link-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--water-dim);
+  flex: none;
+}
+
+.unit-link-dot[data-stream='influent'] {
+  background: #5b9cf5;
+}
+.unit-link-dot[data-stream='mixed_liquor'] {
+  background: #2fa88c;
+}
+.unit-link-dot[data-stream='return_activated_sludge'] {
+  background: #f0a83c;
+}
+.unit-link-dot[data-stream='waste_sludge'] {
+  background: #a97b3f;
+}
+.unit-link-dot[data-stream='internal_recycle'] {
+  background: #4fd6e8;
+}
+.unit-link-dot[data-stream='air'] {
+  background: #8fd8e8;
+}
+.unit-link-dot[data-stream='chemical'] {
+  background: #c9a0e8;
+}
+.unit-link-dot[data-stream='effluent'] {
+  background: #3ee0b5;
+}
+.unit-link-dot[data-stream='sludge_cake'] {
+  background: #8a6a45;
 }

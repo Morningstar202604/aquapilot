@@ -23,6 +23,7 @@ import { ModelSettingsPanel } from './components/ModelSettingsPanel';
 import { AgentSettingsPanel } from './components/AgentSettingsPanel';
 import { WatchdogPanel } from './components/WatchdogPanel';
 import { UnitInspector } from './components/UnitInspector';
+import { TopbarMenu } from './components/TopbarMenu';
 import { PLANT } from '../sim/config';
 
 type Tab = 'chat' | 'decision' | 'control' | 'alarms' | 'insights' | 'replay' | 'health';
@@ -34,6 +35,8 @@ export default function App() {
   const [view, setView] = useState<View>('plant');
   const [selectedTank, setSelectedTank] = useState<string | null>(null);
   const [modelPanelOpen, setModelPanelOpen] = useState(false);
+  /** 编辑器内当前选中的单元（用于 Delete 快捷键） */
+  const [editorSelected, setEditorSelected] = useState<string | null>(null);
   const [agentPanelOpen, setAgentPanelOpen] = useState(false);
 
   /**
@@ -52,24 +55,83 @@ export default function App() {
   const undo = () => setHist(undoHistory);
   const redo = () => setHist(redoHistory);
 
-  // 编辑器内 Ctrl/Cmd+Z 撤销、Ctrl/Cmd+Shift+Z 或 Ctrl+Y 重做
+  /**
+   * 编辑器快捷键。
+   *
+   * Ctrl/Cmd+Z 撤销、Ctrl/Cmd+Shift+Z 或 Ctrl+Y 重做；
+   * Delete/Backspace 删除选中单元（只删一个：多选删除需要逐个确认下游接线，
+   * 强行批量删很容易把厂拆散）。输入框里按键不拦截。
+   */
   useEffect(() => {
     if (view !== 'editor') return;
     const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const typing =
+        target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      if (typing) return;
       const mod = e.ctrlKey || e.metaKey;
-      if (!mod) return;
-      if (e.key.toLowerCase() === 'z') {
+      if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         if (e.shiftKey) redo();
         else undo();
-      } else if (e.key.toLowerCase() === 'y') {
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         redo();
+        return;
+      }
+      // 方向键微调选中单元：一次一格（14px），Shift 加速到 5 格
+      if (editorSelected && e.key.startsWith('Arrow')) {
+        e.preventDefault();
+        const step = (e.shiftKey ? 5 : 1) * 14;
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+        const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+        const id = editorSelected;
+        setHist((h) => {
+          const cur = h.idx >= 0 ? h.stack[h.idx] : null;
+          if (!cur) return h;
+          const unit = cur.units.find((u) => u.id === id);
+          if (!unit) return h;
+          const pos = cur.positions?.[id] ?? { x: 0, y: 0 };
+          const next: ProcessTopology = {
+            ...cur,
+            positions: {
+              ...(cur.positions ?? {}),
+              [id]: { x: Math.max(0, pos.x + dx), y: Math.max(0, pos.y + dy) },
+            },
+          };
+          return commitHistory(h, next);
+        });
+        return;
+      }
+      if (e.key === 'Escape') {
+        setEditorSelected(null);
+        return;
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && editorSelected) {
+        e.preventDefault();
+        const id = editorSelected;
+        setHist((h) => {
+          const cur = h.idx >= 0 ? h.stack[h.idx] : null;
+          if (!cur) return h;
+          const next: ProcessTopology = {
+            ...cur,
+            units: cur.units.filter((u) => u.id !== id),
+            connections: cur.connections.filter((c) => c.from.unit !== id && c.to.unit !== id),
+            train: cur.train.filter((t) => t !== id),
+          };
+          const positions = { ...(cur.positions ?? {}) };
+          delete positions[id];
+          next.positions = positions;
+          return commitHistory(h, next);
+        });
+        setEditorSelected(null);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [view, canUndo, canRedo]);
+  }, [view, canUndo, canRedo, editorSelected]);
 
   const snap = sim.snapshot;
 
@@ -183,38 +245,30 @@ export default function App() {
           <button className="pill" onClick={sim.reset}>
             重置
           </button>
-          <button
-            className="pill model-entry"
-            onClick={() => setModelPanelOpen(true)}
-            aria-haspopup="dialog"
-            title={
-              sim.llm.config
-                ? `当前模型：${sim.llm.config.model}`
-                : '配置自定义模型（OpenAI 兼容 / Anthropic / Gemini）'
-            }
-          >
-            <span
-              className="dot"
-              data-live={Boolean(sim.llm.config)}
-              data-tone={sim.llm.config ? undefined : 'amber'}
-            />
-            模型设置
-          </button>
-          <button
-            className="pill model-entry"
-            onClick={() => setAgentPanelOpen(true)}
-            aria-haspopup="dialog"
-            title={
-              sim.agent.config
-                ? `Agent：${sim.agent.config.persona.name} · ${sim.agent.config.permission} · 技能 ${
-                    sim.agent.summary?.skillCount ?? 0
-                  } · 钩子 ${sim.agent.summary?.hookCount ?? 0}`
-                : '配置角色、提示词、技能、钩子、约束与权限'
-            }
-          >
-            <span className="dot" data-live={Boolean(sim.agent.config)} />
-            Agent 设置
-          </button>
+          {/**
+           * 两个配置入口收进一个「设置」菜单。
+           *
+           * 顶栏在 1280 宽下已经排满，配置属于低频操作；菜单项里直接显示当前
+           * 生效值（模型名 / 角色名 / 权限），不点开也知道现在是什么。
+           */}
+          <TopbarMenu
+            label="设置"
+            live={Boolean(sim.llm.config || sim.agent.config)}
+            items={[
+              {
+                key: 'model',
+                label: '模型设置',
+                hint: sim.llm.config ? `${sim.llm.config.model} · ${sim.llm.config.protocol}` : '未配置',
+                onSelect: () => setModelPanelOpen(true),
+              },
+              {
+                key: 'agent',
+                label: 'Agent 设置',
+                hint: sim.agent.config ? `${sim.agent.config.persona.name} · ${sim.agent.config.permission}` : '未配置',
+                onSelect: () => setAgentPanelOpen(true),
+              },
+            ]}
+          />
           <span
             className="health-pill"
             data-grade={snap.health.grade}
@@ -312,6 +366,8 @@ export default function App() {
             <ProcessEditor
               snap={snap}
               topology={draft ?? sim.topology ?? PLANT_TOPOLOGY}
+              selectedId={editorSelected}
+              onSelectedChange={setEditorSelected}
               onChange={commitDraft}
               onApply={() => {
                 if (draft) {

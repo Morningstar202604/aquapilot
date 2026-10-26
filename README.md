@@ -5,7 +5,7 @@
 > An AI-operated wastewater treatment plant simulator.  
 > The plant is a graph, the graph is the model, and an AI operator runs it.
 
-[![tests](https://img.shields.io/badge/tests-591%20passing-brightgreen)](tests)
+[![tests](https://img.shields.io/badge/tests-614%20passing-brightgreen)](tests)
 [![coverage](https://img.shields.io/badge/line%20coverage-95.6%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -178,6 +178,12 @@ The 工艺编排 view follows the conventions of process simulators:
   and duplicate links are rejected at the entry point instead of failing validation.
 - **New biological tanks auto-splice** into the main train between the previous last
   unit and its downstream, so a dropped tank validates with 0 errors.
+- **Multi-select and alignment** — drag on empty canvas to box-select, Shift/Ctrl+click
+  to add; selected units move together and the toolbar exposes left/right/top/bottom
+  alignment plus horizontal/vertical distribution. Arrow keys nudge by one grid step
+  (Shift = 5), Delete removes the selected unit, Esc clears the selection.
+- **Ports are coloured per stream** and show a two-character label on hover or while
+  connecting; every unit kind carries a monospace icon in its title bar.
 - **自动排列** clears manual coordinates and returns to the layered auto layout.
 - **Per-unit inspector** — click any unit in the monitoring view to see its volume,
   live DO/MLSS/NH₄/NO₃, blanket depth and flowsheet degree, plus only the controls
@@ -185,6 +191,8 @@ The 工艺编排 view follows the conventions of process simulators:
   editable in place.
 - **Collapsible groups** in the control panel keep the first screen to one summary
   row per section (current DO / recirculation / PAC / active scenario stay visible).
+- **One settings menu.** 模型设置 and Agent 设置 live behind a single top-bar 设置
+  dropdown that shows the active model / persona / permission inline.
 
 The side-panel **自检** tab shows the server's 10-second health sweep (tick errors,
 clock progress, tick latency, model fallback rate, persistence, Agent config, hooks,

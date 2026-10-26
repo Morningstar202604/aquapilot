@@ -32,6 +32,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   decision panel's candidate comparison) now collapse to one summary row that keeps
   the current DO / recirculation / PAC / active-scenario reading visible.
 
+### Added — selection, alignment and unit-level polish
+
+- **Multi-select with marquee.** Drag on empty canvas to box-select; Shift/Ctrl+click
+  to add or remove. Selected units move together (one undo step), and the toolbar
+  grows an align/distribute group (left/right/top/bottom, horizontal/vertical
+  distribute) that works off the selection bounds.
+- **Keyboard editing.** Arrow keys nudge the selected unit by one 14 px grid step
+  (Shift = 5), Delete removes it together with its links, Esc clears the selection.
+  An always-visible hint bar in the editor lists these bindings.
+- **Port colours and labels.** Port dots now take their stream colour (influent
+  blue, mixed liquor green, RAS amber, air pale blue…) and show a two-character
+  stream label on hover or while connecting.
+- **Unit icons.** Every unit kind has a monospace glyph in its title bar
+  (≣ 格栅, ◉ 好氧, ◎ 二沉, ≋ 鼓风…), so the flowsheet reads without labels at a glance.
+- **Unit inspector grows 设备参数.** The unit's `meta` (metre type, blower count,
+  surface loading…) is available behind a disclosure, and the panel shows the kind
+  icon plus volume/area/depth.
+- **Settings moved into one menu.** 模型设置 and Agent 设置 collapse into a single
+  top-bar 设置 dropdown that also shows the current model / persona / permission
+  inline, and both configs are fetched on connect so the menu is never stale.
+
 ### Changed
 
 - **Overview canvas is denser and readable.** Node sizes, gaps and lane spacing

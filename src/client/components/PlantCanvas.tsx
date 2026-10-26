@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { layoutTopology, portAnchors, PlacedEdge, PlacedNode } from '../../model/layout';
+import { UNIT_KIND_ICON } from './unitIcons';
+import { moveNodes, nodesInRect, nextSelection } from '../hooks/editorSelection';
 import { PLANT_TOPOLOGY, StreamKind, UnitKind, ProcessTopology } from '../../model/topology';
 import type { PlantSnapshot } from '../../shared/protocol';
 
@@ -17,6 +19,11 @@ interface Props {
   editable?: boolean;
   /** 拖动结束回调（图纸坐标）；不传则不可拖 */
   onMoveUnit?: (id: string, x: number, y: number) => void;
+  /** 多选集合；不传时退回单选 selected */
+  selection?: string[];
+  onSelectionChange?: (ids: string[]) => void;
+  /** 多选拖动：一次提交多个单元的新坐标 */
+  onMoveUnits?: (moves: Record<string, { x: number; y: number }>) => void;
   /** 点端口的回调：first=起点，second=终点 */
   onPortClick?: (unitId: string, portId: string, kind: 'in' | 'out') => void;
   connectFrom?: { unitId: string; portId: string } | null;
@@ -73,7 +80,15 @@ export function PlantCanvas({
   onMoveUnit,
   onPortClick,
   connectFrom = null,
+  selection,
+  onSelectionChange,
+  onMoveUnits,
 }: Props) {
+  const selectionIds = selection ?? (selected ? [selected] : []);
+  const pick = (ids: string[]) => {
+    if (onSelectionChange) onSelectionChange(ids);
+    else onSelect(ids[0] ?? null);
+  };
   const [zoom, setZoom] = useState(1);
   /**
    * 节点拖动状态。
@@ -83,12 +98,18 @@ export function PlantCanvas({
    * 而不是每帧一条历史。
    */
   const [drag, setDrag] = useState<{
-    id: string;
+    ids: string[];
     startX: number;
     startY: number;
-    originX: number;
-    originY: number;
   } | null>(null);
+  /**
+   * 框选。
+   *
+   * 两个真相：`marqueeRef` 存最新矩形（pointerup 里必须读到本次拖拽的最终值，
+   * 用 state 会因为异步更新读到上一帧甚至 null），`marquee` state 只负责画。
+   */
+  const marqueeRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   /**
    * 默认全览。
    *
@@ -111,6 +132,7 @@ export function PlantCanvas({
     return typeof window === 'undefined' ? true : window.innerWidth > 900;
   });
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
   const [wrapSize, setWrapSize] = useState({ w: 0, h: 0 });
   /**
    * 拖拽平移。
@@ -131,14 +153,45 @@ export function PlantCanvas({
     if (target.closest('[data-unit-node]') || target.closest('.port-dot')) return;
     const wrap = wrapRef.current;
     if (!wrap) return;
+    /**
+     * 空白处左键拖动：编排模式画框选，其它模式平移画布。
+     * 与 Simulink/Aspen 一致——左键永远是"选择"，看远处靠滚动条与缩放。
+     */
+    if (editable && onSelectionChange && svgRef.current) {
+      const rect = svgRef.current.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / effectiveZoom;
+      const y = (e.clientY - rect.top) / effectiveZoom;
+      marqueeRef.current = { x0: x, y0: y, x1: x, y1: y };
+      setMarquee(marqueeRef.current);
+      // setPointerCapture 对无效 pointerId 会抛 NotFoundError（合成事件、触屏边缘都会遇到），
+      // 捕获失败不影响框选本身，不能让它中断 handler。
+      try {
+        wrap.setPointerCapture?.(e.pointerId);
+      } catch {
+        /* 指针已释放 */
+      }
+      return;
+    }
     // 全览且无滚动余量时不需要拖拽，保持普通点击语义
     if (wrap.scrollWidth <= wrap.clientWidth && wrap.scrollHeight <= wrap.clientHeight) return;
     panState.current = { x: e.clientX, y: e.clientY, left: wrap.scrollLeft, top: wrap.scrollTop };
     setPanning(true);
-    wrap.setPointerCapture?.(e.pointerId);
+    try {
+      wrap.setPointerCapture?.(e.pointerId);
+    } catch {
+      /* 指针已释放 */
+    }
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (marqueeRef.current && svgRef.current) {
+      const rect = svgRef.current.getBoundingClientRect();
+      const x = Math.max(0, (e.clientX - rect.left) / effectiveZoom);
+      const y = Math.max(0, (e.clientY - rect.top) / effectiveZoom);
+      marqueeRef.current = { ...marqueeRef.current, x1: x, y1: y };
+      setMarquee(marqueeRef.current);
+      return;
+    }
     const pan = panState.current;
     const wrap = wrapRef.current;
     if (!pan || !wrap) return;
@@ -147,6 +200,22 @@ export function PlantCanvas({
   };
 
   const endPan = (e: React.PointerEvent<HTMLDivElement>) => {
+    const box = marqueeRef.current;
+    if (box) {
+      const rect = {
+        x: Math.min(box.x0, box.x1),
+        y: Math.min(box.y0, box.y1),
+        w: Math.abs(box.x1 - box.x0),
+        h: Math.abs(box.y1 - box.y0),
+      };
+      // 小于 6px 视为误触（点击空白清除选择）
+      if (rect.w > 6 && rect.h > 6) pick(nodesInRect(layout.nodes, rect));
+      else pick([]);
+      marqueeRef.current = null;
+      setMarquee(null);
+      wrapRef.current?.releasePointerCapture?.(e.pointerId);
+      return;
+    }
     if (!panState.current) return;
     panState.current = null;
     setPanning(false);
@@ -155,10 +224,20 @@ export function PlantCanvas({
 
   /** 图纸坐标 = 屏幕位移 / 缩放比 */
   const onNodePointerDown = (e: React.PointerEvent<SVGGElement>, node: PlacedNode) => {
-    if (!editable || !onMoveUnit) return;
+    if (!editable) return;
     e.stopPropagation();
-    (e.currentTarget as SVGGElement).setPointerCapture?.(e.pointerId);
-    setDrag({ id: node.unit.id, startX: e.clientX, startY: e.clientY, originX: node.x, originY: node.y });
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+    const id = node.unit.id;
+    // 点未选中的单元 → 先选中它；点已选中的 → 保持整组多选再拖
+    const ids = nextSelection(selectionIds, id, additive);
+    if (ids.join() !== selectionIds.join()) pick(ids);
+    if (!ids.includes(id)) return;
+    try {
+      (e.currentTarget as SVGGElement).setPointerCapture?.(e.pointerId);
+    } catch {
+      /* 指针已释放 */
+    }
+    setDrag({ ids, startX: e.clientX, startY: e.clientY });
   };
 
   const onNodePointerMove = (e: React.PointerEvent<SVGGElement>) => {
@@ -166,15 +245,25 @@ export function PlantCanvas({
     e.stopPropagation();
     const dx = (e.clientX - drag.startX) / effectiveZoom;
     const dy = (e.clientY - drag.startY) / effectiveZoom;
-    // 吸附到 14px 网格：和组件库拖入用同一套栅格，图看起来才是"排"出来的
-    const snap = (v: number) => Math.max(0, Math.round(v / 14) * 14);
-    onMoveUnit?.(drag.id, snap(drag.originX + dx), snap(drag.originY + dy));
+    if (drag.ids.length > 1 && onMoveUnits) {
+      const moves = moveNodes(layout.nodes, drag.ids, dx, dy);
+      if (Object.keys(moves).length > 0) onMoveUnits(moves);
+      return;
+    }
+    const dxSnap = Math.round(dx / 14) * 14;
+    const dySnap = Math.round(dy / 14) * 14;
+    const node = layout.nodes.find((n) => n.unit.id === drag.ids[0]);
+    if (node) onMoveUnit?.(node.unit.id, Math.max(0, node.x + dxSnap), Math.max(0, node.y + dySnap));
   };
 
   const endNodeDrag = (e: React.PointerEvent<SVGGElement>) => {
     if (!drag) return;
     e.stopPropagation();
-    (e.currentTarget as SVGGElement).releasePointerCapture?.(e.pointerId);
+    try {
+      (e.currentTarget as SVGGElement).releasePointerCapture?.(e.pointerId);
+    } catch {
+      /* 已释放 */
+    }
     setDrag(null);
   };
 
@@ -328,7 +417,8 @@ export function PlantCanvas({
           }}
         >
           <svg
-            className={fit === 'flow' ? 'plant-canvas plant-canvas-flow' : 'plant-canvas'}
+            ref={svgRef}
+            className={`${fit === 'flow' ? 'plant-canvas plant-canvas-flow' : 'plant-canvas'}${connectFrom ? ' connecting' : ''}`}
             width={fit === 'flow' ? layout.width : undefined}
             height={fit === 'flow' ? layout.height : undefined}
             viewBox={`0 0 ${layout.width} ${layout.height}`}
@@ -391,13 +481,14 @@ export function PlantCanvas({
                 key={node.unit.id}
                 node={node}
                 snap={snap}
-                selected={selected === node.unit.id}
+                selected={selectionIds.includes(node.unit.id)}
+                multiSelected={selectionIds.length > 1 && selectionIds.includes(node.unit.id)}
                 onSelect={onSelect}
                 showLabel={showLabels}
                 liveTank={unitState[node.unit.id]}
                 compactView={fitToWindow || compact === true}
                 editable={editable}
-                dragging={drag?.id === node.unit.id}
+                dragging={Boolean(drag?.ids.includes(node.unit.id))}
                 onPointerDownNode={onNodePointerDown}
                 onPointerMoveNode={onNodePointerMove}
                 onPointerUpNode={endNodeDrag}
@@ -416,6 +507,15 @@ export function PlantCanvas({
                   onPortClick={onPortClick}
                 />
               ))}
+            {marquee && (
+              <rect
+                className="marquee-rect"
+                x={Math.min(marquee.x0, marquee.x1)}
+                y={Math.min(marquee.y0, marquee.y1)}
+                width={Math.abs(marquee.x1 - marquee.x0)}
+                height={Math.abs(marquee.y1 - marquee.y0)}
+              />
+            )}
           </svg>
         </div>
       </div>
@@ -482,6 +582,30 @@ function pipeStartX(edge: PlacedEdge): number {
   return m ? Number(m[1]) : 0;
 }
 
+/** 端口旁的极短标签：只保留区分度最高的两个字 */
+function portShortLabel(stream: StreamKind): string {
+  switch (stream) {
+    case 'influent':
+      return '进水';
+    case 'mixed_liquor':
+      return '混合';
+    case 'return_activated_sludge':
+      return '污泥';
+    case 'waste_sludge':
+      return '排泥';
+    case 'internal_recycle':
+      return '内回';
+    case 'effluent':
+      return '出水';
+    case 'air':
+      return '空气';
+    case 'chemical':
+      return '药剂';
+    case 'sludge_cake':
+      return '泥饼';
+  }
+}
+
 function streamLabel(stream: StreamKind): string {
   switch (stream) {
     case 'influent':
@@ -519,24 +643,37 @@ function PortDots({
       {portAnchors(node).map(({ port, kind, x, y }) => {
         const active = connectFrom?.unitId === node.unit.id && connectFrom.portId === port.id;
         return (
-          <circle
-            key={`${node.unit.id}-${port.id}-${kind}`}
-            cx={x}
-            cy={y}
-            r={active ? 6 : 4.5}
-            className="port-dot"
-            data-kind={kind}
-            data-active={active}
-            data-stream={port.stream}
-            onClick={(e) => {
-              e.stopPropagation();
-              onPortClick?.(node.unit.id, port.id, kind);
-            }}
-          >
-            <title>
-              {kind === 'in' ? '入口' : '出口'} {port.id} · {port.stream}
-            </title>
-          </circle>
+          <g key={`${node.unit.id}-${port.id}-${kind}`}>
+            {/* 端口颜色 = 物流颜色：一眼看出这个口接的是进水、混合液还是空气 */}
+            <circle
+              cx={x}
+              cy={y}
+              r={active ? 6.5 : 4.5}
+              className="port-dot"
+              data-kind={kind}
+              data-active={active}
+              data-stream={port.stream}
+              style={{ stroke: STREAM_COLOR[port.stream] }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onPortClick?.(node.unit.id, port.id, kind);
+              }}
+            >
+              <title>
+                {kind === 'in' ? '入口' : '出口'} {port.id} · {streamLabel(port.stream)}
+                {connectFrom ? '（点击完成连线）' : kind === 'out' ? '（点击开始连线）' : ''}
+              </title>
+            </circle>
+            {/* 悬停放大并显示物流名：小圆点单靠颜色不够，名字直接给出 */}
+            <text
+              x={kind === 'in' ? x - 9 : x + 9}
+              y={y + 3.5}
+              className="port-label"
+              textAnchor={kind === 'in' ? 'end' : 'start'}
+            >
+              {portShortLabel(port.stream)}
+            </text>
+          </g>
         );
       })}
     </g>
@@ -547,6 +684,7 @@ function Node({
   node,
   snap,
   selected,
+  multiSelected = false,
   onSelect,
   showLabel,
   liveTank,
@@ -560,6 +698,7 @@ function Node({
   node: PlacedNode;
   snap: PlantSnapshot;
   selected: boolean;
+  multiSelected?: boolean;
   onSelect: (id: string | null) => void;
   showLabel: boolean;
   liveTank?: {
@@ -590,7 +729,15 @@ function Node({
       data-unit-node={unit.id}
       data-editable={editable}
       data-dragging={dragging}
-      onClick={() => onSelect(selected ? null : unit.id)}
+      data-multi={multiSelected}
+      /**
+       * 编排模式下选择由 pointerdown 负责（要支持 Shift 加选与整组拖动）；
+       * 这里再调 onSelect 会把多选立刻塌成单选，实测踩到过。
+       */
+      onClick={() => {
+        if (editable) return;
+        onSelect(selected ? null : unit.id);
+      }}
       onPointerDown={(e) => onPointerDownNode?.(e, node)}
       onPointerMove={(e) => onPointerMoveNode?.(e)}
       onPointerUp={(e) => onPointerUpNode?.(e)}
@@ -616,7 +763,10 @@ function Node({
         strokeWidth={strokeWidth}
       />
       <rect x={x} y={y} width={w} height="20" rx="2" fill="rgba(6,16,15,0.66)" />
-      <text x={x + 7} y={y + 15} className={compactView ? 'unit-title-lg' : 'unit-title'}>
+      <text x={x + 6} y={y + 14.5} className="unit-icon" aria-hidden="true">
+        {UNIT_KIND_ICON[unit.kind] ?? '▢'}
+      </text>
+      <text x={x + 20} y={y + 15} className={compactView ? 'unit-title-lg' : 'unit-title'}>
         {compactView ? shortName(unit.name) : unit.name}
       </text>
 
