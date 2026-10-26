@@ -193,6 +193,8 @@ The 工艺编排 view follows the conventions of process simulators:
   row per section (current DO / recirculation / PAC / active scenario stay visible).
 - **One settings menu.** 模型设置 and Agent 设置 live behind a single top-bar 设置
   dropdown that shows the active model / persona / permission inline.
+- **Collapsible trend strip** — collapses to one header row so the flowsheet grows
+  (339 → 530 px of canvas at 1280×720); re-expanding restores the three charts.
 
 The side-panel **自检** tab shows the server's 10-second health sweep (tick errors,
 clock progress, tick latency, model fallback rate, persistence, Agent config, hooks,

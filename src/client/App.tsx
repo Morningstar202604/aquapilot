@@ -24,6 +24,7 @@ import { AgentSettingsPanel } from './components/AgentSettingsPanel';
 import { WatchdogPanel } from './components/WatchdogPanel';
 import { UnitInspector } from './components/UnitInspector';
 import { TopbarMenu } from './components/TopbarMenu';
+import { Collapsible } from './components/Collapsible';
 import { PLANT } from '../sim/config';
 
 type Tab = 'chat' | 'decision' | 'control' | 'alarms' | 'insights' | 'replay' | 'health';
@@ -383,7 +384,15 @@ export default function App() {
                     );
                   })()}
               </div>
-              <Trends snap={snap} />
+              <Collapsible
+                title="趋势"
+                summary="COD / 营养盐 / 能耗 · 最近 24 小时"
+                defaultOpen
+                keepMounted
+                className="trend-section"
+              >
+                <Trends snap={snap} />
+              </Collapsible>
             </>
           ) : (
             <ProcessEditor

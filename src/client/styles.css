@@ -273,7 +273,10 @@ button {
   display: grid;
   /* 工艺图是宽扁的（约 3.9:1），按宽度缩放后高度只占约 320px；
      多给它的高度只会变成底部空白，不如让给趋势图。 */
-  grid-template-rows: auto minmax(0, 1fr) minmax(240px, 0.95fr);
+  /* 第三行改为 auto：趋势区自己决定高度——展开时给固定高度，收起时只剩标题条，
+     画布（第二行 1fr）自动吃掉腾出来的空间。之前写死 minmax(240px, .95fr)，
+     折叠趋势后那 240px 仍是空的。 */
+  grid-template-rows: auto minmax(0, 1fr) auto;
   min-height: 0;
   /* 关键：min-width:0 允许 grid 子项收缩，否则内部 SVG 的固有宽度会把整列撑开 */
   min-width: 0;
@@ -3724,4 +3727,56 @@ button {
 }
 .unit-link-dot[data-stream='sludge_cake'] {
   background: #8a6a45;
+}
+
+/* 紧凑趋势：给画布让出高度 */
+.trends-dense .trend-head {
+  padding: 6px 10px 2px;
+}
+
+.trends-dense .trend-legend {
+  display: none;
+}
+
+/* 趋势区可折叠：收起后画布自动变高，展开时图表仍撑满剩余高度 */
+.trend-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--line);
+  background: var(--rail);
+  overflow: hidden;
+}
+
+.trend-section > .collapsible-head {
+  flex: none;
+  min-height: 30px;
+  background: linear-gradient(180deg, rgba(62, 224, 181, 0.02), transparent);
+}
+
+.trend-section > .collapsible-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  display: flex;
+}
+
+/* 折叠时必须是 display:none——上面那条 display:flex 与 .collapsible-body[hidden]
+   特异性相同且写在后面，会覆盖 hidden，导致收起后趋势图仍占满高度（实测踩到）。 */
+.trend-section > .collapsible-body[hidden] {
+  display: none;
+}
+
+.trend-section .trends {
+  flex: 1;
+  min-height: 0;
+  border-top: none;
+}
+
+.trend-section[data-open='false'] {
+  flex: none;
+}
+
+.trend-section[data-open='true'] {
+  height: clamp(200px, 31vh, 300px);
 }

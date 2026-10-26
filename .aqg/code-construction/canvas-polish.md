@@ -13,7 +13,7 @@ behavior_contract_exception: null
 | step | required | evidence | file:line | command/result |
 |---|---|---|---|---|
 | 1. Pattern Mining | yes | 沿用 canvas-ux 的 positions/portAnchors/routeManual；参考 Node-RED 的多选与组操作、Simulink 的对齐工具、Figma 的框选交互；既有测试 layoutManual/collapsible/unitInspector 已就位 | `src/model/layout.ts:300`、`src/client/hooks/editorSelection.ts:1` | 基线 608 tests 全绿 |
-| 2. Behavior Lock | yes | 先写纯几何测试：框选相交、加选语义、外接框、六种对齐、等距分布、批量位移吸附；再补顶栏菜单的展开/关闭/回调（covers: R1, R2, R3, R4） | `tests/editorSelection.test.ts`、`tests/topbarMenu.test.tsx` | 17 + 6 项，先 RED 后 GREEN |
+| 2. Behavior Lock | yes | 先写纯几何测试：框选相交、加选语义、外接框、六种对齐、等距分布、批量位移吸附；再补顶栏菜单的展开/关闭/回调（covers: R1, R2, R3, R4, R5） | `tests/editorSelection.test.ts`、`tests/topbarMenu.test.tsx` | 17 + 6 项，先 RED 后 GREEN |
 | 3. Thin Slice | yes | 每片一条链路：几何纯函数 → 画布多选/框选 → 工具栏对齐 → 键盘微调/删除 → 顶栏菜单 → 检视器补充 | `src/client/hooks/editorSelection.ts`、`PlantCanvas.tsx`、`ProcessEditor.tsx`、`TopbarMenu.tsx`、`UnitInspector.tsx` | 不动求解与校验规则 |
 | 4. Construction Rules | yes | 复用现有 pill/btn/var 样式；菜单零依赖手写；图标用 Unicode 几何符号（不引图标库、不用 emoji）；所有新交互只改草稿 | `src/client/components/unitIcons.ts`、`TopbarMenu.tsx` | 运行时依赖仍为 4 个 |
 | 5. Local Verification | yes | 全量 614 passed / 42 files；tsc 0；eslint 0；prettier clean；build OK；浏览器逐项实测（见下） | `tests/editorSelection.test.ts`、`tests/topbarMenu.test.tsx` | 见浏览器实测 |
@@ -52,6 +52,15 @@ The system MUST show the active model/persona inside the 设置 menu, and MUST f
   - GIVEN a saved model and persona
   - WHEN the page reloads
   - THEN the menu shows "u2-flash · openai" and the persona/permission without opening either dialog
+
+### R5: Trends collapse frees canvas height
+The system MUST collapse the trend strip to a single header row and MUST let the canvas take the freed height.
+
+- Scenario S5.1: collapse trends
+  - GIVEN the monitoring view with the trend strip open
+  - WHEN the trend header is clicked
+  - THEN the strip collapses to its header and the canvas height grows (339 -> 530 at 1280x720)
+  - AND re-expanding restores the three charts
 
 ## Warning Acknowledgements
 

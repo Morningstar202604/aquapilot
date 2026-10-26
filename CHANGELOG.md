@@ -49,6 +49,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - **Unit inspector grows 设备参数.** The unit's `meta` (metre type, blower count,
   surface loading…) is available behind a disclosure, and the panel shows the kind
   icon plus volume/area/depth.
+- **Collapsible trend strip.** The three trend charts collapse to one header row,
+  handing the height back to the flowsheet (canvas 339 → 530 px at 1280×720);
+  re-expanding restores all three charts without re-initialising them.
 - **Settings moved into one menu.** 模型设置 and Agent 设置 collapse into a single
   top-bar 设置 dropdown that also shows the current model / persona / permission
   inline, and both configs are fetched on connect so the menu is never stale.

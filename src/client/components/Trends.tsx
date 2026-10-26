@@ -310,9 +310,15 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
   );
 }
 
-export function Trends({ snap }: Props) {
+/**
+ * 趋势区。
+ *
+ * `dense` 用于把三张图压成一行高度更小的紧凑模式（编排视图或小屏），
+ * 网格列数仍由 CSS 决定，这里只控制内边距与图表高度。
+ */
+export function Trends({ snap, dense = false }: Props & { dense?: boolean }) {
   return (
-    <div className="trends">
+    <div className={dense ? 'trends trends-dense' : 'trends'}>
       {SPECS.map((spec) => (
         <Chart key={spec.key} spec={spec} snap={snap} />
       ))}
