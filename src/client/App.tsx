@@ -133,6 +133,29 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [view, canUndo, canRedo, editorSelected]);
 
+  /**
+   * 全局 Esc：按「最上层」逐级关闭。
+   *
+   * 顺序与视觉层级一致——配置弹窗 → 单元检视器 → 关闭后焦点回到页面。
+   * 之前只有编辑器内响应 Esc，导致监视页打开检视器后按 Esc 没反应。
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (modelPanelOpen) {
+        setModelPanelOpen(false);
+        return;
+      }
+      if (agentPanelOpen) {
+        setAgentPanelOpen(false);
+        return;
+      }
+      if (selectedTank) setSelectedTank(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [modelPanelOpen, agentPanelOpen, selectedTank]);
+
   const snap = sim.snapshot;
 
   const aiEnabled = snap?.controls.aiEnabled ?? true;
