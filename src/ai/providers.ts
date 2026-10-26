@@ -80,6 +80,30 @@ function googleBase(base: string): string {
   return `${normalized}/v1beta`;
 }
 
+/**
+ * 推理强度开关。
+ *
+ * 实测 u2-flash：不干预时推理内容会把 token 预算吃光、content 为空。
+ * OpenAI 兼容端普遍认 `enable_thinking` / `reasoning_effort` / `thinking`，
+ * 这里同时下发前两个——供应商忽略不认识的字段，认识的就生效。
+ * Anthropic / Gemini 走各自的原生字段（Anthropic 用 thinking.budget_tokens）。
+ */
+export function reasoningFields(
+  protocol: LlmProtocol,
+  effort: 'auto' | 'low' | 'off' = 'auto',
+): Record<string, unknown> {
+  if (effort === 'auto') return {};
+  if (protocol === 'openai') {
+    return effort === 'off'
+      ? { enable_thinking: false, reasoning_effort: 'low', thinking: { type: 'disabled' } }
+      : { enable_thinking: true, reasoning_effort: 'low' };
+  }
+  if (protocol === 'anthropic') {
+    return effort === 'off' ? {} : { thinking: { type: 'enabled', budget_tokens: 1024 } };
+  }
+  return {};
+}
+
 function headersFor(protocol: LlmProtocol, apiKey: string): Record<string, string> {
   if (protocol === 'anthropic') {
     return {
@@ -233,6 +257,7 @@ function buildChatRequest(input: LlmTestInput, maxOutput: number): { url: string
           max_tokens: maxOutput,
           temperature: 0,
           stream: false,
+          ...reasoningFields(input.protocol, input.reasoningEffort),
         }),
       },
     };
@@ -354,7 +379,14 @@ export async function testConnection(input: LlmTestInput): Promise<LlmTestResult
 
 /** 供服务端聊天链路复用：把用户问题发到已保存的端点 */
 export async function chatComplete(
-  config: { protocol: LlmProtocol; baseUrl: string; apiKey: string; model: string; maxOutput: number },
+  config: {
+    protocol: LlmProtocol;
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    maxOutput: number;
+    reasoningEffort?: 'auto' | 'low' | 'off';
+  },
   system: string,
   user: string,
   timeoutMs: number,
@@ -381,14 +413,31 @@ export async function chatComplete(
     body.systemInstruction = { parts: [{ text: system }] };
     body.contents = [{ role: 'user', parts: [{ text: user }] }];
   }
+  Object.assign(body, reasoningFields(config.protocol, config.reasoningEffort));
   request.init.body = JSON.stringify(body);
+  /**
+   * 推理模型的预算可能全部烧在 reasoning 上（content 为空、finish_reason=length）。
+   * 这种情况不是链路失败，抬一轮预算再试；两轮都空才算 empty-response。
+   */
+  const budgets = [Math.min(Math.max(config.maxOutput, 64), 4096), 8192];
   try {
-    const res = await fetchWithTimeout(request.url, request.init, timeoutMs);
-    const json = await readJson(res);
-    if (!res.ok) return { ok: false, reason: `http-${res.status}` };
-    const outcome = parseChatReply(config.protocol, json);
-    if (!outcome.reply) return { ok: false, reason: 'empty-response' };
-    return { ok: true, text: outcome.reply };
+    for (const budget of budgets) {
+      const attempt = JSON.parse(String(request.init.body)) as Record<string, unknown>;
+      if (config.protocol === 'openai' || config.protocol === 'anthropic') attempt.max_tokens = budget;
+      else {
+        const gc = (attempt.generationConfig ?? {}) as Record<string, unknown>;
+        gc.maxOutputTokens = budget;
+        attempt.generationConfig = gc;
+      }
+      const init: RequestInit = { ...request.init, body: JSON.stringify(attempt) };
+      const res = await fetchWithTimeout(request.url, init, timeoutMs);
+      const json = await readJson(res);
+      if (!res.ok) return { ok: false, reason: `http-${res.status}` };
+      const outcome = parseChatReply(config.protocol, json);
+      if (outcome.reply) return { ok: true, text: outcome.reply };
+      if (!outcome.emptyBecauseTruncated) return { ok: false, reason: 'empty-response' };
+    }
+    return { ok: false, reason: 'empty-response' };
   } catch (err) {
     if (err instanceof ProviderError && err.message.includes('超时')) return { ok: false, reason: 'timeout' };
     return { ok: false, reason: 'network-error' };

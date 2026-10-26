@@ -8,6 +8,7 @@ import {
   type LlmPublicConfig,
   type LlmDraft,
   type ModelCapabilities,
+  type ReasoningEffort,
 } from '../shared/llm';
 
 /**
@@ -35,6 +36,7 @@ export interface LlmRuntimeConfig {
   model: string;
   maxOutput: number;
   timeoutMs: number;
+  reasoningEffort: ReasoningEffort;
 }
 
 export interface SaveResult {
@@ -85,6 +87,9 @@ export function sanitizeDraft(raw: unknown): { ok: true; draft: LlmDraft } | { o
       model: src.model.trim(),
       capabilities: sanitizeCapabilities(src.capabilities),
       autoCapabilities: typeof src.autoCapabilities === 'boolean' ? src.autoCapabilities : true,
+      reasoningEffort: (['auto', 'low', 'off'] as const).includes(src.reasoningEffort as never)
+        ? (src.reasoningEffort as ReasoningEffort)
+        : 'auto',
     },
   };
 }
@@ -109,6 +114,9 @@ export class LlmConfigStore {
           model: raw.model,
           capabilities: sanitizeCapabilities(raw.capabilities),
           autoCapabilities: raw.autoCapabilities !== false,
+          reasoningEffort: (['auto', 'low', 'off'] as const).includes(raw.reasoningEffort as never)
+            ? (raw.reasoningEffort as ReasoningEffort)
+            : 'auto',
           updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date(0).toISOString(),
         };
       }
@@ -128,6 +136,7 @@ export class LlmConfigStore {
       model: c.model,
       capabilities: { ...c.capabilities },
       autoCapabilities: c.autoCapabilities,
+      reasoningEffort: c.reasoningEffort ?? 'auto',
       hasKey: c.apiKey.length > 0,
       apiKeyMasked: maskApiKey(c.apiKey),
       updatedAt: c.updatedAt,
@@ -145,7 +154,8 @@ export class LlmConfigStore {
       apiKey: c.apiKey,
       model: c.model,
       maxOutput: c.capabilities.maxOutput,
-      timeoutMs: 12000,
+      timeoutMs: 25000,
+      reasoningEffort: c.reasoningEffort ?? 'auto',
     };
   }
 

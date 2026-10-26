@@ -15,6 +15,13 @@ import type { AlarmAttribution, PlantHealth } from '../sim/alarmAttribution';
 import type { BenchmarkSummary } from '../server/benchmark';
 import type { ProcessTopology } from '../model/topology';
 import type { DiscoveredModel, LlmDraft, LlmProtocol, LlmPublicConfig, LlmTestResult } from './llm';
+import type { AgentConfig, AgentSummary } from './agentConfig';
+
+export interface WatchdogReport {
+  at: string;
+  severity: 'ok' | 'warn' | 'error';
+  checks: { id: string; label: string; severity: 'ok' | 'warn' | 'error'; detail: string; action: string }[];
+}
 
 export interface TrendPoint {
   t: number;
@@ -125,7 +132,19 @@ export type ClientMessage =
       maxOutput?: number;
     }
   | { type: 'llmConfig'; action: 'save'; requestId: string; draft: LlmDraft }
-  | { type: 'llmConfig'; action: 'clear'; requestId: string };
+  | { type: 'llmConfig'; action: 'clear'; requestId: string }
+  | { type: 'agentConfig'; action: 'get'; requestId?: string }
+  | { type: 'agentConfig'; action: 'save'; requestId: string; config: AgentConfig }
+  | { type: 'agentConfig'; action: 'patch'; requestId: string; patch: Partial<AgentConfig> }
+  | { type: 'agentConfig'; action: 'reset'; requestId: string }
+  | {
+      type: 'agentConfig';
+      action: 'importSkill';
+      requestId: string;
+      skill: { name?: string; description?: string; triggers?: string[]; content?: string; url?: string };
+    }
+  | { type: 'agentConfig'; action: 'previewPrompt'; requestId: string; question?: string; config?: AgentConfig }
+  | { type: 'watchdog'; action: 'get'; requestId?: string };
 
 /**
  * 增量快照：只包含每个 tick 都会变的字段。
@@ -176,4 +195,26 @@ export type ServerMessage =
   | { type: 'llmConfig'; action: 'discovered'; requestId: string; models: DiscoveredModel[] }
   | { type: 'llmConfig'; action: 'tested'; requestId: string; result: LlmTestResult }
   | { type: 'llmConfig'; action: 'saved'; requestId: string; ok: boolean; config?: LlmPublicConfig; error?: string }
-  | { type: 'llmConfig'; action: 'error'; requestId?: string; error: string };
+  | { type: 'llmConfig'; action: 'error'; requestId?: string; error: string }
+  | {
+      type: 'agentConfig';
+      action: 'state';
+      requestId?: string;
+      config: AgentConfig;
+      summary: AgentSummary;
+      warnings: string[];
+      coreProtected: string[];
+      promptPreview?: string;
+    }
+  | {
+      type: 'agentConfig';
+      action: 'saved';
+      requestId: string;
+      ok: boolean;
+      config?: AgentConfig;
+      summary?: AgentSummary;
+      warnings: string[];
+      error?: string;
+    }
+  | { type: 'agentConfig'; action: 'error'; requestId?: string; error: string }
+  | { type: 'watchdog'; report: WatchdogReport };

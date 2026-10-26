@@ -5,7 +5,7 @@
 > An AI-operated wastewater treatment plant simulator.  
 > The plant is a graph, the graph is the model, and an AI operator runs it.
 
-[![tests](https://img.shields.io/badge/tests-446%20passing-brightgreen)](tests)
+[![tests](https://img.shields.io/badge/tests-570%20passing-brightgreen)](tests)
 [![coverage](https://img.shields.io/badge/line%20coverage-95.6%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -148,6 +148,27 @@ AQUAPILOT_LLM_BASE_URL=...     # fallback when nothing is saved in the UI
 AQUAPILOT_LLM_MODEL=...
 AQUAPILOT_LLM_API_KEY=...
 ```
+
+### Agent settings (persona / prompts / skills / hooks / constraints / permission)
+
+The top-bar **Agent 设置** dialog makes the AI operator itself configurable across
+six tabs: persona and prompt blocks (with a live "preview composed prompt"
+button), a skill library (built-in + custom + URL import), declarative hooks
+(alarm/decision/chat/config events × notice/log/skill/webhook actions), constraint
+engineering (allowed controls, max step size, human approval, forbidden topics),
+and three permission levels (readonly / standard / open) with a read-only core
+protection list.
+
+The same changes work from chat commands (`设置角色 …`, `添加技能 名称|触发词|正文`,
+`约束 允许控制 …`, `权限 完全放开`, `列出技能`, `命令`), from the CLI
+(`npx tsx scripts/agent-config.ts show|set-persona|add-skill|add-hook|permission`),
+or by editing `data/agent-config.json` directly — the server hot-reloads on mtime.
+Core protections (effluent limits, safety guardrails, auth, secrets, kinetics) are
+not part of the writable schema, so no entry point can change them.
+
+The side-panel **自检** tab shows the server's 10-second health sweep (tick errors,
+clock progress, tick latency, model fallback rate, persistence, Agent config, hooks,
+client connections) with an actionable next step per finding.
 
 ### Custom model onboarding
 

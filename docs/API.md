@@ -210,6 +210,48 @@ Protocol endpoints used:
 | `anthropic` | `GET {base}/v1/models?limit=1000` | `POST {base}/v1/messages`                                 |
 | `google`    | `GET {base}/v1beta/models?key=…`  | `POST {base}/v1beta/models/{model}:generateContent?key=…` |
 
+### Agent configuration (`agentConfig`)
+
+Writes go through the WebSocket, the same channel as every other mutation.
+`agentConfig` accepts `get`, `save`, `patch`, `reset`, `importSkill` and
+`previewPrompt`; each carries a `requestId` and answers with
+`{action:"state"|"saved"|"error"}`.
+
+The server-side store is the single gatekeeper for all three write paths (UI,
+chat commands, CLI/file):
+
+| Permission | Can write                                                                     | Cannot                                                      |
+| ---------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `readonly` | nothing                                                                       | everything                                                  |
+| `standard` | persona, prompts, skills, hooks (notice/log/skill), constraints (step ≤ 30 %) | webhook hooks, step > 30 %                                  |
+| `open`     | everything outside the core protection list                                   | effluent limits, safety guardrails, auth, secrets, kinetics |
+
+Core fields (`limits`, `safety`, `auth`, `secrets`, `kinetics`, `guardrails`,
+`core`) are stripped during normalization at any permission level and reported
+back as warnings. The plaintext-free config lives in `data/agent-config.json`
+(mode 0600) and is hot-reloaded whenever its mtime changes, so editing the file
+or running the CLI takes effect without a restart.
+
+Chat commands are parsed before the rule engine; anything starting with 设置 /
+添加 / 删除 / 列出 / 查看 / 约束 / 权限 / 开启 / 关闭 / 恢复 / 命令 is treated as
+configuration and answered with an `editor`-kind answer instead of a plant
+status answer.
+
+### Hooks
+
+Hooks are declarative, never shell: `notice` broadcasts a message, `log` writes a
+structured log line, `skill` registers a skill hit for the next answer, and
+`webhook` POSTs JSON to a URL (open permission only, SSRF guard applies, 5 s
+timeout). Each `(hookId, eventKey)` pair fires at most once per `cooldownMin`.
+
+### Watchdog
+
+The server evaluates nine deterministic checks every 10 seconds and broadcasts a
+`watchdog` frame when the verdict changes: simulation tick errors, clock
+progress, tick latency, model fallback rate, persistence, Agent config warnings,
+hook failures, config file presence, and client connections. Each check carries
+`severity`, `detail` and an actionable `action` string.
+
 ### Chat answers
 
 A `chat` frame from the client always produces a rule-engine answer first. When

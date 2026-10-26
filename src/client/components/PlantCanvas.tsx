@@ -82,6 +82,43 @@ export function PlantCanvas({
   );
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [wrapSize, setWrapSize] = useState({ w: 0, h: 0 });
+  /**
+   * 拖拽平移。
+   *
+   * 全览模式下图装得下，没有滚动余量；1:1 / 放大后才需要拖。
+   * 这里用 pointer 事件手写平移而不是依赖浏览器默认行为：
+   * SVG 内部节点自身有点击选中，pointerdown 只在不落在节点上时启动平移，
+   * 否则会与「点选单元」冲突。
+   */
+  const [panning, setPanning] = useState(false);
+  const panState = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const target = e.target as Element;
+    if (target.closest('[data-unit-node]')) return;
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    // 全览且无滚动余量时不需要拖拽，保持普通点击语义
+    if (wrap.scrollWidth <= wrap.clientWidth && wrap.scrollHeight <= wrap.clientHeight) return;
+    panState.current = { x: e.clientX, y: e.clientY, left: wrap.scrollLeft, top: wrap.scrollTop };
+    setPanning(true);
+    wrap.setPointerCapture?.(e.pointerId);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const pan = panState.current;
+    const wrap = wrapRef.current;
+    if (!pan || !wrap) return;
+    wrap.scrollLeft = pan.left - (e.clientX - pan.x);
+    wrap.scrollTop = pan.top - (e.clientY - pan.y);
+  };
+
+  const endPan = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!panState.current) return;
+    panState.current = null;
+    setPanning(false);
+    wrapRef.current?.releasePointerCapture?.(e.pointerId);
+  };
 
   /**
    * 泳道间距随容器高度自适应。
@@ -208,7 +245,17 @@ export function PlantCanvas({
           </span>
         ))}
       </div>
-      <div className="canvas-wrap" ref={wrapRef} data-fit={fitToWindow ? 'true' : 'false'}>
+      <div
+        className="canvas-wrap"
+        ref={wrapRef}
+        data-fit={fitToWindow ? 'true' : 'false'}
+        data-panning={panning}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endPan}
+        onPointerCancel={endPan}
+        onPointerLeave={endPan}
+      >
         <div
           className="canvas-scaler"
           style={{
@@ -415,6 +462,7 @@ function Node({
   return (
     <g
       className="plant-node"
+      data-unit-node={unit.id}
       onClick={() => onSelect(selected ? null : unit.id)}
       role="button"
       tabIndex={0}

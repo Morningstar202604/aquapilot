@@ -4,6 +4,64 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Agent settings, hooks, watchdog
+
+### Added — the AI operator is now configurable from UI, chat, CLI and file
+
+- **Agent 设置 dialog (top bar, six tabs).** Persona (name/role/tone + answer length),
+  prompt blocks (enable/edit/add/delete), skill library (4 built-ins + custom + URL
+  import), declarative hooks, constraint engineering, and the permission matrix with
+  a read-only core-protection list. A "preview composed prompt" button renders the
+  exact system prompt that will be sent, including the draft — so what you see is
+  what runs.
+- **Chat commands.** `/命令` lists the syntax; `设置角色 首席值班长`,
+  `添加技能 名称|触发词,触发词|正文`, `添加钩子 名称|事件|匹配|动作|目标`,
+  `约束 允许控制 doSetpoint,pacDose`, `约束 人工确认 开`, `权限 完全放开`,
+  `列出技能/钩子/提示词`, `恢复默认配置` all mutate the same store the UI uses.
+  Commands are parsed before the rule engine, so a config command never returns a
+  plant-status answer.
+- **CLI + hot reload.** `scripts/agent-config.ts` (show / set-persona / add-skill /
+  add-hook / add-prompt / set-constraint / permission / reset) writes
+  `data/agent-config.json` atomically; the server watches its mtime and reloads
+  without a restart. A direct file edit behaves the same way.
+- **Constraints actually constrain.** `allowedControls` is enforced on manual
+  control writes (the server rejects the patch with a readable reason) and on AI
+  moves (out-of-scope keys are pinned to the current value); `maxStepPct` clamps
+  every AI control move by the percentage of each control's _range_; and
+  `requireHumanApproval` stops automatic execution while keeping the suggestion.
+- **Declarative hooks.** alarm / decision / chat / config events trigger notice,
+  log, skill or webhook actions with a per-key cooldown. Hooks never execute shell;
+  webhooks require the `open` permission and pass the same SSRF guard as model
+  endpoints (cloud metadata and `169.254/16` rejected, localhost/private allowed).
+- **Permission matrix with a real core-protection boundary.** `readonly` blocks all
+  writes, `standard` allows everything except webhook hooks and step > 30 %,
+  `open` allows the rest. Effluent limits, safety guardrails, authentication,
+  secrets and kinetics are outside the writable schema and stripped during
+  normalization at every level, with a warning returned to the caller.
+- **自检 (watchdog) panel.** The server evaluates nine deterministic checks every
+  10 seconds (tick errors, clock progress, tick latency, model fallback rate,
+  persistence, Agent config warnings, hook failures, config file presence, client
+  connections) and broadcasts a report only when the verdict changes. Each finding
+  carries an actionable next step.
+
+### Fixed
+
+- **Reasoning models produced no "model supplement".** u2-flash spends small token
+  budgets entirely on `reasoning_content` (empty `content`, `finish_reason:
+length`, 17–39 s). The chat path now uses a reasoning-aware budget/timeout,
+  retries once with a larger budget, and exposes a new 推理强度 control
+  (自动 / 压低思考 / 关闭思考) that maps to `enable_thinking` / `reasoning_effort` /
+  `thinking` for OpenAI-compatible endpoints.
+- **Grounded-number check rejected legitimate answers.** It only accepted numbers
+  that appeared literally in the grounding text, so "去除率约 89.6%" (derived from
+  337 and 35) was thrown away. The check now accepts exact derivations (difference,
+  ratio, percentage change, and ratio × 100 when a ≤ b) while still rejecting
+  fabricated magnitudes; a divide-by-zero path that let arbitrary numbers match
+  through `Infinity` was also closed.
+- **Insights showed "100 % saving" on a freshly reset plant.** Zero accumulated
+  volume produced a 0 kWh/m³ reading; the panel now shows 数据不足 until it has a
+  real sample and hides the percentage delta.
+
 ## [Unreleased] — model onboarding
 
 ### Added — custom model onboarding in the UI

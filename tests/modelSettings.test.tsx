@@ -130,7 +130,9 @@ describe('模型设置面板', () => {
     fireEvent.change(ctx, { target: { value: '65536' } });
     fireEvent.click(screen.getByRole('button', { name: '保存并启用' }));
     expect(api.save).toHaveBeenCalledTimes(1);
-    const draft = (api.save as ReturnType<typeof vi.fn>).mock.calls[0][0] as { capabilities: { contextWindow: number } };
+    const draft = (api.save as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      capabilities: { contextWindow: number };
+    };
     expect(draft.capabilities.contextWindow).toBe(65536);
   });
 

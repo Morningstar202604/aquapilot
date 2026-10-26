@@ -465,3 +465,37 @@ describe('影子双跑', () => {
     expect(shadow.state.controls.aiEnabled).toBe(false);
   });
 });
+
+describe('数字白名单的派生命中（真实使用反馈）', () => {
+  const grounding = buildGroundingText({
+    plant: '澄川',
+    simClock: '第 1 天 02:00',
+    facts: [
+      { label: '进水 COD', value: '337', unit: 'mg/L' },
+      { label: '出水 COD', value: '35', unit: 'mg/L' },
+      { label: '出水 SS', value: '8.7', unit: 'mg/L（限值 10）' },
+    ],
+    recommendation: null,
+    risks: [],
+  });
+
+  it('允许由已知数推出的去除率与百分比', () => {
+    expect(numbersAreGrounded('去除率约 89.6%，处理效果良好。', grounding)).toBe(true);
+    expect(numbersAreGrounded('SS 占限值 87%，需关注。', grounding)).toBe(true);
+  });
+
+  it('允许结构性小整数（几步、几小时）', () => {
+    expect(numbersAreGrounded('建议分 3 步处理，2 小时内复核。', grounding)).toBe(true);
+  });
+
+  it('仍然拒绝凭空的测量值', () => {
+    expect(numbersAreGrounded('出水氨氮 42.7 mg/L。', grounding)).toBe(false);
+    expect(numbersAreGrounded('总磷 1.234 mg/L。', grounding)).toBe(false);
+  });
+
+  it('除零不会让任意数字通过（曾因 Infinity 近似匹配放行）', () => {
+    // 337/35≈9.63、337/35*100≈962 都是合法派生值；999.9 只可能被 Infinity 吸附
+    expect(numbersAreGrounded('出水 COD 999.9 mg/L。', grounding)).toBe(false);
+    expect(numbersAreGrounded('出水 COD 42.42 mg/L。', grounding)).toBe(false);
+  });
+});

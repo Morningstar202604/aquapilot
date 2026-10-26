@@ -110,8 +110,14 @@ function Message({ entry }: { entry: ChatEntry }) {
   return (
     <div className="msg">
       <div className="msg-ai">
-        <div className="msg-ai-title">{answer.title}</div>
+        <div className="msg-ai-title">
+          {answer.title}
+          {answer.persona && <span className="msg-ai-persona">{answer.persona}</span>}
+        </div>
         <div className="msg-ai-body">{answer.body}</div>
+        {answer.matchedSkills && answer.matchedSkills.length > 0 && (
+          <div className="msg-ai-skills">命中技能：{answer.matchedSkills.join('、')}</div>
+        )}
         {answer.bullets.length > 0 && (
           <ul className="msg-bullets">
             {answer.bullets.map((b, i) => (

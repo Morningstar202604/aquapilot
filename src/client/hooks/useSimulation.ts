@@ -5,7 +5,30 @@ import type { ControlSettings } from '../../sim/config';
 import type { ScenarioType } from '../../sim/scenarios';
 import type { ProcessTopology } from '../../model/topology';
 import type { DiscoveredModel, LlmDraft, LlmProtocol, LlmPublicConfig, LlmTestResult } from '../../shared/llm';
+import type { AgentConfig, AgentSummary } from '../../shared/agentConfig';
+import type { WatchdogReport } from '../../shared/protocol';
 import { nextSendPlan, reconnectDelayMs } from './wsPolicy';
+
+export interface AgentConfigApi {
+  config: AgentConfig | null;
+  summary: AgentSummary | null;
+  warnings: string[];
+  coreProtected: string[];
+  saving: boolean;
+  lastError: string | null;
+  promptPreview: string | null;
+  save: (config: AgentConfig) => void;
+  reset: () => void;
+  reload: () => void;
+  requestPreview: (question?: string, config?: AgentConfig) => void;
+  importSkill: (skill: {
+    name: string;
+    description: string;
+    triggers: string[];
+    content: string;
+    url?: string;
+  }) => void;
+}
 
 export interface LlmConfigApi {
   /** 保存的配置（含掩码，无明文 key） */
@@ -101,6 +124,17 @@ export function useSimulation() {
   const llmRequestId = useRef(0);
   const llmPending = useRef<Record<string, 'discover' | 'test' | 'save' | 'clear'>>({});
   const llmSaveResolve = useRef<((ok: boolean) => void) | null>(null);
+
+  // Agent 配置（角色/提示词/技能/钩子/约束/权限）
+  const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
+  const [agentSummary, setAgentSummary] = useState<AgentSummary | null>(null);
+  const [agentWarnings, setAgentWarnings] = useState<string[]>([]);
+  const [agentCore, setAgentCore] = useState<string[]>([]);
+  const [agentSaving, setAgentSaving] = useState(false);
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [agentPromptPreview, setAgentPromptPreview] = useState<string | null>(null);
+  const agentRequestId = useRef(0);
+  const [watchdog, setWatchdog] = useState<WatchdogReport | null>(null);
 
   useEffect(() => {
     let closed = false;
@@ -251,6 +285,35 @@ export function useSimulation() {
               llmSaveResolve.current = null;
             }
             break;
+          case 'agentConfig':
+            if (msg.action === 'state') {
+              setAgentConfig(msg.config);
+              setAgentSummary(msg.summary);
+              setAgentWarnings(msg.warnings);
+              setAgentCore(msg.coreProtected);
+              if (msg.promptPreview !== undefined) setAgentPromptPreview(msg.promptPreview);
+              break;
+            }
+            if (msg.action === 'saved') {
+              setAgentSaving(false);
+              setAgentWarnings(msg.warnings ?? []);
+              if (msg.ok) {
+                if (msg.config) setAgentConfig(msg.config);
+                if (msg.summary) setAgentSummary(msg.summary);
+                setAgentError(null);
+              } else {
+                setAgentError(msg.error ?? '保存失败');
+              }
+              break;
+            }
+            if (msg.action === 'error') {
+              setAgentSaving(false);
+              setAgentError(msg.error);
+            }
+            break;
+          case 'watchdog':
+            setWatchdog(msg.report);
+            break;
           default:
             break;
         }
@@ -367,6 +430,41 @@ export function useSimulation() {
     reload: llmReload,
   };
 
+  const nextAgentId = () => {
+    agentRequestId.current += 1;
+    return `agent-${agentRequestId.current}`;
+  };
+  const agentApi: AgentConfigApi = {
+    config: agentConfig,
+    summary: agentSummary,
+    warnings: agentWarnings,
+    coreProtected: agentCore,
+    saving: agentSaving,
+    lastError: agentError,
+    promptPreview: agentPromptPreview,
+    save: (config) => {
+      setAgentSaving(true);
+      setAgentError(null);
+      send({ type: 'agentConfig', action: 'save', requestId: nextAgentId(), config });
+    },
+    reset: () => {
+      setAgentSaving(true);
+      setAgentError(null);
+      send({ type: 'agentConfig', action: 'reset', requestId: nextAgentId() });
+    },
+    reload: () => send({ type: 'agentConfig', action: 'get' }),
+    requestPreview: (question, config) => {
+      setAgentPromptPreview(null);
+      // 预览按草稿算，而不是按已保存的配置：用户改完还没保存也能看到效果
+      send({ type: 'agentConfig', action: 'previewPrompt', requestId: nextAgentId(), question, config });
+    },
+    importSkill: (skill) => {
+      setAgentSaving(true);
+      setAgentError(null);
+      send({ type: 'agentConfig', action: 'importSkill', requestId: nextAgentId(), skill });
+    },
+  };
+
   return {
     snapshot,
     recommendation,
@@ -392,6 +490,9 @@ export function useSimulation() {
     requestTopology,
     applyTopology,
     llm,
+    agent: agentApi,
+    watchdog,
+    watchdogReload: () => send({ type: 'watchdog', action: 'get' }),
   };
 }
 

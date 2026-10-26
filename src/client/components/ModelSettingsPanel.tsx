@@ -40,6 +40,7 @@ export function ModelSettingsPanel({ llm, open, onClose }: Props) {
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState(saved?.model ?? '');
   const [autoCapabilities, setAutoCapabilities] = useState(saved?.autoCapabilities ?? true);
+  const [reasoningEffort, setReasoningEffort] = useState<'auto' | 'low' | 'off'>(saved?.reasoningEffort ?? 'auto');
   const [capabilities, setCapabilities] = useState<ModelCapabilities>(saved?.capabilities ?? DEFAULT_CAPABILITIES);
   const [modelFilter, setModelFilter] = useState('');
   const [listOpen, setListOpen] = useState(true);
@@ -64,6 +65,7 @@ export function ModelSettingsPanel({ llm, open, onClose }: Props) {
     setModel(saved.model);
     setAutoCapabilities(saved.autoCapabilities);
     setCapabilities(saved.capabilities);
+    setReasoningEffort(saved.reasoningEffort ?? 'auto');
     // 保存成功后密钥已落到服务端，浏览器不再保留明文
     setApiKey('');
   }, [saved]);
@@ -73,8 +75,16 @@ export function ModelSettingsPanel({ llm, open, onClose }: Props) {
   // 选中模型后自动匹配能力（端点元数据优先，缺失按命名推断）
   useEffect(() => {
     if (!selectedModel || !autoCapabilities) return;
-    setCapabilities(inferCapabilities(selectedModel, protocol));
-  }, [selectedModel, autoCapabilities, protocol]);
+    const caps = inferCapabilities(selectedModel, protocol);
+    setCapabilities(caps);
+    /**
+     * 推理模型默认「压低思考」。
+     *
+     * 实测 u2-flash 在默认思考下要 30–60 秒才出正文，用户会以为没配置成功；
+     * 压低思考后 6–18 秒返回，答案质量不受影响。用户仍可手动改回「自动」。
+     */
+    if (caps.reasoning && reasoningEffort === 'auto') setReasoningEffort('low');
+  }, [selectedModel, autoCapabilities, protocol, reasoningEffort]);
 
   /**
    * 自动发现：地址与密钥都填好、且与上次尝试的签名不同时，防抖 700ms 后请求。
@@ -115,6 +125,7 @@ export function ModelSettingsPanel({ llm, open, onClose }: Props) {
       model: model.trim(),
       capabilities,
       autoCapabilities,
+      reasoningEffort,
     });
     setSavedAt(new Date().toISOString());
   };
@@ -294,6 +305,21 @@ export function ModelSettingsPanel({ llm, open, onClose }: Props) {
               >
                 {autoCapabilities ? '自动（推荐）' : '自定义'}
               </button>
+            </div>
+            <div className="field" style={{ marginTop: 8 }}>
+              <label htmlFor="llm-reasoning">推理强度</label>
+              <select
+                id="llm-reasoning"
+                value={reasoningEffort}
+                onChange={(e) => setReasoningEffort(e.target.value as 'auto' | 'low' | 'off')}
+              >
+                <option value="auto">自动（按模型默认）</option>
+                <option value="low">压低思考（更快、更省 token）</option>
+                <option value="off">关闭思考（最快，仅下发兼容字段）</option>
+              </select>
+              <div className="model-hint">
+                推理模型（如 u2-flash）默认会把预算花在思考上，回答可达 30–60 秒；选「压低思考」可显著缩短等待。
+              </div>
             </div>
             <div className="model-cap-grid" data-auto={autoCapabilities}>
               {CAP_LABELS.map((cap) => (

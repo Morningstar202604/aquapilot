@@ -570,9 +570,13 @@ export interface Answer {
   body: string;
   bullets: string[];
   confidence: number;
-  kind: 'status' | 'why' | 'whatif' | 'plan' | 'explain' | 'unknown';
+  kind: 'status' | 'why' | 'whatif' | 'plan' | 'explain' | 'editor' | 'unknown';
   /** 回答来源：规则引擎或 LLM（失败降级时仍为 rule） */
   source?: 'rule' | 'llm';
+  /** 生成该回答的 AI 角色名（来自 Agent 配置） */
+  persona?: string;
+  /** 本轮命中的技能名 */
+  matchedSkills?: string[];
 }
 
 export function answer(question: string, model: PlantModel, recommendation: Recommendation | null): Answer {

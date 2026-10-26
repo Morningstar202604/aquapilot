@@ -24,6 +24,8 @@ export interface DiscoveredModel {
   maxOutput?: number;
 }
 
+export type ReasoningEffort = 'auto' | 'low' | 'off';
+
 export interface LlmDraft {
   protocol: LlmProtocol;
   baseUrl: string;
@@ -31,6 +33,8 @@ export interface LlmDraft {
   model: string;
   capabilities: ModelCapabilities;
   autoCapabilities: boolean;
+  /** 推理强度：auto 不干预；low/off 会作为 OpenAI 兼容字段下发。缺省 auto */
+  reasoningEffort?: ReasoningEffort;
 }
 
 export interface LlmPublicConfig {
@@ -39,6 +43,7 @@ export interface LlmPublicConfig {
   model: string;
   capabilities: ModelCapabilities;
   autoCapabilities: boolean;
+  reasoningEffort?: ReasoningEffort;
   hasKey: boolean;
   apiKeyMasked: string;
   updatedAt: string;
@@ -53,6 +58,7 @@ export interface LlmDiscoverInput {
 export interface LlmTestInput extends LlmDiscoverInput {
   model: string;
   maxOutput?: number;
+  reasoningEffort?: ReasoningEffort;
 }
 
 export interface LlmTestResult {

@@ -26,6 +26,8 @@ export interface LlmConfig {
   /** 缺省按 OpenAI 兼容处理，保持既有环境变量行为不变 */
   protocol?: LlmProtocol;
   maxOutput?: number;
+  /** 推理强度：auto 不干预；low 压低思考；off 关闭思考 */
+  reasoningEffort?: 'auto' | 'low' | 'off';
 }
 
 export interface GroundingFact {
@@ -80,19 +82,64 @@ export const SYSTEM_PROMPT = [
 /**
  * 数字白名单校验。
  *
- * 取回答中所有数值，逐个与「grounding 文本里出现的数值」比对：
- * 允许 5% 相对误差（模型可能把 0.59 写成 0.6 或做四舍五入），
- * 但一个完全不存在于数据里的数量级（如凭空出现 42.0）会被拒绝。
+ * 规则演进（真实使用反馈）：
+ * 最早只允许「字面出现在 grounding 里的数字」，结果模型只要写一句
+ * 「去除率约 89.6%」就被整条拒绝——而 89.6 完全是从 337 与 35 推出来的，
+ * 这在事实层面是正确的。过度严格等于把可用回答全挡掉。
+ *
+ * 现在的判定分三层：
+ * 1. 字面命中（含 5% 相对误差，容忍四舍五入）；
+ * 2. 派生命中：任意两个已知数之间的和/差/比值/百分比/变化率；
+ * 3. 结构性小整数：0–12 视为「几步、几小时、几号池」这类计数，不是测量值。
+ *
+ * 真正会伤人的凭空量级（如氨氮 42.7）仍然会被拒。
  */
 export function numbersAreGrounded(answer: string, grounding: string, tolerance = 0.05): boolean {
   const extract = (text: string) => (text.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
   const known = extract(grounding);
   if (known.length === 0) return false;
   const allowed = new Set<number>(known);
+  // 派生值：两两组合的和、差、比值与百分比
+  for (const a of known) {
+    for (const b of known) {
+      if (a === b) continue;
+      allowed.add(a + b);
+      allowed.add(Math.abs(a - b));
+      // 除零会产出 Infinity，而 Infinity 与任何数比较都成立——
+      // 曾经因为这一点，凭空出现的 42.7 被"近似匹配"放行。
+      //
+      // 只保留「人话里真会出现的派生值」：比值与百分比变化。
+      // 曾把 a/b*100 也放进白名单，结果 337/35*100≈962 让 999.9 这类
+      // 凭空数字"近似命中"，所以这类跨量级派生直接不收。
+      if (b !== 0 && Math.abs(a / b) <= 20) {
+        allowed.add(a / b);
+        // 「占限值的 87%」是最高频的派生值：8.7 / 10 × 100。
+        // 只在 a ≤ b（真正的"占比"）时收录，否则 337/35*100≈962 这类
+        // 跨量级乘积会把 999.9 之类的凭空数字吸附成"近似命中"。
+        if (Math.abs(a) <= Math.abs(b)) allowed.add((a / b) * 100);
+      }
+      if (b !== 0) allowed.add(((a - b) / b) * 100);
+      if (a !== 0) {
+        allowed.add(((b - a) / a) * 100);
+        allowed.add(((a - b) / a) * 100);
+      }
+    }
+  }
+  const derived = [...allowed].filter((v) => !known.includes(v));
   for (const n of extract(answer)) {
-    if (allowed.has(n)) continue;
-    const near = known.some((k) => Math.abs(k - n) <= Math.max(Math.abs(k) * tolerance, 0.05));
-    if (!near) return false;
+    // 1) 字面命中，允许四舍五入的 5% 相对误差
+    if (known.some((k) => Math.abs(k - n) <= Math.max(Math.abs(k) * tolerance, 0.05))) continue;
+    /**
+     * 2) 派生命中：只接受近似精确的匹配。
+     * 这里放宽到 0.5% 会误放「100 vs 99.9」这类相邻量级；
+     * 0.05% 相对 + 0.005 绝对既容得下四舍五入（89.6 vs 89.614），
+     * 又不会把凭空数字吸附到 100 这类整数派生值上。
+     */
+    // 变化率天然带符号（-89.6 与 89.6 指同一件事），比较时忽略符号
+    if (derived.some((k) => Math.abs(Math.abs(k) - Math.abs(n)) <= Math.max(Math.abs(k) * 0.0005, 0.005))) continue;
+    // 3) 结构性小整数：步数 / 小时数 / 序号
+    if (Number.isInteger(n) && n >= 0 && n <= 12) continue;
+    return false;
   }
   return true;
 }
@@ -114,6 +161,7 @@ export async function askLlm(
   question: string,
   context: GroundingContext,
   config: LlmConfig | null = readLlmConfig(),
+  systemPrompt: string = SYSTEM_PROMPT,
 ): Promise<LlmAnswer> {
   if (!config) return { ok: false, text: '', reason: 'not-configured' };
   const grounding = buildGroundingText(context);
@@ -124,8 +172,9 @@ export async function askLlm(
       apiKey: config.apiKey,
       model: config.model,
       maxOutput: config.maxOutput ?? 500,
+      reasoningEffort: config.reasoningEffort ?? 'auto',
     },
-    SYSTEM_PROMPT,
+    systemPrompt,
     `${grounding}\n\n操作员问题：${question}`,
     config.timeoutMs,
   );

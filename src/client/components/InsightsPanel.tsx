@@ -15,8 +15,17 @@ const MANUAL_BASELINE = {
 
 export function InsightsPanel({ snap, aiEnabled }: Props) {
   const elapsedHours = Math.max(0.25, snap.totals.elapsedMin / 60);
-  const actualKwhPerM3 = snap.totals.energyKwh / Math.max(1, snap.totals.inflowM3);
-  const energyDelta = ((MANUAL_BASELINE.specificKwh - actualKwhPerM3) / MANUAL_BASELINE.specificKwh) * 100;
+  /**
+   * 复位/刚应用拓扑后的「零样本」保护。
+   *
+   * 累计量被清零时，电耗与成本会被算成 0，界面上显示「比基准省 100%」——
+   * 那是假数据，比不显示更糟。样本不足时明确标为「数据不足」。
+   */
+  const hasSample = snap.totals.inflowM3 >= 500 && snap.totals.elapsedMin >= 10;
+  const actualKwhPerM3 = hasSample ? snap.totals.energyKwh / Math.max(1, snap.totals.inflowM3) : Number.NaN;
+  const energyDelta = hasSample
+    ? ((MANUAL_BASELINE.specificKwh - actualKwhPerM3) / MANUAL_BASELINE.specificKwh) * 100
+    : 0;
   const pacSaving = ((MANUAL_BASELINE.pacDose - snap.controls.pacDose) / MANUAL_BASELINE.pacDose) * 100;
   // 同一口径：电费 + PAC 药费 + 污泥处置，按当日水量与浓度折算
   const dailyFlowM3 = (snap.totals.inflowM3 / elapsedHours) * 24;
@@ -44,10 +53,10 @@ export function InsightsPanel({ snap, aiEnabled }: Props) {
         <div className="compare-grid">
           <Metric
             label="吨水电耗"
-            actual={actualKwhPerM3.toFixed(3)}
-            unit="kWh/m³"
+            actual={hasSample ? actualKwhPerM3.toFixed(3) : '数据不足'}
+            unit={hasSample ? 'kWh/m³' : ''}
             baseline={MANUAL_BASELINE.specificKwh.toFixed(3)}
-            delta={energyDelta}
+            delta={hasSample ? energyDelta : 0}
             better="lower"
           />
           <Metric
@@ -68,15 +77,16 @@ export function InsightsPanel({ snap, aiEnabled }: Props) {
           />
           <Metric
             label="日运行成本"
-            actual={(costPerDay / 1000).toFixed(1)}
-            unit="千元"
+            actual={hasSample ? (costPerDay / 1000).toFixed(1) : '数据不足'}
+            unit={hasSample ? '千元' : ''}
             baseline={(baselineCostPerDay / 1000).toFixed(1)}
-            delta={costDelta}
+            delta={hasSample ? costDelta : 0}
             better="lower"
           />
         </div>
         <div className="control-hint" style={{ marginTop: 8 }}>
           基准值为人工经验控制下的同规模水厂典型运行区间，用于对照，不代表同一时段的实测。
+          {!hasSample && ' 当前累计样本不足（复位或刚应用拓扑），电耗与成本暂不评估。'}
         </div>
       </div>
 
@@ -289,6 +299,8 @@ function Metric({
   better: 'lower' | 'higher';
 }) {
   const good = better === 'lower' ? delta > 0 : delta < 0;
+  // actual 为「数据不足」这类非数值文案时不显示百分比，避免用 0% 假装有结论
+  const numeric = Number.isFinite(Number(actual));
   return (
     <div className="compare-cell">
       <div className="compare-label">{label}</div>
@@ -298,9 +310,13 @@ function Metric({
       </div>
       <div className="compare-foot">
         <span>基准 {baseline}</span>
-        <span className="compare-delta" data-good={good}>
-          {delta > 0 ? '↓' : '↑'} {Math.abs(delta).toFixed(1)}%
-        </span>
+        {numeric ? (
+          <span className="compare-delta" data-good={good}>
+            {delta > 0 ? '↓' : '↑'} {Math.abs(delta).toFixed(1)}%
+          </span>
+        ) : (
+          <span className="compare-delta">—</span>
+        )}
       </div>
     </div>
   );

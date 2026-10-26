@@ -24,7 +24,20 @@ import { buildOperationsReport, decisionsCsv, snapshotsCsv } from './export';
 import { takeNewPoints } from './trendCursor';
 import { createShadowPlant, stepShadow, summarizeBenchmark, type ShadowPlant } from './benchmark';
 import { llmConfigStore, sanitizeDraft } from './llmConfig';
-import { discoverModels, testConnection } from '../ai/providers';
+import { assertSafeBaseUrl, discoverModels, testConnection } from '../ai/providers';
+import { agentConfigStore } from './agentConfig';
+import { HookRuntime } from './hooks';
+import { parseAgentCommand } from './agentConfigCommands';
+import { composeSystemPrompt } from '../ai/promptComposer';
+import { buildReport, type CheckInput } from './watchdog';
+import {
+  CORE_PROTECTED,
+  CONTROL_KEYS,
+  checkAllowedControls,
+  clampControlMoves,
+  normalizeAgentConfig,
+  type AgentConfig,
+} from '../shared/agentConfig';
 import {
   VALID_SCENARIOS,
   sanitizeBoolean,
@@ -414,6 +427,107 @@ function broadcastSnapshot(): void {
   broadcast({ type: 'snapshot', data: buildSnapshot() });
 }
 
+/**
+ * 钩子运行时接线。
+ *
+ * notice 走广播、skill 只登记命中（其内容在下一轮对话的 system prompt 里出现）、
+ * webhook 用内置 fetch 出站（SSRF 已在 hooks.ts 里校验）。
+ */
+const hooksRuntime = new HookRuntime({
+  notice: (text, level) => broadcast({ type: 'notice', level, text: `[钩子] ${text}` }),
+  skill: (skillId) =>
+    broadcast({ type: 'notice', level: 'info', text: `[钩子] 已命中技能 ${skillId}，下一轮回答会引用其步骤` }),
+  logLine: (text, level, hook) => logger[level](text, { hook: hook.name, event: hook.event }),
+  webhook: async (url, body, hook) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Aquapilot-Hook': hook.id },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        hookFailures += 1;
+        logger.warn('hook webhook non-2xx', { hook: hook.name, status: res.status });
+      }
+      return res.ok;
+    } catch (err) {
+      hookFailures += 1;
+      logger.warn('hook webhook failed', { hook: hook.name, error: String(err) });
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+});
+
+/** 告警钩子：只为本 tick 新出现的告警触发一次 */
+function fireAlarmHooks(seen: Set<string>): void {
+  const cfg = agentConfigStore.get();
+  for (const alarm of currentAlarms(runtime.net)) {
+    if (seen.has(alarm.code)) continue;
+    seen.add(alarm.code);
+    void hooksRuntime.fire(cfg, {
+      event: 'alarm',
+      detail: `${alarm.code} ${alarm.message}`,
+      key: alarm.code,
+    });
+  }
+}
+
+const seenAlarmCodes = new Set<string>();
+
+/**
+ * 运行自检：每 10 秒跑一次确定性检查，变化时广播给所有客户端。
+ *
+ * 「派 AI 全程盯着日志」在这里落成了一个可复核的机制：
+ * 检查项是代码里的纯函数，报告带结论与下一步动作，界面直接展示。
+ */
+let lastWatchdogAt = 0;
+let lastWatchdogSnapshot = '';
+let lastSimMinutes = 0;
+let hookFailures = 0;
+
+function watchdogInput(): CheckInput {
+  const status = agentConfigStore.status();
+  const llmRuntime = llmConfigStore.getRuntime();
+  const simMinutes = runtime.net.timeMin;
+  return {
+    tickErrors: metrics.tickErrors,
+    tickDelta: simMinutes - lastSimMinutes,
+    lastTickMs: metrics.lastTickMs,
+    simulationMinutes: simMinutes,
+    paused: runtime.paused,
+    wsActive: metrics.wsActive,
+    llmCalls: metrics.llmCalls,
+    llmFallbacks: metrics.llmFallbacks,
+    persistence: store.enabled ? 'enabled' : 'disabled',
+    persistenceErrors: metrics.persistenceErrors,
+    agentWarnings: status.warnings.length,
+    agentPermission: status.config.permission,
+    hookFailures,
+    llmConfigured: llmRuntime !== null || readLlmConfig() !== null,
+    configPath: status.path,
+  };
+}
+
+function runWatchdog(): void {
+  const now = Date.now();
+  if (now - lastWatchdogAt < 10_000) return;
+  lastWatchdogAt = now;
+  const report = buildReport(watchdogInput());
+  lastSimMinutes = runtime.net.timeMin;
+  const snapshot = report.checks.map((c) => `${c.id}:${c.severity}`).join(',');
+  // 只在结论变化时广播：10 秒一次的相同结论会把面板刷成噪音
+  if (snapshot !== lastWatchdogSnapshot) {
+    lastWatchdogSnapshot = snapshot;
+    logger.info('watchdog report', { severity: report.severity, checks: report.checks.length });
+    broadcast({ type: 'watchdog', report });
+  }
+}
+
 function runAiCycle(force = false): Recommendation {
   const model = networkModel(runtime.topology, runtime.net);
   let rec: Recommendation;
@@ -425,7 +539,28 @@ function runAiCycle(force = false): Recommendation {
     logger.error('ai cycle failed', { error: String(err) });
     throw err;
   }
-  runtime.recommendation = rec;
+  // 约束生效：AI 的第 4 道护栏。allowedControls 之外的控制量保持原值，
+  // 单步幅度按配置限幅，人工确认模式下不自动执行。
+  const agentCfg = agentConfigStore.get();
+  const constrained: Recommendation = { ...rec, chosens: { ...rec.chosens, controls: { ...rec.chosens.controls } } };
+  for (const key of CONTROL_KEYS) {
+    if (!agentCfg.constraints.allowedControls.includes(key)) {
+      constrained.chosens.controls[key] = runtime.net.controls[key] as never;
+    }
+  }
+  constrained.chosens.controls = clampControlMoves(
+    runtime.net.controls,
+    constrained.chosens.controls,
+    agentCfg.constraints.maxStepPct,
+  );
+  constrained.chosens.controls.aiEnabled = runtime.net.controls.aiEnabled;
+  runtime.recommendation = constrained;
+  rec = constrained;
+  void hooksRuntime.fire(agentCfg, {
+    event: 'decision',
+    detail: `${rec.action} ${rec.summary}`,
+    key: rec.action,
+  });
 
   // 人工优先期内不自动执行，只记录建议
   const inManualWindow = runtime.net.timeMin < runtime.manualOverrideUntil;
@@ -434,7 +569,8 @@ function runAiCycle(force = false): Recommendation {
     return rec;
   }
 
-  if (runtime.net.controls.aiEnabled && (rec.action !== 'hold' || force)) {
+  const needsApproval = agentCfg.constraints.requireHumanApproval;
+  if (runtime.net.controls.aiEnabled && !needsApproval && (rec.action !== 'hold' || force)) {
     runtime.net.controls = rec.chosens.controls;
     runtime.net.controls.aiEnabled = true;
     broadcast({
@@ -442,6 +578,8 @@ function runAiCycle(force = false): Recommendation {
       level: rec.severity === 'critical' ? 'warn' : 'info',
       text: `AI 已执行：${rec.summary}`,
     });
+  } else if (needsApproval && rec.action !== 'hold') {
+    broadcast({ type: 'notice', level: 'info', text: `AI 建议（待人工确认）：${rec.summary}` });
   }
   broadcast({ type: 'decision', data: rec });
 
@@ -478,6 +616,10 @@ function advance(): void {
     s.scenario = null;
     broadcast({ type: 'notice', level: 'info', text: '场景窗口结束，恢复正常工况监视。' });
   }
+  // 告警钩子：新出现的告警才触发，消失后从集合里移除，允许下次重新触发
+  const activeCodes = new Set(currentAlarms(s).map((a) => a.code));
+  for (const code of seenAlarmCodes) if (!activeCodes.has(code)) seenAlarmCodes.delete(code);
+  fireAlarmHooks(seenAlarmCodes);
   // 每 10 个 tick 抽一个快照点（约每 20 仿真分钟），用于回放
   if (runtime.tick % 10 === 0) {
     const e = s.effluent;
@@ -500,6 +642,7 @@ function advance(): void {
   if (runtime.aiTick % AI_CYCLE_TICKS === 0) {
     runAiCycle();
   }
+  runWatchdog();
   broadcastPatch();
 }
 
@@ -580,6 +723,30 @@ function buildLlmGrounding(question: string): GroundingContext {
 async function enhanceWithLlm(ws: WebSocket, question: string, ruleAnswer: ReturnType<typeof answer>): Promise<void> {
   const started = Date.now();
   const grounding = buildLlmGrounding(question);
+  const agentCfg = agentConfigStore.get();
+  // 角色、提示词、约束、技能在这里真正拼进 system prompt；
+  // 运行数据仍由 grounding 单独提供，两者职责不混。
+  const composed = composeSystemPrompt({ config: agentCfg, question });
+  /**
+   * 请求预算必须按「回答长度」算，而不是用模型的 maxOutput。
+   *
+   * 曾用 maxOutput=131072 直接当 max_tokens：推理模型会把整段预算烧在
+   * reasoning 上，一次回答跑满 12 秒超时——表现就是「模型补充」永远不出现。
+   * 中文约 1.5–2 字/token，留 2 倍余量再加推理开销即可。
+   */
+  const runtime = llmConfigStore.getRuntime();
+  const reasoningModel = llmConfigStore.getPublic()?.capabilities.reasoning ?? false;
+  const thinkingOn = !runtime || runtime.reasoningEffort === 'auto' || runtime.reasoningEffort === 'low';
+  const outputBudget =
+    reasoningModel && thinkingOn
+      ? 4096
+      : Math.min(4096, Math.max(512, Math.round(agentCfg.constraints.maxAnswerChars * 3 + 600)));
+  /**
+   * 推理模型实测：u2-flash 在 840/2048 token 预算下会把预算全部烧在
+   * reasoning 上、content 仍为空（耗时 17s/39s），4096 才稳定输出正文（约 48s）。
+   * 因此推理链路必须给足预算与超时，否则「配好了却永远没有补充」。
+   */
+  const llmTimeoutMs = reasoningModel && thinkingOn ? 60000 : 25000;
   // 界面保存的配置优先；没有才落回环境变量，保持既有部署方式可用
   const saved = llmConfigStore.getRuntime();
   const result = await askLlm(
@@ -590,16 +757,83 @@ async function enhanceWithLlm(ws: WebSocket, question: string, ruleAnswer: Retur
           baseUrl: saved.baseUrl,
           apiKey: saved.apiKey,
           model: saved.model,
-          timeoutMs: saved.timeoutMs,
+          timeoutMs: llmTimeoutMs,
           protocol: saved.protocol,
-          maxOutput: saved.maxOutput,
+          maxOutput: outputBudget,
+          reasoningEffort: saved.reasoningEffort,
         }
       : readLlmConfig(),
+    composed.prompt,
   );
   metrics.llmCalls += 1;
   if (!result.ok) {
     metrics.llmFallbacks += 1;
     logger.debug('llm fallback', { reason: result.reason, ms: Date.now() - started });
+    /**
+     * 数字白名单没通过时做一次「零数字」重试。
+     *
+     * 推理模型很容易写出「4 小时内」「87%」这类派生数字，被 fail-closed 拦下后
+     * 用户看到的就是「没有模型补充」，却不知道原因。第二次明确要求不写任何
+     * 未提供数字，绝大多数情况能拿到可用文本。
+     */
+    if (result.reason === 'ungrounded-numbers') {
+      const strict = `${composed.prompt}
+
+【最后一次机会】只允许使用数据中已出现的数字；不要写时长、百分比、温度、倍数等任何新增数值。宁可不写数字，也不要推算。`;
+      const retry = await askLlm(
+        question,
+        grounding,
+        saved
+          ? {
+              baseUrl: saved.baseUrl,
+              apiKey: saved.apiKey,
+              model: saved.model,
+              timeoutMs: llmTimeoutMs,
+              protocol: saved.protocol,
+              maxOutput: outputBudget,
+              reasoningEffort: saved.reasoningEffort,
+            }
+          : readLlmConfig(),
+        strict,
+      );
+      metrics.llmCalls += 1;
+      if (!retry.ok) {
+        metrics.llmFallbacks += 1;
+        // 失败必须可见：否则「配置好了却没补充」无法自查
+        ws.send(
+          JSON.stringify({
+            type: 'notice',
+            level: 'warn',
+            text: `模型补充未生成（${reasonText(result.reason)}），已保留规则答案。可在「自检」页查看链路状态。`,
+          } satisfies ServerMessage),
+        );
+        return;
+      }
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(
+        JSON.stringify({
+          type: 'chat',
+          question,
+          answer: {
+            ...ruleAnswer,
+            title: `${ruleAnswer.title} · 模型补充`,
+            body: retry.text,
+            bullets: [],
+            source: 'llm',
+            persona: agentCfg.persona.name,
+            matchedSkills: composed.matchedSkills,
+          },
+        } satisfies ServerMessage),
+      );
+      return;
+    }
+    ws.send(
+      JSON.stringify({
+        type: 'notice',
+        level: 'warn',
+        text: `模型补充未生成（${reasonText(result.reason)}），已保留规则答案。`,
+      } satisfies ServerMessage),
+    );
     return;
   }
   if (ws.readyState !== WebSocket.OPEN) return;
@@ -613,6 +847,8 @@ async function enhanceWithLlm(ws: WebSocket, question: string, ruleAnswer: Retur
         body: result.text,
         bullets: [],
         source: 'llm',
+        persona: agentCfg.persona.name,
+        matchedSkills: composed.matchedSkills,
       },
     } satisfies ServerMessage),
   );
@@ -670,6 +906,68 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         );
         break;
       }
+      // 对话式配置：命令先于规则引擎处理，命中即回执并不再走问答
+      const agentCfgForChat = agentConfigStore.get();
+      const cmd = parseAgentCommand(text, agentCfgForChat);
+      if (cmd.handled) {
+        if (cmd.next) {
+          const outcome = agentConfigStore.save(cmd.next, { writer: 'chat' });
+          if (!outcome.ok) {
+            ws.send(
+              JSON.stringify({
+                type: 'chat',
+                question: text,
+                answer: {
+                  title: '配置未生效',
+                  body: outcome.error ?? '保存失败',
+                  bullets: [],
+                  confidence: 0.9,
+                  kind: 'editor',
+                  source: 'rule',
+                },
+              } satisfies ServerMessage),
+            );
+            break;
+          }
+          void hooksRuntime.fire(agentConfigStore.get(), {
+            event: 'config',
+            detail: cmd.command ?? 'chat',
+            key: cmd.command,
+          });
+          const warn = outcome.warnings.length > 0 ? `\n（${outcome.warnings.join('；')}）` : '';
+          ws.send(
+            JSON.stringify({
+              type: 'chat',
+              question: text,
+              answer: {
+                title: `配置已更新 · ${cmd.command ?? 'chat'}`,
+                body: `${cmd.reply ?? '已完成'}${warn}`,
+                bullets: [],
+                confidence: 0.95,
+                kind: 'editor',
+                source: 'rule',
+              },
+            } satisfies ServerMessage),
+          );
+        } else {
+          ws.send(
+            JSON.stringify({
+              type: 'chat',
+              question: text,
+              answer: {
+                title: cmd.error ? '命令未执行' : `配置查询 · ${cmd.command ?? 'list'}`,
+                body: cmd.reply ?? '',
+                bullets: [],
+                confidence: 0.95,
+                kind: 'editor',
+                source: 'rule',
+              },
+            } satisfies ServerMessage),
+          );
+        }
+        break;
+      }
+
       const ruleAnswer = answer(text, networkModel(runtime.topology, runtime.net), runtime.recommendation);
       ws.send(JSON.stringify({ type: 'chat', question: text, answer: ruleAnswer } satisfies ServerMessage));
 
@@ -696,6 +994,22 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
             type: 'notice',
             level: 'error',
             text: `控制参数非法：${result.error}`,
+          } satisfies ServerMessage),
+        );
+        break;
+      }
+      // 约束生效：allowedControls 之外的量，手动也不允许写。
+      // 这是「约束工程」对人工通道同样生效的关键——否则界面能拖、服务端照收。
+      const allowedCheck = checkAllowedControls(
+        result.value as Record<string, unknown> as Partial<Record<string, unknown>>,
+        agentConfigStore.get().constraints.allowedControls,
+      );
+      if (!allowedCheck.ok) {
+        ws.send(
+          JSON.stringify({
+            type: 'notice',
+            level: 'error',
+            text: `该控制量已被约束禁用：${allowedCheck.rejected.join('、')}。可在「Agent 设置 → 约束」里放开。`,
           } satisfies ServerMessage),
         );
         break;
@@ -931,6 +1245,15 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       void handleLlmConfig(ws, msg as Extract<ClientMessage, { type: 'llmConfig' }>);
       break;
     }
+    case 'agentConfig': {
+      void handleAgentConfig(ws, msg as Extract<ClientMessage, { type: 'agentConfig' }>);
+      break;
+    }
+    case 'watchdog': {
+      const report = buildReport(watchdogInput());
+      ws.send(JSON.stringify({ type: 'watchdog', report } satisfies ServerMessage));
+      break;
+    }
     default:
       break;
   }
@@ -1025,6 +1348,199 @@ async function handleLlmConfig(ws: WebSocket, msg: Extract<ClientMessage, { type
 function errorText(err: unknown): string {
   if (err instanceof Error) return err.message;
   return '请求失败';
+}
+
+/** LLM 降级原因 → 界面可读文案（不暴露内部实现细节） */
+function reasonText(reason: string | null): string {
+  switch (reason) {
+    case 'not-configured':
+      return '尚未配置模型';
+    case 'timeout':
+      return '模型响应超时，可换更快的模型或在模型设置里降低输出上限';
+    case 'network-error':
+      return '无法连接模型端点';
+    case 'empty-response':
+      return '模型没有返回内容';
+    case 'ungrounded-numbers':
+      return '回答包含未经数据支持的数字，已被事实校验拦下';
+    default:
+      return reason?.startsWith('http-') ? `模型端点返回 ${reason.slice(5)}` : '调用失败';
+  }
+}
+
+/**
+ * Agent 配置（界面驱动）。
+ *
+ * 与 llmConfig 同一套 request/response 模式；写入统一走 agentConfigStore.save，
+ * 权限与核心保护在存储层实现，因此界面、对话命令、CLI 三条路径行为一致。
+ */
+function agentStateMessage(requestId?: string, previewQuestion?: string, previewConfig?: AgentConfig): ServerMessage {
+  const status = agentConfigStore.status();
+  const cfg = previewConfig ?? status.config;
+  return {
+    type: 'agentConfig',
+    action: 'state',
+    requestId,
+    config: status.config,
+    summary: status.summary,
+    warnings: status.warnings,
+    coreProtected: [...CORE_PROTECTED],
+    promptPreview:
+      previewQuestion === undefined
+        ? undefined
+        : composeSystemPrompt({ config: cfg, question: previewQuestion }).prompt,
+  };
+}
+
+function broadcastAgentState(): void {
+  broadcast(agentStateMessage());
+}
+
+async function handleAgentConfig(ws: WebSocket, msg: Extract<ClientMessage, { type: 'agentConfig' }>): Promise<void> {
+  const requestId = 'requestId' in msg ? msg.requestId : undefined;
+  const send = (payload: ServerMessage) => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+  };
+  try {
+    if (msg.action === 'get') {
+      send(agentStateMessage(requestId));
+      return;
+    }
+    if (msg.action === 'previewPrompt') {
+      const question = typeof msg.question === 'string' ? msg.question.slice(0, 200) : '现在运行怎么样';
+      let previewConfig: AgentConfig | undefined;
+      if (msg.config) {
+        try {
+          previewConfig = normalizeAgentConfig(msg.config).config;
+        } catch {
+          previewConfig = undefined;
+        }
+      }
+      send(agentStateMessage(msg.requestId, question, previewConfig));
+      return;
+    }
+    if (msg.action === 'reset') {
+      const outcome = agentConfigStore.reset({ writer: 'ui' });
+      send({
+        type: 'agentConfig',
+        action: 'saved',
+        requestId: msg.requestId,
+        ok: outcome.ok,
+        config: outcome.config,
+        summary: outcome.summary,
+        warnings: outcome.warnings,
+        error: outcome.error,
+      });
+      if (outcome.ok) {
+        broadcastAgentState();
+        void hooksRuntime.fire(agentConfigStore.get(), { event: 'config', detail: 'reset', key: 'reset' });
+      }
+      return;
+    }
+    if (msg.action === 'importSkill') {
+      const status = agentConfigStore.status();
+      const cfg = JSON.parse(JSON.stringify(status.config)) as typeof status.config;
+      if (cfg.skills.length >= 30) {
+        send({ type: 'agentConfig', action: 'error', requestId, error: '技能最多 30 个' });
+        return;
+      }
+      const incoming = msg.skill;
+      const name = typeof incoming?.name === 'string' ? incoming.name.trim().slice(0, 80) : '';
+      let content = typeof incoming?.content === 'string' ? incoming.content.trim().slice(0, 12000) : '';
+      let fetchedSkillTitle = '';
+      /**
+       * URL 导入：这里做的是服务端抓取，不是浏览器跳转。
+       * 只允许 http(s)，走 SSRF 守卫，10 秒超时，抓回来的正文当作技能内容；
+       * 抓取失败不静默——直接把可读原因回给界面。
+       */
+      if (!content && typeof incoming?.url === 'string' && incoming.url.trim()) {
+        try {
+          const url = assertSafeBaseUrl(incoming.url.trim());
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 10000);
+          try {
+            const res = await fetch(url.toString(), { signal: controller.signal });
+            if (!res.ok) {
+              send({ type: 'agentConfig', action: 'error', requestId, error: `导入失败：HTTP ${res.status}` });
+              return;
+            }
+            const text = (await res.text()).trim();
+            if (!text) {
+              send({ type: 'agentConfig', action: 'error', requestId, error: '导入失败：目标返回空内容' });
+              return;
+            }
+            fetchedSkillTitle = text.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? '';
+            content = text.slice(0, 12000);
+          } finally {
+            clearTimeout(timer);
+          }
+        } catch (err) {
+          send({ type: 'agentConfig', action: 'error', requestId, error: `导入失败：${errorText(err)}` });
+          return;
+        }
+      }
+      if (!name && !content) {
+        send({ type: 'agentConfig', action: 'error', requestId, error: '导入技能需要名称与正文（或可抓取的 URL）' });
+        return;
+      }
+      const finalName = (name || fetchedSkillTitle || '导入技能').slice(0, 80);
+      const triggers = Array.isArray(incoming.triggers)
+        ? incoming.triggers
+            .filter((t): t is string => typeof t === 'string')
+            .map((t) => t.trim().slice(0, 24))
+            .filter(Boolean)
+            .slice(0, 12)
+        : [];
+      cfg.skills.push({
+        id: `s-import-${Date.now().toString(36)}`,
+        name: finalName,
+        description: typeof incoming.description === 'string' ? incoming.description.slice(0, 200) : '',
+        triggers: triggers.length > 0 ? triggers : [finalName],
+        content,
+        enabled: true,
+        source: 'remote',
+        url: typeof incoming.url === 'string' ? incoming.url.slice(0, 500) : undefined,
+      });
+      const outcome = agentConfigStore.save(cfg, { writer: 'ui' });
+      send({
+        type: 'agentConfig',
+        action: 'saved',
+        requestId: msg.requestId,
+        ok: outcome.ok,
+        config: outcome.config,
+        summary: outcome.summary,
+        warnings: outcome.warnings,
+        error: outcome.error,
+      });
+      if (outcome.ok) broadcastAgentState();
+      return;
+    }
+    if (msg.action === 'save' || msg.action === 'patch') {
+      const payload = msg.action === 'save' ? msg.config : msg.patch;
+      const outcome =
+        msg.action === 'save'
+          ? agentConfigStore.save(payload, { writer: 'ui' })
+          : agentConfigStore.patch(payload, { writer: 'ui' });
+      send({
+        type: 'agentConfig',
+        action: 'saved',
+        requestId: msg.requestId,
+        ok: outcome.ok,
+        config: outcome.config,
+        summary: outcome.summary,
+        warnings: outcome.warnings,
+        error: outcome.error,
+      });
+      if (outcome.ok) {
+        broadcastAgentState();
+        void hooksRuntime.fire(agentConfigStore.get(), { event: 'config', detail: msg.action, key: msg.action });
+      }
+      return;
+    }
+    send({ type: 'agentConfig', action: 'error', requestId, error: '未知的配置动作' });
+  } catch (err) {
+    send({ type: 'agentConfig', action: 'error', requestId, error: errorText(err) });
+  }
 }
 
 const MIME: Record<string, string> = {

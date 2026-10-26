@@ -20,9 +20,11 @@ import { AlarmsPanel } from './components/AlarmsPanel';
 import { InsightsPanel } from './components/InsightsPanel';
 import { ReplayPanel } from './components/ReplayPanel';
 import { ModelSettingsPanel } from './components/ModelSettingsPanel';
+import { AgentSettingsPanel } from './components/AgentSettingsPanel';
+import { WatchdogPanel } from './components/WatchdogPanel';
 import { PLANT } from '../sim/config';
 
-type Tab = 'chat' | 'decision' | 'control' | 'alarms' | 'insights' | 'replay';
+type Tab = 'chat' | 'decision' | 'control' | 'alarms' | 'insights' | 'replay' | 'health';
 type View = 'plant' | 'editor';
 
 export default function App() {
@@ -31,6 +33,7 @@ export default function App() {
   const [view, setView] = useState<View>('plant');
   const [selectedTank, setSelectedTank] = useState<string | null>(null);
   const [modelPanelOpen, setModelPanelOpen] = useState(false);
+  const [agentPanelOpen, setAgentPanelOpen] = useState(false);
 
   /**
    * 拓扑编辑历史（撤销/重做）。
@@ -196,6 +199,21 @@ export default function App() {
             />
             模型设置
           </button>
+          <button
+            className="pill model-entry"
+            onClick={() => setAgentPanelOpen(true)}
+            aria-haspopup="dialog"
+            title={
+              sim.agent.config
+                ? `Agent：${sim.agent.config.persona.name} · ${sim.agent.config.permission} · 技能 ${
+                    sim.agent.summary?.skillCount ?? 0
+                  } · 钩子 ${sim.agent.summary?.hookCount ?? 0}`
+                : '配置角色、提示词、技能、钩子、约束与权限'
+            }
+          >
+            <span className="dot" data-live={Boolean(sim.agent.config)} />
+            Agent 设置
+          </button>
           <span
             className="health-pill"
             data-grade={snap.health.grade}
@@ -342,6 +360,23 @@ export default function App() {
               >
                 回放
               </button>
+              <button
+                className="side-tab"
+                role="tab"
+                aria-selected={tab === 'health'}
+                data-active={tab === 'health'}
+                onClick={() => {
+                  setTab('health');
+                  sim.watchdogReload();
+                }}
+              >
+                自检
+                {sim.watchdog && sim.watchdog.severity !== 'ok' && (
+                  <span className="side-tab-count">
+                    {sim.watchdog.checks.filter((c) => c.severity !== 'ok').length}
+                  </span>
+                )}
+              </button>
             </nav>
 
             {tab === 'chat' && <ChatPanel chat={sim.chat} onAsk={sim.ask} connected={sim.link.connected} snap={snap} />}
@@ -368,11 +403,13 @@ export default function App() {
             {tab === 'alarms' && <AlarmsPanel snap={snap} />}
             {tab === 'insights' && <InsightsPanel snap={snap} aiEnabled={aiEnabled} />}
             {tab === 'replay' && <ReplayPanel />}
+            {tab === 'health' && <WatchdogPanel report={sim.watchdog} />}
           </aside>
         )}
       </div>
 
       <ModelSettingsPanel llm={sim.llm} open={modelPanelOpen} onClose={() => setModelPanelOpen(false)} />
+      <AgentSettingsPanel agent={sim.agent} open={agentPanelOpen} onClose={() => setAgentPanelOpen(false)} />
 
       <div className="notice-stack" aria-live="polite">
         {sim.notices.slice(0, 3).map((n) => (

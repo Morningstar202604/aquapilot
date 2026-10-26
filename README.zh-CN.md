@@ -5,7 +5,7 @@
 > AI 值守的再生水厂仿真台。  
 > 厂是图，图就是模型，AI 值班员来跑。
 
-[![tests](https://img.shields.io/badge/tests-446%20passing-brightgreen)](tests)
+[![tests](https://img.shields.io/badge/tests-570%20passing-brightgreen)](tests)
 [![coverage](https://img.shields.io/badge/line%20coverage-95.6%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -119,6 +119,36 @@ AQUAPILOT_LLM_BASE_URL=...     # 界面未保存配置时的回退值
 AQUAPILOT_LLM_MODEL=...
 AQUAPILOT_LLM_API_KEY=...
 ```
+
+### Agent 设置（角色 / 提示词 / 技能 / 钩子 / 约束 / 权限）
+
+顶栏 **Agent 设置** 把 AI 值班员本身做成可配置对象，六个分页都可以改：
+
+| 分页         | 内容                                                        | 生效点                                                      |
+| ------------ | ----------------------------------------------------------- | ----------------------------------------------------------- |
+| 角色与提示词 | 名字、职责、语气、回答长度；提示词块可启停/编辑/新增        | 合成 system prompt 发给模型；界面「预览合成提示词」可先验证 |
+| 技能         | 内置 4 个（暴雨/毒性/节能/交班）+ 自定义新建 + URL 导入     | 命中触发词时正文进入 system prompt，回答下方标注命中技能    |
+| 钩子         | 事件（告警/决策/对话/配置）× 动作（提示/日志/技能/Webhook） | 服务端按冷却窗口去重后执行；Webhook 仅「完全放开」权限可用  |
+| 约束         | 允许的控制量、AI 单步幅度、人工确认、禁止话题               | 服务端拦截人工写入与 AI 自动执行，双通道都生效              |
+| 权限与核心   | 只读 / 标准 / 完全放开；核心保护区只读展示                  | 写入时由存储层统一校验，界面绕过不了                        |
+
+同样的事也可以用对话命令完成，例如：`设置角色 首席值班长`、`添加技能 除磷优化|除磷,总磷|1. …`、
+`约束 允许控制 doSetpoint,pacSed`、`权限 完全放开`、`列出技能`、`命令`（看全部用法）。
+
+CLI 与直接改文件也生效，服务端按 mtime 热加载：
+
+```bash
+npx tsx scripts/agent-config.ts show
+npx tsx scripts/agent-config.ts set-persona --name 首席值班长 --tone 严谨详实
+npx tsx scripts/agent-config.ts add-skill --name 应急降负荷 --triggers 降负荷,减产 --content "1. …"
+npx tsx scripts/agent-config.ts permission open
+```
+
+配置文件 `data/agent-config.json`（0600）。核心保护区——出水限值、安全护栏、鉴权、密钥、
+工艺动力学——不在可写 schema 里，任何权限、任何入口都改不到。
+
+侧栏 **自检** 页每 10 秒展示一次服务端检查结果（仿真步进、时钟推进、步进耗时、模型链路
+降级率、持久化、Agent 配置、钩子、客户端连接），异常项直接给出下一步动作。
 
 ### 自定义模型接入
 
