@@ -56,7 +56,11 @@ export function WatchdogPanel({ report }: Props) {
       <div>
         <div className="section-label">逐项结果</div>
         {report.checks.map((c) => (
-          <div className="issue" data-sev={c.severity === 'ok' ? 'info' : c.severity} key={c.id}>
+          <div
+            className="issue"
+            data-sev={c.severity === 'ok' ? 'info' : c.severity === 'warn' ? 'warning' : 'error'}
+            key={c.id}
+          >
             <span className="issue-code">{TONE[c.severity]}</span>
             <span>
               <b>{c.label}</b>：{c.detail}

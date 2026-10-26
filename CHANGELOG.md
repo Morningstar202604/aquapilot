@@ -56,6 +56,16 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   top-bar 设置 dropdown that also shows the current model / persona / permission
   inline, and both configs are fetched on connect so the menu is never stale.
 
+### Fixed
+
+- **自检面板的告警项没有样式。** 数据里的严重度是 `warn`，而 `.issue` 的
+  CSS 选择器写的是 `[data-sev='warning']`，两者对不上，警示项渲染成了默认的
+  灰边——看起来像"正常项"，实际是模型降级/钩子失败。现在面板做 severity 映射
+  （`warn → warning`），并由 `tests/watchdogPanel.test.tsx` 锁定。
+- **画布缺渲染层测试。** 端口数量/配色、多选标记、单元图标、端口点击回调都没有
+  断言，只有浏览器手工验证。新增 `tests/plantCanvas.test.tsx`（8 项）补上，
+  并在测试里补了 jsdom 缺失的 `ResizeObserver` 桩。
+
 ### Changed
 
 - **Overview canvas is denser and readable.** Node sizes, gaps and lane spacing

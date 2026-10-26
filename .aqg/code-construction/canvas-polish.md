@@ -4,7 +4,7 @@ path: plan
 created_at: 2026-10-26T09:00:00Z
 session_agent: zcode
 skipped_checks: []
-objections_diff_coverage_exception: null
+objections_diff_coverage_exception: "本次提交为自检面板样式修复 + 两处新增测试（watchdogPanel/plantCanvas），代码改动仅 severity 映射一行；原 objections 已覆盖相关文件，见 c96833c/503834d"
 behavior_contract_exception: null
 ---
 
@@ -16,7 +16,7 @@ behavior_contract_exception: null
 | 2. Behavior Lock | yes | 先写纯几何测试：框选相交、加选语义、外接框、六种对齐、等距分布、批量位移吸附；再补顶栏菜单的展开/关闭/回调（covers: R1, R2, R3, R4, R5） | `tests/editorSelection.test.ts`、`tests/topbarMenu.test.tsx` | 17 + 6 项，先 RED 后 GREEN |
 | 3. Thin Slice | yes | 每片一条链路：几何纯函数 → 画布多选/框选 → 工具栏对齐 → 键盘微调/删除 → 顶栏菜单 → 检视器补充 | `src/client/hooks/editorSelection.ts`、`PlantCanvas.tsx`、`ProcessEditor.tsx`、`TopbarMenu.tsx`、`UnitInspector.tsx` | 不动求解与校验规则 |
 | 4. Construction Rules | yes | 复用现有 pill/btn/var 样式；菜单零依赖手写；图标用 Unicode 几何符号（不引图标库、不用 emoji）；所有新交互只改草稿 | `src/client/components/unitIcons.ts`、`TopbarMenu.tsx` | 运行时依赖仍为 4 个 |
-| 5. Local Verification | yes | 全量 614 passed / 42 files；tsc 0；eslint 0；prettier clean；build OK；浏览器逐项实测（见下） | `tests/editorSelection.test.ts`、`tests/topbarMenu.test.tsx` | 见浏览器实测 |
+| 5. Local Verification | yes | 全量 627 passed / 44 files；tsc 0；eslint 0；prettier clean；build OK；浏览器逐项实测（见下）；新增 watchdogPanel 5 + plantCanvas 8 | `tests/editorSelection.test.ts`、`tests/topbarMenu.test.tsx`、`tests/watchdogPanel.test.tsx`、`tests/plantCanvas.test.tsx` | 见浏览器实测 |
 | 6. Self Review (5 axes) | yes | 正确性：框选用 ref 保存终值、Scale 换算、负坐标夹紧；可读性：几何/组件分离；架构：App 只做快捷键转发；安全：删除仅删选中单元且可撤销；性能：拖动 setState 局部、松手一次提交 | `PlantCanvas.tsx`、`ProcessEditor.tsx`、`App.tsx` | 人工复核 diff |
 
 ## Behavior Contract
