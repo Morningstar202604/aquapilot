@@ -1,4 +1,5 @@
 import { CONTROL_BOUNDS, SCENARIO_LABELS, labelOf, precisionOf } from './labels';
+import { Collapsible } from './Collapsible';
 import { SCENARIO_ORDER, SCENARIOS } from '../../sim/scenarios';
 import { PRESETS } from '../../model/presets';
 import type { ControlSettings } from '../../sim/config';
@@ -34,8 +35,12 @@ export function ControlPanel({ snap, onChange, onStartScenario, onClearScenario,
 
   return (
     <div className="scroll-panel">
-      <div>
-        <div className="section-label">工艺模板（切换会重建并预热）</div>
+      {/**
+       * 侧栏按「环节」折叠：首屏只露出每组的当前状态，要改哪一项再展开。
+       * 8 个滑块 + 8 个工况卡片全展开时一屏放不下，操作员要滚三屏才能找
+       * 到 PAC 投加——这是实测反馈里最直接的可用性问题。
+       */}
+      <Collapsible title="工艺模板" summary={`${PRESETS.length} 套 · 切换会重建并预热`} defaultOpen={false}>
         <div className="preset-list">
           {PRESETS.map((p) => (
             <button key={p.id} className="preset-item" onClick={() => onApplyPreset(p.id)}>
@@ -44,10 +49,18 @@ export function ControlPanel({ snap, onChange, onStartScenario, onClearScenario,
             </button>
           ))}
         </div>
-      </div>
+      </Collapsible>
 
-      <div>
-        <div className="section-label">工艺控制变量</div>
+      <Collapsible
+        title="工艺控制变量"
+        summary={
+          <>
+            DO {snap.controls.doSetpoint.toFixed(1)} · 内回流 {snap.controls.internalRecirc.toFixed(1)} · PAC{' '}
+            {snap.controls.pacDose.toFixed(0)}
+          </>
+        }
+        defaultOpen
+      >
         {ORDER.map((key) => {
           const meta = CONTROL_BOUNDS[key];
           const value = snap.controls[key] as number;
@@ -99,10 +112,17 @@ export function ControlPanel({ snap, onChange, onStartScenario, onClearScenario,
             <div className="control-hint">容量 16 000 m³ · 场景结束后按 320 m³/h 缓慢回流处理</div>
           </div>
         )}
-      </div>
+      </Collapsible>
 
-      <div>
-        <div className="section-label">工况注入</div>
+      <Collapsible
+        title="工况注入"
+        summary={
+          activeType
+            ? `进行中：${SCENARIO_LABELS[activeType]} · 剩 ${Math.round(activeRemaining)} 分钟`
+            : `${SCENARIO_ORDER.length} 种事故/工况`
+        }
+        defaultOpen={Boolean(activeType)}
+      >
         <div className="scenario-drawer">
           {SCENARIO_ORDER.map((type) => {
             const meta = SCENARIOS[type];
@@ -127,7 +147,7 @@ export function ControlPanel({ snap, onChange, onStartScenario, onClearScenario,
             </button>
           </div>
         )}
-      </div>
+      </Collapsible>
     </div>
   );
 }

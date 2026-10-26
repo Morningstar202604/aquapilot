@@ -1,4 +1,4 @@
-import { Connection, ProcessTopology, UnitSpec, outgoing, incoming } from '../model/topology';
+import { Connection, Port, ProcessTopology, UnitSpec, outgoing, incoming } from '../model/topology';
 
 /**
  * 自动布局：分层（主序列从左到右）+ 支线上下分流 + 回流走外侧。
@@ -43,34 +43,36 @@ export interface Layout {
   width: number;
   height: number;
   lanes: { layer: Layer; y: number; label: string }[];
+  /** 该布局是否应用了人工摆放（画布编辑器拖过的单元） */
+  manual: boolean;
 }
 
-const GAP_X = 46;
-const GAP_Y = 78;
-const PAD = 26;
+const GAP_X = 30;
+const GAP_Y = 68;
+const PAD = 22;
 
 function sizeOf(unit: UnitSpec): { w: number; h: number } {
   switch (unit.kind) {
     case 'inlet':
     case 'outlet':
-      return { w: 108, h: 62 };
+      return { w: 100, h: 58 };
     case 'clarifier':
-      return { w: 148, h: 150 };
+      return { w: 136, h: 132 };
     case 'storage':
-      return { w: 124, h: 92 };
+      return { w: 116, h: 86 };
     case 'blower':
     case 'chemical':
-      return { w: 132, h: 88 };
+      return { w: 122, h: 82 };
     case 'thickener':
     case 'dewatering':
-      return { w: 128, h: 88 };
+      return { w: 118, h: 82 };
     case 'screening':
     case 'grit':
     case 'primary':
     case 'disinfection':
-      return { w: 128, h: 92 };
+      return { w: 118, h: 86 };
     default:
-      return { w: 124, h: 112 };
+      return { w: 114, h: 104 };
   }
 }
 
@@ -138,6 +140,12 @@ export function layoutTopology(
     const r = rowOf.get(unit.id) ?? 0;
     nodeMap.set(unit.id, { unit, x: xOf.get(unit.id)!, y: rowY[r], w: size.w, h: size.h, layer: 'main', lane: r });
   }
+
+  /**
+   * 人工摆放优先：拖过的单元用它的坐标，其余继续自动排。
+   * 坐标写到拓扑里（`positions`），所以撤销/重做、保存、重载都跟着走。
+   */
+  const manual = applyManualPositions(topo, nodeMap);
   const mainBottom = Math.max(...[...nodeMap.values()].map((n) => n.y + n.h));
 
   // 公用工程：吸附在其主要输出目标的正下方，避免斜跨主线
@@ -170,7 +178,7 @@ export function layoutTopology(
     if (nodes.length) laneY[layer] = nodes[0].y;
   }
 
-  const edges = topo.connections.map((conn, i) => placeEdge(conn, nodeMap, i));
+  const edges = topo.connections.map((conn, i) => placeEdge(conn, nodeMap, i, manual));
 
   const maxX = Math.max(...[...nodeMap.values()].map((n) => n.x + n.w), mainWidth + PAD);
   /**
@@ -189,14 +197,37 @@ export function layoutTopology(
     edges,
     width: maxX + PAD,
     height: maxY + PAD,
-    lanes: (
-      [
-        { layer: 'main', y: laneY.main, label: '主处理线' },
-        { layer: 'utility', y: laneY.utility, label: '公用工程' },
-        { layer: 'sludge', y: laneY.sludge, label: '污泥线' },
-      ] satisfies { layer: Layer; y: number; label: string }[]
-    ).filter((l) => Number.isFinite(l.y) && l.y > 0),
+    lanes: manual
+      ? []
+      : (
+          [
+            { layer: 'main', y: laneY.main, label: '主处理线' },
+            { layer: 'utility', y: laneY.utility, label: '公用工程' },
+            { layer: 'sludge', y: laneY.sludge, label: '污泥线' },
+          ] satisfies { layer: Layer; y: number; label: string }[]
+        ).filter((l) => Number.isFinite(l.y) && l.y > 0),
+    manual,
   };
+}
+
+/**
+ * 把人工坐标应用到布局上。
+ *
+ * 只在拓扑里存在 `positions[id]` 时才覆盖，未摆放的单元保持自动布局；
+ * 人工位置不受泳道约束（可以放在任意空白处），但画布仍按最大边界扩张。
+ */
+function applyManualPositions(topo: ProcessTopology, nodeMap: Map<string, PlacedNode>): boolean {
+  const positions = topo.positions ?? {};
+  let touched = false;
+  for (const [id, pos] of Object.entries(positions)) {
+    const node = nodeMap.get(id);
+    if (!node) continue;
+    if (!Number.isFinite(pos?.x) || !Number.isFinite(pos?.y)) continue;
+    node.x = Math.max(PAD, Math.round(pos.x));
+    node.y = Math.max(PAD, Math.round(pos.y));
+    touched = true;
+  }
+  return touched;
 }
 
 /** 从进水口沿非回流物流推导主线顺序；未连通的单元追加在末尾，避免丢失 */
@@ -230,32 +261,44 @@ function orderMainLine(topo: ProcessTopology, mains: UnitSpec[]): UnitSpec[] {
   return result;
 }
 
+/**
+ * 端口锚点：入口贴左边、出口贴右边，沿高度均分。
+ *
+ * 这是流程模拟器（Aspen、Simulink、Node-RED）的通用读图约定——
+ * 物料从左进、从右出，连线方向与工艺方向一致，不需要靠箭头判断。
+ * 端口圆点画在锚点上，连线端点也取同一函数，保证"看到的点"就是"连的点"。
+ */
+export function portAnchors(node: PlacedNode): { port: Port; kind: 'in' | 'out'; x: number; y: number }[] {
+  const ins = node.unit.ports.filter((p) => p.kind === 'in');
+  const outs = node.unit.ports.filter((p) => p.kind === 'out');
+  const out: { port: Port; kind: 'in' | 'out'; x: number; y: number }[] = [];
+  ins.forEach((port, i) => {
+    const step = node.h / (ins.length + 1);
+    out.push({ port, kind: 'in', x: node.x, y: node.y + step * (i + 1) });
+  });
+  outs.forEach((port, i) => {
+    const step = node.h / (outs.length + 1);
+    out.push({ port, kind: 'out', x: node.x + node.w, y: node.y + step * (i + 1) });
+  });
+  return out;
+}
+
 function anchorOut(node: PlacedNode, portId: string): { x: number; y: number } {
-  const ports = node.unit.ports.filter((p) => p.kind === 'out');
-  const idx = Math.max(
-    0,
-    ports.findIndex((p) => p.id === portId),
-  );
-  const step = node.h / (ports.length + 1);
-  return { x: node.x + node.w, y: node.y + step * (idx + 1) };
+  const hit = portAnchors(node).find((p) => p.kind === 'out' && p.port.id === portId);
+  return hit ? { x: hit.x, y: hit.y } : { x: node.x + node.w, y: node.y + node.h / 2 };
 }
 
 function anchorIn(node: PlacedNode, portId: string): { x: number; y: number } {
-  const ports = node.unit.ports.filter((p) => p.kind === 'in');
-  const idx = Math.max(
-    0,
-    ports.findIndex((p) => p.id === portId),
-  );
-  const step = node.h / (ports.length + 1);
-  return { x: node.x, y: node.y + step * (idx + 1) };
+  const hit = portAnchors(node).find((p) => p.kind === 'in' && p.port.id === portId);
+  return hit ? { x: hit.x, y: hit.y } : { x: node.x, y: node.y + node.h / 2 };
 }
 
 function isRecycleStream(conn: Connection): boolean {
   return Boolean(conn.recycle) || conn.stream === 'internal_recycle' || conn.stream === 'return_activated_sludge';
 }
 
-function placeEdge(conn: Connection, nodes: Map<string, PlacedNode>, index: number): PlacedEdge {
-  const placed = placeEdgeRaw(conn, nodes, index);
+function placeEdge(conn: Connection, nodes: Map<string, PlacedNode>, index: number, manual: boolean): PlacedEdge {
+  const placed = manual ? routeManual(conn, nodes, index) : placeEdgeRaw(conn, nodes, index);
   /**
    * 只有同排的顺流边标注物流名。
    *
@@ -266,6 +309,47 @@ function placeEdge(conn: Connection, nodes: Map<string, PlacedNode>, index: numb
   const to = nodes.get(conn.to.unit);
   const labelable = Boolean(from && to) && !isRecycleStream(conn) && from!.layer === to!.layer;
   return { ...placed, straight: placed.path.length > 0 && labelable };
+}
+
+/**
+ * 人工摆放后的正交走线。
+ *
+ * 自动布局的走廊高度是按泳道算的；一旦用户把池子拖到别处，那些走廊高度
+ * 就会横穿节点。这里改用「中缝折线」：从左出、到中点、再折向目标左侧，
+ * 只保证不穿过起终点本身，不试图避开所有节点——用户可以自己拖开重叠。
+ */
+function routeManual(conn: Connection, nodes: Map<string, PlacedNode>, index: number): Omit<PlacedEdge, 'straight'> {
+  const from = nodes.get(conn.from.unit);
+  const to = nodes.get(conn.to.unit);
+  if (!from || !to) return { connection: conn, path: '', labelX: 0, labelY: 0, reverse: false };
+  const a = anchorOut(from, conn.from.port);
+  const b = anchorIn(to, conn.to.port);
+  const recycle = isRecycleStream(conn);
+  // 回流线向右绕出再折回，与顺流线区分
+  if (recycle && b.x < a.x) {
+    const outX = Math.max(a.x, b.x + to.w) + 26 + (index % 3) * 10;
+    const midY = (a.y + b.y) / 2;
+    return {
+      connection: conn,
+      path: `M ${a.x} ${a.y} H ${outX} V ${b.y} H ${b.x}`,
+      labelX: (a.x + outX) / 2,
+      labelY: midY - 6,
+      reverse: true,
+    };
+  }
+  if (Math.abs(a.y - b.y) < 2 && b.x > a.x) {
+    return {
+      connection: conn,
+      path: `M ${a.x} ${a.y} H ${b.x}`,
+      labelX: (a.x + b.x) / 2,
+      labelY: a.y - 7,
+      reverse: false,
+    };
+  }
+  const midX = b.x > a.x ? (a.x + b.x) / 2 : a.x + 24 + (index % 4) * 12;
+  const path =
+    b.x > a.x ? `M ${a.x} ${a.y} H ${midX} V ${b.y} H ${b.x}` : `M ${a.x} ${a.y} H ${midX} V ${b.y} H ${b.x}`;
+  return { connection: conn, path, labelX: midX, labelY: (a.y + b.y) / 2, reverse: false };
 }
 
 function placeEdgeRaw(conn: Connection, nodes: Map<string, PlacedNode>, index: number): Omit<PlacedEdge, 'straight'> {
@@ -297,9 +381,12 @@ function placeEdgeRaw(conn: Connection, nodes: Map<string, PlacedNode>, index: n
     mainBottom,
     ...[...nodes.values()].filter((n) => n.layer === 'utility').map((n) => n.y + n.h),
   );
-  const irTrack = mainBottom + 24;
-  const utilTrack = mainBottom + 52 + (index % 3) * 7;
-  const rasTrack = utilityBottom + 22;
+  // 走廊必须落在「主排底边」与「公用工程排顶边」之间的空白带里：
+  // 间距压到 68px 时，原来 +52/+59/+66 的 utilTrack 会掉到公用工程排里，
+  // 直接从鼓风机房/加药间身上穿过去（布局测试抓到的真实回归）。
+  const irTrack = mainBottom + 14;
+  const utilTrack = mainBottom + 30 + (index % 3) * 6;
+  const rasTrack = utilityBottom + 16;
 
   if (isRecycle) {
     // 回流走主排下方走廊：内回流在上、污泥回流在下，互不重叠

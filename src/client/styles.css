@@ -3316,3 +3316,195 @@ button {
   font-size: 10px;
   color: var(--water-dim);
 }
+
+/* ── 编排画布：端口与拖动 ─────────────────────────────── */
+.port-layer {
+  pointer-events: all;
+}
+
+.port-dot {
+  fill: var(--ink);
+  stroke: var(--water-dim);
+  stroke-width: 1.6;
+  cursor: crosshair;
+  transition:
+    r 0.12s,
+    fill 0.12s,
+    stroke 0.12s;
+}
+
+.port-dot[data-kind='in'] {
+  stroke: var(--cyan);
+}
+
+.port-dot[data-kind='out'] {
+  stroke: var(--water);
+}
+
+.port-dot:hover {
+  fill: var(--water-dim);
+  r: 6;
+}
+
+.port-dot[data-active='true'] {
+  fill: var(--water);
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.plant-node[data-editable='true'] {
+  cursor: grab;
+}
+
+.plant-node[data-editable='true'][data-dragging='true'] {
+  cursor: grabbing;
+}
+
+.plant-node[data-dragging='true'] rect:first-of-type {
+  stroke-dasharray: 5 3;
+  filter: drop-shadow(0 0 8px rgba(62, 224, 181, 0.45));
+}
+
+/* ── 可折叠分组 ─────────────────────────────────────── */
+.collapsible {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--ink-2);
+  overflow: hidden;
+}
+
+.collapsible + .collapsible {
+  margin-top: 8px;
+}
+
+.collapsible-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 9px;
+  text-align: left;
+  color: var(--text-2);
+}
+
+.collapsible-head:hover {
+  background: rgba(62, 224, 181, 0.05);
+  color: var(--text);
+}
+
+.collapsible[data-open='true'] .collapsible-head {
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--text);
+}
+
+.collapsible-caret {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-3);
+  width: 10px;
+}
+
+.collapsible-title {
+  flex: none;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+.collapsible-summary {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 62%;
+  text-align: right;
+}
+
+.collapsible-body {
+  padding: 8px 9px 10px;
+}
+
+.collapsible-body[hidden] {
+  display: none;
+}
+
+/* ── 单元检视器（画布浮层） ───────────────────────────── */
+.stage-canvas-wrap {
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+
+.stage-canvas-wrap > .canvas-viewport {
+  flex: 1;
+  min-width: 0;
+}
+
+.unit-inspector {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 254px;
+  max-height: calc(100% - 20px);
+  display: flex;
+  flex-direction: column;
+  background: rgba(10, 26, 24, 0.97);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  backdrop-filter: blur(4px);
+  z-index: 6;
+}
+
+.unit-inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 9px;
+  border-bottom: 1px solid var(--line);
+}
+
+.unit-kind-badge {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--water-dim);
+  border-radius: 8px;
+  font-size: 9.5px;
+  color: var(--water);
+}
+
+.unit-inspector-title {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unit-inspector-body {
+  padding: 8px 9px 10px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.unit-inspector-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11px;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.unit-inspector-row b {
+  color: var(--text);
+  font-family: var(--mono);
+  font-weight: 500;
+}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { layoutTopology, PlacedEdge, PlacedNode } from '../../model/layout';
+import { layoutTopology, portAnchors, PlacedEdge, PlacedNode } from '../../model/layout';
 import { PLANT_TOPOLOGY, StreamKind, UnitKind, ProcessTopology } from '../../model/topology';
 import type { PlantSnapshot } from '../../shared/protocol';
 
@@ -13,6 +13,13 @@ interface Props {
   compact?: boolean;
   /** 'fill'：撑满容器（监视视图）；'flow'：按图纸尺寸绘制，由外层滚动（编排视图） */
   fit?: 'fill' | 'flow' | 'adaptive';
+  /** 编排模式：节点可拖动、端口可见并可点选连线 */
+  editable?: boolean;
+  /** 拖动结束回调（图纸坐标）；不传则不可拖 */
+  onMoveUnit?: (id: string, x: number, y: number) => void;
+  /** 点端口的回调：first=起点，second=终点 */
+  onPortClick?: (unitId: string, portId: string, kind: 'in' | 'out') => void;
+  connectFrom?: { unitId: string; portId: string } | null;
 }
 
 const STREAM_COLOR: Record<StreamKind, string> = {
@@ -62,8 +69,26 @@ export function PlantCanvas({
   showRecycle = true,
   compact,
   fit = 'fill',
+  editable = false,
+  onMoveUnit,
+  onPortClick,
+  connectFrom = null,
 }: Props) {
   const [zoom, setZoom] = useState(1);
+  /**
+   * 节点拖动状态。
+   *
+   * 只记录「拖了谁、从哪开始、原始位置」，位移在 pointermove 里换算成图纸
+   * 坐标（除以当前缩放比），松手才提交一次——这样撤销栈里是"一次拖拽"，
+   * 而不是每帧一条历史。
+   */
+  const [drag, setDrag] = useState<{
+    id: string;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
   /**
    * 默认全览。
    *
@@ -77,9 +102,14 @@ export function PlantCanvas({
    * 窄屏改为 1:1 + 横向滑动，至少能看清当前单元。
    * 平板/笔记本仍用全览：先看清全厂结构，再点 1:1 细读。
    */
-  const [fitToWindow, setFitToWindow] = useState(() =>
-    typeof window === 'undefined' ? true : window.innerWidth > 900,
-  );
+  /**
+   * 编排视图（fit='flow'）默认 1:1 + 滚动：图纸宽 2000+，全览会压到 40% 看不清；
+   * 监视视图才默认全览（首屏先看全厂结构）。
+   */
+  const [fitToWindow, setFitToWindow] = useState(() => {
+    if (fit === 'flow') return false;
+    return typeof window === 'undefined' ? true : window.innerWidth > 900;
+  });
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [wrapSize, setWrapSize] = useState({ w: 0, h: 0 });
   /**
@@ -95,7 +125,10 @@ export function PlantCanvas({
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const target = e.target as Element;
-    if (target.closest('[data-unit-node]')) return;
+    // 节点自身与端口圆点都不启动画布平移：
+    // 端口点击要能穿透到 circle 上，否则 pointer capture 会把 click 的
+    // 目标改写成画布容器，"点端口进入连线模式"永远不会触发（实测踩到）。
+    if (target.closest('[data-unit-node]') || target.closest('.port-dot')) return;
     const wrap = wrapRef.current;
     if (!wrap) return;
     // 全览且无滚动余量时不需要拖拽，保持普通点击语义
@@ -120,6 +153,31 @@ export function PlantCanvas({
     wrapRef.current?.releasePointerCapture?.(e.pointerId);
   };
 
+  /** 图纸坐标 = 屏幕位移 / 缩放比 */
+  const onNodePointerDown = (e: React.PointerEvent<SVGGElement>, node: PlacedNode) => {
+    if (!editable || !onMoveUnit) return;
+    e.stopPropagation();
+    (e.currentTarget as SVGGElement).setPointerCapture?.(e.pointerId);
+    setDrag({ id: node.unit.id, startX: e.clientX, startY: e.clientY, originX: node.x, originY: node.y });
+  };
+
+  const onNodePointerMove = (e: React.PointerEvent<SVGGElement>) => {
+    if (!drag) return;
+    e.stopPropagation();
+    const dx = (e.clientX - drag.startX) / effectiveZoom;
+    const dy = (e.clientY - drag.startY) / effectiveZoom;
+    // 吸附到 14px 网格：和组件库拖入用同一套栅格，图看起来才是"排"出来的
+    const snap = (v: number) => Math.max(0, Math.round(v / 14) * 14);
+    onMoveUnit?.(drag.id, snap(drag.originX + dx), snap(drag.originY + dy));
+  };
+
+  const endNodeDrag = (e: React.PointerEvent<SVGGElement>) => {
+    if (!drag) return;
+    e.stopPropagation();
+    (e.currentTarget as SVGGElement).releasePointerCapture?.(e.pointerId);
+    setDrag(null);
+  };
+
   /**
    * 泳道间距随容器高度自适应。
    *
@@ -129,9 +187,10 @@ export function PlantCanvas({
    * 从而在同样的容器里获得更大的有效字号。
    */
   const adaptiveLaneGap = useMemo(() => {
-    // 实测结论：拉开泳道间距并不能改善全览字号——缩放受宽度约束，
-    // 增加高度只会让整图更大、缩放比更低。保留固定间距最稳。
-    return compact ? 88 : 132;
+    // 泳道间距压到刚好不重叠：间距越大整图越高，全览时字号越小。
+    // 0.75 版实测 132px 时整图 646 高、缩放只有 44%，文字不可读；
+    // 压到 96px 后整图约 540 高，同样视口下缩放提到 52% 以上。
+    return compact ? 76 : 96;
   }, [compact]);
 
   const layout = useMemo(
@@ -337,8 +396,26 @@ export function PlantCanvas({
                 showLabel={showLabels}
                 liveTank={unitState[node.unit.id]}
                 compactView={fitToWindow || compact === true}
+                editable={editable}
+                dragging={drag?.id === node.unit.id}
+                onPointerDownNode={onNodePointerDown}
+                onPointerMoveNode={onNodePointerMove}
+                onPointerUpNode={endNodeDrag}
               />
             ))}
+            {/**
+             * 端口必须画在节点之后（上层）：端口锚点正好落在节点边界上，
+             * 画在下层时圆点有一半被节点矩形盖住，点中心实际点到的是节点。
+             */}
+            {editable &&
+              layout.nodes.map((node) => (
+                <PortDots
+                  key={`ports-${node.unit.id}`}
+                  node={node}
+                  connectFrom={connectFrom}
+                  onPortClick={onPortClick}
+                />
+              ))}
           </svg>
         </div>
       </div>
@@ -428,6 +505,44 @@ function streamLabel(stream: StreamKind): string {
   }
 }
 
+function PortDots({
+  node,
+  connectFrom,
+  onPortClick,
+}: {
+  node: PlacedNode;
+  connectFrom: { unitId: string; portId: string } | null;
+  onPortClick?: (unitId: string, portId: string, kind: 'in' | 'out') => void;
+}) {
+  return (
+    <g className="port-layer">
+      {portAnchors(node).map(({ port, kind, x, y }) => {
+        const active = connectFrom?.unitId === node.unit.id && connectFrom.portId === port.id;
+        return (
+          <circle
+            key={`${node.unit.id}-${port.id}-${kind}`}
+            cx={x}
+            cy={y}
+            r={active ? 6 : 4.5}
+            className="port-dot"
+            data-kind={kind}
+            data-active={active}
+            data-stream={port.stream}
+            onClick={(e) => {
+              e.stopPropagation();
+              onPortClick?.(node.unit.id, port.id, kind);
+            }}
+          >
+            <title>
+              {kind === 'in' ? '入口' : '出口'} {port.id} · {port.stream}
+            </title>
+          </circle>
+        );
+      })}
+    </g>
+  );
+}
+
 function Node({
   node,
   snap,
@@ -436,6 +551,11 @@ function Node({
   showLabel,
   liveTank,
   compactView,
+  editable = false,
+  dragging = false,
+  onPointerDownNode,
+  onPointerMoveNode,
+  onPointerUpNode,
 }: {
   node: PlacedNode;
   snap: PlantSnapshot;
@@ -453,6 +573,11 @@ function Node({
     kind: string;
   };
   compactView: boolean;
+  editable?: boolean;
+  dragging?: boolean;
+  onPointerDownNode?: (e: React.PointerEvent<SVGGElement>, node: PlacedNode) => void;
+  onPointerMoveNode?: (e: React.PointerEvent<SVGGElement>) => void;
+  onPointerUpNode?: (e: React.PointerEvent<SVGGElement>) => void;
 }) {
   const { unit, x, y, w, h } = node;
   const bad = isUnitAlarming(unit.kind, unit.id, snap);
@@ -463,7 +588,13 @@ function Node({
     <g
       className="plant-node"
       data-unit-node={unit.id}
+      data-editable={editable}
+      data-dragging={dragging}
       onClick={() => onSelect(selected ? null : unit.id)}
+      onPointerDown={(e) => onPointerDownNode?.(e, node)}
+      onPointerMove={(e) => onPointerMoveNode?.(e)}
+      onPointerUp={(e) => onPointerUpNode?.(e)}
+      onPointerCancel={(e) => onPointerUpNode?.(e)}
       role="button"
       tabIndex={0}
       aria-label={`${unit.name}，${unit.role}${bad ? '，存在告警' : ''}`}

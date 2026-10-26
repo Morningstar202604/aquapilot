@@ -11,7 +11,7 @@ import {
 } from './hooks/topoHistory';
 import { PlantCanvas } from './components/PlantCanvas';
 import { ProcessEditor } from './components/ProcessEditor';
-import { PLANT_TOPOLOGY, ProcessTopology } from '../model/topology';
+import { PLANT_TOPOLOGY, ProcessTopology, findUnit } from '../model/topology';
 import { Trends } from './components/Trends';
 import { ChatPanel } from './components/ChatPanel';
 import { DecisionPanel } from './components/DecisionPanel';
@@ -22,6 +22,7 @@ import { ReplayPanel } from './components/ReplayPanel';
 import { ModelSettingsPanel } from './components/ModelSettingsPanel';
 import { AgentSettingsPanel } from './components/AgentSettingsPanel';
 import { WatchdogPanel } from './components/WatchdogPanel';
+import { UnitInspector } from './components/UnitInspector';
 import { PLANT } from '../sim/config';
 
 type Tab = 'chat' | 'decision' | 'control' | 'alarms' | 'insights' | 'replay' | 'health';
@@ -274,12 +275,37 @@ export default function App() {
 
           {view === 'plant' ? (
             <>
-              <PlantCanvas
-                snap={snap}
-                topo={sim.topology ?? PLANT_TOPOLOGY}
-                selected={selectedTank}
-                onSelect={setSelectedTank}
-              />
+              <div className="stage-canvas-wrap">
+                <PlantCanvas
+                  snap={snap}
+                  topo={sim.topology ?? PLANT_TOPOLOGY}
+                  selected={selectedTank}
+                  onSelect={setSelectedTank}
+                />
+                {/**
+                 * 单元检视器浮在画布上而不是塞进侧栏：
+                 * 点哪个池子就在池子旁边看数据、改参数，视线不用离开工艺图。
+                 */}
+                {selectedTank &&
+                  (() => {
+                    const unit = findUnit(sim.topology ?? PLANT_TOPOLOGY, selectedTank);
+                    if (!unit) return null;
+                    return (
+                      <UnitInspector
+                        snap={snap}
+                        topo={sim.topology ?? PLANT_TOPOLOGY}
+                        unit={unit}
+                        onClose={() => setSelectedTank(null)}
+                        onSelect={setSelectedTank}
+                        onChangeControls={sim.setControls}
+                        onEditTopology={() => {
+                          seedDraft(sim.topology ?? PLANT_TOPOLOGY);
+                          setView('editor');
+                        }}
+                      />
+                    );
+                  })()}
+              </div>
               <Trends snap={snap} />
             </>
           ) : (

@@ -1,6 +1,7 @@
 import type { Recommendation } from '../../ai/agent';
 import type { PlantSnapshot } from '../../shared/protocol';
 import { CONTROL_BOUNDS, SCENARIO_LABELS } from './labels';
+import { Collapsible } from './Collapsible';
 
 interface Props {
   snap: PlantSnapshot;
@@ -100,7 +101,7 @@ export function DecisionPanel({ snap, rec, onApply, onRefresh, aiEnabled, onTogg
       </div>
 
       {rec.alternatives.length > 0 && (
-        <div>
+        <Collapsible title="候选方案比选" summary={`共 ${rec.alternatives.length + 1} 个方案`} defaultOpen={false}>
           <div className="section-label">候选方案比选</div>
           {[rec.chosens, ...rec.alternatives].map((c, i) => (
             <div className="alt-row" key={c.label + i}>
@@ -116,7 +117,7 @@ export function DecisionPanel({ snap, rec, onApply, onRefresh, aiEnabled, onTogg
               </span>
             </div>
           ))}
-        </div>
+        </Collapsible>
       )}
 
       <div>

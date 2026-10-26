@@ -217,12 +217,13 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty, canUnd
   const [connectMode, setConnectMode] = useState<{ fromUnit: string; port: string; stream: StreamKind } | null>(null);
 
   const issues = useMemo(() => validateTopology(topology), [topology]);
+  const hasPositions = Object.keys(topology.positions ?? {}).length > 0;
   const readiness = useMemo(() => checkRunReadiness(topology, snap.influent.flow), [topology, snap.influent.flow]);
 
   const selectedUnit = selected ? findUnit(topology, selected) : undefined;
   const errors = issues.filter((i) => i.severity === 'error');
 
-  const addUnit = (entry: PaletteEntry) => {
+  const addUnit = (entry: PaletteEntry, pos?: { x: number; y: number }) => {
     const id = nextId(topology, entry.kind);
     const unit: UnitSpec = {
       id,
@@ -236,14 +237,47 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty, canUnd
       states: STATE_BY_KIND[entry.kind],
       interventions: INTERVENTION_BY_KIND[entry.kind],
     };
+    const isBio = entry.kind === 'aerobic' || entry.kind === 'anoxic' || entry.kind === 'anaerobic';
     const next: ProcessTopology = {
       ...topology,
       units: [...topology.units, unit],
-      train:
-        entry.kind === 'aerobic' || entry.kind === 'anoxic' || entry.kind === 'anaerobic'
-          ? [...topology.train, id]
-          : topology.train,
+      train: isBio ? [...topology.train, id] : topology.train,
+      // 拖拽落点即新单元坐标；点选添加则沿用自动布局
+      positions: pos ? { ...(topology.positions ?? {}), [id]: pos } : topology.positions,
     };
+    /**
+     * 生物池自动接入主序列。
+     *
+     * 拖一个池子进来却要手工画两条线才算"能用"，是实测里最劝退的一步。
+     * 规则：把新池插到主序列末端（train 最后一项）与它原有下游之间——
+     * 例如 好氧C → 二沉池 变成 好氧C → 新池 → 二沉池，两条边一次接好。
+     * 其它类型（斜管、风机、加药等）保持独立，由用户自己连，避免乱接线。
+     */
+    if (isBio) {
+      const lastId = topology.train[topology.train.length - 1];
+      const lastUnit = lastId ? findUnit(topology, lastId) : undefined;
+      const outPort = lastUnit?.ports.find((p) => p.kind === 'out' && p.stream === 'mixed_liquor');
+      const inPort = unit.ports.find(
+        (p) => p.kind === 'in' && (p.stream === 'mixed_liquor' || p.stream === 'influent'),
+      );
+      const newOut = unit.ports.find((p) => p.kind === 'out' && p.stream === 'mixed_liquor');
+      if (lastUnit && outPort && inPort && newOut) {
+        const downstream = topology.connections.find(
+          (c) => c.from.unit === lastId && c.from.port === outPort.id && !c.recycle,
+        );
+        next.connections = topology.connections.map((c) =>
+          downstream && c.id === downstream.id ? { ...c, from: { unit: id, port: newOut.id } } : c,
+        );
+        next.connections.push({
+          id: `c-${lastId}-${id}`,
+          from: { unit: lastId, port: outPort.id },
+          to: { unit: id, port: inPort.id },
+          stream: inPort.stream,
+        });
+        // downstream 边已经在上面改写为「新池 → 原下游」，这里不能再补一条，
+        // 否则同一对端口会出现两条边（DUPLICATE_LINK）。
+      }
+    }
     onChange(next);
     setSelected(id);
     setPane('inspector');
@@ -267,6 +301,27 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty, canUnd
     });
   };
 
+  /**
+   * 从组件库拖到画布：落点换算成图纸坐标。
+   *
+   * 用的是 HTML5 drag，和 SolidWorks / Aspen 的「从库里拖设备」一致；
+   * 坐标减去画布原点后除以缩放比，再吸附到 14px 网格，保证对齐不歪。
+   */
+  const dropUnit = (e: React.DragEvent<HTMLDivElement>) => {
+    const kind = e.dataTransfer.getData('application/x-aquapilot-unit') as UnitKind;
+    if (!kind) return;
+    const entry = PALETTE.find((p) => p.kind === kind);
+    if (!entry) return;
+    e.preventDefault();
+    const stage = e.currentTarget.getBoundingClientRect();
+    const wrap = e.currentTarget.querySelector('.canvas-wrap');
+    const scaler = e.currentTarget.querySelector('.canvas-scaler') as HTMLElement | null;
+    const scale = scaler ? Number((scaler.style.transform.match(/scale\(([\d.]+)\)/) ?? [])[1] ?? 1) : 1;
+    const x = Math.max(0, Math.round(((e.clientX - stage.left + (wrap?.scrollLeft ?? 0)) / scale - 60) / 14) * 14);
+    const y = Math.max(0, Math.round(((e.clientY - stage.top + (wrap?.scrollTop ?? 0)) / scale - 30) / 14) * 14);
+    addUnit(entry, { x, y });
+  };
+
   const beginConnect = (unitId: string, port: string, stream: StreamKind) => {
     setConnectMode({ fromUnit: unitId, port, stream });
     setPane('connections');
@@ -278,15 +333,39 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty, canUnd
       setConnectMode(null);
       return;
     }
+    /**
+     * 从出口点连线时，物流类型应取「目标入口要求的类型」而不是源端口的类型。
+     *
+     * 例：好氧池出口是 mixed_liquor，接二沉池入口（也要求 mixed_liquor）没问题；
+     * 但二沉池的 ras 出口是 return_activated_sludge，接厌氧池 ras 入口是对的；
+     * 而进水渠出口 influent 接缺氧池的 feed 入口也是 influent。
+     * 真正会出错的场景是「源端口类型与目标端口类型不同」——这时应报错而不是
+     * 偷偷造一条下游校验必然失败的边。
+     */
+    const targetUnit = findUnit(topology, unitId);
+    const targetPort = targetUnit?.ports.find((p) => p.id === port && p.kind === 'in');
+    if (!targetPort) return;
+    // 同一对端口重复接线会让流量被重复计入，直接挡在入口处而不是等校验报错
+    const exists = topology.connections.some(
+      (c) =>
+        c.from.unit === connectMode.fromUnit &&
+        c.from.port === connectMode.port &&
+        c.to.unit === unitId &&
+        c.to.port === port,
+    );
+    if (exists) {
+      setConnectMode(null);
+      return;
+    }
     const conn = {
       id: `c-${connectMode.fromUnit}-${unitId}-${Date.now().toString(36).slice(-4)}`,
       from: { unit: connectMode.fromUnit, port: connectMode.port },
       to: { unit: unitId, port },
-      stream: connectMode.stream,
+      stream: targetPort.stream,
       recycle:
-        connectMode.stream === 'internal_recycle' ||
-        connectMode.stream === 'return_activated_sludge' ||
-        connectMode.stream === 'waste_sludge',
+        targetPort.stream === 'internal_recycle' ||
+        targetPort.stream === 'return_activated_sludge' ||
+        targetPort.stream === 'waste_sludge',
     };
     onChange({ ...topology, connections: [...topology.connections, conn] });
     setConnectMode(null);
@@ -313,7 +392,17 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty, canUnd
           <div key={group}>
             <div className="palette-group-title">{group}</div>
             {PALETTE.filter((p) => p.group === group).map((entry) => (
-              <button className="palette-item" key={entry.kind + entry.name} onClick={() => addUnit(entry)}>
+              <button
+                className="palette-item"
+                key={entry.kind + entry.name}
+                onClick={() => addUnit(entry)}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('application/x-aquapilot-unit', entry.kind);
+                  e.dataTransfer.effectAllowed = 'copy';
+                }}
+                title="点击添加，或拖到画布上放置"
+              >
                 <span className="palette-glyph" style={{ borderColor: glyphColor(entry.kind) }} />
                 <span className="palette-name">{entry.name}</span>
               </button>
@@ -351,6 +440,18 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty, canUnd
           <button className="pill" onClick={() => onChange(PLANT_TOPOLOGY)}>
             恢复标准厂
           </button>
+          {hasPositions && (
+            <button
+              className="pill"
+              title="把手工摆放的坐标清空，回到自动分层布局"
+              onClick={() => {
+                const { positions: _drop, ...rest } = topology;
+                onChange(rest);
+              }}
+            >
+              自动排列
+            </button>
+          )}
           <button className="pill" data-active={readiness.ready} onClick={onApply} disabled={!readiness.ready}>
             应用到仿真
           </button>
@@ -362,7 +463,16 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty, canUnd
           </div>
         )}
 
-        <div className="editor-canvas">
+        <div
+          className="editor-canvas"
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes('application/x-aquapilot-unit')) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'copy';
+            }
+          }}
+          onDrop={dropUnit}
+        >
           <EditorCanvas
             topology={topology}
             snap={snap}
@@ -371,6 +481,14 @@ export function ProcessEditor({ snap, topology, onChange, onApply, dirty, canUnd
             connectMode={connectMode}
             onCancelConnect={() => setConnectMode(null)}
             invalidIds={new Set(errors.map((e) => e.unitId).filter(Boolean) as string[])}
+            onChange={onChange}
+            onBeginConnect={(unitId, portId) => {
+              const unit = findUnit(topology, unitId);
+              const port = unit?.ports.find((p) => p.id === portId);
+              if (!port) return;
+              setConnectMode({ fromUnit: unitId, port: portId, stream: port.stream });
+            }}
+            onCompleteConnect={(unitId, portId) => completeConnect(unitId, portId)}
           />
         </div>
       </div>
@@ -622,6 +740,9 @@ function EditorCanvas({
   connectMode,
   onCancelConnect,
   invalidIds,
+  onChange,
+  onBeginConnect,
+  onCompleteConnect,
 }: {
   topology: ProcessTopology;
   snap: PlantSnapshot;
@@ -630,10 +751,33 @@ function EditorCanvas({
   connectMode: { fromUnit: string; port: string; stream: StreamKind } | null;
   onCancelConnect: () => void;
   invalidIds: Set<string>;
+  onChange: (topo: ProcessTopology) => void;
+  onBeginConnect: (unitId: string, portId: string) => void;
+  onCompleteConnect: (unitId: string, portId: string) => void;
 }) {
+  const moveUnit = (id: string, x: number, y: number) => {
+    onChange({ ...topology, positions: { ...(topology.positions ?? {}), [id]: { x, y } } });
+  };
   return (
     <div className="editor-stage">
-      <PlantCanvas snap={snap} topo={topology} selected={selected} onSelect={onSelect} compact fit="adaptive" />
+      <PlantCanvas
+        snap={snap}
+        topo={topology}
+        selected={selected}
+        onSelect={onSelect}
+        fit="flow"
+        editable
+        onMoveUnit={moveUnit}
+        connectFrom={connectMode ? { unitId: connectMode.fromUnit, portId: connectMode.port } : null}
+        onPortClick={(unitId, portId, kind) => {
+          if (connectMode) {
+            if (kind === 'in') onCompleteConnect(unitId, portId);
+            else onBeginConnect(unitId, portId);
+            return;
+          }
+          if (kind === 'out') onBeginConnect(unitId, portId);
+        }}
+      />
       {invalidIds.size > 0 && (
         <div className="draft-banner" style={{ position: 'absolute', left: 8, top: 8 }}>
           {invalidIds.size} 个单元存在拓扑错误（红框），点「校验」查看原因

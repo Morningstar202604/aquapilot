@@ -5,7 +5,7 @@
 > An AI-operated wastewater treatment plant simulator.  
 > The plant is a graph, the graph is the model, and an AI operator runs it.
 
-[![tests](https://img.shields.io/badge/tests-570%20passing-brightgreen)](tests)
+[![tests](https://img.shields.io/badge/tests-591%20passing-brightgreen)](tests)
 [![coverage](https://img.shields.io/badge/line%20coverage-95.6%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -165,6 +165,26 @@ The same changes work from chat commands (`设置角色 …`, `添加技能 名�
 or by editing `data/agent-config.json` directly — the server hot-reloads on mtime.
 Core protections (effluent limits, safety guardrails, auth, secrets, kinetics) are
 not part of the writable schema, so no entry point can change them.
+
+### Flowsheet authoring (drag, ports, per-unit inspector)
+
+The 工艺编排 view follows the conventions of process simulators:
+
+- **Drag from the palette** (click to add, or drop on the canvas with 14 px grid
+  snapping); units on the canvas can be dragged, and their coordinates persist in
+  the topology's `positions` so undo/redo and save all follow.
+- **Ports on every unit** — inlets on the left edge, outlets on the right; click an
+  outlet then an inlet to connect. The new link takes the target port's stream type,
+  and duplicate links are rejected at the entry point instead of failing validation.
+- **New biological tanks auto-splice** into the main train between the previous last
+  unit and its downstream, so a dropped tank validates with 0 errors.
+- **自动排列** clears manual coordinates and returns to the layered auto layout.
+- **Per-unit inspector** — click any unit in the monitoring view to see its volume,
+  live DO/MLSS/NH₄/NO₃, blanket depth and flowsheet degree, plus only the controls
+  that unit declares (aeration tanks expose DO/dosing, the clarifier exposes RAS/WAS),
+  editable in place.
+- **Collapsible groups** in the control panel keep the first screen to one summary
+  row per section (current DO / recirculation / PAC / active scenario stay visible).
 
 The side-panel **自检** tab shows the server's 10-second health sweep (tick errors,
 clock progress, tick latency, model fallback rate, persistence, Agent config, hooks,

@@ -345,6 +345,8 @@ describe('ControlPanel', () => {
         aiEnabled
       />,
     );
+    // 工况注入默认折叠（首屏只表示意可见），先展开分组再点卡片
+    fireEvent.click(screen.getByRole('button', { name: /工况注入/ }));
     fireEvent.click(screen.getByText('暴雨冲击'));
     expect(onStartScenario).toHaveBeenCalledWith('storm');
   });
@@ -363,6 +365,7 @@ describe('ControlPanel', () => {
         aiEnabled
       />,
     );
+    // 有活动场景时该分组默认展开，直接点解除即可
     fireEvent.click(screen.getByRole('button', { name: /清除场景/ }));
     expect(onClearScenario).toHaveBeenCalled();
   });

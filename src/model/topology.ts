@@ -92,6 +92,14 @@ export interface ProcessTopology {
   connections: Connection[];
   /** 求解要求：串联顺序（引擎按此顺序推进 CSTR） */
   train: string[];
+  /**
+   * 画布上人工摆放的位置（左上角，图纸坐标）。
+   *
+   * 引擎完全不读这个字段——它就是"流程图画布"这份文档的一部分，
+   * 和 Aspen / Simulink 把 block position 存在模型文件里是同一做法。
+   * 缺失的单元走自动布局；存在的以人工位置优先。
+   */
+  positions?: Record<string, { x: number; y: number }>;
 }
 
 const P = (id: string, kind: 'in' | 'out', stream: StreamKind, order = 0): Port => ({ id, kind, stream, order });

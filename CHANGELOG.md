@@ -4,6 +4,42 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — flowsheet authoring, collapsible panels
+
+### Added — the flowsheet is now actually edible, like a process simulator
+
+- **Drag-and-drop authoring.** Palette items can be dragged onto the canvas (or
+  clicked to add); the drop point snaps to a 14 px grid. Units already on the
+  canvas can be dragged freely, and their coordinates persist in the topology's
+  new `positions` field so undo/redo, save and reload all keep the layout. An
+  「自动排列」 toolbar action clears manual coordinates and returns to the layered
+  auto layout.
+- **Visible ports and click-to-connect.** Every unit renders a dot for each port on
+  its boundary (inlets on the left, outlets on the right, coloured by stream).
+  Clicking an outlet then an inlet creates the connection using the _target_ port's
+  stream type; duplicate links are rejected at the click rather than surfacing as a
+  validation error afterwards.
+- **Auto-splice for new biological tanks.** Dropping an anaerobic/anoxic/aerobic
+  unit inserts it into the main train between the previous last train unit and its
+  downstream node (rewriting that edge instead of adding a second one), so a new
+  tank passes validation with 0 errors and the plant can be applied immediately.
+- **Per-unit inspector.** Selecting any unit in the monitoring view opens a floating
+  panel with its volume, live DO/MLSS/NH₄/NO₃, clarifier blanket, flowsheet degree,
+  and only the controls that unit declares in `interventions` — aeration tanks show
+  DO/dosing, the clarifier shows RAS/WAS — each writable through the same control
+  channel as the side panel.
+- **Collapsible side-panel groups.** 工艺模板 / 工艺控制变量 / 工况注入 (and the
+  decision panel's candidate comparison) now collapse to one summary row that keeps
+  the current DO / recirculation / PAC / active-scenario reading visible.
+
+### Changed
+
+- **Overview canvas is denser and readable.** Node sizes, gaps and lane spacing
+  were tightened (the corridor heights were retuned so no pipe crosses a unit —
+  caught by the existing no-crossing test) and the auto-layout width dropped, taking
+  the overview from 44 % to ~51 % at the same viewport. The authoring view now opens
+  at 1:1 with scrolling instead of being squeezed to fit.
+
 ## [Unreleased] — Agent settings, hooks, watchdog
 
 ### Added — the AI operator is now configurable from UI, chat, CLI and file
