@@ -4,7 +4,7 @@ path: plan
 created_at: 2026-10-25T19:55:00Z
 session_agent: zcode
 skipped_checks: []
-objections_diff_coverage_exception: null
+objections_diff_coverage_exception: "本次仅更新 AQG 台账验证证据，不含代码改动；代码与 objections 已在 e4225a9 提交审查"
 behavior_contract_exception: null
 ---
 
@@ -16,7 +16,7 @@ behavior_contract_exception: null
 | 2. Behavior Lock | yes | 先写测试：配置校验与权限（readonly/standard/open）、Webhook 仅 open、核心项不可改、技能匹配与提示词合成、对话命令解析、钩子去重、设置面板交互（covers: R1, R2, R3, R4, R5, R6） | `tests/agentConfig.test.ts`、`tests/agentConfigStore.test.ts`、`tests/configCommands.test.ts`、`tests/promptComposer.test.ts`、`tests/agentSettings.test.tsx` | 先 RED 后 GREEN，见第 5 步 |
 | 3. Thin Slice | yes | 每个切片一条链路：共享 schema → 文件存储/热加载 → 提示词与约束生效 → 钩子事件 → WS/对话/CLI → 设置面板 | `src/shared/agentConfig.ts`、`src/server/agentConfig.ts`、`src/ai/promptComposer.ts`、`src/server/hooks.ts`、`src/server/agentConfigCommands.ts` | 不实现任意脚本执行，钩子只做声明式动作 |
 | 4. Construction Rules | yes | 复用既有 atomic write、CONTROL_BOUNDS、assertSafeBaseUrl、metrics/logger；零新依赖；未知字段忽略并 warn；核心项不进 schema | `src/shared/agentConfig.ts`、`src/server/agentConfig.ts` | 运行时依赖仍为 4 个 |
-| 5. Local Verification | yes | 聚焦测试 → 全量 tests → typecheck → lint → prettier → build → 浏览器真实鼠标键盘验收（面板六页 + 对话命令 + 约束拦截 + 拖拽 + CLI 热加载） | `tests/agentConfig.test.ts`、`tests/agentConfigStore.test.ts`、`tests/configCommands.test.ts`、`tests/promptComposer.test.ts`、`tests/hooks.test.ts`、`tests/agentSettings.test.tsx`、`tests/watchdog.test.ts` | `npx vitest run` 570 passed / 37 files；`tsc --noEmit` 0；`eslint src tests` 0；`prettier --check` 通过；`npm run build` 成功；UI：角色改名/语气切换/提示词预览/技能新增/钩子/约束/权限六页全部操作成功，保存后落盘 `data/agent-config.json`；对话命令 `设置角色`/`添加技能`/`列出技能`/`约束 允许控制` 全部生效；手动拖 PAC 被服务端拒绝并提示；编排视图新增单元/改名/撤销/校验阻断/应用拓扑/1:1 拖拽平移；CLI `set-persona` 写入后服务端热加载（WS 读回 updatedBy=cli）；webhook 钩子对活服务端点实测 200 |
+| 5. Local Verification | yes | 聚焦测试 → 全量 tests → typecheck → lint → prettier → build → 浏览器真实鼠标键盘验收（面板六页 + 对话命令 + 约束拦截 + 拖拽 + CLI 热加载） | `tests/agentConfig.test.ts`、`tests/agentConfigStore.test.ts`、`tests/configCommands.test.ts`、`tests/promptComposer.test.ts`、`tests/hooks.test.ts`、`tests/agentSettings.test.tsx`、`tests/watchdog.test.ts` | `npx vitest run` 570 passed / 37 files；`tsc --noEmit` 0；`eslint src tests` 0；`prettier --check` 通过；`npm run build` 成功；UI：角色改名/语气切换/提示词预览/技能新增/钩子/约束/权限六页全部操作成功，保存后落盘 `data/agent-config.json`；对话命令 `设置角色`/`添加技能`/`列出技能`/`约束 允许控制` 全部生效；手动拖 PAC 被服务端拒绝并提示；编排视图新增单元/改名/撤销/校验阻断/应用拓扑/1:1 拖拽平移；CLI `set-persona` 写入后服务端热加载（WS 读回 updatedBy=cli）；webhook 钩子对活服务端点实测 200；控制滑块拖动后 `/api/snapshot` 读到 internalRecirc=2.5（界面 3.3 → AI 在优先期后接管回调）；场景按钮注入暴雨后服务端 scenario.type=storm、stormStorage≈1000 m³；三个导出端点 200 + 正确 content-type |
 | 6. Self Review (5 axes) | yes | 正确性：权限与核心项双端校验；可读性：schema/存储/命令/钩子分文件；架构：UI→WS→server→store 单向；安全：钩子无任意脚本、Webhook SSRF 守卫、配置不含密钥；性能：配置 mtime 缓存、钩子 5 分钟去重 | `src/shared/agentConfig.ts`、`src/server/hooks.ts`、`src/client/components/AgentSettingsPanel.tsx` | 人工复核 diff |
 
 ## Behavior Contract
