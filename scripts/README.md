@@ -13,15 +13,15 @@ server bundle in `dist/server` is self-contained.
 | `npm run benchmark:prove` → `prove-benchmark.ts` | AI vs fixed-strategy shadow run: compliance, energy, cost, score | — |
 | `backup.ts` | Consistent `VACUUM INTO` backup, verified restore, list | — |
 | `backup-seed.ts` | Create/verify a database with known row counts (used by CI) | — |
-| `bench.ts` | Step, forecast, decision (nominal and robust) timings; 30-day spin-up cost | — |
+| `bench.ts` | Production-engine timings: step, 4 h forecast, decision (nominal/robust), 30-day spin-up, memory | — |
 | `bench-server.ts` | Same for the topology runtime + AI cycle | — |
 | `check-takacs.ts` | Settler calibration: effluent SS and solids loading | — |
 | `prove-network-solving.ts` | Adding a reactor really adds a solved reactor | — |
 | `prove-topology-matters.ts` | Plant parameters change the physics, with numbers | — |
 | `e2e-topology-live.ts` | Apply a topology over the live API and compare effluent | yes |
-| `bsm1-gap.ts` | Structural differences between this plant and BSM1 | — |
-| `calibrate.ts` | Parameter sensitivity / calibration sweep | — |
-| `harness.ts` | Interactive engine harness for manual experiments | — |
+| `bsm1-gap.ts` | Structural differences between this plant (production engine) and BSM1, incl. the official Table 6 constants | — |
+| `calibrate.ts` | Steady state, 24 h forecast and a 6 h stress run for every scenario (production engine) | — |
+| `harness.ts` | Per-scenario AI closed-loop demo (8 cycles): decisions, effluent, DO, energy | — |
 
 The last five are exploratory tools: they print numbers for a human to read and
 are not part of CI.

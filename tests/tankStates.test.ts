@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PLANT_TOPOLOGY } from '../src/model/topology';
 import { createNetworkState, spinUpNetwork } from '../src/sim/networkEngine';
-import { buildTankStates } from '../src/server/tankStates';
+import { buildTankPatch, buildTankStates } from '../src/server/tankStates';
 
 /**
  * 分池 MLSS 的口径。
@@ -53,5 +53,35 @@ describe('分池 MLSS', () => {
     const s = createNetworkState(PLANT_TOPOLOGY, { seed: 1 });
     s.reactors = [];
     expect(buildTankStates(s)).toEqual([]);
+  });
+});
+
+describe('增量帧分池状态', () => {
+  it('简化模式：增量帧与全量帧的 MLSS 与口径完全一致', () => {
+    const s = spinUpNetwork(createNetworkState(PLANT_TOPOLOGY, { seed: 7 }), PLANT_TOPOLOGY, 20);
+    const full = buildTankStates(s);
+    const patch = buildTankPatch(s);
+    expect(patch).toHaveLength(full.length);
+    for (let i = 0; i < full.length; i += 1) {
+      expect(patch[i].mlss).toBe(full[i].mlss);
+      expect(patch[i].mlssSource).toBe(full[i].mlssSource);
+      expect(patch[i].do).toBe(full[i].do);
+    }
+  });
+
+  it('ASM1 模式：增量帧给分池值并与全量帧一致', () => {
+    const s = spinUpNetwork(createNetworkState(PLANT_TOPOLOGY, { seed: 7, model: 'asm1' }), PLANT_TOPOLOGY, 20);
+    const full = buildTankStates(s);
+    const patch = buildTankPatch(s);
+    for (let i = 0; i < full.length; i += 1) {
+      expect(patch[i].mlssSource).toBe('reactor');
+      expect(patch[i].mlss).toBe(full[i].mlss);
+    }
+  });
+
+  it('空反应器列表的增量帧返回空数组', () => {
+    const s = createNetworkState(PLANT_TOPOLOGY, { seed: 1 });
+    s.reactors = [];
+    expect(buildTankPatch(s)).toEqual([]);
   });
 });

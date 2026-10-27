@@ -42,10 +42,10 @@ PAC 40 mg/L, step feed 0.3×Q, no AI. Both plants use the same 30-day warm-up.
 
 | Metric | AI | Fixed | Delta |
 |---|---:|---:|---:|
-| Compliance rate (minutes) | 92.3 % | 56.7 % | +35.6 pp |
-| Specific energy kWh/m³ | 0.150 | 0.159 | −5.6 % |
-| Cost ¥/m³ | 0.1420 | 0.1963 | −27.7 % |
-| Mean effluent score | 57.8 | 46.4 | +11.3 |
+| Compliance rate (minutes) | 94.5 % | 56.7 % | +37.8 pp |
+| Specific energy kWh/m³ | 0.151 | 0.159 | −5.0 % |
+| Cost ¥/m³ | 0.1434 | 0.1963 | −27.0 % |
+| Mean effluent score | 61.8 | 47.4 | +14.4 |
 
 The residual non-compliance on the manual side is almost entirely BOD₅, which is
 derived from effluent soluble COD; the AI keeps a wider COD margin and a lower
@@ -63,16 +63,21 @@ npx tsx scripts/prove-network-solving.ts
 npx tsx scripts/prove-topology-matters.ts
 ```
 
+> Two different seeds are used by the two scripts: `prove-network-solving.ts` runs at
+> seed 42 (standard plant: NH₄ 0.81, TN 11.14), `prove-topology-matters.ts` at the
+> default seed (NH₄ 0.83). Rows below keep each script's own baseline, so the arrows
+> compare like with like — do not mix a row's baseline with another row's number.
+
 | Change | Result |
 |---|---|
-| Standard A²/O | 5 reactors, NH₄ 0.11 mg/L |
-| +1 anoxic tank | 6 reactors, NH₄ 0.13, TN 9.74 → 9.15 |
-| +2 aerobic tanks | 7 reactors, NH₄ 0.03 |
-| Only one aerobic tank | 3 reactors, NH₄ 7.01 (exceeds limit) |
-| Aerobic volume ×2 | NH₄ 0.074 → 0.034 |
-| Aerobic volume ÷2 | NH₄ 0.074 → 1.149 |
-| Clarifier area ×2 | blanket 1.15 → 0.66 m |
-| RAS failure | blanket 0.99 → 1.79 m |
+| Standard A²/O | 5 reactors, NH₄ 0.81 mg/L, TN 11.14 (seed 42) |
+| +1 anoxic tank | 6 reactors, NH₄ 0.83, TN 10.51 |
+| +2 aerobic tanks | 7 reactors, NH₄ 0.13, TN 10.80 |
+| Only one aerobic tank | 3 reactors, NH₄ 18.42, TN 22.94 (exceeds limits) |
+| Aerobic volume ×2 | NH₄ 0.83 → 0.15 (COD 38.7 → 27.9) |
+| Aerobic volume ÷2 | NH₄ 0.83 → 11.01 (COD 38.7 → 54.8, TP 0.010 → 1.412) |
+| Clarifier area ×2 | blanket 0.44 → 0.31 m |
+| RAS failure (6 h) | blanket 0.44 → 0.50 m |
 
 ## 4. Engine and decision cost
 
@@ -82,12 +87,15 @@ npx tsx scripts/bench.ts
 
 | Item | Measured |
 |---|---|
-| 1-minute step | 0.003 ms |
-| 4-hour forecast | 1.4 ms |
-| Decision, production engine, nominal | 153 ms |
-| Decision, production engine, robust (3 shortlisted + hold × 3 samples) | 215 ms |
-| 30-day warm-up | ~110 ms |
+| 1-minute step (production engine) | 0.012 ms |
+| 4-hour forecast | 3.2 ms |
+| Decision, production engine, nominal | 105 ms |
+| Decision, production engine, robust (3 shortlisted + hold × 3 samples) | 135 ms |
+| 30-day warm-up | 390 ms |
 | Heap after benchmarks | ~12–24 MB |
+
+Timings vary ±30 % between runs on a shared machine; the order of magnitude is
+what matters here (all figures come from `scripts/bench.ts` on Node 24).
 
 The decision budget is 30 s (15 simulated minutes at 1× speed); 215 ms leaves two
 orders of magnitude of headroom. Robustness is therefore affordable at every
@@ -102,11 +110,11 @@ npx vitest run --coverage
 
 | Item | Value |
 |---|---|
-| Test files | 25 |
-| Tests | 381 |
-| Line coverage | 95.6 % |
-| Branch coverage | 84.7 % |
-| Function coverage | 95.2 % |
+| Test files | 64 |
+| Tests | 781 |
+| Line coverage | 92.9 % |
+| Branch coverage | 82.4 % |
+| Function coverage | 96.5 % |
 
 Coverage thresholds are pinned to the strictest values that hold on both Node 20
 and Node 22 (V8 counts branches differently between versions).

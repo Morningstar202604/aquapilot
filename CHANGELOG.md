@@ -31,6 +31,20 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Fixed
 
+- **What-if forecasts simulated the wrong severity.** The forecast clone hard-coded
+  `magnitude: 1`, but the field's meaning differs per scenario: `blower_failure` uses
+  it as *remaining* aeration capacity (1 = no fault) and `winter` as the target water
+  temperature in °C. Consequences measured before the fix: "what if the blower fails"
+  returned the baseline NH₄ bit-for-bit (0.67 vs 0.67) while the real fault drives it
+  to 8.04 mg/L; winter forecast produced 8 °C instead of 12 °C. The clone now reads
+  `SCENARIOS[type].defaultMagnitude`, and the scenario window is stretched to cover the
+  whole forecast horizon (power outage defaults to 45 min against a 240 min forecast, so
+  the last sample used to be back to normal operation).
+- **`aerationCapacityOf` could amplify aeration instead of derating it.** The protocol
+  allows `magnitude` 0–30 (reserved for storm/shock multipliers); feeding that into the
+  blower formula produced a capacity of up to 30× (3000 % oxygen). Non-finite input
+  produced `NaN` for the whole aeration factor. The value is now clamped to 0–1 and a
+  non-finite magnitude falls back to the 0.5 default.
 - **An injected scenario never disappeared from the UI.** `scenario` was only present in
   full snapshots, so after the window ended (and after `清除场景`) the control panel kept
   showing 「进行中 · 剩 N 分钟」 forever. The incremental patch now carries `scenario` and

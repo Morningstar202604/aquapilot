@@ -5,8 +5,8 @@
 > AI 值守的再生水厂仿真台。  
 > 厂是图，图就是模型，AI 值班员来跑。
 
-[![tests](https://img.shields.io/badge/tests-759%20passing-brightgreen)](tests)
-[![coverage](https://img.shields.io/badge/line%20coverage-92.8%25-brightgreen)](vitest.config.ts)
+[![tests](https://img.shields.io/badge/tests-781%20passing-brightgreen)](tests)
+[![coverage](https://img.shields.io/badge/line%20coverage-92.9%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -91,7 +91,7 @@ npm run dev        # 前端 5174，服务端 5173
 ```bash
 npm run typecheck  # TypeScript 严格模式
 npm run lint       # ESLint 9
-npm run test       # 759 项测试
+npm run test       # 781 项测试
 npm run build      # 客户端 + 服务端
 npm run verify     # 上述四项按顺序跑
 npm run ci         # 完整门禁：依赖、类型、测试、构建、冒烟、审计、卫生
@@ -192,6 +192,9 @@ src/
     topology.ts     单元、端口、物流、拓扑校验、可运行性推导
     layout.ts       自动布局（主线分层 + 公用工程 + 污泥线 + 回流绕行）
     presets.ts      由标准厂派生的可运行工艺模板
+    topologyEdit.ts 批量删除、折点、绝对位移（可撤销的纯函数）
+    topologyInput.ts 拓扑帧的信任边界校验（apply / 版本回滚共用）
+    trainProfile.ts 检视器的主序列沿程 DO/NH₄/NO₃ 行
   sim/            仿真核心（单一引擎、单一规则；纯函数、无 IO、可确定性复现）
     kinetics.ts     动力学常数与费率的唯一出处
     alarmAttribution.ts 告警归因（原因/动作/后果）与健康度评分
@@ -211,10 +214,12 @@ src/
     benchmark.ts    影子双跑：AI vs 固定策略，同一进水
     export.ts       CSV / Markdown 报告
     trendCursor.ts  增量趋势游标（环形缓冲安全）
+    tankStates.ts   分池快照行，MLSS 口径如实标注
+    topologyStore.ts 生效拓扑 + 最近 20 版历史（原子写）
     index.ts        WebSocket 仿真循环、REST、静态托管
   client/           控制室界面（React + ECharts + SVG 工艺图）
   shared/           前后端消息契约、物流/单元元数据、仿真时钟格式
-tests/              759 项测试：物理性质、守恒、AI 护栏、拓扑、双跑、输入校验、崩溃边界
+tests/              781 项测试：物理性质、守恒、AI 护栏、拓扑、双跑、输入校验、崩溃边界
 ```
 
 ### 三层契约
@@ -284,8 +289,8 @@ PAC 40 mg/L、多点进水 0.3×Q），两条链都从同样的 30 天预热开�
 | 生产引擎决策（名义）                  | 105 ms                | 同上                        |
 | 生产引擎决策（鲁棒，3 候选 × 3 样本） | 135 ms                | 同上                        |
 | 30 天预热                             | 390 ms                | 同上                        |
-| 测试                                  | 759 通过              | `npm test`                  |
-| 覆盖率                                | 92.8% 行 / 82.1% 分支 | `npx vitest run --coverage` |
+| 测试                                  | 781 通过              | `npm test`                  |
+| 覆盖率                                | 92.9% 行 / 82.4% 分支 | `npx vitest run --coverage` |
 
 ## AI 怎么决策
 

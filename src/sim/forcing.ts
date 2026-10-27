@@ -38,12 +38,28 @@ export function toxicSuppression(spec: ScenarioSpec | null, timeMin: number): nu
   return 1 - env * Math.min(0.85, Math.max(0, 0.45 + 0.3 * spec.magnitude));
 }
 
-/** 曝气能力系数：鼓风机故障/停电按包络线性削弱供氧 */
+/**
+ * 曝气能力系数（0–1）。
+ *
+ * `blower_failure.magnitude` 的语义是「故障期间**剩余**供气能力」，不是严重度：
+ * 0.5 = 降到一半，1 = 没有故障。
+ *
+ * 两个必须夹紧的理由：
+ * 1. 协议允许 magnitude 0–30（为暴雨/冲击负荷这类"倍数"语义预留），
+ *    直接代入会把 capacity 放大到 1 + 29×env ≈ 30，即 3000% 供氧；
+ * 2. 负值会让 capacity < 0，下游 `capacity > 0.02` 的分支会走到"不曝气"，
+ *    语义正确但数值仍应停在 0 而不是负数（便于界面显示）。
+ */
 export function aerationCapacityOf(spec: ScenarioSpec | null, timeMin: number): number {
   if (!spec) return 1;
   const env = scenarioEnvelope(spec, timeMin);
-  if (spec.type === 'blower_failure') return 1 - env * (1 - (spec.magnitude || 0.5));
-  if (spec.type === 'power_outage') return 1 - env;
+  if (spec.type === 'blower_failure') {
+    // NaN 不是合法强度：按默认 0.5 处理，而不是让整个曝气系数变 NaN
+    const raw = Number.isFinite(spec.magnitude) ? spec.magnitude : 0.5;
+    const remaining = Math.min(1, Math.max(0, raw));
+    return Math.min(1, Math.max(0, 1 - env * (1 - remaining)));
+  }
+  if (spec.type === 'power_outage') return Math.min(1, Math.max(0, 1 - env));
   return 1;
 }
 

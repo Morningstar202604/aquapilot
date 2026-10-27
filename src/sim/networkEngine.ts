@@ -1104,7 +1104,29 @@ function runForecast(
     clone.biomassKg = clone.biomassKg * uncertainty.biomass;
   }
   if (scenario) {
-    clone.scenario = { type: scenario, durationMin: 360, magnitude: 1, startedAt: clone.timeMin };
+    /**
+     * 预测必须用该场景的默认强度，不能一律写 1。
+     *
+     * magnitude 的语义按场景不同：暴雨/冲击/毒性是「倍数」（1 = 标准强度），
+     * 但 blower_failure 是「剩余供气能力」（1 = 没有故障）、winter 是「目标水温 ℃」。
+     * 写死 1 会让"如果鼓风机坏了会怎样"的推演说成"一切正常"——
+     * 实测 baseline NH₄ 0.71、blower_failure 推演也是 0.71，等于假推演。
+     */
+    clone.scenario = {
+      type: scenario,
+      durationMin: SCENARIOS[scenario].defaultDurationMin,
+      magnitude: SCENARIOS[scenario].defaultMagnitude,
+      startedAt: clone.timeMin,
+    };
+    /**
+     * 场景必须真正生效到预测窗口内。
+     *
+     * 预演窗口最短 120 min，而 power_outage 默认时长 45 min、ras_failure 120 min：
+     * 若不做处理，"如果停电会怎样"的推演在最后一个采样点已经恢复到正常工况，
+     * 输出看起来像"停电没事"。这里把场景时长拉到覆盖整个预测窗口，
+     * 让推演回答的是"持续处于该工况"而非"短暂扰动后恢复"。
+     */
+    clone.scenario.durationMin = Math.max(clone.scenario.durationMin, horizonMin + 60);
   }
   const startCost = clone.cost.total;
   const points: ReturnType<typeof networkModel> extends never ? never : import('./plantModel').ForecastPointX[] = [];

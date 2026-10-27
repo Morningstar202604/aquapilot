@@ -8,8 +8,16 @@ npm run build
 npm start
 ```
 
-The server serves both the API and the built client from `dist/client` on `PORT`
-(default 5173), and persists history to `data/aquapilot.db` (SQLite, Node 22+).
+The server serves both the API and the built client from `dist/client` on `PORT`.
+Runtime state lives under `data/`:
+
+- `data/aquapilot.db` — decisions, alarms and replay snapshots (SQLite, Node 22+)
+- `data/topology.json` — the active flowsheet document (units, links, positions, waypoints)
+- `data/topology-history.json` — the newest 20 applied versions, used for rollback
+- `data/llm-config.json`, `data/agent-config.json` — model and Agent configuration
+
+Everything under `data/` must be on a persistent volume: the SQLite file holds the
+replay history, and the two topology files hold the operator's authored flowsheet.
 
 ## Docker
 

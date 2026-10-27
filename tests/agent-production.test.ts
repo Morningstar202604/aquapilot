@@ -165,7 +165,8 @@ describe('问答意图全覆盖', () => {
 describe('决策的极端与边界工况', () => {
   it('停电场景下仍产出合规方案', () => {
     const s = spinUpNetwork(createNetworkState(PLANT_TOPOLOGY, { seed: 17 }), PLANT_TOPOLOGY, 15);
-    s.scenario = { type: 'power_outage', durationMin: 60, magnitude: 1, startedAt: s.timeMin };
+    // power_outage 的 magnitude 不参与计算（曝气按包络线性归零），用场景默认值即可
+    s.scenario = { type: 'power_outage', durationMin: 60, magnitude: 0, startedAt: s.timeMin };
     const rec = decide({ model: networkModel(PLANT_TOPOLOGY, s), horizonMin: 180 });
     expect(rec.chosens.controls.doSetpoint).toBeGreaterThanOrEqual(1.5);
     expect(rec.severity).toBeDefined();
