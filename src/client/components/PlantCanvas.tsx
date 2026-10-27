@@ -33,6 +33,8 @@ interface Props {
   onMoveUnits?: (moves: Record<string, { x: number; y: number }>) => void;
   /** 点端口的回调：first=起点，second=终点 */
   onPortClick?: (unitId: string, portId: string, kind: 'in' | 'out') => void;
+  /** 拖拽连线：从出口圆点拖到入口圆点松手即完成 */
+  onPortDragConnect?: (from: { unitId: string; portId: string }, to: { unitId: string; portId: string }) => void;
   connectFrom?: { unitId: string; portId: string } | null;
   /** 人工折点提交：points=null 表示恢复自动走线 */
   onRouteChange?: (connectionId: string, points: { x: number; y: number }[] | null) => void;
@@ -50,6 +52,7 @@ export function PlantCanvas({
   editable = false,
   onMoveUnit,
   onPortClick,
+  onPortDragConnect,
   connectFrom = null,
   selection,
   onSelectionChange,
@@ -97,6 +100,22 @@ export function PlantCanvas({
    */
   const marqueeRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  /**
+   * 拖拽连线。
+   *
+   * 与"点出口再点入口"并存：拖拽更符合流程模拟器的肌肉记忆，点击仍是
+   * 触屏与键盘用户的可靠退路。拖动中的橡皮筋用 SVG 线画在端口层下面。
+   */
+  const [portDrag, setPortDrag] = useState<{
+    from: { unitId: string; portId: string };
+    x0: number;
+    y0: number;
+    x: number;
+    y: number;
+    moved: boolean;
+  } | null>(null);
+  /** 拖完会紧跟一次 click，用它把这次 click 吞掉，避免又进入点击连线模式 */
+  const suppressPortClick = useRef(false);
   /**
    * 默认全览。
    *
@@ -171,6 +190,7 @@ export function PlantCanvas({
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (updatePortDrag(e.clientX, e.clientY)) return;
     if (marqueeRef.current && svgRef.current) {
       const rect = svgRef.current.getBoundingClientRect();
       const x = Math.max(0, (e.clientX - rect.left) / effectiveZoom);
@@ -187,6 +207,7 @@ export function PlantCanvas({
   };
 
   const endPan = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (finishPortDrag(e.clientX, e.clientY)) return;
     const box = marqueeRef.current;
     if (box) {
       const rect = {
@@ -207,6 +228,55 @@ export function PlantCanvas({
     panState.current = null;
     setPanning(false);
     wrapRef.current?.releasePointerCapture?.(e.pointerId);
+  };
+
+  /**
+   * 拖拽连线：按下出口圆点后由画布容器接管移动与松手。
+   *
+   * 不用 setPointerCapture：SVG 圆点在某些浏览器/合成事件下捕获会失败，
+   * 而失败时指针一离开圆点、pointermove 就改派给别的元素，`moved` 永远是
+   * false——浏览器实测拖拽完全无反应（jsdom 里事件都派给同一元素，反而
+   * "通过"，属于假绿灯）。改为在容器上监听，命中逻辑与点击路径一致。
+   */
+  const beginPortDrag = (unitId: string, portId: string, e: React.PointerEvent<SVGCircleElement>) => {
+    if (!editable || !onPortDragConnect) return;
+    e.stopPropagation();
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / effectiveZoom;
+    const y = (e.clientY - rect.top) / effectiveZoom;
+    suppressPortClick.current = false;
+    setPortDrag({ from: { unitId, portId }, x0: x, y0: y, x, y, moved: false });
+  };
+
+  /** 拖拽中：更新橡皮筋端点与「是否真的拖动过」 */
+  const updatePortDrag = (clientX: number, clientY: number): boolean => {
+    const svg = svgRef.current;
+    if (!svg || !portDrag) return false;
+    const rect = svg.getBoundingClientRect();
+    const x = (clientX - rect.left) / effectiveZoom;
+    const y = (clientY - rect.top) / effectiveZoom;
+    const moved = portDrag.moved || Math.hypot(x - portDrag.x0, y - portDrag.y0) > 6;
+    setPortDrag({ ...portDrag, x, y, moved });
+    return true;
+  };
+
+  /** 拖拽结束：命中入口圆点则完成连线 */
+  const finishPortDrag = (clientX: number, clientY: number): boolean => {
+    const drag = portDrag;
+    if (!drag) return false;
+    setPortDrag(null);
+    if (!drag.moved || !onPortDragConnect) return true;
+    suppressPortClick.current = true;
+    const hit = document.elementFromPoint(clientX, clientY)?.closest('.port-dot');
+    if (!hit || hit.getAttribute('data-kind') !== 'in') return true;
+    const layer = hit.closest('.port-layer');
+    const targetUnit = layer?.getAttribute('data-unit');
+    const targetPort = hit.getAttribute('data-port');
+    if (!targetUnit || !targetPort || targetUnit === drag.from.unitId) return true;
+    onPortDragConnect(drag.from, { unitId: targetUnit, portId: targetPort });
+    return true;
   };
 
   /** 图纸坐标 = 屏幕位移 / 缩放比 */
@@ -540,13 +610,30 @@ export function PlantCanvas({
              * 端口必须画在节点之后（上层）：端口锚点正好落在节点边界上，
              * 画在下层时圆点有一半被节点矩形盖住，点中心实际点到的是节点。
              */}
+            {portDrag?.moved && (
+              <line
+                className="port-drag-line"
+                x1={portDrag.x0}
+                y1={portDrag.y0}
+                x2={portDrag.x}
+                y2={portDrag.y}
+                data-from={`${portDrag.from.unitId}.${portDrag.from.portId}`}
+              />
+            )}
             {editable &&
               layout.nodes.map((node) => (
                 <PortDots
                   key={`ports-${node.unit.id}`}
                   node={node}
                   connectFrom={connectFrom}
-                  onPortClick={onPortClick}
+                  onPortClick={(unitId, portId, kind) => {
+                    if (suppressPortClick.current) {
+                      suppressPortClick.current = false;
+                      return;
+                    }
+                    onPortClick?.(unitId, portId, kind);
+                  }}
+                  onPortPointerDown={beginPortDrag}
                 />
               ))}
             {marquee && (
@@ -739,13 +826,17 @@ function PortDots({
   node,
   connectFrom,
   onPortClick,
+  onPortPointerDown,
 }: {
   node: PlacedNode;
   connectFrom: { unitId: string; portId: string } | null;
   onPortClick?: (unitId: string, portId: string, kind: 'in' | 'out') => void;
+  onPortPointerDown?: (unitId: string, portId: string, e: React.PointerEvent<SVGCircleElement>) => void;
 }) {
   return (
-    <g className="port-layer">
+    // data-unit 让端口可被定位与断言：此前圆点与所属单元没有 DOM 关联，
+    // 端到端测试只能按渲染顺序猜，辅助技术也无法说明"这是哪个设备的端口"
+    <g className="port-layer" data-unit={node.unit.id} role="group" aria-label={`${node.unit.name} 端口`}>
       {portAnchors(node).map(({ port, kind, x, y }) => {
         const active = connectFrom?.unitId === node.unit.id && connectFrom.portId === port.id;
         return (
@@ -759,10 +850,14 @@ function PortDots({
               data-kind={kind}
               data-active={active}
               data-stream={port.stream}
+              data-port={port.id}
               style={{ stroke: streamColor(port.stream) }}
               onClick={(e) => {
                 e.stopPropagation();
                 onPortClick?.(node.unit.id, port.id, kind);
+              }}
+              onPointerDown={(e) => {
+                if (kind === 'out') onPortPointerDown?.(node.unit.id, port.id, e);
               }}
             >
               <title>

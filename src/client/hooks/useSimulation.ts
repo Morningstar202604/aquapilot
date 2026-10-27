@@ -6,7 +6,7 @@ import type { ScenarioType } from '../../sim/scenarios';
 import type { ProcessTopology } from '../../model/topology';
 import type { DiscoveredModel, LlmDraft, LlmProtocol, LlmPublicConfig, LlmTestResult } from '../../shared/llm';
 import type { AgentConfig, AgentSummary } from '../../shared/agentConfig';
-import type { WatchdogReport } from '../../shared/protocol';
+import type { TopologyVersionSummary, WatchdogReport } from '../../shared/protocol';
 import { nextSendPlan, reconnectDelayMs } from './wsPolicy';
 import { mergeSnapshot } from './snapshotMerge';
 
@@ -106,6 +106,7 @@ export function useSimulation() {
   const [speed, setSpeed] = useState(1);
   const [topology, setTopology] = useState<ProcessTopology | null>(null);
   const [topologyRevision, setTopologyRevision] = useState(1);
+  const [topologyVersions, setTopologyVersions] = useState<TopologyVersionSummary[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
   const chatId = useRef(0);
   const noticeId = useRef(0);
@@ -219,6 +220,9 @@ export function useSimulation() {
           case 'topology':
             setTopology(msg.data);
             setTopologyRevision((r) => r + 1);
+            break;
+          case 'topologyHistory':
+            setTopologyVersions(msg.versions);
             break;
           case 'llmConfig':
             if (msg.action === 'config') {
@@ -354,6 +358,8 @@ export function useSimulation() {
   const applyPreset = (id: string) => send({ type: 'preset', id });
   const requestTopology = () => send({ type: 'topology', action: 'get' });
   const applyTopology = (topo: ProcessTopology) => send({ type: 'topology', action: 'apply', topology: topo });
+  const requestTopologyHistory = () => send({ type: 'topology', action: 'history' });
+  const revertTopology = (revision: number) => send({ type: 'topology', action: 'revert', revision });
 
   const nextLlmRequestId = () => {
     llmRequestId.current += 1;
@@ -467,8 +473,11 @@ export function useSimulation() {
     applyPreset,
     topology,
     topologyRevision,
+    topologyVersions,
     requestTopology,
+    requestTopologyHistory,
     applyTopology,
+    revertTopology,
     llm,
     agent: agentApi,
     watchdog,

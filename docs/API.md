@@ -80,6 +80,12 @@ Discharge limits, control bounds and plant constants.
 Current flowsheet plus its revision, run-readiness and validation issues, and the
 reactors the solver derived from it.
 
+### `GET /api/topology/history`
+
+The newest 20 applied flowsheet versions (revision, timestamp, label, name, unit and
+connection counts). Full topologies stay on the server; roll back through the
+WebSocket with `{ type: 'topology', action: 'revert', revision }`.
+
 ### `GET /api/metrics` · `GET /api/metrics?format=json`
 
 Prometheus text exposition (default) or a JSON view with the same counters and
@@ -158,7 +164,7 @@ Frames are JSON objects with a `type`. Client → server:
 | `scenario`            | Inject or clear a scenario                                                      |
 | `sim`                 | `pause` / `resume` / `reset`                                                    |
 | `speed`               | Simulation speed, 0.25–8                                                        |
-| `topology`            | `get` or `apply` a flowsheet (apply is limited to one per 5 s)                  |
+| `topology`            | `get` / `apply` / `history` / `revert` a flowsheet (mutations limited to one per 5 s) |
 | `preset`              | Apply a shipped template by id (rebuilds and warms up the plant)                |
 | `refreshDecision`     | Recompute the recommendation immediately                                        |
 | `llmConfig`           | Custom model onboarding: `get`, `discover`, `test`, `save`, `clear` (see below) |

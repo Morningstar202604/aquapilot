@@ -16,7 +16,7 @@ import { alignNodes, distributeNodes, type AlignMode } from '../hooks/editorSele
 import { deleteUnits, moveUnitsTo, setRoute } from '../../model/topologyEdit';
 import { streamColor, streamLabel as streamName, unitKindAccent } from '../../shared/streamMeta';
 import { PlantCanvas } from './PlantCanvas';
-import type { PlantSnapshot } from '../../shared/protocol';
+import type { PlantSnapshot, TopologyVersionSummary } from '../../shared/protocol';
 
 interface Props {
   snap: PlantSnapshot;
@@ -34,6 +34,10 @@ interface Props {
   /** 多选集合受控（App 的批量删除要拿到全部选中项）；不传则本地管理 */
   selectionIds?: string[];
   onSelectionChange?: (ids: string[]) => void;
+  /** 服务端拓扑版本（回滚用）；不传则不显示「版本」页 */
+  versions?: TopologyVersionSummary[];
+  onRequestVersions?: () => void;
+  onRevertVersion?: (revision: number) => void;
 }
 
 interface PaletteEntry {
@@ -233,6 +237,9 @@ export function ProcessEditor({
   onSelectedChange,
   selectionIds,
   onSelectionChange,
+  versions,
+  onRequestVersions,
+  onRevertVersion,
 }: Props) {
   const [internalSelected, setInternalSelected] = useState<string | null>(null);
   /**
@@ -250,7 +257,7 @@ export function ProcessEditor({
     setInternalSelection(ids);
     onSelectionChange?.(ids);
   };
-  const [pane, setPane] = useState<'inspector' | 'connections' | 'check'>('inspector');
+  const [pane, setPane] = useState<'inspector' | 'connections' | 'check' | 'versions'>('inspector');
   const [connectMode, setConnectMode] = useState<{ fromUnit: string; port: string; stream: StreamKind } | null>(null);
 
   const issues = useMemo(() => validateTopology(topology), [topology]);
@@ -389,40 +396,30 @@ export function ProcessEditor({
     setPane('connections');
   };
 
-  const completeConnect = (unitId: string, port: string) => {
-    if (!connectMode) return;
-    if (connectMode.fromUnit === unitId) {
-      setConnectMode(null);
-      return;
-    }
-    /**
-     * 从出口点连线时，物流类型应取「目标入口要求的类型」而不是源端口的类型。
-     *
-     * 例：好氧池出口是 mixed_liquor，接二沉池入口（也要求 mixed_liquor）没问题；
-     * 但二沉池的 ras 出口是 return_activated_sludge，接厌氧池 ras 入口是对的；
-     * 而进水渠出口 influent 接缺氧池的 feed 入口也是 influent。
-     * 真正会出错的场景是「源端口类型与目标端口类型不同」——这时应报错而不是
-     * 偷偷造一条下游校验必然失败的边。
-     */
-    const targetUnit = findUnit(topology, unitId);
-    const targetPort = targetUnit?.ports.find((p) => p.id === port && p.kind === 'in');
-    if (!targetPort) return;
-    // 同一对端口重复接线会让流量被重复计入，直接挡在入口处而不是等校验报错
+  /**
+   * 建立一条连线（点击与拖拽共用的唯一实现）。
+   *
+   * 从出口点连线时，物流类型取「目标入口要求的类型」而不是源端口的类型：
+   * 好氧池出口是 mixed_liquor、接二沉池入口没问题；二沉池的 ras 出口接
+   * 厌氧池 ras 入口也对。真正会出错的是两者类型不同——那时应拒绝，而不是
+   * 偷偷造一条下游校验必然失败的边。
+   *
+   * 为什么抽成独立函数：拖拽路径在同一个事件里既开始又结束，
+   * 若复用 setConnectMode 的异步状态，闭包里读到的还是 null（实测拖拽连不上）。
+   */
+  const addConnection = (fromUnit: string, fromPort: string, toUnit: string, toPort: string): boolean => {
+    if (fromUnit === toUnit) return false;
+    const targetUnit = findUnit(topology, toUnit);
+    const targetPort = targetUnit?.ports.find((p) => p.id === toPort && p.kind === 'in');
+    if (!targetPort) return false;
     const exists = topology.connections.some(
-      (c) =>
-        c.from.unit === connectMode.fromUnit &&
-        c.from.port === connectMode.port &&
-        c.to.unit === unitId &&
-        c.to.port === port,
+      (c) => c.from.unit === fromUnit && c.from.port === fromPort && c.to.unit === toUnit && c.to.port === toPort,
     );
-    if (exists) {
-      setConnectMode(null);
-      return;
-    }
+    if (exists) return false;
     const conn = {
-      id: `c-${connectMode.fromUnit}-${unitId}-${Date.now().toString(36).slice(-4)}`,
-      from: { unit: connectMode.fromUnit, port: connectMode.port },
-      to: { unit: unitId, port },
+      id: `c-${fromUnit}-${toUnit}-${Date.now().toString(36).slice(-4)}`,
+      from: { unit: fromUnit, port: fromPort },
+      to: { unit: toUnit, port: toPort },
       stream: targetPort.stream,
       recycle:
         targetPort.stream === 'internal_recycle' ||
@@ -430,6 +427,12 @@ export function ProcessEditor({
         targetPort.stream === 'waste_sludge',
     };
     onChange({ ...topology, connections: [...topology.connections, conn] });
+    return true;
+  };
+
+  const completeConnect = (unitId: string, port: string) => {
+    if (!connectMode) return;
+    addConnection(connectMode.fromUnit, connectMode.port, unitId, port);
     setConnectMode(null);
   };
 
@@ -640,6 +643,7 @@ export function ProcessEditor({
               setConnectMode({ fromUnit: unitId, port: portId, stream: port.stream });
             }}
             onCompleteConnect={(unitId, portId) => completeConnect(unitId, portId)}
+            onAddConnection={(fromUnit, fromPort, toUnit, toPort) => addConnection(fromUnit, fromPort, toUnit, toPort)}
           />
         </div>
       </div>
@@ -655,6 +659,18 @@ export function ProcessEditor({
           <button className="editor-tab" data-active={pane === 'check'} onClick={() => setPane('check')}>
             校验
           </button>
+          {onRevertVersion && (
+            <button
+              className="editor-tab"
+              data-active={pane === 'versions'}
+              onClick={() => {
+                setPane('versions');
+                onRequestVersions?.();
+              }}
+            >
+              版本
+            </button>
+          )}
         </div>
 
         {pane === 'inspector' && (
@@ -807,6 +823,38 @@ export function ProcessEditor({
           </div>
         )}
 
+        {pane === 'versions' && (
+          <div className="editor-pane">
+            <div className="section-label">拓扑版本（最近 {versions?.length ?? 0} 版）</div>
+            {(!versions || versions.length === 0) && (
+              <div className="empty-note">还没有版本记录。应用一次拓扑或切换模板后会出现在这里。</div>
+            )}
+            {versions?.map((v) => (
+              <div className="conn-row" key={v.revision} data-version={v.revision}>
+                <span className="conn-text">
+                  v{v.revision} · {v.name}
+                  <span style={{ color: 'var(--text-3)' }}> · {v.label}</span>
+                </span>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-3)' }}>
+                  {v.units} 单元 / {v.connections} 物流
+                </span>
+                <button
+                  className="conn-remove"
+                  style={{ color: 'var(--water)' }}
+                  onClick={() => onRevertVersion?.(v.revision)}
+                  aria-label={`回滚到第 ${v.revision} 版`}
+                  title="以该版本内容创建新版本并重建厂"
+                >
+                  回滚
+                </button>
+              </div>
+            ))}
+            <div className="control-hint" style={{ marginTop: 8 }}>
+              回滚会以旧版内容创建一个新版本（revision 只增不减），并走与「应用到仿真」相同的校验与预热。
+            </div>
+          </div>
+        )}
+
         {pane === 'check' && (
           <div className="editor-pane">
             <div className="readiness" data-ready={readiness.ready}>
@@ -896,6 +944,7 @@ function EditorCanvas({
   onCompleteConnect,
   selection,
   onSelectionChange,
+  onAddConnection,
 }: {
   topology: ProcessTopology;
   snap: PlantSnapshot;
@@ -909,6 +958,8 @@ function EditorCanvas({
   onCompleteConnect: (unitId: string, portId: string) => void;
   selection: string[];
   onSelectionChange: (ids: string[]) => void;
+  /** 拖拽连线：与点击路径共用父层的 addConnection */
+  onAddConnection: (fromUnit: string, fromPort: string, toUnit: string, toPort: string) => boolean;
 }) {
   const moveUnit = (id: string, x: number, y: number) => {
     onChange(moveUnitsTo(topology, { [id]: { x, y } }));
@@ -939,6 +990,7 @@ function EditorCanvas({
           }
           if (kind === 'out') onBeginConnect(unitId, portId);
         }}
+        onPortDragConnect={(from, to) => onAddConnection(from.unitId, from.portId, to.unitId, to.portId)}
       />
       {invalidIds.size > 0 && (
         <div className="draft-banner" style={{ position: 'absolute', left: 8, top: 8 }}>

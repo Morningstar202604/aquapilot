@@ -5,8 +5,8 @@
 > An AI-operated wastewater treatment plant simulator.  
 > The plant is a graph, the graph is the model, and an AI operator runs it.
 
-[![tests](https://img.shields.io/badge/tests-724%20passing-brightgreen)](tests)
-[![coverage](https://img.shields.io/badge/line%20coverage-92.8%25-brightgreen)](vitest.config.ts)
+[![tests](https://img.shields.io/badge/tests-752%20passing-brightgreen)](tests)
+[![coverage](https://img.shields.io/badge/line%20coverage-92.9%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520.19-339933)](package.json)
@@ -118,7 +118,7 @@ Verify everything the CI runs:
 npm run typecheck  # TypeScript strict + noUnusedLocals/Parameters
 npm run lint       # ESLint 9
 npm run format     # Prettier 3 check
-npm run test       # 724 tests
+npm run test       # 752 tests
 npm run build      # client bundle + server bundle
 npm run verify     # typecheck + lint + test + build
 npm run ci         # full gate: deps, types, tests, build, smoke, audit, hygiene
@@ -194,11 +194,19 @@ The 工艺编排 view follows the conventions of process simulators:
 - **自动排列** clears manual coordinates and hand-routed waypoints and returns to the
   layered auto layout. Manual positions now also apply to utility and sludge units
   (blower, chemical, thickener), not just the main train.
+- **Version history and rollback.** Every apply / preset switch is recorded (newest 20,
+  `data/topology-history.json`), and the editor's 版本 tab lists them with unit and
+  connection counts. Rolling back re-applies the old document as a *new* revision
+  through the same readiness checks and 30-day warm-up, so `revision` only ever grows.
+- **Drag-to-connect.** Dragging from an outlet dot to an inlet dot creates the same
+  connection as the two-click flow (one shared `addConnection`), with a rubber-band
+  preview while dragging and duplicate rejection.
 - **Per-unit inspector** — click any unit in the monitoring view to see its volume,
   live DO/MLSS/NH₄/NO₃, blanket depth and flowsheet degree, plus only the controls
   that unit declares (aeration tanks expose DO/dosing, the clarifier exposes RAS/WAS),
-  editable in place. The clarifier additionally renders the ten-layer Takács solids
-  profile with the feed layer marked.
+  editable in place. Train units additionally show a five-stage along-the-train
+  profile (DO / NH₄ / NO₃) with the current unit highlighted, and the clarifier
+  renders the ten-layer Takács solids profile with the feed layer marked.
 - **Collapsible groups** in the control panel keep the first screen to one summary
   row per section (current DO / recirculation / PAC / active scenario stay visible).
 - **One settings menu.** 模型设置 and Agent 设置 live behind a single top-bar 设置
@@ -259,7 +267,7 @@ src/
     trendCursor.ts incremental trend cursor (ring-buffer safe)
   client/        Control-room UI (React + ECharts + SVG flowsheet)
   shared/        Client/server protocol, stream/unit metadata, sim clock formatting
-tests/           724 tests: physics, conservation, guardrails, topology,
+tests/           752 tests: physics, conservation, guardrails, topology,
                  cross-engine, benchmarks, input validation, crash boundaries
 ```
 
@@ -343,8 +351,8 @@ DO 2.0 mg/L, internal recycle 2.0×Q, RAS 0.8×Q, WAS 2.2 %, PAC 40 mg/L, step f
 | Decision, production engine (nominal)                          | 105 ms                         | same                        |
 | Decision, production engine (robust, 3 candidates × 3 samples) | 135 ms                         | same                        |
 | 30-day warm-up                                                 | 390 ms                         | same                        |
-| Tests                                                          | 724 passing                    | `npm test`                  |
-| Coverage                                                       | 92.8 % lines / 82.2 % branches | `npx vitest run --coverage` |
+| Tests                                                          | 752 passing                    | `npm test`                  |
+| Coverage                                                       | 92.9 % lines / 82.2 % branches | `npx vitest run --coverage` |
 
 ## How the AI decides
 
@@ -390,7 +398,7 @@ Verified in this repository by `npm run ci` plus `npm run e2e`:
 
 - TypeScript strict (0 errors, including unused-code checks), ESLint 9 and
   Prettier 3 clean.
-- 724 tests passing; 92.8 % line / 82.2 % branch coverage.
+- 752 tests passing; 92.9 % line / 82.2 % branch coverage.
 - Client + server production build; browser smoke asserts 7 KPI tiles, the health
   pill with 5 sub-scores, 17 nodes, 3 charts, 6 panels, no console errors, no
   connection crossing a unit body and no horizontal overflow on mobile.

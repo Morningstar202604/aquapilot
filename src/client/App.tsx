@@ -386,6 +386,9 @@ export default function App() {
               onSelectedChange={setEditorSelected}
               selectionIds={editorSelection}
               onSelectionChange={setEditorSelection}
+              versions={sim.topologyVersions}
+              onRequestVersions={sim.requestTopologyHistory}
+              onRevertVersion={sim.revertTopology}
               onChange={commitDraft}
               onApply={() => {
                 if (draft) {

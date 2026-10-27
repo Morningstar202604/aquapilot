@@ -3,6 +3,7 @@ import type { ControlSettings } from '../../sim/config';
 import type { PlantSnapshot } from '../../shared/protocol';
 import type { ProcessTopology, UnitSpec } from '../../model/topology';
 import { unitKindIcon, unitKindLabel } from '../../shared/streamMeta';
+import { buildTrainProfile, shouldShowTrainProfile } from '../../model/trainProfile';
 
 interface Props {
   snap: PlantSnapshot;
@@ -37,6 +38,8 @@ export function UnitInspector({ snap, topo, unit, onClose, onSelect, onChangeCon
   );
   const incoming = topo.connections.filter((c) => c.to.unit === unit.id);
   const outgoing = topo.connections.filter((c) => c.from.unit === unit.id);
+  const trainRows = buildTrainProfile(topo, snap.tanks, unit.id);
+  const showTrain = shouldShowTrainProfile(trainRows);
 
   return (
     <div className="unit-inspector" role="dialog" aria-label={`${unit.name} 属性`}>
@@ -129,6 +132,39 @@ export function UnitInspector({ snap, topo, unit, onClose, onSelect, onChangeCon
                 </div>
               </>
             )}
+          </>
+        )}
+
+        {showTrain && (
+          <>
+            <div className="section-label" style={{ marginTop: 8 }}>
+              主序列沿程（{trainRows.length} 级）
+            </div>
+            <div className="train-profile" role="table" aria-label="主序列沿程剖面">
+              <div className="train-row train-head" role="row">
+                <span>#</span>
+                <span>单元</span>
+                <span>DO</span>
+                <span>NH₄</span>
+                <span>NO₃</span>
+              </div>
+              {trainRows.map((row) => (
+                <div
+                  className="train-row"
+                  role="row"
+                  key={row.id}
+                  data-current={row.current}
+                  data-kind={row.kind}
+                  data-live={row.live}
+                >
+                  <span>{row.index}</span>
+                  <span className="train-name">{row.name}</span>
+                  <span>{row.live ? row.do.toFixed(2) : '—'}</span>
+                  <span>{row.live ? row.nh.toFixed(1) : '—'}</span>
+                  <span>{row.live ? row.no3.toFixed(1) : '—'}</span>
+                </div>
+              ))}
+            </div>
           </>
         )}
 

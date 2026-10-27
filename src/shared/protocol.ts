@@ -55,6 +55,17 @@ export interface BenchmarkSummary {
   mature: boolean;
 }
 
+/** 拓扑版本摘要（列表用；完整拓扑只在回滚时按 revision 取） */
+export interface TopologyVersionSummary {
+  revision: number;
+  savedAt: string;
+  /** 版本说明：应用拓扑 / 切换模板 / 回滚到 vN */
+  label: string;
+  name: string;
+  units: number;
+  connections: number;
+}
+
 export interface WatchdogReport {
   at: string;
   severity: 'ok' | 'warn' | 'error';
@@ -171,6 +182,10 @@ export type ClientMessage =
   | { type: 'preset'; id: string }
   | { type: 'topology'; action: 'get' }
   | { type: 'topology'; action: 'apply'; topology: ProcessTopology }
+  /** 列出近 N 个版本（摘要，不含完整拓扑） */
+  | { type: 'topology'; action: 'history' }
+  /** 回滚到指定 revision：服务端以旧内容创建新 revision 并走完整校验 */
+  | { type: 'topology'; action: 'revert'; revision: number }
   | { type: 'llmConfig'; action: 'get'; requestId?: string }
   | {
       type: 'llmConfig';
@@ -274,6 +289,7 @@ export type ServerMessage =
         derived: { trainUnits: number; bioVolume: number; hrtHours: number; aerobicVolume: number };
       };
     }
+  | { type: 'topologyHistory'; requestId?: string; versions: TopologyVersionSummary[] }
   | { type: 'llmConfig'; action: 'config'; requestId?: string; config: LlmPublicConfig | null }
   | { type: 'llmConfig'; action: 'discovered'; requestId: string; models: DiscoveredModel[] }
   | { type: 'llmConfig'; action: 'tested'; requestId: string; result: LlmTestResult }

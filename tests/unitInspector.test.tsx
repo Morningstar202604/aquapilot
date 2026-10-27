@@ -104,4 +104,82 @@ describe('UnitInspector', () => {
     renderInspector('clarifier');
     expect(document.querySelectorAll('.settler-layer')).toHaveLength(0);
   });
+
+  it('主序列单元显示沿程剖面，当前行唯一高亮', () => {
+    const tanks = PLANT_TOPOLOGY.train.map((id, i) => ({
+      id,
+      name: id,
+      short: id,
+      kind: (i === 0 ? 'anaerobic' : i === 1 ? 'anoxic' : 'aerobic') as 'anaerobic' | 'anoxic' | 'aerobic',
+      volume: 5000,
+      cod: 30,
+      nh: 5 - i,
+      no3: 2 + i,
+      tp: 0.2,
+      do: i < 2 ? 0.05 : 2,
+      mlss: 2500,
+      alkalinity: 200,
+      temperature: 20,
+      codRemoved: 0,
+      nhRemoved: 0,
+      o2Demand: 0,
+      klaUsed: 0,
+    }));
+    const snap = makeSnapshot({ tanks });
+    const unit = findUnit(PLANT_TOPOLOGY, 'aerobic2')!;
+    render(
+      <UnitInspector
+        snap={snap}
+        topo={PLANT_TOPOLOGY}
+        unit={unit}
+        onClose={vi.fn()}
+        onSelect={vi.fn()}
+        onChangeControls={vi.fn()}
+        onEditTopology={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/主序列沿程（5 级）/)).toBeTruthy();
+    expect(document.querySelectorAll('.train-row:not(.train-head)')).toHaveLength(5);
+    expect(document.querySelectorAll('.train-row[data-current="true"]')).toHaveLength(1);
+  });
+
+  it('非主序列单元（鼓风机）不显示沿程剖面', () => {
+    const tanks = PLANT_TOPOLOGY.train.map((id) => ({
+      id,
+      name: id,
+      short: id,
+      kind: 'aerobic' as const,
+      volume: 5000,
+      cod: 30,
+      nh: 1,
+      no3: 8,
+      tp: 0.2,
+      do: 2,
+      mlss: 2500,
+      alkalinity: 200,
+      temperature: 20,
+      codRemoved: 0,
+      nhRemoved: 0,
+      o2Demand: 0,
+      klaUsed: 0,
+    }));
+    const unit = findUnit(PLANT_TOPOLOGY, 'blower')!;
+    render(
+      <UnitInspector
+        snap={makeSnapshot({ tanks })}
+        topo={PLANT_TOPOLOGY}
+        unit={unit}
+        onClose={vi.fn()}
+        onSelect={vi.fn()}
+        onChangeControls={vi.fn()}
+        onEditTopology={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/主序列沿程/)).toBeNull();
+  });
+
+  it('快照没有实时反应器状态时不显示沿程剖面（只显示拓扑清单没有意义）', () => {
+    renderInspector('aerobic1');
+    expect(screen.queryByText(/主序列沿程/)).toBeNull();
+  });
 });

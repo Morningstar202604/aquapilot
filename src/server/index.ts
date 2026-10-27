@@ -133,6 +133,8 @@ const boot = (() => {
   return { runtime: createRuntime(PLANT_TOPOLOGY, 20261019), topology: PLANT_TOPOLOGY, restored: false };
 })();
 const restoredFromDisk = boot.restored;
+// 启动基线入历史：让"回滚到服务启动时的样子"始终可用
+topologyStore.seedBaseline(boot.topology, 1, restoredFromDisk ? '启动恢复' : '标准厂基线');
 
 const runtime: Runtime = {
   topology: boot.topology,
@@ -1250,7 +1252,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       runtime.compiled = rt.compiled;
       runtime.topology = candidate;
       runtime.topologyRevision += 1;
-      topologyStore.save(runtime.topology, runtime.topologyRevision);
+      topologyStore.save(runtime.topology, runtime.topologyRevision, `切换模板：${preset.name}`);
       runtime.activePresetId = preset.id;
       runtime.recommendation = null;
       runtime.trend = [];
@@ -1265,6 +1267,102 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
     case 'topology': {
       if (msg.action === 'get') {
         ws.send(JSON.stringify({ ...topologyMessage() } satisfies ServerMessage));
+        break;
+      }
+      if (msg.action === 'history') {
+        const requestId = (msg as { requestId?: unknown }).requestId;
+        ws.send(
+          JSON.stringify({
+            type: 'topologyHistory',
+            requestId: typeof requestId === 'string' ? requestId : undefined,
+            versions: topologyStore.history(),
+          } satisfies ServerMessage),
+        );
+        break;
+      }
+      if (msg.action === 'revert') {
+        if (rateLimited(ws, 'topology')) {
+          ws.send(
+            JSON.stringify({
+              type: 'notice',
+              level: 'error',
+              text: '拓扑变更过于频繁，请稍后再试',
+            } satisfies ServerMessage),
+          );
+          break;
+        }
+        const revision = (msg as { revision?: unknown }).revision;
+        if (typeof revision !== 'number' || !Number.isFinite(revision)) {
+          ws.send(
+            JSON.stringify({ type: 'notice', level: 'error', text: '回滚目标版本不合法' } satisfies ServerMessage),
+          );
+          break;
+        }
+        /**
+         * 回滚 = 以旧内容创建一个新 revision。
+         *
+         * 不把 revision 指针拨回去：客户端的增量判断、审计链、持久化都按
+         * 单调递增的 revision 工作，倒退会让"最新"变成歧义。
+         * 取出的历史条目在写入时已过 sanitize，这里再走与 apply 完全相同的
+         * readiness + 编译 + 预热路径（fail-closed）。
+         */
+        const target = topologyStore.version(revision);
+        if (!target) {
+          ws.send(
+            JSON.stringify({
+              type: 'notice',
+              level: 'error',
+              text: `找不到第 ${revision} 版拓扑`,
+            } satisfies ServerMessage),
+          );
+          break;
+        }
+        const rt = {
+          topology: runtime.topology,
+          compiled: runtime.compiled,
+          appliedAt: Date.now(),
+          revision: runtime.topologyRevision,
+          net: runtime.net,
+        };
+        let result: ReturnType<typeof applyTopology>;
+        try {
+          result = applyTopology(rt, target);
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          ws.send(
+            JSON.stringify({ type: 'notice', level: 'error', text: `回滚失败：${reason}` } satisfies ServerMessage),
+          );
+          break;
+        }
+        if (!result.ok) {
+          ws.send(
+            JSON.stringify({
+              type: 'notice',
+              level: 'error',
+              text: `第 ${revision} 版当前不可运行：${result.blockers[0] ?? '未知原因'}`,
+            } satisfies ServerMessage),
+          );
+          break;
+        }
+        runtime.net = rt.net;
+        runtime.compiled = rt.compiled;
+        runtime.topology = target;
+        runtime.topologyRevision += 1;
+        topologyStore.save(runtime.topology, runtime.topologyRevision, `回滚到 v${revision}`);
+        runtime.activePresetId = null;
+        runtime.recommendation = null;
+        runtime.trend = [];
+        runtime.shadow = createShadowPlant(runtime.topology, runtime.net.seed, runtime.net.timeMin);
+        pushTrend(runtime.net, runtime.trend);
+        runAiCycle(true);
+        broadcast({
+          type: 'notice',
+          level: 'info',
+          text: `已回滚到第 ${revision} 版；当前为第 ${runtime.topologyRevision} 版，厂已重建并完成预热。`,
+        });
+        broadcast({ ...topologyMessage() } satisfies ServerMessage);
+        ws.send(JSON.stringify({ type: 'topologyHistory', versions: topologyStore.history() } satisfies ServerMessage));
+        broadcastSnapshot();
         break;
       }
       if (msg.action === 'apply') {
@@ -1332,7 +1430,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         runtime.compiled = rt.compiled;
         runtime.topology = sanitized.topology;
         runtime.topologyRevision += 1;
-        topologyStore.save(runtime.topology, runtime.topologyRevision);
+        topologyStore.save(runtime.topology, runtime.topologyRevision, '应用自定义拓扑');
         runtime.activePresetId = null;
         runtime.recommendation = null;
         runtime.trend = [];
@@ -1824,6 +1922,11 @@ async function main(): Promise<void> {
     if (pathname === '/api/limits') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ limits: LIMITS, bounds: CONTROL_BOUNDS, plant: PLANT }));
+      return;
+    }
+    if (pathname === '/api/topology/history') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ versions: topologyStore.history() }));
       return;
     }
     if (pathname === '/api/topology') {

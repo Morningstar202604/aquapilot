@@ -5,8 +5,8 @@
 > AI 值守的再生水厂仿真台。  
 > 厂是图，图就是模型，AI 值班员来跑。
 
-[![tests](https://img.shields.io/badge/tests-724%20passing-brightgreen)](tests)
-[![coverage](https://img.shields.io/badge/line%20coverage-92.8%25-brightgreen)](vitest.config.ts)
+[![tests](https://img.shields.io/badge/tests-752%20passing-brightgreen)](tests)
+[![coverage](https://img.shields.io/badge/line%20coverage-92.9%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -91,7 +91,7 @@ npm run dev        # 前端 5174，服务端 5173
 ```bash
 npm run typecheck  # TypeScript 严格模式
 npm run lint       # ESLint 9
-npm run test       # 724 项测试
+npm run test       # 752 项测试
 npm run build      # 客户端 + 服务端
 npm run verify     # 上述四项按顺序跑
 npm run ci         # 完整门禁：依赖、类型、测试、构建、冒烟、审计、卫生
@@ -160,7 +160,9 @@ npx tsx scripts/agent-config.ts permission open
 | 多选与对齐 | 空白处拖框选、Shift 点选多个；选中后一起拖动，工具条出现左/右/顶/底对齐与横/竖等距                                                                                                         |
 | 键盘       | 方向键按渲染位置微调整组选中（Shift 加速 5 格）、Del 一次删除全部选中单元及其连线（单步可撤销）、Esc 取消选择、Ctrl+Z 撤销                                                               |
 | 连线折点   | 每条连线在编辑模式有中点手柄：拖动即插入正交折点（存在 `topology.routes`），可继续加折点；点「×」恢复自动走线，折点随应用与重载保留                                                       |
-| 单元检视   | 监视视图点任一池子，右侧浮层显示该单元的容积、实时 DO/MLSS/NH₄/NO₃、泥位、进出物流数、设备参数，并**只列它自己支持的**控制量（好氧池给溶解氧/加药，二沉池才给回流比/排泥），可直接拖动改值；二沉池另附十层污泥浓度剖面并标出进料层 |
+| 拖拽连线   | 从出口圆点拖到入口圆点松手即完成连线（拖动时有橡皮筋预览）；与「点出口→点入口」共用同一套去重与流股推导                                                                    |
+| 版本历史   | 每次应用/切换模板都留痕（保留最近 20 版）；「版本」页列出 revision、说明与单元/物流数，可一键回滚——回滚以旧内容创建**新** revision，并走同样的校验与 30 天预热                        |
+| 单元检视   | 监视视图点任一池子，右侧浮层显示该单元的容积、实时 DO/MLSS/NH₄/NO₃、泥位、进出物流数、设备参数，并**只列它自己支持的**控制量（好氧池给溶解氧/加药，二沉池才给回流比/排泥），可直接拖动改值；主序列单元另附沿程剖面（5 级 DO/NH₄/NO₃），二沉池附十层污泥浓度剖面并标出进料层 |
 | 图标       | 每个单元标题前有工艺图标（≣ 格栅、◉ 好氧、◎ 二沉、≋ 鼓风），端口按物流类型着色并带两字短标签                                                                                               |
 | 折叠分组   | 侧栏控制面板按「工艺模板 / 工艺控制变量 / 工况注入」折叠，收起时标题行仍显示当前关键读数（DO、内回流、PAC、进行中的场景）                                                                  |
 
@@ -212,7 +214,7 @@ src/
     index.ts        WebSocket 仿真循环、REST、静态托管
   client/           控制室界面（React + ECharts + SVG 工艺图）
   shared/           前后端消息契约、物流/单元元数据、仿真时钟格式
-tests/              724 项测试：物理性质、守恒、AI 护栏、拓扑、双跑、输入校验、崩溃边界
+tests/              752 项测试：物理性质、守恒、AI 护栏、拓扑、双跑、输入校验、崩溃边界
 ```
 
 ### 三层契约
@@ -282,8 +284,8 @@ PAC 40 mg/L、多点进水 0.3×Q），两条链都从同样的 30 天预热开�
 | 生产引擎决策（名义）                  | 105 ms                | 同上                        |
 | 生产引擎决策（鲁棒，3 候选 × 3 样本） | 135 ms                | 同上                        |
 | 30 天预热                             | 390 ms                | 同上                        |
-| 测试                                  | 724 通过              | `npm test`                  |
-| 覆盖率                                | 92.8% 行 / 82.2% 分支 | `npx vitest run --coverage` |
+| 测试                                  | 752 通过              | `npm test`                  |
+| 覆盖率                                | 92.9% 行 / 82.2% 分支 | `npx vitest run --coverage` |
 
 ## AI 怎么决策
 

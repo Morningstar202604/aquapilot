@@ -3563,6 +3563,65 @@ button {
   font-weight: 500;
 }
 
+/* 拖拽连线的橡皮筋：虚线 + 起点高亮，松手后消失 */
+.port-drag-line {
+  stroke: var(--water);
+  stroke-width: 1.4;
+  stroke-dasharray: 5 4;
+  fill: none;
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+/* 主序列沿程剖面：五列小表，当前单元行加亮 */
+.train-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 6px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-3);
+}
+
+.train-row {
+  display: grid;
+  grid-template-columns: 14px 1fr 34px 34px 34px;
+  gap: 4px;
+  padding: 2px 3px;
+  border-radius: 2px;
+}
+
+.train-row span:nth-child(n + 3) {
+  text-align: right;
+}
+
+.train-head {
+  color: var(--text-3);
+  opacity: 0.7;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.train-row[data-current='true'] {
+  background: rgba(62, 224, 181, 0.09);
+  color: var(--water);
+}
+
+.train-row[data-kind='anoxic'] .train-name,
+.train-row[data-kind='anaerobic'] .train-name {
+  color: var(--water-dim);
+}
+
+.train-row[data-live='false'] {
+  opacity: 0.45;
+}
+
+.train-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* 二沉池十层浓度剖面：横向条形，进料层高亮 */
 .settler-profile {
   display: flex;

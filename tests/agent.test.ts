@@ -152,8 +152,13 @@ describe('closed loop safety', () => {
 
   it('holds the dissolved oxygen target through a full day of closed loop control', () => {
     const s = steadyState(404);
+    /**
+     * 这条测的是「连续 48 个周期后 DO 是否仍被控制住」，不是鲁棒评估本身，
+     * 因此关掉 ensemble（每个候选 3 条轨迹）。开启时在覆盖率插桩下会超过
+     * 20 s 的测试超时，而那属于性能而非行为回归。
+     */
     for (let cycle = 0; cycle < 48; cycle++) {
-      const rec = decide({ model: model(s), horizonMin: 120 });
+      const rec = decide({ model: model(s), horizonMin: 120, robust: false });
       s.controls = { ...rec.chosens.controls, aiEnabled: true };
       for (let m = 0; m < 30; m++) step(s, 1);
     }

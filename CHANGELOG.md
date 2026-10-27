@@ -4,6 +4,40 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — topology history, along-train profile, drag-to-connect
+
+### Added
+
+- **Flowsheet version history with rollback.** Each apply and each preset switch appends
+  to `data/topology-history.json` (newest 20, ~18 KB each; `AQUAPILOT_TOPOLOGY_HISTORY`
+  relocates it). The boot topology is seeded as v1 (`标准厂基线` / `启动恢复`) so there is
+  always something to roll back to. The editor's new 版本 tab lists revision, label,
+  unit and connection counts and offers a one-click 回滚. A rollback re-applies the old
+  document through the same readiness validation and 30-day warm-up and records it as a
+  **new** revision — `revision` only ever grows, so client caches and audit chains stay
+  unambiguous. Exposed as `GET /api/topology/history` and WS
+  `{ type: 'topology', action: 'history' | 'revert' }`.
+- **Along-the-train profile in the unit inspector.** Selecting any main-train unit
+  renders the five-stage DO / NH₄ / NO₃ walk through the train with the current unit
+  highlighted, so an operator can see *where* nitrification and denitrification happen
+  instead of only the selected tank. Non-train units (blower, chemical) show nothing,
+  and a snapshot without live reactor state does not render an empty table
+  (`src/model/trainProfile.ts`, 6 unit tests + 3 inspector tests).
+- **Drag-to-connect on the flowsheet.** Dragging from an outlet dot to an inlet dot
+  creates a connection with a rubber-band preview; a <6 px gesture still counts as a
+  click. Both entry points share one `addConnection`, so stream inference, duplicate
+  rejection and the `recycle` flag cannot drift apart. The ports now expose
+  `data-unit` / `data-port` (also used by assistive tech and end-to-end tests).
+
+### Fixed
+
+- **Port dots had no unit binding in the DOM.** End-to-end tests could only guess a
+  dot's owner by render order and screen readers could not say which device a port
+  belonged to; the port layer now carries `data-unit`, each dot `data-port`.
+- **Slow closed-loop test exceeded the 20 s timeout under coverage instrumentation.**
+  The test measures whether DO stays controlled over 48 cycles, not the ensemble; it now
+  runs with `robust: false` (the ensemble adds three trajectories per candidate).
+
 ## [Unreleased] — debt payoff and theoretical audit
 
 ### Changed
