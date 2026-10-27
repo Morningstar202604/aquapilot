@@ -5,8 +5,8 @@
 > An AI-operated wastewater treatment plant simulator.  
 > The plant is a graph, the graph is the model, and an AI operator runs it.
 
-[![tests](https://img.shields.io/badge/tests-627%20passing-brightgreen)](tests)
-[![coverage](https://img.shields.io/badge/line%20coverage-95.6%25-brightgreen)](vitest.config.ts)
+[![tests](https://img.shields.io/badge/tests-677%20passing-brightgreen)](tests)
+[![coverage](https://img.shields.io/badge/line%20coverage-93.5%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520.19-339933)](package.json)
@@ -118,7 +118,7 @@ Verify everything the CI runs:
 npm run typecheck  # TypeScript strict + noUnusedLocals/Parameters
 npm run lint       # ESLint 9
 npm run format     # Prettier 3 check
-npm run test       # 381 tests
+npm run test       # 677 tests
 npm run build      # client bundle + server bundle
 npm run verify     # typecheck + lint + test + build
 npm run ci         # full gate: deps, types, tests, build, smoke, audit, hygiene
@@ -178,17 +178,27 @@ The 工艺编排 view follows the conventions of process simulators:
   and duplicate links are rejected at the entry point instead of failing validation.
 - **New biological tanks auto-splice** into the main train between the previous last
   unit and its downstream, so a dropped tank validates with 0 errors.
-- **Multi-select and alignment** — drag on empty canvas to box-select, Shift/Ctrl+click
-  to add; selected units move together and the toolbar exposes left/right/top/bottom
-  alignment plus horizontal/vertical distribution. Arrow keys nudge by one grid step
-  (Shift = 5), Delete removes the selected unit, Esc clears the selection.
+- **Multi-select, alignment and batch delete** — drag on empty canvas to box-select,
+  Shift/Ctrl+click to add; selected units move together and the toolbar exposes
+  left/right/top/bottom alignment plus horizontal/vertical distribution. Arrow keys
+  nudge the whole selection by one grid step (Shift = 5) from the rendered position,
+  Delete removes every selected unit together with its links in a single undo step,
+  Esc clears the selection. Dragging now uses the gesture's starting coordinates, so
+  a two-grid drag stays two grids instead of accumulating per frame.
+- **Hand-routed connections.** Every connection carries a midpoint handle in the
+  editor; drag it to pin an orthogonal waypoint (`topology.routes`), drag further
+  handles to add more, and click the × to fall back to the automatic corridor route.
+  Waypoints are part of the flowsheet document and survive apply/reload.
 - **Ports are coloured per stream** and show a two-character label on hover or while
   connecting; every unit kind carries a monospace icon in its title bar.
-- **自动排列** clears manual coordinates and returns to the layered auto layout.
+- **自动排列** clears manual coordinates and hand-routed waypoints and returns to the
+  layered auto layout. Manual positions now also apply to utility and sludge units
+  (blower, chemical, thickener), not just the main train.
 - **Per-unit inspector** — click any unit in the monitoring view to see its volume,
   live DO/MLSS/NH₄/NO₃, blanket depth and flowsheet degree, plus only the controls
   that unit declares (aeration tanks expose DO/dosing, the clarifier exposes RAS/WAS),
-  editable in place.
+  editable in place. The clarifier additionally renders the ten-layer Takács solids
+  profile with the feed layer marked.
 - **Collapsible groups** in the control panel keep the first screen to one summary
   row per section (current DO / recirculation / PAC / active scenario stay visible).
 - **One settings menu.** 模型设置 and Agent 设置 live behind a single top-bar 设置
@@ -248,7 +258,7 @@ src/
     trendCursor.ts incremental trend cursor (ring-buffer safe)
   client/        Control-room UI (React + ECharts + SVG flowsheet)
   shared/        Client/server protocol
-tests/           381 tests: physics, conservation, guardrails, topology,
+tests/           677 tests: physics, conservation, guardrails, topology,
                  cross-engine, benchmarks, input validation, crash boundaries
 ```
 
@@ -332,8 +342,8 @@ DO 2.0 mg/L, internal recycle 2.0×Q, RAS 0.8×Q, WAS 2.2 %, PAC 40 mg/L, step f
 | Decision, production engine (nominal)                          | 153 ms                         | same                        |
 | Decision, production engine (robust, 3 candidates × 3 samples) | 215 ms                         | same                        |
 | 30-day warm-up                                                 | ~110 ms                        | same                        |
-| Tests                                                          | 381 passing                    | `npm test`                  |
-| Coverage                                                       | 95.5 % lines / 83.0 % branches | `npx vitest run --coverage` |
+| Tests                                                          | 677 passing                    | `npm test`                  |
+| Coverage                                                       | 93.5 % lines / 82.9 % branches | `npx vitest run --coverage` |
 
 ## How the AI decides
 
@@ -379,7 +389,7 @@ Verified in this repository by `npm run ci` plus `npm run e2e`:
 
 - TypeScript strict (0 errors, including unused-code checks), ESLint 9 and
   Prettier 3 clean.
-- 381 tests passing; 95.6 % line / 84.7 % branch coverage.
+- 677 tests passing; 93.5 % line / 82.9 % branch coverage.
 - Client + server production build; browser smoke asserts 7 KPI tiles, the health
   pill with 5 sub-scores, 17 nodes, 3 charts, 6 panels, no console errors, no
   connection crossing a unit body and no horizontal overflow on mobile.

@@ -8,12 +8,15 @@ import { askLlm, readLlmConfig, type GroundingContext } from '../ai/llm';
 import { CONTROL_BOUNDS, LIMITS, PLANT } from '../sim/config';
 import { SCENARIOS, ScenarioType } from '../sim/scenarios';
 import { NetworkSimState, networkModel, qualityScoreOf, stepNetwork } from '../sim/networkEngine';
+import { BSM1_SETTLER } from '../sim/takacs';
+import { aiCycleDue } from './aiCadence';
 import type { ForecastOutcomeX } from '../sim/plantModel';
 import { CompiledNetwork } from '../sim/network';
 import { estimateMargin } from '../sim/metrics';
 import { attributeAlarm, plantHealth, trendSlopes, type AlarmAttribution } from '../sim/alarmAttribution';
 import type { ClientMessage, PlantSnapshot, ServerMessage, SnapshotPatch, TrendPoint } from '../shared/protocol';
 import { PLANT_TOPOLOGY, ProcessTopology, validateTopology } from '../model/topology';
+import { sanitizeTopologyInput } from '../model/topologyInput';
 import { PRESETS, buildPreset, presetById } from '../model/presets';
 import { applyTopology, checkRunReadiness, createRuntime } from './topologyRuntime';
 import { Store } from './store';
@@ -21,7 +24,7 @@ import { authRequired, authorize } from './auth';
 import { isApiPath, isPublicApiPath, isReadMethod, pathnameOf, shouldFallbackToIndex } from './httpRoutes';
 import { logger, metrics, metricsJson, recordHttp, recordTick, renderPrometheus } from './observability';
 import { buildOperationsReport, decisionsCsv, snapshotsCsv } from './export';
-import { takeNewPoints } from './trendCursor';
+import { takeNewPoints, syncCursorToBuffer } from './trendCursor';
 import { createShadowPlant, stepShadow, summarizeBenchmark, type ShadowPlant } from './benchmark';
 import { llmConfigStore, sanitizeDraft } from './llmConfig';
 import { assertSafeBaseUrl, discoverModels, testConnection } from '../ai/providers';
@@ -51,7 +54,6 @@ import {
 const PORT = Number(process.env.PORT ?? 5173);
 const TICK_MS = Number(process.env.TICK_MS ?? 1000);
 const SIM_MINUTES_PER_TICK = Number(process.env.SIM_MINUTES_PER_TICK ?? 2);
-const AI_CYCLE_TICKS = 30;
 /** 人工调整后的 AI 静默期（仿真分钟） */
 const MANUAL_OVERRIDE_MIN = 30;
 const TREND_EVERY_TICKS = 10;
@@ -82,7 +84,8 @@ interface Runtime {
   recommendation: Recommendation | null;
   trend: TrendPoint[];
   tick: number;
-  aiTick: number;
+  /** 上次决策的仿真时刻（分钟）：决策节拍按仿真时间而不是 tick 次数 */
+  lastDecisionAtMin: number;
   clients: Set<WebSocket>;
   clientState: Map<WebSocket, ClientState>;
   /** 人工调整后的优先期截止（仿真分钟）；期内 AI 只建议不覆盖 */
@@ -117,7 +120,7 @@ const runtime: Runtime = {
   recommendation: null,
   trend: [],
   tick: 0,
-  aiTick: 0,
+  lastDecisionAtMin: 0,
   clients: new Set(),
   clientState: new Map(),
   manualOverrideUntil: 0,
@@ -213,6 +216,9 @@ function buildSnapshot(): PlantSnapshot {
       underflowM3h: s.influent.flow * s.controls.rasRatio,
       area: s.clarifier.area,
       depth: s.clarifier.depth,
+      // 十层剖面：只读诊断量，给「泥在哪一层」一个可看的答案
+      profile: s.clarifier.settler.x.map((v) => Number(v.toFixed(1))),
+      feedLayer: BSM1_SETTLER.feedLayer,
     },
     controls: s.controls,
     scenario: s.scenario,
@@ -354,14 +360,32 @@ function buildPatch(client: ClientState): SnapshotPatch | null {
       xRas: s.clarifier.xRas,
       xEff: s.clarifier.xEff,
       slr: s.clarifier.slr,
+      profile: s.clarifier.settler.x.map((v) => Number(v.toFixed(1))),
     },
     energy: { ...s.energy, specificKwhM3: s.energy.totalKw / Math.max(1, s.influent.flow) },
     // 当日口径必须用 costToday：用累计值会让「今日运行成本」随仿真天数线性上涨
     cost: { totalToday: s.costToday.total, total: s.cost.total },
     srtDays: s.srtDays,
+    fmRatio: s.fmRatio,
+    // AI 会自动改写控制量：必须随增量下发，否则界面滑块停在用户上次拖的位置
+    controls: s.controls,
+    totals: {
+      inflowM3: s.totals.inflowM3,
+      energyKwh: s.totals.energyKwh,
+      cost: s.cost.total,
+      wasteSludgeKg: s.totals.wasteSludgeKg,
+      elapsedMin: s.timeMin,
+      energyCost: s.cost.energy,
+      chemicalCost: s.cost.chemical,
+      sludgeCost: s.cost.sludge,
+    },
     score: qualityScoreOf(s.effluent),
     margins: estimateMargin(s.effluent),
     trendsAppend,
+    alarms: s.alarms
+      .slice(-20)
+      .reverse()
+      .map((a) => ({ ...a })),
     activeAlarms: currentAlarms(s),
     alarmAttribution: buildAttribution(s),
     health: plantHealth({
@@ -423,8 +447,28 @@ function broadcast(message: ServerMessage): void {
   }
 }
 
+/**
+ * 广播全量快照。
+ *
+ * 全量快照已经带上整段趋势，必须同时把每个客户端的增量游标对齐到缓冲末尾：
+ * - 不对齐 → 下一帧把同一段趋势再发一遍；
+ * - 重置/换拓扑后缓冲从 t=0 重来 → 游标停在旧高点，趋势永久静止（真实缺陷）。
+ */
 function broadcastSnapshot(): void {
   broadcast({ type: 'snapshot', data: buildSnapshot() });
+  for (const ws of runtime.clients) {
+    const client = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0, lastLlmAt: 0 };
+    syncCursorToBuffer(runtime.trend, client);
+    runtime.clientState.set(ws, client);
+  }
+}
+
+/** 单发给一个连接的全量快照（hello / 重连），同样需要对齐趋势游标 */
+function sendSnapshotTo(ws: WebSocket): void {
+  ws.send(JSON.stringify({ type: 'snapshot', data: buildSnapshot() } satisfies ServerMessage));
+  const client = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0, lastLlmAt: 0 };
+  syncCursorToBuffer(runtime.trend, client);
+  runtime.clientState.set(ws, client);
 }
 
 /**
@@ -466,9 +510,25 @@ const hooksRuntime = new HookRuntime({
 /** 告警钩子：只为本 tick 新出现的告警触发一次 */
 function fireAlarmHooks(seen: Set<string>): void {
   const cfg = agentConfigStore.get();
-  for (const alarm of currentAlarms(runtime.net)) {
+  const s = runtime.net;
+  const recent = s.alarms.slice(-10);
+  for (const alarm of currentAlarms(s)) {
     if (seen.has(alarm.code)) continue;
     seen.add(alarm.code);
+    /**
+     * 落库：Store 早已有 alarms 表与 recordAlarm，但从未被调用，
+     * `/api/history/stats` 的告警计数永远是 0，事故复盘也查不到告警时间线。
+     * 以当前仿真时刻为准写一条，重复 code 在 currentAlarms 层面已去重。
+     */
+    const persisted = recent.find((a) => a.code === alarm.code && a.at === s.timeMin);
+    store.recordAlarm({
+      runId: RUN_ID,
+      id: persisted?.id ?? `LIVE-${alarm.code}-${Math.round(s.timeMin)}`,
+      atMin: s.timeMin,
+      severity: alarm.severity,
+      code: alarm.code,
+      message: alarm.message,
+    });
     void hooksRuntime.fire(cfg, {
       event: 'alarm',
       detail: `${alarm.code} ${alarm.message}`,
@@ -529,6 +589,11 @@ function runWatchdog(): void {
 }
 
 function runAiCycle(force = false): Recommendation {
+  /**
+   * 记录本次决策时刻：强制决策（换拓扑、手动刷新）同样要把节拍基准前移，
+   * 否则下一次自然决策会在几秒后又跑一遍。
+   */
+  runtime.lastDecisionAtMin = runtime.net.timeMin;
   const model = networkModel(runtime.topology, runtime.net);
   let rec: Recommendation;
   try {
@@ -620,26 +685,30 @@ function advance(): void {
   const activeCodes = new Set(currentAlarms(s).map((a) => a.code));
   for (const code of seenAlarmCodes) if (!activeCodes.has(code)) seenAlarmCodes.delete(code);
   fireAlarmHooks(seenAlarmCodes);
-  // 每 10 个 tick 抽一个快照点（约每 20 仿真分钟），用于回放
+  // 每 10 个仿真分钟抽一个快照点（tick 按 1 分钟推进），用于回放与导出
   if (runtime.tick % 10 === 0) {
-    const e = s.effluent;
     store.recordSnapshot({
       runId: RUN_ID,
       atMin: s.timeMin,
-      effluentCod: e.cod,
-      effluentNh: e.nh,
-      effluentTn: e.tn,
-      effluentTp: e.tp,
-      effluentSs: e.ss,
+      effluentCod: s.effluent.cod,
+      effluentNh: s.effluent.nh,
+      effluentTn: s.effluent.tn,
+      effluentTp: s.effluent.tp,
+      effluentSs: s.effluent.ss,
       mlss: (s.biomassKg * 1000) / Math.max(1, s.volume.bio),
       srtDays: s.srtDays,
       energyKw: s.energy.totalKw,
-      score: qualityScoreOf(e),
+      score: qualityScoreOf(s.effluent),
     });
   }
 
-  runtime.aiTick += 1;
-  if (runtime.aiTick % AI_CYCLE_TICKS === 0) {
+  /**
+   * 决策节拍按仿真时间，不按 tick 次数。
+   *
+   * 旧实现 `aiTick % 30`：1× 时 60 仿真分钟一次，4× 时 240 分钟一次——
+   * 倍速越高决策越迟钝，与界面承诺的「每 15 分钟仿真时间」不符。
+   */
+  if (aiCycleDue(runtime.lastDecisionAtMin, s.timeMin)) {
     runAiCycle();
   }
   runWatchdog();
@@ -880,7 +949,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
 
   switch (msg.type) {
     case 'hello': {
-      ws.send(JSON.stringify({ type: 'snapshot', data: buildSnapshot() } satisfies ServerMessage));
+      sendSnapshotTo(ws);
       ws.send(
         JSON.stringify({
           type: 'simState',
@@ -1100,7 +1169,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         runtime.trend = [];
         runtime.recommendation = null;
         runtime.tick = 0;
-        runtime.aiTick = 0;
+        runtime.lastDecisionAtMin = 0;
         runtime.paused = false;
         broadcast({ type: 'notice', level: 'info', text: '仿真已重置到初始稳态。' });
       }
@@ -1188,8 +1257,24 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
           break;
         }
         const incoming = (msg as { topology?: unknown }).topology;
-        if (!incoming || typeof incoming !== 'object' || !Array.isArray((incoming as { units?: unknown }).units)) {
-          ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '拓扑结构不合法' } satisfies ServerMessage));
+        /**
+         * 信任边界：先把任意 JSON 收成合法拓扑，再交给引擎。
+         *
+         * 此前只检查 `Array.isArray(units)` 就 `as ProcessTopology`：
+         * units 里的 null、NaN 容积、超长主序列都会原样进入 compileNetwork，
+         * 轻则应用失败，重则每个 tick 抛错把仿真停掉。
+         */
+        const sanitized = sanitizeTopologyInput(incoming);
+        if (!sanitized.ok) {
+          metrics.invalidMessages += 1;
+          logger.warn('topology apply rejected', { reason: sanitized.error });
+          ws.send(
+            JSON.stringify({
+              type: 'notice',
+              level: 'error',
+              text: `拓扑结构不合法：${sanitized.error}`,
+            } satisfies ServerMessage),
+          );
           break;
         }
         const rt = {
@@ -1201,7 +1286,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         };
         let result: ReturnType<typeof applyTopology>;
         try {
-          result = applyTopology(rt, incoming as ProcessTopology);
+          result = applyTopology(rt, sanitized.topology);
         } catch (err) {
           const reason = err instanceof Error ? err.message : String(err);
           ws.send(
@@ -1223,7 +1308,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         // applyTopology 内部会重建 net，必须把新状态接回来，否则只是改了拓扑对象
         runtime.net = rt.net;
         runtime.compiled = rt.compiled;
-        runtime.topology = incoming as ProcessTopology;
+        runtime.topology = sanitized.topology;
         runtime.topologyRevision += 1;
         runtime.activePresetId = null;
         runtime.recommendation = null;
@@ -1740,6 +1825,14 @@ async function main(): Promise<void> {
     if (pathname === '/api/history/decisions') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ enabled: store.enabled, decisions: store.recentDecisions(100) }));
+      return;
+    }
+    if (pathname === '/api/history/alarms') {
+      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+      const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit') ?? 100) || 100));
+      const runId = url.searchParams.get('runId') ?? undefined;
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ enabled: store.enabled, alarms: store.recentAlarms(limit, runId ?? undefined) }));
       return;
     }
     if (pathname === '/api/history/snapshots') {

@@ -158,14 +158,38 @@ export interface SnapshotPatch {
   influentFlow: number;
   effluent: EffluentState;
   tanks: Pick<TankState, 'id' | 'do' | 'mlss' | 'cod' | 'nh' | 'no3' | 'tp' | 'alkalinity'>[];
-  clarifier: { blanketM: number; xRas: number; xEff: number; slr: number };
+  clarifier: {
+    blanketM: number;
+    xRas: number;
+    xEff: number;
+    slr: number;
+    /** 十层剖面；缺失时客户端保留上一帧 */
+    profile?: number[];
+  };
   energy: EnergyState;
   cost: { totalToday: number; total: number };
   srtDays: number;
+  fmRatio: number;
+  /**
+   * 当前控制量。
+   *
+   * 必须随增量下发：AI 自动执行后控制量会被服务端改写，
+   * 不合并它，界面滑块会一直停在用户上次拖到的位置（真实缺陷）。
+   */
+  controls: ControlSettings;
+  /** 累计量：累计处理水量 / 电耗 / 污泥，「累计与推算」区块依赖它 */
+  totals: PlantSnapshot['totals'];
   score: number;
   margins: { metric: string; ratio: number; value: number; limit: number }[];
   /** 自上次补丁以来新增的趋势点（通常 0 或 1 个） */
   trendsAppend: TrendPoint[];
+  /**
+   * 最近告警（最多 20 条）。
+   *
+   * 全量快照里也有，但全量快照只在连接/换拓扑时发；
+   * 不随增量下发的话，运行中新触发的告警永远不会出现在「历史记录」里。
+   */
+  alarms: Alarm[];
   activeAlarms: Alarm[];
   alarmAttribution: Record<string, AlarmAttribution>;
   health: PlantHealth;

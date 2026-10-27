@@ -25,6 +25,32 @@ export type UnitKind =
   | 'pump'
   | 'splitter';
 
+/**
+ * 单元类型的运行时白名单。
+ *
+ * 类型系统只在编译期存在；服务端收到的拓扑是任意 JSON，
+ * 必须有一份运行时清单才能拒绝未知类型（否则引擎会拿到未定义的 kind）。
+ */
+export const UNIT_KINDS = [
+  'inlet',
+  'screening',
+  'grit',
+  'primary',
+  'anaerobic',
+  'anoxic',
+  'aerobic',
+  'clarifier',
+  'disinfection',
+  'outlet',
+  'storage',
+  'thickener',
+  'dewatering',
+  'blower',
+  'chemical',
+  'pump',
+  'splitter',
+] as const satisfies readonly UnitKind[];
+
 export type StreamKind =
   | 'influent'
   | 'mixed_liquor'
@@ -100,6 +126,14 @@ export interface ProcessTopology {
    * 缺失的单元走自动布局；存在的以人工位置优先。
    */
   positions?: Record<string, { x: number; y: number }>;
+  /**
+   * 连线的人工折点（图纸坐标），按 connection id 索引。
+   *
+   * 和 positions 一样只属于「流程图这份文档」：引擎不读、不参与求解。
+   * 有折点时按折点走正交折线，否则由布局层自动选走廊。
+   * 空数组等价于没有折点（恢复自动走线）。
+   */
+  routes?: Record<string, { x: number; y: number }[]>;
 }
 
 const P = (id: string, kind: 'in' | 'out', stream: StreamKind, order = 0): Port => ({ id, kind, stream, order });

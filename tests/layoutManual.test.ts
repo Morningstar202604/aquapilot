@@ -67,6 +67,70 @@ describe('人工摆放', () => {
     });
     for (const edge of layout.edges) expect(edge.path.startsWith('M')).toBe(true);
   });
+
+  it('公用工程与污泥单元的人工坐标同样生效', () => {
+    const layout = layoutTopology({
+      ...PLANT_TOPOLOGY,
+      positions: { blower: { x: 500, y: 700 }, thickener: { x: 800, y: 900 } },
+    });
+    const blower = layout.nodes.find((n) => n.unit.id === 'blower')!;
+    const thickener = layout.nodes.find((n) => n.unit.id === 'thickener')!;
+    expect(blower.x).toBe(500);
+    expect(blower.y).toBe(700);
+    expect(thickener.x).toBe(800);
+    expect(thickener.y).toBe(900);
+  });
+
+  it('连线折点被画成穿过该点的正交折线', () => {
+    const layout = layoutTopology({
+      ...PLANT_TOPOLOGY,
+      routes: { 'c-aerobic1-aerobic2': [{ x: 1100, y: 180 }] },
+    });
+    const edge = layout.edges.find((e) => e.connection.id === 'c-aerobic1-aerobic2')!;
+    expect(edge.path).toContain('H 1100');
+    expect(edge.path).toContain('V 180');
+  });
+
+  it('折点路径不进入无关节点内部', () => {
+    const layout = layoutTopology({
+      ...PLANT_TOPOLOGY,
+      // 折点落在主排与公用工程排之间的空白走廊里（用户可自由摆放，这里验证正交段不穿节点）
+      routes: { 'c-aerobic1-aerobic2': [{ x: 1100, y: 180 }] },
+    });
+    const edge = layout.edges.find((e) => e.connection.id === 'c-aerobic1-aerobic2')!;
+    const cmds = edge.path.match(/[MHV][^MHV]*/g) ?? [];
+    const points: { x: number; y: number }[] = [];
+    let x = 0;
+    let y = 0;
+    for (const cmd of cmds) {
+      const nums = (cmd.slice(1).match(/-?\d+(\.\d+)?/g) ?? []).map(Number);
+      if (cmd[0] === 'M') {
+        x = nums[0];
+        y = nums[1];
+        points.push({ x, y });
+      } else if (cmd[0] === 'H') {
+        x = nums[0];
+        points.push({ x, y });
+      } else {
+        y = nums[0];
+        points.push({ x, y });
+      }
+    }
+    for (const node of layout.nodes) {
+      if (node.unit.id === 'aerobic1' || node.unit.id === 'aerobic2') continue;
+      for (let i = 1; i < points.length; i += 1) {
+        const a = points[i - 1];
+        const b = points[i];
+        for (let k = 0; k <= 20; k += 1) {
+          const px = a.x + ((b.x - a.x) * k) / 20;
+          const py = a.y + ((b.y - a.y) * k) / 20;
+          expect(px > node.x + 2 && px < node.x + node.w - 2 && py > node.y + 2 && py < node.y + node.h - 2).toBe(
+            false,
+          );
+        }
+      }
+    }
+  });
 });
 
 describe('端口锚点', () => {

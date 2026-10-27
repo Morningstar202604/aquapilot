@@ -4,6 +4,55 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — authoring completion and full-debug pass
+
+### Added
+
+- **Batch delete in the flowsheet editor.** Delete/Backspace and a toolbar
+  「删除选中」 button now remove every selected unit together with all connections,
+  train entries, stored positions and waypoints — in one undoable step. The earlier
+  implementation deliberately deleted only the last selected unit.
+- **Hand-routed connection waypoints.** In edit mode every connection shows a
+  midpoint handle; dragging it pins an orthogonal waypoint stored under the
+  topology's new `routes` field, further handles can be added, and a × restores the
+  automatic corridor route. Waypoints survive apply/reload and are drawn as H/V
+  segments only.
+- **Ten-layer clarifier profile in the unit inspector.** The Takács settler layer
+  concentrations are now sent in the snapshot (`clarifier.profile` +
+  `feedLayer`) and rendered as ten bars with the feed layer highlighted.
+- **`GET /api/history/alarms`.** Persisted alarms, newest first, optionally scoped to
+  a run. The server now records an alarm row the first time each code becomes
+  active, so `/api/history/stats` no longer reports a permanently empty alarms table.
+
+### Fixed
+
+- **Drag delta accumulated per frame.** Node dragging used the just-laid-out
+  coordinates on every pointermove, so a two-grid drag moved three grids. The
+  gesture now snapshots its origins and moves by `origin + total delta`.
+- **Manual positions ignored utility and sludge units.** `applyManualPositions` ran
+  before the blower/chemical/thickener nodes were placed, so dragging them had no
+  effect. Positions are now applied in two passes.
+- **Arrow keys teleported auto-laid-out units to the top-left.** Nudging used
+  `positions[id] ?? {0,0}`; it now starts from the rendered position (`nudgeUnit`).
+- **Incremental patches dropped controls, totals, F/M and alarms.** The client kept
+  the values from the last full snapshot, so AI-executed setpoints, the cumulative
+  water/energy/cost block and the alarm history stayed frozen. Merging moved into
+  `snapshotMerge` (unit-tested) and the patch now carries those fields.
+- **Trends froze after a reset or topology change.** Each client's incremental
+  cursor stayed at the old simulation time while the buffer restarted at t=0. Full
+  snapshots now re-sync the cursor to the buffer tail.
+- **SMIL animation regression.** The flowing-dash overlay was still an SVG
+  `<animate>` element, the mechanism previously measured at 92 % main-thread time;
+  it now uses the `flow-pulse` CSS animation (0 `<animate>` elements in the DOM).
+- **Topology apply trusted arbitrary JSON.** `topology.apply` frames were cast to
+  `ProcessTopology` after a single `Array.isArray` check. `sanitizeTopologyInput`
+  now validates units, ports, connections, train, positions and routes, caps counts
+  and coordinate ranges, and rejects malformed frames before the engine sees them.
+- **AI decision cadence drifted with playback speed.** Decisions fired on
+  `tick % 30`, i.e. every 60 simulated minutes at 1× and every 240 at 4×, despite
+  the UI promising a 15-minute cycle. Cadence is now based on simulated time
+  (`aiCadence.ts`).
+
 ## [Unreleased] — flowsheet authoring, collapsible panels
 
 ### Added — the flowsheet is now actually edible, like a process simulator

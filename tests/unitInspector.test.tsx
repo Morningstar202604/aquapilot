@@ -76,4 +76,32 @@ describe('UnitInspector', () => {
     renderInspector('clarifier');
     expect(screen.getByText(/进 \d+ · 出 \d+/)).toBeTruthy();
   });
+
+  it('二沉池显示十层浓度剖面并标出进料层', () => {
+    const profile = [8, 12, 30, 90, 400, 900, 1600, 2400, 3200, 4200];
+    const snap = makeSnapshot({
+      clarifier: { ...makeSnapshot().clarifier, profile, feedLayer: 5 },
+    });
+    const unit = findUnit(PLANT_TOPOLOGY, 'clarifier')!;
+    render(
+      <UnitInspector
+        snap={snap}
+        topo={PLANT_TOPOLOGY}
+        unit={unit}
+        onClose={vi.fn()}
+        onSelect={vi.fn()}
+        onChangeControls={vi.fn()}
+        onEditTopology={vi.fn()}
+      />,
+    );
+    const layers = document.querySelectorAll('.settler-layer');
+    expect(layers).toHaveLength(10);
+    expect(document.querySelectorAll('.settler-layer[data-feed="true"]')).toHaveLength(1);
+    expect(screen.getByText(/底层浓度决定回流污泥浓度/)).toBeTruthy();
+  });
+
+  it('快照没有剖面时不画假数据', () => {
+    renderInspector('clarifier');
+    expect(document.querySelectorAll('.settler-layer')).toHaveLength(0);
+  });
 });

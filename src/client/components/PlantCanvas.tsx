@@ -27,6 +27,8 @@ interface Props {
   /** 点端口的回调：first=起点，second=终点 */
   onPortClick?: (unitId: string, portId: string, kind: 'in' | 'out') => void;
   connectFrom?: { unitId: string; portId: string } | null;
+  /** 人工折点提交：points=null 表示恢复自动走线 */
+  onRouteChange?: (connectionId: string, points: { x: number; y: number }[] | null) => void;
 }
 
 const STREAM_COLOR: Record<StreamKind, string> = {
@@ -83,6 +85,7 @@ export function PlantCanvas({
   selection,
   onSelectionChange,
   onMoveUnits,
+  onRouteChange,
 }: Props) {
   const selectionIds = selection ?? (selected ? [selected] : []);
   const pick = (ids: string[]) => {
@@ -99,6 +102,21 @@ export function PlantCanvas({
    */
   const [drag, setDrag] = useState<{
     ids: string[];
+    startX: number;
+    startY: number;
+    /** 拖动开始时的坐标基准：移动只按「基准 + 总位移」算，避免每帧叠加 */
+    origins: Record<string, { x: number; y: number }>;
+  } | null>(null);
+  /**
+   * 连线折点拖动。
+   *
+   * 与节点拖动同一套思路：记住按下时的折点坐标与指针位置，移动时只算总位移，
+   * 否则每帧 +14px 会把折点越推越远（节点拖动此前就有这个缺陷）。
+   */
+  const [routeDrag, setRouteDrag] = useState<{
+    connectionId: string;
+    index: number;
+    origin: { x: number; y: number };
     startX: number;
     startY: number;
   } | null>(null);
@@ -237,7 +255,14 @@ export function PlantCanvas({
     } catch {
       /* 指针已释放 */
     }
-    setDrag({ ids, startX: e.clientX, startY: e.clientY });
+    /**
+     * 基准坐标必须取「本帧渲染出来的坐标」，不能用 positions 里存的。
+     * 自动布局的单元 positions 为空，按 {0,0} 起算会瞬移到左上角；
+     * 而每帧都用最新布局叠加位移，同样的 14px 会被重复累加（实测 2 格变 3 格）。
+     */
+    const origins: Record<string, { x: number; y: number }> = {};
+    for (const n of layout.nodes) if (ids.includes(n.unit.id)) origins[n.unit.id] = { x: n.x, y: n.y };
+    setDrag({ ids, startX: e.clientX, startY: e.clientY, origins });
   };
 
   const onNodePointerMove = (e: React.PointerEvent<SVGGElement>) => {
@@ -245,15 +270,16 @@ export function PlantCanvas({
     e.stopPropagation();
     const dx = (e.clientX - drag.startX) / effectiveZoom;
     const dy = (e.clientY - drag.startY) / effectiveZoom;
+    const snappedDx = Math.round(dx / 14) * 14;
+    const snappedDy = Math.round(dy / 14) * 14;
     if (drag.ids.length > 1 && onMoveUnits) {
-      const moves = moveNodes(layout.nodes, drag.ids, dx, dy);
+      const moves = moveNodes(layout.nodes, drag.ids, dx, dy, 14, drag.origins);
       if (Object.keys(moves).length > 0) onMoveUnits(moves);
       return;
     }
-    const dxSnap = Math.round(dx / 14) * 14;
-    const dySnap = Math.round(dy / 14) * 14;
-    const node = layout.nodes.find((n) => n.unit.id === drag.ids[0]);
-    if (node) onMoveUnit?.(node.unit.id, Math.max(0, node.x + dxSnap), Math.max(0, node.y + dySnap));
+    const id = drag.ids[0];
+    const origin = drag.origins[id];
+    if (origin) onMoveUnit?.(id, Math.max(0, origin.x + snappedDx), Math.max(0, origin.y + snappedDy));
   };
 
   const endNodeDrag = (e: React.PointerEvent<SVGGElement>) => {
@@ -265,6 +291,47 @@ export function PlantCanvas({
       /* 已释放 */
     }
     setDrag(null);
+  };
+
+  /** 折点句柄按下：记住原始折点与指针位置 */
+  const onRoutePointerDown = (
+    e: React.PointerEvent<SVGCircleElement>,
+    connectionId: string,
+    index: number,
+    point: { x: number; y: number },
+  ) => {
+    if (!editable || !onRouteChange) return;
+    e.stopPropagation();
+    e.preventDefault();
+    try {
+      (e.currentTarget as SVGCircleElement).setPointerCapture?.(e.pointerId);
+    } catch {
+      /* 指针已释放 */
+    }
+    setRouteDrag({ connectionId, index, origin: point, startX: e.clientX, startY: e.clientY });
+  };
+
+  const onRoutePointerMove = (e: React.PointerEvent<SVGCircleElement>) => {
+    if (!routeDrag || !onRouteChange) return;
+    e.stopPropagation();
+    const dx = Math.round((e.clientX - routeDrag.startX) / effectiveZoom / 14) * 14;
+    const dy = Math.round((e.clientY - routeDrag.startY) / effectiveZoom / 14) * 14;
+    const next = { x: Math.max(0, routeDrag.origin.x + dx), y: Math.max(0, routeDrag.origin.y + dy) };
+    const existing = topo.routes?.[routeDrag.connectionId] ?? [];
+    const points = existing.length > 0 ? [...existing] : [{ ...routeDrag.origin }];
+    points[routeDrag.index] = next;
+    onRouteChange(routeDrag.connectionId, points);
+  };
+
+  const endRouteDrag = (e: React.PointerEvent<SVGCircleElement>) => {
+    if (!routeDrag) return;
+    e.stopPropagation();
+    try {
+      (e.currentTarget as SVGCircleElement).releasePointerCapture?.(e.pointerId);
+    } catch {
+      /* 已释放 */
+    }
+    setRouteDrag(null);
   };
 
   /**
@@ -476,6 +543,22 @@ export function PlantCanvas({
               <Edge key={edge.connection.id} edge={edge} index={i} animate={animate} showLabel={showLabels} />
             ))}
 
+            {/**
+             * 折点句柄必须画在边的上层、节点的下层：它落在连线中点上，
+             * 被节点盖住就点不到。
+             */}
+            {editable && onRouteChange && (
+              <RouteHandles
+                edges={visibleEdges}
+                routes={topo.routes}
+                dragging={routeDrag}
+                onPointerDown={onRoutePointerDown}
+                onPointerMove={onRoutePointerMove}
+                onPointerUp={endRouteDrag}
+                onRemove={(id) => onRouteChange(id, null)}
+              />
+            )}
+
             {layout.nodes.map((node) => (
               <Node
                 key={node.unit.id}
@@ -555,6 +638,13 @@ function Edge({
         strokeLinecap="round"
       />
       {animate && (
+        /**
+         * 流动指示必须用 CSS 动画，不能用 SVG <animate>（SMIL）。
+         *
+         * 实测 22 条 SMIL 动画会长期占用主线程 90%+，把仿真页拖成幻灯片；
+         * `.flow-pulse` 的 stroke-dashoffset 关键帧走合成线程，实测降到 16%，
+         * 且 prefers-reduced-motion 能一键关掉。
+         */
         <path
           d={edge.path}
           fill="none"
@@ -563,9 +653,9 @@ function Edge({
           strokeDasharray="3 34"
           opacity={0.5}
           strokeLinecap="round"
-        >
-          <animate attributeName="stroke-dashoffset" from="37" to="0" dur={`${dur}s`} repeatCount="indefinite" />
-        </path>
+          className="flow-pulse"
+          style={{ animationDuration: `${dur}s` }}
+        />
       )}
       {showLabel && stream !== 'air' && edge.straight && Math.abs(edge.labelX - pipeStartX(edge)) > 90 && (
         <text x={edge.labelX} y={edge.labelY} className="edge-label" textAnchor="middle">
@@ -627,6 +717,109 @@ function streamLabel(stream: StreamKind): string {
     case 'sludge_cake':
       return '泥饼';
   }
+}
+
+/**
+ * 连线折点句柄。
+ *
+ * 没有折点的连线只给一个「中点手柄」：点它即在该处插入第一个折点；
+ * 已有折点的连线为每个折点画一个可拖动手柄，并在中点给一个「×」用于
+ * 恢复自动走线。这是流程模拟器里调整管线的常规做法（Aspen 的 route
+ * 与 Visio 的连接点编辑）。
+ */
+function RouteHandles({
+  edges,
+  routes,
+  dragging,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onRemove,
+}: {
+  edges: PlacedEdge[];
+  routes?: Record<string, { x: number; y: number }[]>;
+  dragging: { connectionId: string; index: number } | null;
+  onPointerDown: (
+    e: React.PointerEvent<SVGCircleElement>,
+    connectionId: string,
+    index: number,
+    point: { x: number; y: number },
+  ) => void;
+  onPointerMove: (e: React.PointerEvent<SVGCircleElement>) => void;
+  onPointerUp: (e: React.PointerEvent<SVGCircleElement>) => void;
+  onRemove: (connectionId: string) => void;
+}) {
+  return (
+    <g className="route-layer">
+      {edges.map((edge) => {
+        if (!edge.path) return null;
+        const existing = routes?.[edge.connection.id] ?? [];
+        const mid = pathMidpoint(edge.path);
+        if (!mid) return null;
+        const active = dragging?.connectionId === edge.connection.id;
+        return (
+          <g key={`route-${edge.connection.id}`}>
+            {(existing.length > 0 ? existing : [mid]).map((point, index) => (
+              <circle
+                key={`${edge.connection.id}-${index}`}
+                cx={point.x}
+                cy={point.y}
+                r={active && dragging?.index === index ? 6 : 4}
+                className="route-handle"
+                data-connection={edge.connection.id}
+                data-index={index}
+                onPointerDown={(e) => onPointerDown(e, edge.connection.id, index, point)}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerUp}
+              >
+                <title>{existing.length > 0 ? '拖动调整折点' : '拖动生成折点'}</title>
+              </circle>
+            ))}
+            {existing.length > 0 && (
+              <g
+                className="route-reset"
+                transform={`translate(${mid.x + 10} ${mid.y - 10})`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(edge.connection.id);
+                }}
+              >
+                <circle r="6" />
+                <text textAnchor="middle" y="3.5">
+                  ×
+                </text>
+                <title>恢复自动走线</title>
+              </g>
+            )}
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
+/** 折线路径的中点（按命令序列取中段端点，不依赖浏览器测量） */
+function pathMidpoint(path: string): { x: number; y: number } | null {
+  const cmds = path.match(/[MHV][^MHV]*/g) ?? [];
+  if (cmds.length === 0) return null;
+  const points: { x: number; y: number }[] = [];
+  let x = 0;
+  let y = 0;
+  for (const cmd of cmds) {
+    const nums = (cmd.slice(1).match(/-?\d+(\.\d+)?/g) ?? []).map(Number);
+    if (cmd[0] === 'M') {
+      x = nums[0];
+      y = nums[1];
+    } else if (cmd[0] === 'H') {
+      x = nums[0];
+    } else {
+      y = nums[0];
+    }
+    points.push({ x, y });
+  }
+  if (points.length === 2) return { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 };
+  return points[Math.floor(points.length / 2)];
 }
 
 function PortDots({

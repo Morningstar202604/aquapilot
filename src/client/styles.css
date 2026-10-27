@@ -1747,6 +1747,53 @@ button {
   animation-name: flow-dash;
   animation-timing-function: linear;
   animation-iteration-count: infinite;
+  /* 默认时长；具体值由组件按边序号写入，让相邻管线错开 */
+  animation-duration: 3s;
+}
+
+/* 连线折点手柄 */
+.route-handle {
+  fill: var(--ink-2);
+  stroke: var(--water);
+  stroke-width: 1.4;
+  cursor: grab;
+  opacity: 0.75;
+  transition:
+    opacity 0.12s,
+    r 0.12s;
+}
+
+.route-layer:hover .route-handle {
+  opacity: 1;
+}
+
+.route-handle:hover {
+  opacity: 1;
+  stroke: var(--cyan);
+}
+
+.route-reset circle {
+  fill: var(--ink-2);
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.route-reset text {
+  fill: var(--text-2);
+  font-size: 9px;
+  pointer-events: none;
+}
+
+.route-reset {
+  cursor: pointer;
+}
+
+.route-reset:hover circle {
+  stroke: var(--alarm);
+}
+
+.route-reset:hover text {
+  fill: var(--alarm);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3514,6 +3561,49 @@ button {
   color: var(--text);
   font-family: var(--mono);
   font-weight: 500;
+}
+
+/* 二沉池十层浓度剖面：横向条形，进料层高亮 */
+.settler-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.settler-layer {
+  display: grid;
+  grid-template-columns: 14px 1fr 34px;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-3);
+}
+
+.settler-layer[data-feed='true'] {
+  color: var(--cyan);
+}
+
+.settler-layer-bar {
+  height: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.settler-layer-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, rgba(169, 123, 63, 0.5), rgba(240, 168, 60, 0.9));
+}
+
+.settler-layer[data-feed='true'] .settler-layer-bar span {
+  background: linear-gradient(90deg, rgba(79, 214, 232, 0.4), rgba(79, 214, 232, 0.95));
+}
+
+.settler-layer-value {
+  text-align: right;
 }
 
 /* 框选矩形 */

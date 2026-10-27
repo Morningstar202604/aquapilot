@@ -62,6 +62,7 @@ export interface DecisionRow {
 }
 
 export interface AlarmRow {
+  runId?: string;
   id: string;
   atMin: number;
   severity: string;
@@ -192,8 +193,10 @@ export class Store {
       for (const r of d)
         insD.run(r.runId ?? null, r.atMin, r.action, r.severity, r.summary, r.tweaks, r.predictedScore, r.separation);
 
-      const insA = this.db.prepare('INSERT INTO alarms(alarm_id,at_min,severity,code,message) VALUES(?,?,?,?,?)');
-      for (const r of a) insA.run(r.id, r.atMin, r.severity, r.code, r.message);
+      const insA = this.db.prepare(
+        'INSERT INTO alarms(run_id,alarm_id,at_min,severity,code,message) VALUES(?,?,?,?,?,?)',
+      );
+      for (const r of a) insA.run(r.runId ?? null, r.id, r.atMin, r.severity, r.code, r.message);
 
       const insS = this.db.prepare(
         'INSERT INTO snapshots(run_id,at_min,cod,nh,tn,tp,ss,mlss,srt,energy_kw,score) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
@@ -225,6 +228,23 @@ export class Store {
       }
       logger.error('persistence flush failed', { error: String(err) });
     }
+  }
+
+  /** 读取最近 N 条告警，用于事故复盘与导出 */
+  recentAlarms(limit = 100, runId?: string): AlarmRow[] {
+    if (!this.db) return [];
+    if (runId) {
+      return this.db
+        .prepare(
+          'SELECT run_id as runId, alarm_id as id, at_min as atMin, severity, code, message FROM alarms WHERE run_id = ? ORDER BY id DESC LIMIT ?',
+        )
+        .all(runId, limit) as unknown as AlarmRow[];
+    }
+    return this.db
+      .prepare(
+        'SELECT run_id as runId, alarm_id as id, at_min as atMin, severity, code, message FROM alarms ORDER BY id DESC LIMIT ?',
+      )
+      .all(limit) as unknown as AlarmRow[];
   }
 
   /** 读取最近 N 条决策，用于回放与界面 */

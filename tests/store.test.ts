@@ -257,3 +257,25 @@ describe('store 的错误恢复路径', () => {
     s.close();
   });
 });
+
+describe('告警持久化', () => {
+  it('告警按 run 隔离并能读出（此前 recordAlarm 从未被调用，表永远为空）', async () => {
+    await store.open();
+    if (!store.enabled) return;
+    store.recordAlarm({ runId: 'run-A', id: 'A1', atMin: 10, severity: 'warning', code: 'DO_LOW', message: '低氧' });
+    store.recordAlarm({
+      runId: 'run-B',
+      id: 'A2',
+      atMin: 20,
+      severity: 'critical',
+      code: 'EFF_NH',
+      message: '氨氮超标',
+    });
+    store.flush();
+    const a = store.recentAlarms(10, 'run-A');
+    expect(a).toHaveLength(1);
+    expect(a[0].code).toBe('DO_LOW');
+    expect(a[0].runId).toBe('run-A');
+    expect(store.count().alarms).toBe(2);
+  });
+});

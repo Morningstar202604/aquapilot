@@ -107,10 +107,43 @@ export function UnitInspector({ snap, topo, unit, onClose, onSelect, onChangeCon
           </>
         )}
         {unit.kind === 'clarifier' && (
-          <div className="unit-inspector-row">
-            <span>泥位</span>
-            <b>{snap.clarifier.blanketM.toFixed(2)} m</b>
-          </div>
+          <>
+            <div className="unit-inspector-row">
+              <span>泥位</span>
+              <b>{snap.clarifier.blanketM.toFixed(2)} m</b>
+            </div>
+            {snap.clarifier.profile && snap.clarifier.profile.length > 0 && (
+              <>
+                <div className="section-label" style={{ marginTop: 8 }}>
+                  十层污泥浓度剖面（g SS/m³）
+                </div>
+                <div className="settler-profile" role="img" aria-label="二沉池十层浓度剖面">
+                  {snap.clarifier.profile.map((x, i) => {
+                    const max = Math.max(...snap.clarifier.profile!, 1);
+                    const feed = snap.clarifier.feedLayer ?? 0;
+                    return (
+                      <div
+                        className="settler-layer"
+                        key={i}
+                        data-feed={i + 1 === feed}
+                        title={`第 ${i + 1} 层${i + 1 === feed ? '（进料）' : ''}：${x.toFixed(0)} g SS/m³`}
+                      >
+                        <span className="settler-layer-index">{i + 1}</span>
+                        <span className="settler-layer-bar">
+                          <span style={{ width: `${Math.min(100, (x / max) * 100)}%` }} />
+                        </span>
+                        <span className="settler-layer-value">{x.toFixed(0)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="control-hint">
+                  第 {snap.clarifier.feedLayer ?? '—'} 层为进料层；底层浓度决定回流污泥浓度 xRas{' '}
+                  {snap.clarifier.xRas.toFixed(0)} mg/L
+                </div>
+              </>
+            )}
+          </>
         )}
 
         <div className="unit-inspector-row">

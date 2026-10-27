@@ -13,6 +13,7 @@ import {
 import { checkRunReadiness } from '../../sim/topologyEngine';
 import { layoutTopology } from '../../model/layout';
 import { alignNodes, distributeNodes, type AlignMode } from '../hooks/editorSelection';
+import { deleteUnits, moveUnitsTo, setRoute } from '../../model/topologyEdit';
 import { PlantCanvas } from './PlantCanvas';
 import type { PlantSnapshot } from '../../shared/protocol';
 
@@ -29,6 +30,9 @@ interface Props {
   /** 外部（App 的 Delete 快捷键）需要知道当前选中项 */
   selectedId?: string | null;
   onSelectedChange?: (id: string | null) => void;
+  /** 多选集合受控（App 的批量删除要拿到全部选中项）；不传则本地管理 */
+  selectionIds?: string[];
+  onSelectionChange?: (ids: string[]) => void;
 }
 
 interface PaletteEntry {
@@ -228,6 +232,8 @@ export function ProcessEditor({
   onRedo,
   selectedId,
   onSelectedChange,
+  selectionIds,
+  onSelectionChange,
 }: Props) {
   const [internalSelected, setInternalSelected] = useState<string | null>(null);
   /**
@@ -239,12 +245,19 @@ export function ProcessEditor({
     setInternalSelected(id);
     onSelectedChange?.(id);
   };
-  const [selection, setSelection] = useState<string[]>([]);
+  const [internalSelection, setInternalSelection] = useState<string[]>([]);
+  const selection = selectionIds ?? internalSelection;
+  const setSelection = (ids: string[]) => {
+    setInternalSelection(ids);
+    onSelectionChange?.(ids);
+  };
   const [pane, setPane] = useState<'inspector' | 'connections' | 'check'>('inspector');
   const [connectMode, setConnectMode] = useState<{ fromUnit: string; port: string; stream: StreamKind } | null>(null);
 
   const issues = useMemo(() => validateTopology(topology), [topology]);
   const hasPositions = Object.keys(topology.positions ?? {}).length > 0;
+  const hasRoutes = Object.keys(topology.routes ?? {}).length > 0;
+  const dirtyLayout = hasPositions || hasRoutes;
   const readiness = useMemo(() => checkRunReadiness(topology, snap.influent.flow), [topology, snap.influent.flow]);
 
   const selectedUnit = selected ? findUnit(topology, selected) : undefined;
@@ -311,14 +324,23 @@ export function ProcessEditor({
   };
 
   const removeUnit = (id: string) => {
-    const next: ProcessTopology = {
-      ...topology,
-      units: topology.units.filter((u) => u.id !== id),
-      connections: topology.connections.filter((c) => c.from.unit !== id && c.to.unit !== id),
-      train: topology.train.filter((t) => t !== id),
-    };
-    onChange(next);
+    onChange(deleteUnits(topology, [id]));
     if (selected === id) setSelected(null);
+  };
+
+  /**
+   * 批量删除选中单元。
+   *
+   * 之前 Del 只删最后一个选中项，理由是"批量删除需要逐个确认下游接线"；
+   * 但拓扑校验与「应用到仿真」的 readiness 已经把住关，删除动作本身
+   * 只该遵守一条规则：整步可撤销。详见 model/topologyEdit。
+   */
+  const removeSelected = (ids: string[]) => {
+    if (ids.length === 0) return;
+    onChange(deleteUnits(topology, ids));
+    setSelection([]);
+    setSelected(null);
+    setPane('inspector');
   };
 
   const updateUnit = (id: string, patch: Partial<UnitSpec>) => {
@@ -486,12 +508,12 @@ export function ProcessEditor({
           <button className="pill" onClick={() => onChange(PLANT_TOPOLOGY)}>
             恢复标准厂
           </button>
-          {hasPositions && (
+          {dirtyLayout && (
             <button
               className="pill"
-              title="把手工摆放的坐标清空，回到自动分层布局"
+              title="把手工摆放的坐标与折点清空，回到自动分层布局与自动走线"
               onClick={() => {
-                const { positions: _drop, ...rest } = topology;
+                const { positions: _drop, routes: _routes, ...rest } = topology;
                 onChange(rest);
               }}
             >
@@ -500,6 +522,15 @@ export function ProcessEditor({
           )}
           <button className="pill" data-active={readiness.ready} onClick={onApply} disabled={!readiness.ready}>
             应用到仿真
+          </button>
+          <button
+            className="pill"
+            title="删除选中的全部单元（可撤销）"
+            aria-label="批量删除"
+            disabled={selection.length === 0 && !selected}
+            onClick={() => removeSelected(selection.length > 0 ? selection : selected ? [selected] : [])}
+          >
+            删除选中
           </button>
           {selection.length >= 2 && (
             <span className="editor-align-group" role="group" aria-label="对齐">
@@ -881,10 +912,10 @@ function EditorCanvas({
   onSelectionChange: (ids: string[]) => void;
 }) {
   const moveUnit = (id: string, x: number, y: number) => {
-    onChange({ ...topology, positions: { ...(topology.positions ?? {}), [id]: { x, y } } });
+    onChange(moveUnitsTo(topology, { [id]: { x, y } }));
   };
   const moveUnits = (moves: Record<string, { x: number; y: number }>) => {
-    onChange({ ...topology, positions: { ...(topology.positions ?? {}), ...moves } });
+    onChange(moveUnitsTo(topology, moves));
   };
   return (
     <div className="editor-stage">
@@ -899,6 +930,7 @@ function EditorCanvas({
         onSelectionChange={onSelectionChange}
         onMoveUnit={moveUnit}
         onMoveUnits={moveUnits}
+        onRouteChange={(connectionId, points) => onChange(setRoute(topology, connectionId, points))}
         connectFrom={connectMode ? { unitId: connectMode.fromUnit, portId: connectMode.port } : null}
         onPortClick={(unitId, portId, kind) => {
           if (connectMode) {

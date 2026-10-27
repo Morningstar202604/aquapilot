@@ -60,6 +60,15 @@ export interface ClarifierState {
   underflowM3h: number;
   area: number;
   depth: number;
+  /**
+   * 十层浓度剖面（g SS/m³，索引 0 为顶层）。
+   *
+   * 只读诊断量：参与计算的仍是 xRas/xEff，这里给操作员看「泥在哪一层」。
+   * 旧快照没有该字段时界面按「未提供」处理，不画假剖面。
+   */
+  profile?: number[];
+  /** 进料层（1 起，自顶部数）；与 profile 一起给出才有意义 */
+  feedLayer?: number;
 }
 
 export interface EnergyState {

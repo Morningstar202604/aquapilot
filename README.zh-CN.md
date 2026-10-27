@@ -5,8 +5,8 @@
 > AI 值守的再生水厂仿真台。  
 > 厂是图，图就是模型，AI 值班员来跑。
 
-[![tests](https://img.shields.io/badge/tests-627%20passing-brightgreen)](tests)
-[![coverage](https://img.shields.io/badge/line%20coverage-95.6%25-brightgreen)](vitest.config.ts)
+[![tests](https://img.shields.io/badge/tests-677%20passing-brightgreen)](tests)
+[![coverage](https://img.shields.io/badge/line%20coverage-93.5%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -91,7 +91,7 @@ npm run dev        # 前端 5174，服务端 5173
 ```bash
 npm run typecheck  # TypeScript 严格模式
 npm run lint       # ESLint 9
-npm run test       # 381 项测试
+npm run test       # 677 项测试
 npm run build      # 客户端 + 服务端
 npm run verify     # 上述四项按顺序跑
 npm run ci         # 完整门禁：依赖、类型、测试、构建、冒烟、审计、卫生
@@ -156,10 +156,11 @@ npx tsx scripts/agent-config.ts permission open
 | 拖拽摆放   | 从左侧组件库拖到画布，落点吸附 14px 栅格；画布上的单元可直接拖动，坐标写进拓扑的 `positions`，撤销/重做与保存都跟着走                                                                      |
 | 端口连线   | 每个单元在左右边界画出全部端口（入口青色、出口绿色）；点出口再点入口即完成连线，物流类型取目标端口的类型，重复接线在入口处直接挡住                                                         |
 | 自动接线   | 新拖入的生物池（厌氧/缺氧/好氧）自动插入主序列末位与其下游之间，一次接好两条边，校验 0 错误                                                                                                |
-| 自动排列   | 工具条的「自动排列」清空手工坐标，回到分层自动布局                                                                                                                                         |
+| 自动排列   | 工具条的「自动排列」清空手工坐标与折点，回到分层自动布局；公用工程与污泥单元（鼓风机房、加药间、浓缩池）的人工坐标同样生效                                                                |
 | 多选与对齐 | 空白处拖框选、Shift 点选多个；选中后一起拖动，工具条出现左/右/顶/底对齐与横/竖等距                                                                                                         |
-| 键盘       | 方向键微调（Shift 加速 5 格）、Del 删除选中单元、Esc 取消选择、Ctrl+Z 撤销                                                                                                                 |
-| 单元检视   | 监视视图点任一池子，右侧浮层显示该单元的容积、实时 DO/MLSS/NH₄/NO₃、泥位、进出物流数、设备参数，并**只列它自己支持的**控制量（好氧池给溶解氧/加药，二沉池才给回流比/排泥），可直接拖动改值 |
+| 键盘       | 方向键按渲染位置微调整组选中（Shift 加速 5 格）、Del 一次删除全部选中单元及其连线（单步可撤销）、Esc 取消选择、Ctrl+Z 撤销                                                               |
+| 连线折点   | 每条连线在编辑模式有中点手柄：拖动即插入正交折点（存在 `topology.routes`），可继续加折点；点「×」恢复自动走线，折点随应用与重载保留                                                       |
+| 单元检视   | 监视视图点任一池子，右侧浮层显示该单元的容积、实时 DO/MLSS/NH₄/NO₃、泥位、进出物流数、设备参数，并**只列它自己支持的**控制量（好氧池给溶解氧/加药，二沉池才给回流比/排泥），可直接拖动改值；二沉池另附十层污泥浓度剖面并标出进料层 |
 | 图标       | 每个单元标题前有工艺图标（≣ 格栅、◉ 好氧、◎ 二沉、≋ 鼓风），端口按物流类型着色并带两字短标签                                                                                               |
 | 折叠分组   | 侧栏控制面板按「工艺模板 / 工艺控制变量 / 工况注入」折叠，收起时标题行仍显示当前关键读数（DO、内回流、PAC、进行中的场景）                                                                  |
 
@@ -210,7 +211,7 @@ src/
     index.ts        WebSocket 仿真循环、REST、静态托管
   client/           控制室界面（React + ECharts + SVG 工艺图）
   shared/           前后端消息契约
-tests/              381 项测试：物理性质、守恒、AI 护栏、拓扑、双跑、输入校验、崩溃边界
+tests/              677 项测试：物理性质、守恒、AI 护栏、拓扑、双跑、输入校验、崩溃边界
 ```
 
 ### 三层契约
@@ -281,7 +282,7 @@ PAC 40 mg/L、多点进水 0.3×Q），两条链都从同样的 30 天预热开�
 | 生产引擎决策（鲁棒，3 候选 × 3 样本） | 215 ms                | 同上                        |
 | 30 天预热                             | 约 110 ms             | 同上                        |
 | 测试                                  | 381 通过              | `npm test`                  |
-| 覆盖率                                | 95.6% 行 / 84.7% 分支 | `npx vitest run --coverage` |
+| 覆盖率                                | 93.5% 行 / 82.9% 分支 | `npx vitest run --coverage` |
 
 ## AI 怎么决策
 

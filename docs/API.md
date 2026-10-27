@@ -95,6 +95,12 @@ predicted score and separation. `{ "enabled": false }` when persistence is off.
 Sampled effluent history for replay, scoped to the latest run unless `runId` is
 given. Also lists all runs.
 
+### `GET /api/history/alarms?limit=<n>&runId=<id>`
+
+Persisted alarms (newest first, `limit` clamped to 1–500, default 100), optionally
+scoped to one run. The server records an alarm row the first time each code
+becomes active, so the shutdown timeline can be reconstructed after the fact.
+
 ### `GET /api/history/stats`
 
 Row counts for decisions, alarms and snapshots.

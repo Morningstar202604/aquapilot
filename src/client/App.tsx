@@ -12,6 +12,7 @@ import {
 import { PlantCanvas } from './components/PlantCanvas';
 import { ProcessEditor } from './components/ProcessEditor';
 import { PLANT_TOPOLOGY, ProcessTopology, findUnit } from '../model/topology';
+import { deleteUnits, nudgeUnit } from '../model/topologyEdit';
 import { Trends } from './components/Trends';
 import { ChatPanel } from './components/ChatPanel';
 import { DecisionPanel } from './components/DecisionPanel';
@@ -38,6 +39,8 @@ export default function App() {
   const [modelPanelOpen, setModelPanelOpen] = useState(false);
   /** 编辑器内当前选中的单元（用于 Delete 快捷键） */
   const [editorSelected, setEditorSelected] = useState<string | null>(null);
+  /** 编辑器内的多选集合：批量删除要对全部选中项生效 */
+  const [editorSelection, setEditorSelection] = useState<string[]>([]);
   const [agentPanelOpen, setAgentPanelOpen] = useState(false);
 
   /**
@@ -60,8 +63,8 @@ export default function App() {
    * 编辑器快捷键。
    *
    * Ctrl/Cmd+Z 撤销、Ctrl/Cmd+Shift+Z 或 Ctrl+Y 重做；
-   * Delete/Backspace 删除选中单元（只删一个：多选删除需要逐个确认下游接线，
-   * 强行批量删很容易把厂拆散）。输入框里按键不拦截。
+   * Delete/Backspace 删除选中的全部单元（整步可撤销，是否把厂拆散交给校验判断）。
+   * 输入框里按键不拦截。
    */
   useEffect(() => {
     if (view !== 'editor') return;
@@ -83,56 +86,42 @@ export default function App() {
         return;
       }
       // 方向键微调选中单元：一次一格（14px），Shift 加速到 5 格
-      if (editorSelected && e.key.startsWith('Arrow')) {
+      const nudgeTargets = editorSelection.length > 1 ? editorSelection : editorSelected ? [editorSelected] : [];
+      if (nudgeTargets.length > 0 && e.key.startsWith('Arrow')) {
         e.preventDefault();
         const step = (e.shiftKey ? 5 : 1) * 14;
         const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
         const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
-        const id = editorSelected;
         setHist((h) => {
           const cur = h.idx >= 0 ? h.stack[h.idx] : null;
           if (!cur) return h;
-          const unit = cur.units.find((u) => u.id === id);
-          if (!unit) return h;
-          const pos = cur.positions?.[id] ?? { x: 0, y: 0 };
-          const next: ProcessTopology = {
-            ...cur,
-            positions: {
-              ...(cur.positions ?? {}),
-              [id]: { x: Math.max(0, pos.x + dx), y: Math.max(0, pos.y + dy) },
-            },
-          };
+          let next = cur;
+          for (const id of nudgeTargets) next = nudgeUnit(next, id, dx, dy);
           return commitHistory(h, next);
         });
         return;
       }
       if (e.key === 'Escape') {
         setEditorSelected(null);
+        setEditorSelection([]);
         return;
       }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && editorSelected) {
+      const deleteIds = editorSelection.length > 0 ? editorSelection : editorSelected ? [editorSelected] : [];
+      if ((e.key === 'Delete' || e.key === 'Backspace') && deleteIds.length > 0) {
         e.preventDefault();
-        const id = editorSelected;
+        const ids = deleteIds;
         setHist((h) => {
           const cur = h.idx >= 0 ? h.stack[h.idx] : null;
           if (!cur) return h;
-          const next: ProcessTopology = {
-            ...cur,
-            units: cur.units.filter((u) => u.id !== id),
-            connections: cur.connections.filter((c) => c.from.unit !== id && c.to.unit !== id),
-            train: cur.train.filter((t) => t !== id),
-          };
-          const positions = { ...(cur.positions ?? {}) };
-          delete positions[id];
-          next.positions = positions;
-          return commitHistory(h, next);
+          return commitHistory(h, deleteUnits(cur, ids));
         });
         setEditorSelected(null);
+        setEditorSelection([]);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [view, canUndo, canRedo, editorSelected]);
+  }, [view, canUndo, canRedo, editorSelected, editorSelection]);
 
   /**
    * 全局 Esc：按「最上层」逐级关闭。
@@ -400,6 +389,8 @@ export default function App() {
               topology={draft ?? sim.topology ?? PLANT_TOPOLOGY}
               selectedId={editorSelected}
               onSelectedChange={setEditorSelected}
+              selectionIds={editorSelection}
+              onSelectionChange={setEditorSelection}
               onChange={commitDraft}
               onApply={() => {
                 if (draft) {

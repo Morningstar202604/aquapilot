@@ -8,6 +8,7 @@ import type { DiscoveredModel, LlmDraft, LlmProtocol, LlmPublicConfig, LlmTestRe
 import type { AgentConfig, AgentSummary } from '../../shared/agentConfig';
 import type { WatchdogReport } from '../../shared/protocol';
 import { nextSendPlan, reconnectDelayMs } from './wsPolicy';
+import { mergeSnapshot } from './snapshotMerge';
 
 export interface AgentConfigApi {
   config: AgentConfig | null;
@@ -188,37 +189,8 @@ export function useSimulation() {
             else console.warn('discarded malformed snapshot from server');
             break;
           case 'snapshotPatch':
-            // 增量合并：只覆盖变化字段，趋势追加新点
-            setSnapshot((prev) => {
-              if (!prev) return prev;
-              const p = msg.data;
-              if (!p || typeof p.timeMin !== 'number' || !p.effluent || !Array.isArray(p.tanks)) {
-                console.warn('discarded malformed snapshot patch');
-                return prev;
-              }
-              return {
-                ...prev,
-                timeMin: p.timeMin,
-                influent: { ...prev.influent, flow: p.influentFlow },
-                effluent: p.effluent,
-                tanks: prev.tanks.map((t) => {
-                  const patch = p.tanks.find((x) => x.id === t.id);
-                  return patch ? { ...t, ...patch } : t;
-                }),
-                clarifier: { ...prev.clarifier, ...p.clarifier },
-                energy: p.energy,
-                cost: { ...prev.cost, ...p.cost },
-                srtDays: p.srtDays,
-                score: p.score,
-                margins: p.margins,
-                trends: p.trendsAppend.length > 0 ? [...prev.trends, ...p.trendsAppend].slice(-720) : prev.trends,
-                activeAlarms: p.activeAlarms,
-                alarmAttribution: p.alarmAttribution ?? prev.alarmAttribution,
-                health: p.health ?? prev.health,
-                stormStorageM3: p.stormStorageM3,
-                reactorCount: p.reactorCount,
-              };
-            });
+            // 增量合并：只覆盖变化字段，趋势追加新点（规则见 snapshotMerge，有单测）
+            setSnapshot((prev) => (prev ? mergeSnapshot(prev, msg.data) : prev));
             break;
           case 'decision':
             setRecommendation(msg.data);

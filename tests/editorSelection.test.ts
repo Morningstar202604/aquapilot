@@ -129,4 +129,12 @@ describe('批量位移', () => {
   it('未选中的节点不在结果里', () => {
     expect(Object.keys(moveNodes(nodes, ['b'], 14, 14))).toEqual(['b']);
   });
+
+  it('传入拖动起点时只按「原点 + 总位移」计算，不随帧累加', () => {
+    // 第一帧已把 a 移到 x=14；第二帧若以当前坐标叠加会得到 28（应为原点的 14）
+    const current = [{ ...nodes[0], x: 14 }, ...nodes.slice(1)];
+    const origins = { a: { x: 0, y: 0 } };
+    const moves = moveNodes(current, ['a'], 14, 0, 14, origins);
+    expect(moves.a).toEqual({ x: 14, y: 0 });
+  });
 });

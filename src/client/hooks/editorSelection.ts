@@ -109,20 +109,28 @@ export function distributeNodes(
   return out;
 }
 
-/** 批量位移；用于多选拖动 */
+/**
+ * 批量位移；用于多选拖动。
+ *
+ * `origins` 是拖动开始时的坐标快照。画布每帧都会用最新布局重算，
+ * 若直接拿「当前节点坐标 + 位移」，同一段位移会被逐帧累加
+ * （实测拖两格变成三格）。传入 origins 后只按「原点 + 总位移」计算。
+ */
 export function moveNodes(
   nodes: PlacedNode[],
   ids: string[],
   dx: number,
   dy: number,
   snap = 14,
+  origins?: Record<string, { x: number; y: number }>,
 ): Record<string, { x: number; y: number }> {
   const snappedDx = Math.round(dx / snap) * snap;
   const snappedDy = Math.round(dy / snap) * snap;
   const out: Record<string, { x: number; y: number }> = {};
   for (const node of nodes) {
     if (!ids.includes(node.unit.id)) continue;
-    out[node.unit.id] = { x: Math.max(0, node.x + snappedDx), y: Math.max(0, node.y + snappedDy) };
+    const base = origins?.[node.unit.id] ?? { x: node.x, y: node.y };
+    out[node.unit.id] = { x: Math.max(0, base.x + snappedDx), y: Math.max(0, base.y + snappedDy) };
   }
   return out;
 }

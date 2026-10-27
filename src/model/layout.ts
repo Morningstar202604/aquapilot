@@ -144,8 +144,11 @@ export function layoutTopology(
   /**
    * 人工摆放优先：拖过的单元用它的坐标，其余继续自动排。
    * 坐标写到拓扑里（`positions`），所以撤销/重做、保存、重载都跟着走。
+   *
+   * 分两次应用：先主线（公用工程/污泥线的纵向位置要避开被拖下去的主线单元），
+   * 再公用工程与污泥（此前只对主线生效，拖鼓风机房/浓缩池完全没反应）。
    */
-  const manual = applyManualPositions(topo, nodeMap);
+  const manualMain = applyManualPositions(topo, nodeMap, ['main']);
   const mainBottom = Math.max(...[...nodeMap.values()].map((n) => n.y + n.h));
 
   // 公用工程：吸附在其主要输出目标的正下方，避免斜跨主线
@@ -153,8 +156,9 @@ export function layoutTopology(
   const utilCursor = new Map<string, number>();
   for (const unit of utilities) {
     const targets = outgoing(topo, unit.id).map((c) => c.to.unit);
-    const anchor = targets.find((t) => xOf.has(t));
-    const anchorX = anchor ? xOf.get(anchor)! : PAD;
+    // 锚点取目标单元的实际坐标（可能已被人工拖动），而不是自动布局的 x
+    const anchor = targets.find((t) => nodeMap.has(t));
+    const anchorX = anchor ? nodeMap.get(anchor)!.x : PAD;
     const size = sizeOf(unit);
     const key = anchor ?? '_';
     const used = utilCursor.get(key) ?? 0;
@@ -173,12 +177,14 @@ export function layoutTopology(
     nodeMap.set(unit.id, { unit, x: sludgeCursor, y: sludgeY, w: size.w, h: size.h, layer: 'sludge', lane: 0 });
     sludgeCursor += size.w + gapX;
   }
+  const manualRest = applyManualPositions(topo, nodeMap, ['utility', 'sludge']);
+  const manual = manualMain || manualRest;
   for (const layer of ['main', 'utility', 'sludge'] as Layer[]) {
     const nodes = [...nodeMap.values()].filter((n) => n.layer === layer);
     if (nodes.length) laneY[layer] = nodes[0].y;
   }
 
-  const edges = topo.connections.map((conn, i) => placeEdge(conn, nodeMap, i, manual));
+  const edges = topo.connections.map((conn, i) => placeEdge(conn, nodeMap, i, manual, topo.routes?.[conn.id]));
 
   const maxX = Math.max(...[...nodeMap.values()].map((n) => n.x + n.w), mainWidth + PAD);
   /**
@@ -215,13 +221,16 @@ export function layoutTopology(
  *
  * 只在拓扑里存在 `positions[id]` 时才覆盖，未摆放的单元保持自动布局；
  * 人工位置不受泳道约束（可以放在任意空白处），但画布仍按最大边界扩张。
+ * `layers` 限定只应用到哪些泳道——公用工程/污泥线的自动坐标在主线之后才算出来，
+ * 必须分两趟应用，否则拖动它们没有任何效果（实测踩到）。
  */
-function applyManualPositions(topo: ProcessTopology, nodeMap: Map<string, PlacedNode>): boolean {
+function applyManualPositions(topo: ProcessTopology, nodeMap: Map<string, PlacedNode>, layers?: Layer[]): boolean {
   const positions = topo.positions ?? {};
   let touched = false;
   for (const [id, pos] of Object.entries(positions)) {
     const node = nodeMap.get(id);
     if (!node) continue;
+    if (layers && !layers.includes(node.layer)) continue;
     if (!Number.isFinite(pos?.x) || !Number.isFinite(pos?.y)) continue;
     node.x = Math.max(PAD, Math.round(pos.x));
     node.y = Math.max(PAD, Math.round(pos.y));
@@ -297,8 +306,19 @@ function isRecycleStream(conn: Connection): boolean {
   return Boolean(conn.recycle) || conn.stream === 'internal_recycle' || conn.stream === 'return_activated_sludge';
 }
 
-function placeEdge(conn: Connection, nodes: Map<string, PlacedNode>, index: number, manual: boolean): PlacedEdge {
-  const placed = manual ? routeManual(conn, nodes, index) : placeEdgeRaw(conn, nodes, index);
+function placeEdge(
+  conn: Connection,
+  nodes: Map<string, PlacedNode>,
+  index: number,
+  manual: boolean,
+  route?: { x: number; y: number }[],
+): PlacedEdge {
+  const placed =
+    route && route.length > 0
+      ? routeWithWaypoints(conn, nodes, route)
+      : manual
+        ? routeManual(conn, nodes, index)
+        : placeEdgeRaw(conn, nodes, index);
   /**
    * 只有同排的顺流边标注物流名。
    *
@@ -309,6 +329,49 @@ function placeEdge(conn: Connection, nodes: Map<string, PlacedNode>, index: numb
   const to = nodes.get(conn.to.unit);
   const labelable = Boolean(from && to) && !isRecycleStream(conn) && from!.layer === to!.layer;
   return { ...placed, straight: placed.path.length > 0 && labelable };
+}
+
+/**
+ * 人工折点的正交走线。
+ *
+ * 折线只允许水平/垂直段：两个折点如果既有 Δx 又有 Δy，就在中点插入一个
+ * 拐角（先横后竖），这样与自动走线的读图习惯一致，也不会出现斜线穿池体。
+ * 端点仍取端口锚点，保证「看到的圆点就是线的端点」。
+ */
+function routeWithWaypoints(
+  conn: Connection,
+  nodes: Map<string, PlacedNode>,
+  waypoints: { x: number; y: number }[],
+): Omit<PlacedEdge, 'straight'> {
+  const from = nodes.get(conn.from.unit);
+  const to = nodes.get(conn.to.unit);
+  if (!from || !to) return { connection: conn, path: '', labelX: 0, labelY: 0, reverse: false };
+  const a = anchorOut(from, conn.from.port);
+  const b = anchorIn(to, conn.to.port);
+
+  const pts: { x: number; y: number }[] = [{ x: a.x, y: a.y }];
+  for (const wp of waypoints) {
+    const last = pts[pts.length - 1];
+    const x = Math.round(wp.x);
+    const y = Math.round(wp.y);
+    if (x !== last.x && y !== last.y) pts.push({ x, y: last.y });
+    pts.push({ x, y });
+  }
+  const last = pts[pts.length - 1];
+  if (last.x !== b.x && last.y !== b.y) pts.push({ x: b.x, y: last.y });
+  pts.push({ x: b.x, y: b.y });
+
+  const path = pts
+    .map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : p.y === pts[i - 1].y ? `H ${p.x}` : `V ${p.y}`))
+    .join(' ');
+  const mid = pts[Math.floor(pts.length / 2)];
+  return {
+    connection: conn,
+    path,
+    labelX: mid.x,
+    labelY: mid.y,
+    reverse: isRecycleStream(conn) && b.x < a.x,
+  };
 }
 
 /**
