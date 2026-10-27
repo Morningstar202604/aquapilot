@@ -23,6 +23,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - **`GET /api/history/alarms`.** Persisted alarms, newest first, optionally scoped to
   a run. The server now records an alarm row the first time each code becomes
   active, so `/api/history/stats` no longer reports a permanently empty alarms table.
+- **The flowsheet now survives a restart.** Applying a topology or switching a preset
+  writes the document (units, links, hand-placed positions, connection waypoints) to
+  `data/topology.json` (0600, atomic rename) and the next start restores it. A damaged
+  or non-runnable file falls back to the standard plant with a logged reason instead
+  of silently losing the layout.
 
 ### Fixed
 

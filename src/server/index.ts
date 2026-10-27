@@ -17,6 +17,7 @@ import { attributeAlarm, plantHealth, trendSlopes, type AlarmAttribution } from 
 import type { ClientMessage, PlantSnapshot, ServerMessage, SnapshotPatch, TrendPoint } from '../shared/protocol';
 import { PLANT_TOPOLOGY, ProcessTopology, validateTopology } from '../model/topology';
 import { sanitizeTopologyInput } from '../model/topologyInput';
+import { TopologyStore } from './topologyStore';
 import { PRESETS, buildPreset, presetById } from '../model/presets';
 import { applyTopology, checkRunReadiness, createRuntime } from './topologyRuntime';
 import { Store } from './store';
@@ -108,13 +109,34 @@ const store = new Store();
  */
 const RUN_ID = `run-${Date.now().toString(36)}`;
 
-const boot = createRuntime(PLANT_TOPOLOGY, 20261019);
+/**
+ * 启动时恢复上次保存的拓扑。
+ *
+ * 编排成果是「文档」：服务重启就回到标准厂会让用户拖过的布局、折点与增删的
+ * 池子全部静默丢失。恢复失败（文件损坏/不可运行）时退回标准厂并在启动日志
+ * 与自检里给出原因，绝不让服务起不来。
+ */
+const topologyStore = new TopologyStore();
+const savedTopology = topologyStore.load();
+
+const boot = (() => {
+  if (savedTopology.restored) {
+    try {
+      const rt = createRuntime(savedTopology.topology, 20261019);
+      return { runtime: rt, topology: savedTopology.topology, restored: true };
+    } catch (err) {
+      logger.warn('stored topology cannot run, falling back to standard plant', { error: String(err) });
+    }
+  }
+  return { runtime: createRuntime(PLANT_TOPOLOGY, 20261019), topology: PLANT_TOPOLOGY, restored: false };
+})();
+const restoredFromDisk = boot.restored;
 
 const runtime: Runtime = {
-  topology: PLANT_TOPOLOGY,
-  compiled: boot.compiled,
-  topologyRevision: 1,
-  net: boot.net,
+  topology: boot.topology,
+  compiled: boot.runtime.compiled,
+  topologyRevision: restoredFromDisk ? 2 : 1,
+  net: boot.runtime.net,
   paused: false,
   speed: 1,
   recommendation: null,
@@ -125,8 +147,8 @@ const runtime: Runtime = {
   clientState: new Map(),
   manualOverrideUntil: 0,
   forecastCache: { key: null, value: null },
-  activePresetId: 'a2o-standard',
-  shadow: createShadowPlant(PLANT_TOPOLOGY, 20261019, 0),
+  activePresetId: restoredFromDisk ? null : 'a2o-standard',
+  shadow: createShadowPlant(boot.topology, 20261019, 0),
 };
 
 function pushTrend(state: NetworkSimState, trend: TrendPoint[]): void {
@@ -1229,6 +1251,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       runtime.compiled = rt.compiled;
       runtime.topology = candidate;
       runtime.topologyRevision += 1;
+      topologyStore.save(runtime.topology, runtime.topologyRevision);
       runtime.activePresetId = preset.id;
       runtime.recommendation = null;
       runtime.trend = [];
@@ -1310,6 +1333,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         runtime.compiled = rt.compiled;
         runtime.topology = sanitized.topology;
         runtime.topologyRevision += 1;
+        topologyStore.save(runtime.topology, runtime.topologyRevision);
         runtime.activePresetId = null;
         runtime.recommendation = null;
         runtime.trend = [];

@@ -13,10 +13,10 @@ behavior_contract_exception: null
 | step | required | evidence | file:line | command/result |
 |---|---|---|---|---|
 | 1. Pattern Mining | yes | 沿用既有 positions/portAnchors/topoHistory/editorSelection 分层；参考 Node-RED 连线折点、Simulink 多选删除、WinCC 二沉池剖面视图；服务端输入校验沿用 validation.ts 的 fail-closed 风格；趋势游标沿用 trendCursor.ts | `src/model/topology.ts:102`、`src/model/layout.ts:216`、`src/client/hooks/topoHistory.ts:24`、`src/server/validation.ts:1`、`src/server/trendCursor.ts:23` | 基线 627 tests / tsc 0 / eslint 0 / build OK |
-| 2. Behavior Lock | yes | 先写纯函数与组件测试（RED）：批量删除、折点正交路径、人工坐标对公用工程生效、拖拽基准、趋势游标重置、拓扑输入校验、二沉池剖面、SMIL 移除（covers: R1, R2, R3, R4, R5, R6） | `tests/topologyEdit.test.ts`、`tests/topologyInput.test.ts`、`tests/layoutManual.test.ts`、`tests/trendCursor.test.ts`、`tests/processEditor.test.tsx`、`tests/unitInspector.test.tsx`、`tests/snapshotMerge.test.ts`、`tests/aiCadence.test.ts` | 先 RED 后 GREEN；新增 50 项测试（627 → 677） |
+| 2. Behavior Lock | yes | 先写纯函数与组件测试（RED）：批量删除、折点正交路径、人工坐标对公用工程生效、拖拽基准、趋势游标重置、拓扑输入校验、二沉池剖面、SMIL 移除（covers: R1, R2, R3, R4, R5, R6） | `tests/topologyEdit.test.ts`、`tests/topologyInput.test.ts`、`tests/topologyStore.test.ts`、`tests/layoutManual.test.ts`、`tests/trendCursor.test.ts`、`tests/processEditor.test.tsx`、`tests/unitInspector.test.tsx`、`tests/snapshotMerge.test.ts`、`tests/aiCadence.test.ts` | 先 RED 后 GREEN；新增 55 项测试（627 → 682） |
 | 3. Thin Slice | yes | 每片一条链路：拓扑编辑纯函数 → App 键盘/多选接线 → 画布折点拖动 → 布局路由 → 服务端 sanitize → 快照剖面/补丁 → 文档 | `src/model/topologyEdit.ts`、`src/model/topologyInput.ts`、`src/client/components/PlantCanvas.tsx`、`src/client/App.tsx`、`src/server/index.ts` | 不改求解动力学与告警阈值 |
 | 4. Construction Rules | yes | 复用现有 pill/btn/var(--*) 与 layoutTopology/portAnchors；不引新依赖；服务端不可信输入一律先 sanitize 再 apply（fail-closed）；折点为界面层字段，引擎不读 | `src/model/topologyInput.ts`、`src/model/topology.ts` | 运行时依赖仍为 4 个 |
-| 5. Local Verification | yes | 聚焦测试 → 全量 vitest 677 passed / 50 files（lines 93.45 / branches 82.94 / functions 95.32）→ tsc 0 → eslint 0 → prettier clean → build OK → e2e PASS → 浏览器真机（剖面/折点/批量删除/撤销/拖动/键控微调/告警历史/累计量） | 全仓 | 见下方 Verification 节 |
+| 5. Local Verification | yes | 聚焦测试 → 全量 vitest 682 passed / 51 files（lines 93.44 / branches 83.03 / functions 95.26）→ tsc 0 → eslint 0 → prettier clean → build OK → e2e PASS → 浏览器真机（剖面/折点/批量删除/撤销/拖动/键控微调/告警历史/累计量） | 全仓 | 见下方 Verification 节 |
 | 6. Self Review (5 axes) | yes | 正确性：拖拽用起始基准、游标随全量快照重置、折点正交化；可读性：拓扑编辑纯函数独立；架构：模型层不依赖 React；安全：服务端 sanitize 限制数量/长度/数值；性能：拖拽只在本地 state，松手一次提交 | `src/model/topologyEdit.ts`、`src/server/index.ts`、`src/client/hooks/snapshotMerge.ts`、`src/server/aiCadence.ts` | 人工复核 diff |
 
 ## Behavior Contract
@@ -93,8 +93,8 @@ The system MUST reset each client's trend cursor to the end of the current buffe
 | check | command | result |
 |---|---|---|
 | focused | `npx vitest run tests/topologyEdit.test.ts tests/topologyInput.test.ts tests/trendCursor.test.ts tests/layoutManual.test.ts tests/processEditor.test.tsx tests/snapshotMerge.test.ts tests/aiCadence.test.ts` | 50 passed |
-| full | `npx vitest run` | 677 passed / 50 files |
-| coverage | `npx vitest run --coverage` | lines 93.45 / branches 82.94 / functions 95.32 |
+| full | `npx vitest run` | 682 passed / 51 files |
+| coverage | `npx vitest run --coverage` | lines 93.44 / branches 83.03 / functions 95.26 |
 | types | `npx tsc --noEmit` + `--noUnusedLocals --noUnusedParameters` | 0 |
 | lint | `npx eslint src tests` | 0 |
 | format | `npm run format` | clean |
