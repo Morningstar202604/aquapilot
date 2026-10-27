@@ -11,6 +11,7 @@
 
 import type { DecisionRow, SnapshotRow } from './store';
 import type { PlantSnapshot } from '../shared/protocol';
+import { formatClock, formatTimeOfDay, simClock } from '../shared/time';
 
 export function csvEscape(value: unknown): string {
   const s = value === null || value === undefined ? '' : String(value);
@@ -43,14 +44,11 @@ export function snapshotsCsv(rows: SnapshotRow[]): string {
       'score',
     ],
     rows.map((r) => {
-      const day = Math.floor(r.atMin / 1440) + 1;
-      const h = Math.floor((r.atMin % 1440) / 60);
-      const m = Math.floor(r.atMin % 60);
       return [
         r.runId ?? '',
         r.atMin,
-        day,
-        `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+        simClock(r.atMin).day,
+        formatTimeOfDay(r.atMin),
         r.effluentCod,
         r.effluentNh,
         r.effluentTn,
@@ -89,10 +87,7 @@ export function decisionsCsv(rows: DecisionRow[]): string {
  * 避免被当成实时承诺。
  */
 export function buildOperationsReport(snap: PlantSnapshot): string {
-  const day = Math.floor(snap.timeMin / 1440) + 1;
-  const h = Math.floor((snap.timeMin % 1440) / 60);
-  const m = Math.floor(snap.timeMin % 60);
-  const clock = `D${day} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  const clock = formatClock(snap.timeMin);
   const margins = [...snap.margins].sort((a, b) => b.ratio - a.ratio);
   const rec = snap.recommendation;
   const lines: string[] = [];

@@ -2,6 +2,7 @@ import type { Recommendation } from '../../ai/agent';
 import type { PlantSnapshot } from '../../shared/protocol';
 import { CONTROL_BOUNDS, SCENARIO_LABELS } from './labels';
 import { Collapsible } from './Collapsible';
+import { formatClock } from '../../shared/time';
 
 interface Props {
   snap: PlantSnapshot;
@@ -33,10 +34,7 @@ export function DecisionPanel({ snap, rec, onApply, onRefresh, aiEnabled, onTogg
   return (
     <div className="scroll-panel">
       <div>
-        <div className="section-label">
-          本轮决策 · 仿真第 {Math.floor(rec.generatedAt / 60)}h
-          {String(Math.floor(rec.generatedAt % 60)).padStart(2, '0')}m
-        </div>
+        <div className="section-label">本轮决策 · 仿真 {formatClock(rec.generatedAt)}</div>
         <div className="decision-card" data-sev={rec.severity}>
           <div className="decision-top">
             <span className="sev-tag" data-sev={rec.severity}>

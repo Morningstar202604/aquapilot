@@ -343,25 +343,22 @@ describe('回归：成本按日重置', () => {
 });
 
 describe('plantModel 适配器', () => {
-  it('legacyModel 的 snapshot 反映真实状态', async () => {
-    const { legacyModel } = await import('../src/sim/plantModel');
-    const { createInitialState, forecast } = await import('../src/sim/engine');
-    const s = createInitialState({ seed: 5 });
-    const m = legacyModel(s, forecast);
+  it('networkModel 的 snapshot 反映真实状态', () => {
+    const s = createNetworkState(PLANT_TOPOLOGY, { seed: 5 });
+    const m = networkModel(PLANT_TOPOLOGY, s);
     const snap = m.snapshot();
     expect(snap.timeMin).toBe(s.timeMin);
-    expect(snap.reactorCount).toBe(s.tanks.length);
+    expect(snap.reactorCount).toBe(s.reactors.length);
     expect(snap.controls.doSetpoint).toBe(s.controls.doSetpoint);
     expect(snap.mlss).toBeGreaterThan(0);
   });
 
-  it('legacyModel 预测与假设推演都返回结构', async () => {
-    const { legacyModel } = await import('../src/sim/plantModel');
-    const { createInitialState, forecast } = await import('../src/sim/engine');
-    const m = legacyModel(createInitialState({ seed: 5 }), forecast);
-    const p1 = m.predict({ ...createInitialState().controls }, 120, 30);
+  it('networkModel 预测与假设推演都返回结构', () => {
+    const base = createNetworkState(PLANT_TOPOLOGY, { seed: 5 });
+    const m = networkModel(PLANT_TOPOLOGY, base);
+    const p1 = m.predict({ ...base.controls }, 120, 30);
     expect(p1.points.length).toBe(4);
-    const p2 = m.predictWithScenario(createInitialState().controls, 120, 30, 'storm');
+    const p2 = m.predictWithScenario(base.controls, 120, 30, 'storm');
     expect(p2.points.length).toBe(4);
   });
 });

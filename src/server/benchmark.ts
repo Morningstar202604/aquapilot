@@ -10,10 +10,12 @@
  */
 
 import type { ControlSettings } from '../sim/config';
+import { TARIFF } from '../sim/kinetics';
 import type { NetworkSimState } from '../sim/networkEngine';
 import { createNetworkState, spinUpNetwork, stepNetwork } from '../sim/networkEngine';
 import { qualityScore } from '../sim/metrics';
 import type { ProcessTopology } from '../model/topology';
+import type { BenchmarkSide, BenchmarkSummary } from '../shared/protocol';
 
 export const MANUAL_BASELINE_CONTROLS: ControlSettings = {
   doSetpoint: 2.0,
@@ -29,30 +31,6 @@ export const MANUAL_BASELINE_CONTROLS: ControlSettings = {
   aiEnabled: false,
 };
 
-export interface BenchmarkSide {
-  /** 累计仿真分钟 */
-  minutes: number;
-  /** 出水六项全在限值内的分钟数 */
-  compliantMinutes: number;
-  /** 分钟加权平均出水评分 */
-  scoreSum: number;
-  /** 累计电耗 kWh */
-  energyKwh: number;
-  /** 累计运行成本（元） */
-  cost: number;
-  /** 累计处理水量 m³ */
-  inflowM3: number;
-  /** 瞬时吨水电耗 */
-  specificKwhM3: number;
-}
-
-export interface ShadowBenchmark {
-  ai: BenchmarkSide;
-  manual: BenchmarkSide;
-  /** 影子状态从哪个仿真时刻开始 */
-  startedAtMin: number;
-}
-
 function emptySide(): BenchmarkSide {
   return {
     minutes: 0,
@@ -65,8 +43,12 @@ function emptySide(): BenchmarkSide {
   };
 }
 
-export function createShadowBenchmark(): ShadowBenchmark {
-  return { ai: emptySide(), manual: emptySide(), startedAtMin: 0 };
+/** 影子双跑的累计账（内部结构，只暴露 summary） */
+export interface ShadowBenchmark {
+  ai: BenchmarkSide;
+  manual: BenchmarkSide;
+  /** 影子状态从哪个仿真时刻开始 */
+  startedAtMin: number;
 }
 
 /**
@@ -99,9 +81,10 @@ function record(side: BenchmarkSide, state: NetworkSimState, dtMin: number): voi
   if (compliant) side.compliantMinutes += dtMin;
   side.scoreSum += qualityScore(e) * dtMin;
   side.energyKwh += state.energy.totalKw * (dtMin / 60);
+  // 电价与药价必须与生产引擎同源：写死的 0.68 / 2.2 一旦调价就会让双跑结论失真
   side.cost +=
-    state.energy.totalKw * (dtMin / 60) * 0.68 +
-    ((state.influent.flow * state.controls.pacDose * (dtMin / 60)) / 1000) * 2.2;
+    state.energy.totalKw * (dtMin / 60) * TARIFF.electricity +
+    ((state.influent.flow * state.controls.pacDose * (dtMin / 60)) / 1000) * TARIFF.pac;
   side.inflowM3 += state.influent.flow * (dtMin / 60);
   side.specificKwhM3 = side.energyKwh / Math.max(1, side.inflowM3);
 }
@@ -128,21 +111,6 @@ export function stepShadow(
 
   record(plant.benchmark.ai, mainState, dtMin);
   record(plant.benchmark.manual, plant.state, dtMin);
-}
-
-export interface BenchmarkSummary {
-  ai: BenchmarkSide;
-  manual: BenchmarkSide;
-  /** 合规率差（AI − 人工），百分点 */
-  complianceDeltaPct: number;
-  /** 吨水电耗差（AI − 人工），kWh/m³ */
-  specificEnergyDelta: number;
-  /** 运行成本差（AI − 人工），% */
-  costDeltaPct: number;
-  /** 平均出水评分差 */
-  scoreDelta: number;
-  /** 样本是否足够给出结论 */
-  mature: boolean;
 }
 
 export function summarizeBenchmark(b: ShadowBenchmark): BenchmarkSummary {

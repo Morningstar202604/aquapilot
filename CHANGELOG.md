@@ -4,6 +4,78 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — debt payoff and theoretical audit
+
+### Changed
+
+- **One forcing module.** Diurnal flow, seasonal temperature, scenario envelope, toxic
+  suppression, aeration capacity and recycle derating had up to five copies across the
+  two engines. They now live in `src/sim/forcing.ts` and both the engine and the
+  forecast clone call the same functions.
+- **One alarm rule table.** `sim/networkEngine.raiseLimitAlarms`, the server's
+  `currentAlarms` and the reference engine each had their own thresholds, severities
+  and messages. All three now consume `src/sim/alarmRules.ts`; the metric strings and
+  limits are identical everywhere.
+- **One presentation table.** Stream colours/widths/dash/labels and unit icons/labels
+  were duplicated in `PlantCanvas`, `ProcessEditor` and `UnitInspector`. They now come
+  from `src/shared/streamMeta.ts`; a test fails if a component embeds a colour literal.
+- **One clock formatter.** `D2 03:40` was hand-assembled in eight places (charts,
+  replay, alarms, exports, report, top bar). All of them call `src/shared/time.ts`.
+- **One tariff table.** The shadow benchmark hard-coded 0.68 ¥/kWh and 2.2 ¥/kg PAC;
+  it now reads `TARIFF` from `kinetics.ts`, so a price change cannot silently skew the
+  AI-vs-fixed comparison.
+- **One plant geometry.** `PLANT.tanks` / `BIO_VOLUME` duplicated the topology's tank
+  list for the reference engine; the reference geometry is now derived from
+  `PLANT_TOPOLOGY`.
+
+### Removed
+
+- `legacyModel` adapter, `unitsByKind`, `neighboringUnits`, `createShadowBenchmark`,
+  `looksLikeCommand`, `commandNeedsOpenPermission`, `AGENT_CAPABILITIES`,
+  `summarizeForLog`, `permissionLabel`, `capabilitiesFor`, `unitIcons.ts`,
+  `state.edgeFlows`, `CompiledReactor.inlets` / `receives*`, `PLANT.tanks`,
+  `BIO_VOLUME`, `AEROBIC_VOLUME`, `TankConfig`, `TankKind` — 855 deleted lines in total.
+- The `plantModel ↔ networkEngine` import cycle (the leg adapter was the back-edge) and
+  the `shared/protocol → server/benchmark` reverse dependency.
+
+### Fixed
+
+- **Per-tick derived work was recomputed 2–3×.** `buildPatch`/`buildSnapshot` called
+  `currentAlarms` twice, `estimateMargin` three times and rebuilt health/attribution
+  for every client. Each is now computed once per frame.
+- **Prediction clones deep-copied the compiled network.** `structuredClone` cost
+  0.146 ms per forecast; a shallow clone of the mutable fields costs 0.0006 ms and
+  shares the read-only compiled result. Single step 0.0175 → 0.0118 ms, nominal
+  decision 142.5 → 104.7 ms, robust decision 199.4 → 134.9 ms, 30-day warm-up
+  495 → 390 ms.
+- **Hot loop filtered and sorted the edge list every step.** `CompiledNetwork` now
+  carries `incomingByReactor` / `outgoingByReactor` / `order`, built once at compile
+  time.
+- **Production gates ran on the retired engine.** `engine.test.ts`, `agent.test.ts`,
+  `coverage-extra` and `network.test` asserted the fixed five-tank reference engine —
+  a path the server no longer executes. They now run `networkEngine`, so the gates
+  cover what ships.
+
+### Docs
+
+- READMEs: test count 708, coverage 92.4 % lines / 81.9 % branches, source tree updated
+  (forcing/alarmRules added, reference engine removed from the runtime description).
+- `.aqg/code-construction/debt-payoff-and-theory-audit.md` records the theoretical
+  audit below.
+
+### Theoretical audit (measured, not opinion)
+
+| # | Finding | Evidence |
+|---|---|---|
+| T1 | Simplified nitrification runs ~420× the ASM1 rate constant, compensated by a biomass factor | `kNit=14/h` vs `ASM1 mu_A/24≈0.033/h`, `bf=xBiomass/DESIGN_MLSS` |
+| T2 | Default control can exceed the 15 mg/L TN limit | measured 15.40 mg/L at seed 7, 30-day spin-up |
+| T3 | Nitrate production uses a fixed 0.88 factor | `networkEngine.ts` (0.88) — should be 1.0 with a calibration pass (at 1.0: TN 15.4 default, 11.2 at kDen = 8) |
+| T4 | Every tank reports the plant-average MLSS | `server/index.ts` tank mapping |
+| T5 | ASM1 and simple modes expose different TP definitions through one field | simple 0.010 vs asm1 2.509 mg/L |
+| T6 | Takács thickening zone has ~4 distinct values | profile `8,13,22,53,254,258,259,260,259,5474` |
+| T7 | Clarifier solids balance residual 1.5 % | 7020 vs 6917 kg/h steady state |
+| T8 | Nitrate yield is not mass-balanced | same as T3 |
+
 ## [Unreleased] — authoring completion and full-debug pass
 
 ### Added

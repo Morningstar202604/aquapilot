@@ -5,6 +5,7 @@ import { LineChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import type { PlantSnapshot } from '../../shared/protocol';
+import { formatClock } from '../../shared/time';
 
 echarts.use([LineChart, GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent, CanvasRenderer]);
 
@@ -102,12 +103,7 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
     const times = trend.map((p) => p.t);
     // 仿真时钟格式：天 时:分，如 D2 03:40。此前写成「55h10」，
     // 跨天后既不可读也无法判断是哪一天。
-    const xData = times.map((t) => {
-      const day = Math.floor(t / 1440) + 1;
-      const h = Math.floor((t % 1440) / 60);
-      const m = Math.floor(t % 60);
-      return `D${day} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-    });
+    const xData = times.map(formatClock);
 
     const series: LineSeriesOption[] = spec.series.map((s, idx) => ({
       name: s.name,

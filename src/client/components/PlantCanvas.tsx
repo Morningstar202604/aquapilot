@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { layoutTopology, portAnchors, PlacedEdge, PlacedNode } from '../../model/layout';
-import { UNIT_KIND_ICON } from './unitIcons';
+import {
+  STREAM_META,
+  STREAM_LEGEND_ORDER,
+  streamColor,
+  streamLabel,
+  streamShort,
+  unitKindIcon,
+} from '../../shared/streamMeta';
 import { moveNodes, nodesInRect, nextSelection } from '../hooks/editorSelection';
-import { PLANT_TOPOLOGY, StreamKind, UnitKind, ProcessTopology } from '../../model/topology';
+import { PLANT_TOPOLOGY, UnitKind, ProcessTopology } from '../../model/topology';
 import type { PlantSnapshot } from '../../shared/protocol';
 
 interface Props {
@@ -30,44 +37,6 @@ interface Props {
   /** 人工折点提交：points=null 表示恢复自动走线 */
   onRouteChange?: (connectionId: string, points: { x: number; y: number }[] | null) => void;
 }
-
-const STREAM_COLOR: Record<StreamKind, string> = {
-  // 进水和出水必须可区分：都用水绿色时，操作员在总览图上看不出哪条是原水、
-  // 哪条是达标排放。进水用蓝，出水保留水绿。
-  influent: '#5b9cf5',
-  mixed_liquor: '#2fa88c',
-  return_activated_sludge: '#f0a83c',
-  waste_sludge: '#a97b3f',
-  internal_recycle: '#4fd6e8',
-  effluent: '#3ee0b5',
-  air: '#8fd8e8',
-  chemical: '#c9a0e8',
-  sludge_cake: '#8a6a45',
-};
-
-const STREAM_WIDTH: Record<StreamKind, number> = {
-  influent: 2.6,
-  mixed_liquor: 2.4,
-  return_activated_sludge: 1.8,
-  waste_sludge: 1.4,
-  internal_recycle: 1.8,
-  effluent: 2.2,
-  air: 1,
-  chemical: 1.2,
-  sludge_cake: 1.2,
-};
-
-const STREAM_DASH: Record<StreamKind, string | undefined> = {
-  influent: undefined,
-  mixed_liquor: undefined,
-  return_activated_sludge: '7 5',
-  waste_sludge: '5 4',
-  internal_recycle: '3 5',
-  effluent: undefined,
-  air: '2 6',
-  chemical: '2 4',
-  sludge_cake: '4 4',
-};
 
 export function PlantCanvas({
   snap,
@@ -433,17 +402,7 @@ export function PlantCanvas({
        */}
       <div className={fit === 'flow' ? 'canvas-legend canvas-legend-flow' : 'canvas-legend'}>
         <span className="canvas-legend-title">物流图例</span>
-        {(
-          [
-            'influent',
-            'mixed_liquor',
-            'internal_recycle',
-            'return_activated_sludge',
-            'waste_sludge',
-            'air',
-            'chemical',
-          ] as StreamKind[]
-        ).map((st) => (
+        {STREAM_LEGEND_ORDER.map((st) => (
           <span className="canvas-legend-item" key={st}>
             <svg width="18" height="8" aria-hidden="true">
               <line
@@ -451,9 +410,9 @@ export function PlantCanvas({
                 y1="4"
                 x2="18"
                 y2="4"
-                stroke={STREAM_COLOR[st]}
-                strokeWidth={Math.max(1.4, STREAM_WIDTH[st])}
-                strokeDasharray={STREAM_DASH[st]}
+                stroke={streamColor(st)}
+                strokeWidth={Math.max(1.4, STREAM_META[st].width)}
+                strokeDasharray={STREAM_META[st].dash}
               />
             </svg>
             {streamLabel(st)}
@@ -499,7 +458,7 @@ export function PlantCanvas({
             aria-label={`${topo.name} 工艺流程实时图，共 ${topo.units.length} 个工艺单元、${topo.connections.length} 条物流连接`}
           >
             <defs>
-              {Object.entries(STREAM_COLOR).map(([stream, color]) => (
+              {Object.entries(STREAM_META).map(([stream, meta]) => (
                 <marker
                   key={stream}
                   id={`arrow-${stream}`}
@@ -510,7 +469,7 @@ export function PlantCanvas({
                   markerHeight="5"
                   orient="auto-start-reverse"
                 >
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill={color} opacity={0.9} />
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill={meta.color} opacity={0.9} />
                 </marker>
               ))}
               <filter id="nodeGlow" x="-50%" y="-50%" width="200%" height="200%">
@@ -619,9 +578,10 @@ function Edge({
 }) {
   if (!edge.path) return null;
   const stream = edge.connection.stream;
-  const color = STREAM_COLOR[stream];
-  const width = STREAM_WIDTH[stream];
-  const dash = STREAM_DASH[stream];
+  const meta = STREAM_META[stream];
+  const color = meta.color;
+  const width = meta.width;
+  const dash = meta.dash;
   const dur = 2.4 + (index % 4) * 0.5;
 
   return (
@@ -670,53 +630,6 @@ function Edge({
 function pipeStartX(edge: PlacedEdge): number {
   const m = edge.path.match(/^M\s+(-?\d+(\.\d+)?)/);
   return m ? Number(m[1]) : 0;
-}
-
-/** 端口旁的极短标签：只保留区分度最高的两个字 */
-function portShortLabel(stream: StreamKind): string {
-  switch (stream) {
-    case 'influent':
-      return '进水';
-    case 'mixed_liquor':
-      return '混合';
-    case 'return_activated_sludge':
-      return '污泥';
-    case 'waste_sludge':
-      return '排泥';
-    case 'internal_recycle':
-      return '内回';
-    case 'effluent':
-      return '出水';
-    case 'air':
-      return '空气';
-    case 'chemical':
-      return '药剂';
-    case 'sludge_cake':
-      return '泥饼';
-  }
-}
-
-function streamLabel(stream: StreamKind): string {
-  switch (stream) {
-    case 'influent':
-      return '进水';
-    case 'mixed_liquor':
-      return '混合液';
-    case 'return_activated_sludge':
-      return '污泥回流';
-    case 'waste_sludge':
-      return '剩余污泥';
-    case 'internal_recycle':
-      return '内回流';
-    case 'effluent':
-      return '出水';
-    case 'air':
-      return '空气';
-    case 'chemical':
-      return '药剂';
-    case 'sludge_cake':
-      return '泥饼';
-  }
 }
 
 /**
@@ -846,7 +759,7 @@ function PortDots({
               data-kind={kind}
               data-active={active}
               data-stream={port.stream}
-              style={{ stroke: STREAM_COLOR[port.stream] }}
+              style={{ stroke: streamColor(port.stream) }}
               onClick={(e) => {
                 e.stopPropagation();
                 onPortClick?.(node.unit.id, port.id, kind);
@@ -864,7 +777,7 @@ function PortDots({
               className="port-label"
               textAnchor={kind === 'in' ? 'end' : 'start'}
             >
-              {portShortLabel(port.stream)}
+              {streamShort(port.stream)}
             </text>
           </g>
         );
@@ -957,7 +870,7 @@ function Node({
       />
       <rect x={x} y={y} width={w} height="20" rx="2" fill="rgba(6,16,15,0.66)" />
       <text x={x + 6} y={y + 14.5} className="unit-icon" aria-hidden="true">
-        {UNIT_KIND_ICON[unit.kind] ?? '▢'}
+        {unitKindIcon(unit.kind) ?? '▢'}
       </text>
       <text x={x + 20} y={y + 15} className={compactView ? 'unit-title-lg' : 'unit-title'}>
         {compactView ? shortName(unit.name) : unit.name}

@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { labelOf, precisionOf, unitOf, SCENARIO_LABELS } from '../src/client/components/labels';
 import { qualityScore, estimateMargin } from '../src/sim/metrics';
-import { networkSnapshot, legacyModel } from '../src/sim/plantModel';
+import { networkSnapshot } from '../src/sim/plantModel';
 import { PLANT_TOPOLOGY } from '../src/model/topology';
 import { createNetworkState } from '../src/sim/networkEngine';
-import { createInitialState, forecast } from '../src/sim/engine';
 import {
   applyTopology,
   createRuntime,
@@ -81,12 +80,12 @@ describe('PlantModel 适配器的空状态', () => {
     expect(Number.isFinite(snap.clarifier.blanketM)).toBe(true);
   });
 
-  it('旧引擎适配器读取快照不改变状态', () => {
-    const s = createInitialState({ seed: 5 });
+  it('生产引擎快照不改变状态', () => {
+    const s = createNetworkState(PLANT_TOPOLOGY, { seed: 5 });
     const before = s.timeMin;
-    const model = legacyModel(s, forecast);
-    expect(model.snapshot().timeMin).toBe(before);
-    expect(model.snapshot().reactorCount).toBe(s.tanks.length);
+    const snap = networkSnapshot(s);
+    expect(snap.timeMin).toBe(before);
+    expect(snap.reactorCount).toBe(s.reactors.length);
   });
 });
 
@@ -208,12 +207,12 @@ describe('Takács 泥层函数的边界', () => {
 });
 
 describe('空反应器列表的防御分支', () => {
-  it('旧引擎快照在无池时回退到 0 而不是崩溃', () => {
-    const s = createInitialState({ seed: 3 });
-    s.tanks = [];
-    const model = legacyModel(s, forecast);
-    expect(model.snapshot().mlss).toBe(0);
-    expect(model.snapshot().lastDo).toBe(0);
-    expect(model.snapshot().reactorCount).toBe(0);
+  it('空反应器列表时快照回退到 0 而不是崩溃', () => {
+    const s = createNetworkState(PLANT_TOPOLOGY, { seed: 3 });
+    s.reactors = [];
+    const snap = networkSnapshot(s);
+    expect(snap.mlss).toBe(0);
+    expect(snap.lastDo).toBe(0);
+    expect(snap.reactorCount).toBe(0);
   });
 });

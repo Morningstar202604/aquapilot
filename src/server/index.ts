@@ -9,7 +9,9 @@ import { CONTROL_BOUNDS, LIMITS, PLANT } from '../sim/config';
 import { SCENARIOS, ScenarioType } from '../sim/scenarios';
 import { NetworkSimState, networkModel, qualityScoreOf, stepNetwork } from '../sim/networkEngine';
 import { BSM1_SETTLER } from '../sim/takacs';
+import { evaluateAlarms } from '../sim/alarmRules';
 import { aiCycleDue } from './aiCadence';
+import { formatClockLong } from '../shared/time';
 import type { ForecastOutcomeX } from '../sim/plantModel';
 import { CompiledNetwork } from '../sim/network';
 import { estimateMargin } from '../sim/metrics';
@@ -220,6 +222,20 @@ function buildSnapshot(): PlantSnapshot {
     ...s.effluent,
   };
 
+  // 全量快照同样是「每客户端一次」：派生量先算一遍，别在对象字面量里重复调用
+  const activeAlarms = currentAlarms(s);
+  const margins = estimateMargin(effluent);
+  const health = plantHealth({
+    margins,
+    lastDo: s.reactors[s.reactors.length - 1]?.doLevel ?? 0,
+    doSetpoint: s.controls.doSetpoint,
+    srtDays: s.srtDays,
+    blanketM: s.clarifier.blanketM,
+    depth: s.clarifier.depth,
+    activeAlarms: activeAlarms.length,
+  });
+  const attribution = buildAttribution(s, activeAlarms);
+
   return {
     timeMin: s.timeMin,
     simulatedAt: new Date().toISOString(),
@@ -255,22 +271,14 @@ function buildSnapshot(): PlantSnapshot {
     srtDays: s.srtDays,
     fmRatio: s.fmRatio,
     score: qualityScoreOf(effluent),
-    margins: estimateMargin(effluent),
+    margins,
     alarms: s.alarms
       .slice(-20)
       .reverse()
       .map((a) => ({ ...a })),
-    activeAlarms: currentAlarms(s),
-    alarmAttribution: buildAttribution(s),
-    health: plantHealth({
-      margins: estimateMargin(effluent),
-      lastDo: s.reactors[s.reactors.length - 1]?.doLevel ?? 0,
-      doSetpoint: s.controls.doSetpoint,
-      srtDays: s.srtDays,
-      blanketM: s.clarifier.blanketM,
-      depth: s.clarifier.depth,
-      activeAlarms: currentAlarms(s).length,
-    }),
+    activeAlarms,
+    alarmAttribution: attribution,
+    health,
     trends: runtime.trend,
     forecast: fc
       ? {
@@ -307,35 +315,15 @@ function buildSnapshot(): PlantSnapshot {
 }
 
 function currentAlarms(s: NetworkSimState) {
-  const out: NetworkSimState['alarms'] = [];
   const last = s.reactors[s.reactors.length - 1];
-  const push = (code: string, severity: 'warning' | 'critical', message: string, metric: string, value: number) => {
-    out.push({ id: `LIVE-${code}`, at: s.timeMin, severity, code, message, metric, value });
-  };
-  if (s.effluent.nh > LIMITS.nh)
-    push('EFF_NH', 'critical', `出水氨氮 ${s.effluent.nh.toFixed(2)} mg/L 超限`, 'nh', s.effluent.nh);
-  if (s.effluent.cod > LIMITS.cod)
-    push('EFF_COD', 'critical', `出水 COD ${s.effluent.cod.toFixed(1)} mg/L 超限`, 'cod', s.effluent.cod);
-  if (s.effluent.bod > LIMITS.bod)
-    push('EFF_BOD', 'warning', `出水 BOD₅ ${s.effluent.bod.toFixed(1)} mg/L 超限`, 'bod', s.effluent.bod);
-  if (s.effluent.tn > LIMITS.tn)
-    push('EFF_TN', 'warning', `出水总氮 ${s.effluent.tn.toFixed(1)} mg/L 超限`, 'tn', s.effluent.tn);
-  if (s.effluent.tp > LIMITS.tp)
-    push('EFF_TP', 'warning', `出水总磷 ${s.effluent.tp.toFixed(3)} mg/L 超限`, 'tp', s.effluent.tp);
-  if (s.effluent.ss > LIMITS.ss)
-    push('EFF_SS', 'warning', `出水悬浮物 ${s.effluent.ss.toFixed(1)} mg/L 超限`, 'ss', s.effluent.ss);
-  if (last && last.doLevel < 1)
-    push('DO_LOW', 'warning', `好氧区溶解氧 ${last.doLevel.toFixed(2)} mg/L 低于下限`, 'do', last.doLevel);
-  if (s.clarifier.blanketM > s.clarifier.depth - 0.4)
-    push(
-      'SLUDGE_BLANKET',
-      'critical',
-      `二沉池泥位 ${s.clarifier.blanketM.toFixed(2)} m 接近跑泥`,
-      'blanket',
-      s.clarifier.blanketM,
-    );
-  if (s.srtDays < 8) push('SRT_LOW', 'warning', `污泥龄 ${s.srtDays.toFixed(1)} d 偏低`, 'srt', s.srtDays);
-  return out;
+  return evaluateAlarms({
+    effluent: s.effluent,
+    lastDo: last?.doLevel ?? 0,
+    srtDays: s.srtDays,
+    blanketM: s.clarifier.blanketM,
+    depth: s.clarifier.depth,
+    atMin: s.timeMin,
+  });
 }
 
 function topologyMessage(): {
@@ -362,6 +350,25 @@ function buildPatch(client: ClientState): SnapshotPatch | null {
   const s = runtime.net;
   // 缓冲可能已滚动：按时间戳取新增点，而不是按数量切片
   const trendsAppend = takeNewPoints(runtime.trend, client);
+  /**
+   * 每帧都会发出去的派生量只算一次。
+   *
+   * 旧实现里 currentAlarms 在同一个函数内被调用两次、estimateMargin 三次：
+   * 每个客户端每秒多算几遍相同的规则表与排序。它们都是纯函数，
+   * 一次算完再复用即可（多客户端时省的是 N 倍）。
+   */
+  const activeAlarms = currentAlarms(s);
+  const margins = estimateMargin(s.effluent);
+  const health = plantHealth({
+    margins,
+    lastDo: s.reactors[s.reactors.length - 1]?.doLevel ?? 0,
+    doSetpoint: s.controls.doSetpoint,
+    srtDays: s.srtDays,
+    blanketM: s.clarifier.blanketM,
+    depth: s.clarifier.depth,
+    activeAlarms: activeAlarms.length,
+  });
+  const attribution = buildAttribution(s, activeAlarms);
 
   return {
     timeMin: s.timeMin,
@@ -402,23 +409,15 @@ function buildPatch(client: ClientState): SnapshotPatch | null {
       sludgeCost: s.cost.sludge,
     },
     score: qualityScoreOf(s.effluent),
-    margins: estimateMargin(s.effluent),
+    margins,
     trendsAppend,
     alarms: s.alarms
       .slice(-20)
       .reverse()
       .map((a) => ({ ...a })),
-    activeAlarms: currentAlarms(s),
-    alarmAttribution: buildAttribution(s),
-    health: plantHealth({
-      margins: estimateMargin(s.effluent),
-      lastDo: s.reactors[s.reactors.length - 1]?.doLevel ?? 0,
-      doSetpoint: s.controls.doSetpoint,
-      srtDays: s.srtDays,
-      blanketM: s.clarifier.blanketM,
-      depth: s.clarifier.depth,
-      activeAlarms: currentAlarms(s).length,
-    }),
+    activeAlarms,
+    alarmAttribution: attribution,
+    health,
     stormStorageM3: s.stormStorageM3,
     reactorCount: s.reactors.length,
   };
@@ -430,11 +429,14 @@ function buildPatch(client: ClientState): SnapshotPatch | null {
  * 只在服务端算一次：前端拿到的是"原因 + 动作 + 后果"，不需要重复实现工艺规则；
  * 归因函数本身是纯函数，测试可以脱离服务端跑。
  */
-function buildAttribution(s: NetworkSimState): Record<string, AlarmAttribution> {
+function buildAttribution(
+  s: NetworkSimState,
+  alarms: ReturnType<typeof currentAlarms> = currentAlarms(s),
+): Record<string, AlarmAttribution> {
   const slopes = trendSlopes(runtime.trend, s.effluent.bod);
   const last = s.reactors[s.reactors.length - 1];
   const out: Record<string, AlarmAttribution> = {};
-  for (const alarm of currentAlarms(s)) {
+  for (const alarm of alarms) {
     const attribution = attributeAlarm({
       code: alarm.code,
       effluent: s.effluent,
@@ -778,9 +780,6 @@ function buildLlmGrounding(question: string): GroundingContext {
   const s = runtime.net;
   const margins = estimateMargin(s.effluent);
   const rec = runtime.recommendation;
-  const day = Math.floor(s.timeMin / 1440) + 1;
-  const h = Math.floor((s.timeMin % 1440) / 60);
-  const m = Math.floor(s.timeMin % 60);
   const facts: GroundingContext['facts'] = [
     { label: '进水流量', value: s.influent.flow.toFixed(0), unit: 'm³/h' },
     { label: '进水 COD', value: s.influent.cod.toFixed(0), unit: 'mg/L' },
@@ -804,7 +803,7 @@ function buildLlmGrounding(question: string): GroundingContext {
   void question;
   return {
     plant: `${PLANT.name} · ${PLANT.code}`,
-    simClock: `第 ${day} 天 ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+    simClock: formatClockLong(s.timeMin),
     facts,
     recommendation: rec ? rec.summary : null,
     risks: rec ? rec.risks : [],

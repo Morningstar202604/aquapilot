@@ -1,5 +1,5 @@
 import type { DiscoveredModel, LlmDiscoverInput, LlmProtocol, LlmTestInput, LlmTestResult } from '../shared/llm';
-import { inferCapabilities, isChatModel } from '../shared/llm';
+import { isChatModel } from '../shared/llm';
 
 /**
  * 自定义模型端点适配层。
@@ -442,8 +442,4 @@ export async function chatComplete(
     if (err instanceof ProviderError && err.message.includes('超时')) return { ok: false, reason: 'timeout' };
     return { ok: false, reason: 'network-error' };
   }
-}
-
-export function capabilitiesFor(model: DiscoveredModel, protocol: LlmProtocol) {
-  return inferCapabilities(model, protocol);
 }

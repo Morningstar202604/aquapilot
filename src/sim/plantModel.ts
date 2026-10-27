@@ -98,7 +98,8 @@ export function networkSnapshot(state: NetworkSimState): PlantSnapshotForAi {
     controls: state.controls,
     srtDays: state.srtDays,
     fmRatio: state.fmRatio,
-    mlss: Math.round((state.biomassKg * 1000) / Math.max(1, state.volume.bio)),
+    // 无反应器时不能报设计值：界面会显示一个根本没有的污泥浓度
+    mlss: state.reactors.length === 0 ? 0 : Math.round((state.biomassKg * 1000) / Math.max(1, state.volume.bio)),
     reactorCount: state.reactors.length,
     lastDo: last?.doLevel ?? 0,
     clarifier: {
@@ -114,78 +115,5 @@ export function networkSnapshot(state: NetworkSimState): PlantSnapshotForAi {
     cost: { total: state.cost.total },
     scenario: state.scenario,
     inhibition: state.inhibition,
-  };
-}
-
-/** 旧引擎适配器：让既有测试与脚本继续可用，同时保证预测与被控对象一致 */
-export function legacyModel(
-  state: import('./engine').SimState,
-  forecastFn: typeof import('./engine').forecast,
-): PlantModel {
-  const snap = (): PlantSnapshotForAi => {
-    const last = state.tanks[state.tanks.length - 1];
-    return {
-      timeMin: state.timeMin,
-      effluent: state.effluent,
-      influent: {
-        flow: state.influent.flow,
-        cod: state.influent.cod,
-        nh: state.influent.nh,
-        tp: state.influent.tp,
-        temperature: state.influent.temperature,
-      },
-      controls: state.controls,
-      srtDays: state.srtDays,
-      fmRatio: state.fmRatio,
-      mlss: state.tanks[0]?.mlss ?? 0,
-      reactorCount: state.tanks.length,
-      lastDo: last?.do ?? 0,
-      clarifier: {
-        blanketM: state.clarifier.blanketM,
-        depth: state.clarifier.depth,
-        slr: state.clarifier.slr,
-        xRas: state.clarifier.xRas,
-      },
-      energy: { totalKw: state.energy.totalKw, specificKwhM3: state.energy.specificKwhM3 },
-      cost: { total: state.cost.total },
-      scenario: state.scenario,
-      inhibition: state.inhibition,
-    };
-  };
-
-  const run = (
-    controls: ControlSettings,
-    horizonMin: number,
-    sampleEvery: number,
-    scenario: string | null,
-  ): ForecastOutcomeX => {
-    let base = state;
-    if (scenario) {
-      base = structuredClone(state);
-      base.scenario = { type: scenario as never, durationMin: 360, magnitude: 1, startedAt: base.timeMin };
-    }
-    const fc = forecastFn(base, controls, horizonMin, sampleEvery);
-    return {
-      points: fc.points.map((p) => ({
-        minute: p.minute,
-        effluent: p.effluent,
-        doLevel: p.doLevel,
-        blanket: p.blanket,
-        score: p.score,
-        energyKw: p.energyKw,
-      })),
-      violations: fc.violations,
-      costDelta: fc.costDelta,
-      peakEnergyKw: fc.peakEnergyKw,
-      endSrt: fc.end.srtDays,
-      endBlanket: fc.end.clarifier.blanketM,
-      endDilute: fc.end.inhibition,
-    };
-  };
-
-  return {
-    snapshot: snap,
-    predict: (c, h, s) => run(c, h, s, null),
-    predictWithScenario: (c, h, s, sc) => run(c, h, s, sc),
   };
 }

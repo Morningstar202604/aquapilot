@@ -12,7 +12,6 @@ import {
   type PromptBlock,
   type SkillSpec,
 } from '../shared/agentConfig';
-import { DEFAULT_CAPABILITIES } from '../shared/llm';
 
 /**
  * 对话式配置命令。
@@ -35,13 +34,6 @@ export interface CommandOutcome {
   next?: AgentConfig | null;
   /** 权限不足等失败原因 */
   error?: string;
-}
-
-const CMD_PREFIX =
-  /^(?:\/|！|!)?\s*(设置|添加|删除|列出|查看|重置|恢复|权限|开启|关闭|约束|技能|钩子|提示词|角色|命令)/;
-
-export function looksLikeCommand(text: string): boolean {
-  return CMD_PREFIX.test(text.trim());
 }
 
 function splitParams(rest: string): string[] {
@@ -579,12 +571,3 @@ export function describeConfig(config: AgentConfig): string {
     `单步 ${norm.constraints.maxStepPct}%`,
   ].join(' · ');
 }
-
-/** 供 CLI/界面用：判断某个动作在当前权限下是否允许 */
-export function commandNeedsOpenPermission(command: string | undefined): boolean {
-  if (!command) return false;
-  if (command === 'permission') return false;
-  return false;
-}
-
-export const AGENT_CAPABILITIES = DEFAULT_CAPABILITIES;

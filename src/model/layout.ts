@@ -1,4 +1,4 @@
-import { Connection, Port, ProcessTopology, UnitSpec, outgoing, incoming } from '../model/topology';
+import { Connection, Port, ProcessTopology, UnitSpec, outgoing } from '../model/topology';
 
 /**
  * 自动布局：分层（主序列从左到右）+ 支线上下分流 + 回流走外侧。
@@ -590,11 +590,4 @@ export function unreachableUnits(topo: ProcessTopology): string[] {
   const toOutlet = reach(end, reversed);
 
   return topo.units.filter((u) => !fromInlet.has(u.id) || !toOutlet.has(u.id)).map((u) => u.id);
-}
-
-export function neighboringUnits(topo: ProcessTopology, unitId: string): { upstream: string[]; downstream: string[] } {
-  return {
-    upstream: incoming(topo, unitId).map((c) => c.from.unit),
-    downstream: outgoing(topo, unitId).map((c) => c.to.unit),
-  };
 }

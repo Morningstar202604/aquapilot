@@ -12,7 +12,8 @@
  * 改动本文件不会影响线上行为；改动力学请同步 networkEngine。
  */
 
-import { BIO_VOLUME, ControlSettings, DEFAULT_CONTROLS, INFLUENT_DESIGN, LIMITS, PLANT, TankConfig } from './config';
+import { ControlSettings, DEFAULT_CONTROLS, INFLUENT_DESIGN, LIMITS, PLANT, TankConfig } from './config';
+import { PLANT_TOPOLOGY, totalTrainVolume } from '../model/topology';
 import { mulberry32 } from './rng';
 import { ScenarioSpec, SCENARIOS } from './scenarios';
 import type {
@@ -26,6 +27,8 @@ import type {
 } from './plantTypes';
 import { clamp, clampControls, qualityScore, estimateMargin } from './metrics';
 import { KINETICS, DESIGN_MLSS, TARIFF } from './kinetics';
+import { evaluateAlarms } from './alarmRules';
+import { diurnal, mixed, scenarioEnvelope, seasonalTemperature } from './forcing';
 
 export type { Alarm, ClarifierState, CostState, EffluentState, EnergyState, InfluentState, TankState };
 export { clampControls, qualityScore, estimateMargin };
@@ -66,6 +69,14 @@ export interface EngineOptions {
   controls?: Partial<ControlSettings>;
 }
 
+/** 参考几何：从标准拓扑派生，避免与拓扑里的池容各写一份 */
+const REFERENCE_TANKS: TankConfig[] = PLANT_TOPOLOGY.train.map((id) => {
+  const unit = PLANT_TOPOLOGY.units.find((u) => u.id === id)!;
+  const kind = unit.kind === 'anaerobic' ? 'anaerobic' : unit.kind === 'anoxic' ? 'anoxic' : 'aerobic';
+  return { id, name: unit.name, short: unit.name.replace('池', '').slice(0, 3), kind, volume: unit.volume ?? 0 };
+});
+const BIO_VOLUME = totalTrainVolume(PLANT_TOPOLOGY);
+
 function makeTank(config: TankConfig): TankState {
   return {
     ...config,
@@ -92,7 +103,7 @@ export function createInitialState(options: EngineOptions = {}): SimState {
     seed: options.seed ?? 20261019,
     rngCount: 0,
     influent: { ...INFLUENT_DESIGN },
-    tanks: PLANT.tanks.map(makeTank),
+    tanks: REFERENCE_TANKS.map(makeTank),
     clarifier: {
       blanketM: 1.0,
       sludgeMassKg: 22000,
@@ -141,26 +152,7 @@ export function cloneState(state: SimState): SimState {
   return structuredClone(state);
 }
 
-function diurnal(timeMin: number): number {
-  const h = (timeMin / 60) % 24;
-  return 0.78 + 0.3 * Math.exp(-(((h - 10) / 3.6) ** 2)) + 0.26 * Math.exp(-(((h - 20) / 3.2) ** 2));
-}
-
-export function seasonalTemperature(timeMin: number): number {
-  const day = timeMin / 1440;
-  return 19.5 + 3.6 * Math.sin((2 * Math.PI * (day - 60)) / 365);
-}
-
-export function scenarioEnvelope(spec: ScenarioSpec | null, timeMin: number): number {
-  if (!spec) return 0;
-  const elapsed = timeMin - spec.startedAt;
-  if (elapsed < 0 || elapsed > spec.durationMin) return 0;
-  const rampIn = spec.type === 'storm' ? 20 : spec.type === 'power_outage' ? 1 : 8;
-  const rampOut = spec.type === 'storm' ? 80 : spec.type === 'power_outage' ? 2 : 30;
-  if (elapsed < rampIn) return elapsed / rampIn;
-  if (spec.durationMin - elapsed < rampOut) return Math.max(0, (spec.durationMin - elapsed) / rampOut);
-  return 1;
-}
+export { scenarioEnvelope, seasonalTemperature };
 
 function deriveInfluent(state: SimState): InfluentState {
   const base = INFLUENT_DESIGN;
@@ -243,11 +235,6 @@ function recycle(state: SimState): { ir: number; ras: number; was: number } {
     }
   }
   return { ir, ras, was };
-}
-
-function mixed(cA: number, qA: number, cB: number, qB: number): number {
-  const q = qA + qB;
-  return q > 0 ? (cA * qA + cB * qB) / q : cA;
 }
 
 function pushAlarm(
@@ -577,36 +564,16 @@ export function step(state: SimState, dtMin = 1): SimState {
   state.totalInflowM3 += Q * dtH;
   state.totalOutflowM3 += Qe * dtH;
 
-  const e = state.effluent;
-  if (e.nh > LIMITS.nh)
-    pushAlarm(state, 'critical', 'EFF_NH', `出水氨氮 ${e.nh.toFixed(2)} mg/L 超一级A（${LIMITS.nh}）`, 'nh', e.nh);
-  if (e.tp > LIMITS.tp)
-    pushAlarm(state, 'warning', 'EFF_TP', `出水总磷 ${e.tp.toFixed(2)} mg/L 超一级A（${LIMITS.tp}）`, 'tp', e.tp);
-  if (e.cod > LIMITS.cod)
-    pushAlarm(state, 'critical', 'EFF_COD', `出水 COD ${e.cod.toFixed(1)} mg/L 超一级A（${LIMITS.cod}）`, 'cod', e.cod);
-  if (e.ss > LIMITS.ss)
-    pushAlarm(state, 'warning', 'EFF_SS', `出水悬浮物 ${e.ss.toFixed(1)} mg/L 超一级A（${LIMITS.ss}）`, 'ss', e.ss);
-  if (final.do < 1.0)
-    pushAlarm(state, 'warning', 'DO_LOW', `好氧区溶解氧 ${final.do.toFixed(2)} mg/L，低于工艺下限`, 'do', final.do);
-  if (clar.blanketM > clarifierDepth - 0.4) {
-    pushAlarm(
-      state,
-      'critical',
-      'SLUDGE_BLANKET',
-      `二沉池污泥界面 ${clar.blanketM.toFixed(2)} m，存在跑泥风险`,
-      'blanket',
-      clar.blanketM,
-    );
-  }
-  if (state.srtDays < 8)
-    pushAlarm(
-      state,
-      'warning',
-      'SRT_LOW',
-      `污泥龄 ${state.srtDays.toFixed(1)} d，硝化菌群可能流失`,
-      'srt',
-      state.srtDays,
-    );
+  // 告警规则与生产引擎共用一份（sim/alarmRules）；本引擎只负责把结果写进历史数组
+  const alarms = evaluateAlarms({
+    effluent: state.effluent,
+    lastDo: final.do,
+    srtDays: state.srtDays,
+    blanketM: clar.blanketM,
+    depth: clarifierDepth,
+    atMin: state.timeMin,
+  });
+  for (const alarm of alarms) pushAlarm(state, alarm.severity, alarm.code, alarm.message, alarm.metric, alarm.value);
 
   return state;
 }

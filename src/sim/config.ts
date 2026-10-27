@@ -30,25 +30,22 @@ export const LIMITS: Limits = {
   phMax: 9,
 };
 
+/**
+ * 厂站常量。
+ *
+ * 注意：池数与池容不在这里——它们是拓扑（`model/topology.ts`）的一部分，
+ * 服务端按用户编排的拓扑求解。这里只保留与结构无关的厂级参数，
+ * 以及没有拓扑时（参考引擎/脚本）使用的兜底几何。
+ */
 export const PLANT = {
   name: '澄川再生水厂',
   code: 'CC-WWTP-03',
   capacityM3d: 48000,
   designFlowM3h: 2000,
-  tanks: [
-    { id: 'anaerobic', name: '厌氧池', short: '厌氧', kind: 'anaerobic', volume: 3000 },
-    { id: 'anoxic', name: '缺氧池', short: '缺氧', kind: 'anoxic', volume: 4500 },
-    { id: 'aerobic1', name: '好氧池 A', short: '好氧A', kind: 'aerobic', volume: 5000 },
-    { id: 'aerobic2', name: '好氧池 B', short: '好氧B', kind: 'aerobic', volume: 5000 },
-    { id: 'aerobic3', name: '好氧池 C', short: '好氧C', kind: 'aerobic', volume: 5000 },
-  ] as TankConfig[],
   clarifier: { area: 3600, depth: 4.5 },
   siteAreaHa: 4.2,
   dischargeStandard: 'GB 18918-2002 一级 A',
 } as const;
-
-export const BIO_VOLUME = PLANT.tanks.reduce((sum, t) => sum + t.volume, 0);
-export const AEROBIC_VOLUME = PLANT.tanks.filter((t) => t.kind === 'aerobic').reduce((sum, t) => sum + t.volume, 0);
 
 export interface ControlSettings {
   doSetpoint: number;

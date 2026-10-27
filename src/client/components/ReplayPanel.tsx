@@ -3,7 +3,8 @@ import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, MarkLineComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
-import type { SnapshotRow } from '../../server/store';
+import type { SnapshotRow } from '../../shared/protocol';
+import { formatClock } from '../../shared/time';
 
 echarts.use([LineChart, GridComponent, TooltipComponent, MarkLineComponent, CanvasRenderer]);
 
@@ -99,12 +100,7 @@ export function ReplayPanel() {
         xAxis: {
           type: 'category',
           // 采样点可能落在同一小时内：写成 H:MM，否则轴上会连出「0h 0h 0h」
-          data: pts.map((p) => {
-            const d = Math.floor(p.atMin / 1440) + 1;
-            const h = Math.floor((p.atMin % 1440) / 60);
-            const m = Math.floor(p.atMin % 60);
-            return `D${d} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-          }),
+          data: pts.map((p) => formatClock(p.atMin)),
           axisLine: { lineStyle: { color: '#1d3b37' } },
           axisTick: { show: false },
           axisLabel: { color: '#5f7d78', fontSize: 9, interval: Math.max(0, Math.floor(pts.length / 6)) },

@@ -2,6 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, s
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { logger, metrics } from './observability';
+import type { SnapshotRow } from '../shared/protocol';
 
 /** 持久化表名白名单：任何拼进 SQL 的表名都必须出自这里，禁止任意字符串拼接 */
 export const PERSIST_TABLES = ['decisions', 'alarms', 'snapshots'] as const;
@@ -85,19 +86,7 @@ export interface RestoreResult {
   manifest?: BackupManifest;
 }
 
-export interface SnapshotRow {
-  runId?: string;
-  atMin: number;
-  effluentCod: number;
-  effluentNh: number;
-  effluentTn: number;
-  effluentTp: number;
-  effluentSs: number;
-  mlss: number;
-  srtDays: number;
-  energyKw: number;
-  score: number;
-}
+export type { SnapshotRow } from '../shared/protocol';
 
 export class Store {
   private db: DatabaseLike | null = null;

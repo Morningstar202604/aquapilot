@@ -12,15 +12,74 @@ import type { ScenarioSpec } from '../sim/scenarios';
 import type { Answer, Recommendation } from '../ai/agent';
 import type { EnsembleForecast } from '../sim/ensemble';
 import type { AlarmAttribution, PlantHealth } from '../sim/alarmAttribution';
-import type { BenchmarkSummary } from '../server/benchmark';
 import type { ProcessTopology } from '../model/topology';
 import type { DiscoveredModel, LlmDraft, LlmProtocol, LlmPublicConfig, LlmTestResult } from './llm';
 import type { AgentConfig, AgentSummary } from './agentConfig';
+
+/**
+ * AI vs 固定策略的双跑汇总。
+ *
+ * 定义放在 shared 而不是 server/benchmark：它是客户端与协议的一部分，
+ * 若留在服务端，shared/protocol 会反过来 import server 模块，
+ * 形成「协议层依赖运行时实现」的反向依赖（客户端打包也会把服务端代码拖进来）。
+ */
+export interface BenchmarkSide {
+  /** 累计仿真分钟 */
+  minutes: number;
+  /** 出水六项全在限值内的分钟数 */
+  compliantMinutes: number;
+  /** 分钟加权平均出水评分 */
+  scoreSum: number;
+  /** 累计电耗 kWh */
+  energyKwh: number;
+  /** 累计运行成本（元） */
+  cost: number;
+  /** 累计处理水量 m³ */
+  inflowM3: number;
+  /** 吨水电耗 kWh/m³ */
+  specificKwhM3: number;
+}
+
+export interface BenchmarkSummary {
+  ai: BenchmarkSide;
+  manual: BenchmarkSide;
+  /** 合规率差（AI − 人工），百分点 */
+  complianceDeltaPct: number;
+  /** 吨水电耗差（AI − 人工），kWh/m³ */
+  specificEnergyDelta: number;
+  /** 运行成本差（AI − 人工），% */
+  costDeltaPct: number;
+  /** 平均出水评分差 */
+  scoreDelta: number;
+  /** 样本是否足够给出结论 */
+  mature: boolean;
+}
 
 export interface WatchdogReport {
   at: string;
   severity: 'ok' | 'warn' | 'error';
   checks: { id: string; label: string; severity: 'ok' | 'warn' | 'error'; detail: string; action: string }[];
+}
+
+/**
+ * 历史回放的采样点（SQLite snapshots 表的一行）。
+ *
+ * 定义放在 shared：客户端回放面板要用它。此前从 `server/store` import，
+ * 浏览器包会顺着类型依赖把服务端模块拖进依赖图——类型虽被擦除，
+ * 但架构上形成了客户端→服务端的反向依赖。
+ */
+export interface SnapshotRow {
+  runId?: string;
+  atMin: number;
+  effluentCod: number;
+  effluentNh: number;
+  effluentTn: number;
+  effluentTp: number;
+  effluentSs: number;
+  mlss: number;
+  srtDays: number;
+  energyKw: number;
+  score: number;
 }
 
 export interface TrendPoint {

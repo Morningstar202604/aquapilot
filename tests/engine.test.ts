@@ -1,10 +1,37 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONTROLS, LIMITS, PLANT } from '../src/sim/config';
-import { createInitialState, forecast, qualityScore, spinUp, startScenario, step } from '../src/sim/engine';
+import {
+  createNetworkState,
+  networkModel,
+  spinUpNetwork,
+  startNetworkScenario,
+  stepNetwork,
+} from '../src/sim/networkEngine';
+import { qualityScore } from '../src/sim/metrics';
+import { PLANT_TOPOLOGY } from '../src/model/topology';
 
+/**
+ * 稳态统一用生产引擎（拓扑求解）构造。
+ *
+ * 本文件此前跑在固定五池参考引擎上：生产路径早已是 networkEngine，
+ * 用已淘汰的引擎做「稳态是否达标」的门禁，等于给一条不再运行的路径发合格证。
+ * 参考引擎现只保留在 cross-engine 的一致性测试里。
+ */
 function steadyState(seed = 7) {
-  return spinUp(createInitialState({ seed }), 30);
+  return spinUpNetwork(createNetworkState(PLANT_TOPOLOGY, { seed }), PLANT_TOPOLOGY, 30);
 }
+const step = (s: ReturnType<typeof steadyState>, dt = 1) => stepNetwork(s, PLANT_TOPOLOGY, dt);
+const startScenario = (
+  s: ReturnType<typeof steadyState>,
+  type: Parameters<typeof startNetworkScenario>[1],
+  opts?: Parameters<typeof startNetworkScenario>[2],
+) => startNetworkScenario(s, type, opts);
+const forecast = (
+  s: ReturnType<typeof steadyState>,
+  controls: typeof DEFAULT_CONTROLS,
+  horizon: number,
+  every: number,
+) => networkModel(PLANT_TOPOLOGY, s).predict(controls, horizon, every);
 
 describe('engine steady state', () => {
   it('reaches a compliant effluent under design load', () => {
@@ -17,8 +44,8 @@ describe('engine steady state', () => {
 
   it('holds biomass inside the design MLSS window', () => {
     const s = steadyState();
-    expect(s.tanks[0].mlss).toBeGreaterThan(2000);
-    expect(s.tanks[0].mlss).toBeLessThan(6000);
+    expect((s.biomassKg * 1000) / s.volume.bio).toBeGreaterThan(2000);
+    expect((s.biomassKg * 1000) / s.volume.bio).toBeLessThan(6000);
   });
 
   it('keeps sludge age in a nitrifying range', () => {
@@ -29,26 +56,26 @@ describe('engine steady state', () => {
 
   it('maintains the DO setpoint in every aerobic tank', () => {
     const s = steadyState();
-    const aerobic = s.tanks.filter((t) => t.kind === 'aerobic');
+    const aerobic = s.reactors.filter((t) => t.kind === 'aerobic');
     for (const tank of aerobic) {
-      expect(tank.do).toBeGreaterThan(1.4);
-      expect(tank.do).toBeLessThan(3.0);
+      expect(tank.doLevel).toBeGreaterThan(1.4);
+      expect(tank.doLevel).toBeLessThan(3.0);
     }
   });
 
   it('keeps anaerobic and anoxic zones free of dissolved oxygen', () => {
     const s = steadyState();
-    const anaerobic = s.tanks.find((t) => t.kind === 'anaerobic')!;
-    const anoxic = s.tanks.find((t) => t.kind === 'anoxic')!;
-    expect(anaerobic.do).toBeLessThan(0.5);
-    expect(anoxic.do).toBeLessThan(0.5);
+    const anaerobic = s.reactors.find((t) => t.kind === 'anaerobic')!;
+    const anoxic = s.reactors.find((t) => t.kind === 'anoxic')!;
+    expect(anaerobic.doLevel).toBeLessThan(0.5);
+    expect(anoxic.doLevel).toBeLessThan(0.5);
   });
 });
 
 describe('conservation and determinism', () => {
   it('is deterministic for an identical seed and step sequence', () => {
-    const a = createInitialState({ seed: 99 });
-    const b = createInitialState({ seed: 99 });
+    const a = createNetworkState(PLANT_TOPOLOGY, { seed: 99 });
+    const b = createNetworkState(PLANT_TOPOLOGY, { seed: 99 });
     for (let i = 0; i < 300; i++) {
       step(a, 1);
       step(b, 1);
@@ -59,10 +86,10 @@ describe('conservation and determinism', () => {
   });
 
   it('does not produce NaN or negative concentrations over 3 simulated days', () => {
-    const s = createInitialState({ seed: 5 });
+    const s = createNetworkState(PLANT_TOPOLOGY, { seed: 5 });
     for (let i = 0; i < 4320; i++) step(s, 1);
-    for (const tank of s.tanks) {
-      for (const v of [tank.cod, tank.nh, tank.no3, tank.tp, tank.do, tank.mlss, tank.alkalinity]) {
+    for (const tank of s.reactors) {
+      for (const v of [tank.cod, tank.nh, tank.no3, tank.tp, tank.doLevel, tank.alkalinity]) {
         expect(Number.isFinite(v)).toBe(true);
         expect(v).toBeGreaterThanOrEqual(0);
       }
@@ -73,10 +100,10 @@ describe('conservation and determinism', () => {
   });
 
   it('tracks inflow volume against the elapsed simulation time', () => {
-    const s = createInitialState({ seed: 11 });
+    const s = createNetworkState(PLANT_TOPOLOGY, { seed: 11 });
     for (let i = 0; i < 600; i++) step(s, 1);
     const hours = 600 / 60;
-    const average = s.totalInflowM3 / hours;
+    const average = s.totals.inflowM3 / hours;
     expect(average).toBeGreaterThan(PLANT.designFlowM3h * 0.5);
     expect(average).toBeLessThan(PLANT.designFlowM3h * 1.6);
   });
@@ -97,8 +124,8 @@ describe('scenario physics', () => {
     const before = s.effluent.nh;
     startScenario(s, 'blower_failure', { durationMin: 240 });
     for (let i = 0; i < 200; i++) step(s, 1);
-    const aerobic = s.tanks.find((t) => t.kind === 'aerobic')!;
-    expect(aerobic.do).toBeLessThan(1.5);
+    const aerobic = s.reactors.find((t) => t.kind === 'aerobic')!;
+    expect(aerobic.doLevel).toBeLessThan(1.5);
     expect(s.effluent.nh).toBeGreaterThan(before);
   });
 
@@ -163,6 +190,11 @@ describe('quality score', () => {
     const good = qualityScore(s.effluent);
     const bad = qualityScore({ ...s.effluent, nh: LIMITS.nh * 2, cod: LIMITS.cod * 1.5 });
     expect(good).toBeGreaterThan(bad);
-    expect(good).toBeGreaterThan(70);
+    /**
+     * 生产引擎的出水 SS 由 Takács 给出（约 7.6，占限值 76%），
+     * 评分被压到 40 分区间；参考引擎用经验关联式（SS≈1.6）才有 70+。
+     * 这里锁的是「达标优于超标」的相对关系，不锁绝对分数。
+     */
+    expect(good).toBeGreaterThan(30);
   });
 });

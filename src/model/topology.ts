@@ -502,16 +502,6 @@ export const PLANT_TOPOLOGY: ProcessTopology = {
   ],
 };
 
-export function unitsByKind(topo: ProcessTopology): Map<UnitKind, UnitSpec[]> {
-  const map = new Map<UnitKind, UnitSpec[]>();
-  for (const u of topo.units) {
-    const list = map.get(u.kind) ?? [];
-    list.push(u);
-    map.set(u.kind, list);
-  }
-  return map;
-}
-
 export function findUnit(topo: ProcessTopology, id: string): UnitSpec | undefined {
   return topo.units.find((u) => u.id === id);
 }

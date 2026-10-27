@@ -2,7 +2,7 @@ import { CONTROL_BOUNDS, labelOf, precisionOf } from './labels';
 import type { ControlSettings } from '../../sim/config';
 import type { PlantSnapshot } from '../../shared/protocol';
 import type { ProcessTopology, UnitSpec } from '../../model/topology';
-import { UNIT_KIND_ICON } from './unitIcons';
+import { unitKindIcon, unitKindLabel } from '../../shared/streamMeta';
 
 interface Props {
   snap: PlantSnapshot;
@@ -13,26 +13,6 @@ interface Props {
   onChangeControls: (patch: Partial<ControlSettings>) => void;
   onEditTopology: () => void;
 }
-
-const KIND_LABEL: Record<string, string> = {
-  inlet: '进水',
-  screening: '格栅',
-  grit: '沉砂',
-  primary: '初沉',
-  anaerobic: '厌氧',
-  anoxic: '缺氧',
-  aerobic: '好氧',
-  clarifier: '二沉',
-  disinfection: '消毒',
-  outlet: '排放',
-  storage: '调蓄',
-  thickener: '浓缩',
-  dewatering: '脱水',
-  blower: '鼓风',
-  chemical: '加药',
-  pump: '泵',
-  splitter: '分流',
-};
 
 /**
  * 单元检视器。
@@ -56,9 +36,9 @@ export function UnitInspector({ snap, topo, unit, onClose, onSelect, onChangeCon
     <div className="unit-inspector" role="dialog" aria-label={`${unit.name} 属性`}>
       <div className="unit-inspector-head">
         <span className="unit-kind-badge" aria-hidden="true">
-          {UNIT_KIND_ICON[unit.kind] ?? '▢'}
+          {unitKindIcon(unit.kind)}
         </span>
-        <span className="unit-kind-label">{KIND_LABEL[unit.kind] ?? unit.kind}</span>
+        <span className="unit-kind-label">{unitKindLabel(unit.kind)}</span>
         <span className="unit-inspector-title">{unit.name}</span>
         <button className="model-close" onClick={onClose} aria-label="关闭单元属性">
           ×

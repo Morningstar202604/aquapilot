@@ -8,7 +8,6 @@ import {
   type AgentConfig,
   type AgentSummary,
   type ConfigWriter,
-  type PermissionLevel,
 } from '../shared/agentConfig';
 import { logger } from './observability';
 
@@ -197,12 +196,3 @@ export class AgentConfigStore {
 }
 
 export const agentConfigStore = new AgentConfigStore();
-
-export function summarizeForLog(config: AgentConfig): Record<string, unknown> {
-  const s = agentSummary(config);
-  return { permission: s.permission, persona: s.personaName, skills: s.skillCount, hooks: s.hookCount };
-}
-
-export function permissionLabel(level: PermissionLevel): string {
-  return level === 'readonly' ? '只读' : level === 'open' ? '完全放开' : '标准';
-}

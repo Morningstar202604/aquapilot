@@ -1,19 +1,14 @@
-import {
-  createInitialState,
-  forecast,
-  qualityScore,
-  spinUp,
-  startScenario,
-  step,
-} from '../src/sim/engine';
 import { DEFAULT_CONTROLS } from '../src/sim/config';
+import { PLANT_TOPOLOGY } from '../src/model/topology';
+import { createNetworkState, networkModel, spinUpNetwork, startNetworkScenario, stepNetwork } from '../src/sim/networkEngine';
+import { qualityScore } from '../src/sim/metrics';
 import { SCENARIO_ORDER, SCENARIOS } from '../src/sim/scenarios';
 
 function fmt(n: number, digits = 2): string {
   return Number.isFinite(n) ? n.toFixed(digits) : 'NaN';
 }
 
-const base = spinUp(createInitialState({ seed: 42 }), 40);
+const base = spinUpNetwork(createNetworkState(PLANT_TOPOLOGY, { seed: 42 }), PLANT_TOPOLOGY, 40);
 const e = base.effluent;
 console.log('== 稳态（40 d 培养，默认控制）==');
 console.log(
@@ -23,15 +18,13 @@ console.log(
   `出水 COD ${fmt(e.cod, 1)} BOD ${fmt(e.bod, 1)} SS ${fmt(e.ss, 1)} NH4 ${fmt(e.nh, 2)} TN ${fmt(e.tn, 2)} TP ${fmt(e.tp, 3)} pH ${fmt(e.ph, 2)}`,
 );
 console.log(
-  `MLSS ${fmt(base.tanks[0].mlss, 0)} SRT ${fmt(base.srtDays, 1)} d F/M ${fmt(base.fmRatio, 3)} DO ${fmt(base.tanks[4].do, 2)} 能耗 ${fmt(base.energy.totalKw, 0)} kW (${fmt(base.energy.specificKwhM3, 3)} kWh/m³)`,
+  `MLSS ${fmt((base.biomassKg * 1000) / base.volume.bio, 0)} SRT ${fmt(base.srtDays, 1)} d F/M ${fmt(base.fmRatio, 3)} 能耗 ${fmt(base.energy.totalKw, 0)} kW (${fmt(base.energy.totalKw / Math.max(1, base.influent.flow), 3)} kWh/m³)`,
 );
-console.log(
-  `DO 分布 ${base.tanks.map((t) => `${t.short}:${fmt(t.do, 2)}`).join(' ')}`,
-);
+console.log(`DO 分布 ${base.reactors.map((r) => `${r.name}:${fmt(r.doLevel, 2)}`).join(' ')}`);
 console.log(`评分 ${qualityScore(e)} | 污泥界面 ${fmt(base.clarifier.blanketM, 2)} m | xEff ${fmt(base.clarifier.xEff, 1)}`);
 
 console.log('\n== 默认控制 24 h 预测 ==');
-const fc = forecast(base, DEFAULT_CONTROLS, 1440, 60);
+const fc = networkModel(PLANT_TOPOLOGY, base).predict(DEFAULT_CONTROLS, 1440, 60);
 console.log(
   `超额次数 ${fc.violations.length} | 能耗峰值 ${fmt(fc.peakEnergyKw, 0)} kW | 预测成本增量 ¥${fmt(fc.costDelta, 0)}`,
 );
@@ -41,15 +34,15 @@ if (fc.violations.length) {
 
 console.log('\n== 场景压力测试（每个场景 6 h）==');
 for (const type of SCENARIO_ORDER) {
-  const sim = spinUp(createInitialState({ seed: 42 }), 40);
+  const sim = spinUpNetwork(createNetworkState(PLANT_TOPOLOGY, { seed: 42 }), PLANT_TOPOLOGY, 40);
   const meta = SCENARIOS[type];
-  startScenario(sim, type, { durationMin: 360 });
+  startNetworkScenario(sim, type, { durationMin: 360 });
   let worstNh = 0;
   let worstTp = 0;
   let worstCod = 0;
   let worstSs = 0;
   for (let m = 0; m < 360; m++) {
-    step(sim, 1);
+    stepNetwork(sim, PLANT_TOPOLOGY, 1);
     worstNh = Math.max(worstNh, sim.effluent.nh);
     worstTp = Math.max(worstTp, sim.effluent.tp);
     worstCod = Math.max(worstCod, sim.effluent.cod);

@@ -14,6 +14,7 @@ import { checkRunReadiness } from '../../sim/topologyEngine';
 import { layoutTopology } from '../../model/layout';
 import { alignNodes, distributeNodes, type AlignMode } from '../hooks/editorSelection';
 import { deleteUnits, moveUnitsTo, setRoute } from '../../model/topologyEdit';
+import { streamColor, streamLabel as streamName, unitKindAccent } from '../../shared/streamMeta';
 import { PlantCanvas } from './PlantCanvas';
 import type { PlantSnapshot } from '../../shared/protocol';
 
@@ -466,7 +467,7 @@ export function ProcessEditor({
                 }}
                 title="点击添加，或拖到画布上放置"
               >
-                <span className="palette-glyph" style={{ borderColor: glyphColor(entry.kind) }} />
+                <span className="palette-glyph" style={{ borderColor: unitKindAccent(entry.kind) }} />
                 <span className="palette-name">{entry.name}</span>
               </button>
             ))}
@@ -956,58 +957,4 @@ function EditorCanvas({
       )}
     </div>
   );
-}
-
-function glyphColor(kind: UnitKind): string {
-  if (kind === 'aerobic') return 'var(--cyan)';
-  if (kind === 'anaerobic' || kind === 'anoxic') return 'var(--water-dim)';
-  if (kind === 'clarifier') return 'var(--amber)';
-  if (kind === 'blower') return 'var(--cyan)';
-  if (kind === 'chemical') return 'var(--purple-dim, #7a5f8a)';
-  return 'var(--text-3)';
-}
-
-function streamColor(stream: StreamKind): string {
-  switch (stream) {
-    case 'influent':
-      return 'var(--water)';
-    case 'mixed_liquor':
-      return 'var(--water-dim)';
-    case 'return_activated_sludge':
-    case 'waste_sludge':
-      return 'var(--amber)';
-    case 'internal_recycle':
-      return 'var(--cyan)';
-    case 'effluent':
-      return 'var(--water)';
-    case 'air':
-      return '#8fd8e8';
-    case 'chemical':
-      return '#c9a0e8';
-    case 'sludge_cake':
-      return '#8a6a45';
-  }
-}
-
-function streamName(stream: StreamKind): string {
-  switch (stream) {
-    case 'influent':
-      return '进水';
-    case 'mixed_liquor':
-      return '混合液';
-    case 'return_activated_sludge':
-      return '污泥回流';
-    case 'waste_sludge':
-      return '剩余污泥';
-    case 'internal_recycle':
-      return '内回流';
-    case 'effluent':
-      return '出水';
-    case 'air':
-      return '空气';
-    case 'chemical':
-      return '药剂';
-    case 'sludge_cake':
-      return '泥饼';
-  }
 }

@@ -27,6 +27,7 @@ import { UnitInspector } from './components/UnitInspector';
 import { TopbarMenu } from './components/TopbarMenu';
 import { Collapsible } from './components/Collapsible';
 import { PLANT } from '../sim/config';
+import { formatClockLong } from '../shared/time';
 
 type Tab = 'chat' | 'decision' | 'control' | 'alarms' | 'insights' | 'replay' | 'health';
 type View = 'plant' | 'editor';
@@ -165,13 +166,7 @@ export default function App() {
       ? `数据 ${staleSeconds}s 前更新`
       : '链路正常';
 
-  const dateLabel = useMemo(() => {
-    if (!snap) return '';
-    const day = Math.floor(snap.timeMin / 1440) + 1;
-    const h = Math.floor((snap.timeMin % 1440) / 60);
-    const m = Math.floor(snap.timeMin % 60);
-    return `第 ${day} 天 ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-  }, [snap]);
+  const dateLabel = useMemo(() => (snap ? formatClockLong(snap.timeMin) : ''), [snap]);
 
   if (!snap) {
     return (
