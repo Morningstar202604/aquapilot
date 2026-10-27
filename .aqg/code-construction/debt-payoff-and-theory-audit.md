@@ -73,8 +73,8 @@ The system MUST format every simulated timestamp through `shared/time`, so chart
 
 | check | command | result |
 |---|---|---|
-| full | `npx vitest run` | 708 passed / 54 files |
-| coverage | `npx vitest run --coverage` | lines 92.42 / branches 81.90 / functions 94.85 / statements 94.09 |
+| full | `npx vitest run` | 716 passed / 55 files |
+| coverage | `npx vitest run --coverage` | lines 92.83 / branches 82.16 / functions 96.32 / statements 94.58 |
 | types | `npx tsc --noEmit` + `--noUnusedLocals --noUnusedParameters` | 0 |
 | lint | `npx eslint src tests` | 0 |
 | format | `npm run format` | clean |
@@ -118,17 +118,16 @@ The audit below is the "从底层找出问题" deliverable; each finding names t
 |---|---|---|---|
 | T1 | Nitrification rate constant is ~420× the ASM1 value, compensated by a biomass factor | `KINETICS.kNit=14 /h` vs `ASM1_PARAMS.mu_A/24≈0.033 /h`; `bf = xBiomass/DESIGN_MLSS` | calibration debt, not a bug |
 | T2 | Effluent TN can exceed the 15 mg/L limit at default control | measured 15.40 mg/L (seed 7, 30 d) — alarm fires | model calibration, not code |
-| T3 | NO3 production uses a fixed 0.88 factor | `src/sim/networkEngine.ts:727` | magic constant; should be 1.0 with proper N balance |
+| T3 | **Fixed**: NO3 production used a fixed 0.88 factor, so 12 % of nitrified nitrogen vanished | `networkEngine.ts` / `engine.ts` | replaced by `KINETICS.nitrateYieldPerNitrifiedN = 1.0` with kDen retuned 4.6 → 8.0; TN 15.40 → 11.18 mg/L, N removal 65 % → 75 %, `tests/nitrogenBalance.test.ts` locks it |
 | T4 | All tanks report the plant-average MLSS | `src/server/index.ts:212` and `buildPatch` | simplified state; real plants differ per zone |
 | T5 | ASM1 and simple modes expose two different TP definitions behind one field | simple: 0.010; asm1: 2.509 | mode-dependent semantics |
 | T6 | Takács thickening zone collapses to ~4 distinct values | profile `8,13,22,53,254,258,259,260,259,5474` | known limiter; documented in roadmap §18 |
 | T7 | Clarifier solids balance residual 1.5 % (steady state) | measured in/out 7020 vs 6917 kg/h | acceptable, documented |
-| T8 | Unknown units are validated only at the WebSocket boundary | `sanitizeTopologyInput` | covered |
+| T8 | Unknown units are validated only at the WebSocket boundary | `sanitizeTopologyInput` | covered by 12-case test |
 | T9 | `edgeFlows` was exposed on the state but never read | removed | dead state |
 | T10 | `shared/protocol.ts` imported from `server/benchmark` (reverse dependency) | moved `BenchmarkSummary` to protocol | architecture |
 
 ### Not done (explicitly out of scope this round)
 
 - Replacing the simplified kinetics with ASM1 as the default production model (requires the settler rewrite T6; roadmap §15/§16 documents the failed attempt and the prerequisites).
-- Correcting T3 (`0.88 → 1.0`) without retuning `kDen`/nitrification: measured TN at 1.0 is 15.4 mg/L at default control but 11.2 at kDen=8, so the fix must ship with a calibration pass, not as a one-line change.
 - Splitting per-tank MLSS (T4): needs per-reactor particulate state in simple mode.

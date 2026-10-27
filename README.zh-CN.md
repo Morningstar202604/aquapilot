@@ -5,8 +5,8 @@
 > AI 值守的再生水厂仿真台。  
 > 厂是图，图就是模型，AI 值班员来跑。
 
-[![tests](https://img.shields.io/badge/tests-708%20passing-brightgreen)](tests)
-[![coverage](https://img.shields.io/badge/line%20coverage-92.4%25-brightgreen)](vitest.config.ts)
+[![tests](https://img.shields.io/badge/tests-716%20passing-brightgreen)](tests)
+[![coverage](https://img.shields.io/badge/line%20coverage-92.8%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -91,7 +91,7 @@ npm run dev        # 前端 5174，服务端 5173
 ```bash
 npm run typecheck  # TypeScript 严格模式
 npm run lint       # ESLint 9
-npm run test       # 708 项测试
+npm run test       # 716 项测试
 npm run build      # 客户端 + 服务端
 npm run verify     # 上述四项按顺序跑
 npm run ci         # 完整门禁：依赖、类型、测试、构建、冒烟、审计、卫生
@@ -212,7 +212,7 @@ src/
     index.ts        WebSocket 仿真循环、REST、静态托管
   client/           控制室界面（React + ECharts + SVG 工艺图）
   shared/           前后端消息契约、物流/单元元数据、仿真时钟格式
-tests/              708 项测试：物理性质、守恒、AI 护栏、拓扑、双跑、输入校验、崩溃边界
+tests/              716 项测试：物理性质、守恒、AI 护栏、拓扑、双跑、输入校验、崩溃边界
 ```
 
 ### 三层契约
@@ -253,9 +253,9 @@ S_NH 绝对差 0.34 gN/m³，不足氮通量的 1%，与二沉池 TSS 偏低同�
 
 | 指标         |      AI 值守 |     固定策略 |           差值 |
 | ------------ | -----------: | -----------: | -------------: |
-| 出水合规率   |        92.3% |        56.7% | +35.6 个百分点 |
-| 吨水电耗     | 0.150 kWh/m³ | 0.159 kWh/m³ |          −5.6% |
-| 吨水成本     |      ¥0.1420 |      ¥0.1963 |         −27.7% |
+| 出水合规率   |        94.5% |        56.7% | +37.8 个百分点 |
+| 吨水电耗     | 0.151 kWh/m³ | 0.159 kWh/m³ |          −5.0% |
+| 吨水成本     |      ¥0.1434 |      ¥0.1963 |         −27.0% |
 | 平均出水评分 |         57.8 |         46.4 |          +11.3 |
 
 固定策略是可辩护的保守运行点（DO 2.0、内回流 2.0×Q、RAS 0.8×Q、排泥 2.2%、
@@ -277,13 +277,13 @@ PAC 40 mg/L、多点进水 0.3×Q），两条链都从同样的 30 天预热开�
 
 | 项目                                  | 实测                  | 命令                        |
 | ------------------------------------- | --------------------- | --------------------------- |
-| 单步仿真（1 min）                     | 0.003 ms              | `npx tsx scripts/bench.ts`  |
-| 单次 4 h 预测                         | 1.4 ms                | 同上                        |
-| 生产引擎决策（名义）                  | 153 ms                | 同上                        |
-| 生产引擎决策（鲁棒，3 候选 × 3 样本） | 215 ms                | 同上                        |
-| 30 天预热                             | 约 110 ms             | 同上                        |
-| 测试                                  | 381 通过              | `npm test`                  |
-| 覆盖率                                | 92.4% 行 / 81.9% 分支 | `npx vitest run --coverage` |
+| 单步仿真（1 min，生产引擎）            | 0.012 ms              | `npx tsx scripts/bench.ts`  |
+| 单次 4 h 预测                         | 3.2 ms                | 同上                        |
+| 生产引擎决策（名义）                  | 105 ms                | 同上                        |
+| 生产引擎决策（鲁棒，3 候选 × 3 样本） | 135 ms                | 同上                        |
+| 30 天预热                             | 390 ms                | 同上                        |
+| 测试                                  | 716 通过              | `npm test`                  |
+| 覆盖率                                | 92.8% 行 / 82.2% 分支 | `npx vitest run --coverage` |
 
 ## AI 怎么决策
 

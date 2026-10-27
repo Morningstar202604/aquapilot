@@ -58,23 +58,34 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Docs
 
-- READMEs: test count 708, coverage 92.4 % lines / 81.9 % branches, source tree updated
+- READMEs: test count 716, coverage 92.8 % lines / 82.2 % branches, source tree updated
   (forcing/alarmRules added, reference engine removed from the runtime description).
 - `.aqg/code-construction/debt-payoff-and-theory-audit.md` records the theoretical
   audit below.
+
+### Fixed (nitrogen)
+
+- **Nitrification yield was 0.88 instead of 1.0.** Every gram of ammonia oxidised
+  produced only 0.88 g of nitrate, so 12 % of nitrified nitrogen disappeared and the
+  plant's nitrogen balance was systematically optimistic. Both engines now use
+  `KINETICS.nitrateYieldPerNitrifiedN = 1.0`; denitrification was retuned in the same
+  commit (`kDen` 4.6 → 8.0) because the corrected balance otherwise pushes TN over
+  the limit (15.40 mg/L at the old kDen). Measured after the pair: TN 11.18 mg/L,
+  nitrogen removal 65 % → 75 %. `tests/nitrogenBalance.test.ts` (8 cases) locks the
+  stoichiometry, the removal range and the scenario responses.
 
 ### Theoretical audit (measured, not opinion)
 
 | # | Finding | Evidence |
 |---|---|---|
 | T1 | Simplified nitrification runs ~420× the ASM1 rate constant, compensated by a biomass factor | `kNit=14/h` vs `ASM1 mu_A/24≈0.033/h`, `bf=xBiomass/DESIGN_MLSS` |
-| T2 | Default control can exceed the 15 mg/L TN limit | measured 15.40 mg/L at seed 7, 30-day spin-up |
-| T3 | Nitrate production uses a fixed 0.88 factor | `networkEngine.ts` (0.88) — should be 1.0 with a calibration pass (at 1.0: TN 15.4 default, 11.2 at kDen = 8) |
+| T2 | **Fixed together with T3**: default control exceeded the 15 mg/L TN limit | 15.40 → 11.18 mg/L at seed 7 |
+| T3 | **Fixed**: nitrate yield was 0.88, so 12 % of nitrified N vanished | `KINETICS.nitrateYieldPerNitrifiedN = 1.0` + `kDen` 4.6 → 8.0 |
 | T4 | Every tank reports the plant-average MLSS | `server/index.ts` tank mapping |
 | T5 | ASM1 and simple modes expose different TP definitions through one field | simple 0.010 vs asm1 2.509 mg/L |
 | T6 | Takács thickening zone has ~4 distinct values | profile `8,13,22,53,254,258,259,260,259,5474` |
 | T7 | Clarifier solids balance residual 1.5 % | 7020 vs 6917 kg/h steady state |
-| T8 | Nitrate yield is not mass-balanced | same as T3 |
+
 
 ## [Unreleased] — authoring completion and full-debug pass
 

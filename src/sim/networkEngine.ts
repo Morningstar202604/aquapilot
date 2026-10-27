@@ -682,7 +682,10 @@ function solveReactors(ctx: StepContext): {
 
     const nOxidized = Math.max(0, -nhRate) * dtH;
     const dn = Math.max(0, -no3Rate) * dtH;
-    reactor.no3 = Math.max(0.01, (reactor.no3 + dtH * qOverV * no3In + nOxidized * 1.0 - dn) / (1 + dtH * qOverV));
+    reactor.no3 = Math.max(
+      0.01,
+      (reactor.no3 + dtH * qOverV * no3In + nOxidized * KINETICS.nitrateYieldPerNitrifiedN - dn) / (1 + dtH * qOverV),
+    );
     reactor.tp = Math.max(0.005, (reactor.tp + dtH * (qOverV * tpIn + tpRate)) / (1 + dtH * qOverV));
 
     const alkConsumed = nOxidized * KINETICS.alkPerNh - dn * KINETICS.alkPerNo3;

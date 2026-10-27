@@ -22,7 +22,7 @@ export const KINETICS = {
   kCodAnoxic: 0.9,
   kCodAnaerobic: 0.6,
   kNit: 14.0,
-  kDen: 4.6,
+  kDen: 8.0,
   kPRel: 5.0,
   kPUp: 3.0,
   ksCod: 22,
@@ -37,6 +37,16 @@ export const KINETICS = {
   o2PerNh: 4.57,
   alkPerNh: 7.14,
   alkPerNo3: 3.57,
+  /**
+   * 硝化产率：每氧化 1 g NH₄-N 生成多少 g NO₃-N。
+   *
+   * 化学计量上必然是 1.0（NH₄⁺ → NO₃⁻ 只转移电子，氮原子不增不减）。
+   * 旧实现用 0.88：等于每硝化 1 g 氨氮就有 0.12 g 氮凭空消失，
+   * 全厂氮账因此系统性偏低，出水 TN 比真实值少约 12% 的硝化量。
+   * 修正为 1.0 之后必须同步重标反硝化速率（kDen 4.6 → 8.0），
+   * 否则 TN 会被推到限值以上——这是两个必须一起改的系数。
+   */
+  nitrateYieldPerNitrifiedN: 1.0,
   pacPPerMg: 0.06,
   saeKgO2PerKwh: 3.4,
   doSat20: 9.1,

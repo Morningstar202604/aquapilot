@@ -401,7 +401,7 @@ export function step(state: SimState, dtMin = 1): SimState {
 
     const nOxidized = Math.max(0, -nhRate) * dtH;
     const dn = Math.max(0, -no3Rate) * dtH;
-    const no3Produced = nOxidized * 0.88;
+    const no3Produced = nOxidized * KINETICS.nitrateYieldPerNitrifiedN;
     tank.no3 = Math.max(0.01, (tank.no3 + dtH * qOverV * no3In + no3Produced - dn) / (1 + dtH * qOverV));
 
     tank.tp = Math.max(0.005, (tank.tp + dtH * (qOverV * tpIn + tpRate)) / (1 + dtH * qOverV));
