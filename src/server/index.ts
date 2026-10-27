@@ -374,6 +374,7 @@ function buildPatch(client: ClientState): SnapshotPatch | null {
     fmRatio: s.fmRatio,
     // AI 会自动改写控制量：必须随增量下发，否则界面滑块停在用户上次拖的位置
     controls: s.controls,
+    scenario: s.scenario,
     totals: {
       inflowM3: s.totals.inflowM3,
       energyKwh: s.totals.energyKwh,

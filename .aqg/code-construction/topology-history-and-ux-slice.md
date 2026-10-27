@@ -69,7 +69,7 @@ The system MUST create the same connection when the user drags from an outlet po
 | check | command | result |
 |---|---|---|
 | focused | `npx vitest run tests/topologyHistory.test.ts tests/topologyVersionsUi.test.tsx tests/trainProfile.test.ts tests/portDragConnect.test.tsx tests/unitInspector.test.tsx` | 37 passed |
-| full | `npx vitest run` | 758 passed / 62 files |
+| full | `npx vitest run` | 759 passed / 62 files |
 | coverage | `npx vitest run --coverage` | lines 92.75 / branches 82.09 / functions 96.15 |
 | types | `npx tsc --noEmit` (+ noUnused) | 0 |
 | lint / format | `npx eslint src tests` · `npm run format` | 0 · clean |
@@ -103,3 +103,11 @@ pointermove/pointerup + `elementFromPoint` 命中，并把测试改为在容器�
 - 全量快照与增量帧改为同一函数派生，避免两帧口径分叉。
 
 测试：`tests/tankStates.test.ts` 4 项 + 检视器 2 项（标注/不标注）。
+
+## 追加：场景状态缺失（同一个"只在全量帧里"的类缺陷）
+
+复现：注入毒性场景后界面显示「进行中」；服务端 `scenario=null` 后界面仍显示进行中。
+根因：`scenario` 只存在于全量快照，增量补丁没带、`snapshotMerge` 也没合并。
+修法：`SnapshotPatch` 增加 `scenario`（含 null 表示已清除），服务端每帧下发，
+`snapshotMerge` 直接覆盖。浏览器实测：窗口结束后 `uiActive` 由 1 变 0。
+测试：`tests/snapshotMerge.test.ts` 增加「合并场景状态」。

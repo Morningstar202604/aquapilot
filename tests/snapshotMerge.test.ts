@@ -40,6 +40,7 @@ const basePatch = (over: Partial<SnapshotPatch> = {}): SnapshotPatch => {
     srtDays: snap.srtDays,
     fmRatio: 0.071,
     controls: { ...DEFAULT_CONTROLS, doSetpoint: 1.4 },
+    scenario: snap.scenario,
     totals: { ...snap.totals, inflowM3: 9999 },
     score: snap.score,
     margins: snap.margins,
@@ -63,6 +64,14 @@ describe('mergeSnapshot', () => {
   it('合并累计量（累计水量/电耗/成本不能停在连接时）', () => {
     const next = mergeSnapshot(makeSnapshot(), basePatch());
     expect(next.totals.inflowM3).toBe(9999);
+  });
+
+  it('合并场景状态（否则场景结束后界面仍显示进行中）', () => {
+    const active = { type: 'storm', durationMin: 360, magnitude: 1, startedAt: 100 } as never;
+    const withScenario = mergeSnapshot(makeSnapshot(), basePatch({ scenario: active }));
+    expect(withScenario.scenario?.type).toBe('storm');
+    const cleared = mergeSnapshot(withScenario, basePatch({ scenario: null }));
+    expect(cleared.scenario).toBeNull();
   });
 
   it('合并 F/M', () => {

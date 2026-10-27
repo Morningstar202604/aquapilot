@@ -253,6 +253,14 @@ export interface SnapshotPatch {
    * 不合并它，界面滑块会一直停在用户上次拖到的位置（真实缺陷）。
    */
   controls: ControlSettings;
+  /**
+   * 当前场景（含开始时刻与时长）。
+   *
+   * 必须随增量下发：场景是"窗口内有效"的状态，只在全量快照里带的话，
+   * 场景结束时客户端仍会显示「进行中 · 剩 N 分钟」，永远不会自行消失。
+   * 同理，新注入的场景也要靠它出现在侧栏摘要里。
+   */
+  scenario: ScenarioSpec | null;
   /** 累计量：累计处理水量 / 电耗 / 污泥，「累计与推算」区块依赖它 */
   totals: PlantSnapshot['totals'];
   score: number;

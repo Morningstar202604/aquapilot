@@ -26,6 +26,7 @@ export function mergeSnapshot(prev: PlantSnapshot, patch: SnapshotPatch): PlantS
     srtDays: patch.srtDays,
     fmRatio: patch.fmRatio,
     controls: patch.controls,
+    scenario: patch.scenario,
     totals: patch.totals,
     score: patch.score,
     margins: patch.margins,

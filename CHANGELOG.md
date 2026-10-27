@@ -31,6 +31,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Fixed
 
+- **An injected scenario never disappeared from the UI.** `scenario` was only present in
+  full snapshots, so after the window ended (and after `清除场景`) the control panel kept
+  showing 「进行中 · 剩 N 分钟」 forever. The incremental patch now carries `scenario` and
+  `snapshotMerge` applies it; verified in the browser: server `scenario=null` after the
+  window → UI summary count returns to 0.
 - **Per-tank MLSS was a disguised plant average.** The snapshot repeated one global
   `biomassKg / bioVolume` value on every reactor, so five tanks all read 2475 mg/L and
   looked like per-zone measurements. `server/tankStates.ts` now emits
