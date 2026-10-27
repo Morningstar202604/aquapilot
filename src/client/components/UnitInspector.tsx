@@ -25,9 +25,15 @@ interface Props {
  */
 export function UnitInspector({ snap, topo, unit, onClose, onSelect, onChangeControls, onEditTopology }: Props) {
   const tank = snap.tanks.find((t) => t.id === unit.id);
+  /**
+   * 只列该单元声明、且真的能在控制通道里写的量。
+   *
+   * `aerationOn` / `pumpSpeed` 曾出现在干预清单里，但 CONTROL_BOUNDS 与
+   * ControlSettings 都没有这两个键：检视器把它们过滤掉，等于声明了一个
+   * 点了没反应的假控件。这里同时收紧类型与清单，二者不再有幽灵项。
+   */
   const tickets = (unit.interventions ?? []).filter(
-    (k): k is keyof Omit<ControlSettings, 'aiEnabled'> =>
-      k in CONTROL_BOUNDS && k !== 'aerationOn' && k !== 'pumpSpeed',
+    (k): k is keyof Omit<ControlSettings, 'aiEnabled'> => k in CONTROL_BOUNDS,
   );
   const incoming = topo.connections.filter((c) => c.to.unit === unit.id);
   const outgoing = topo.connections.filter((c) => c.from.unit === unit.id);

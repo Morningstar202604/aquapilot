@@ -4,7 +4,7 @@ path: plan
 created_at: 2026-10-27T03:50:00Z
 session_agent: zcode
 skipped_checks: []
-objections_diff_coverage_exception: null
+objections_diff_coverage_exception: "末轮改动（幽灵干预键清理 + 干预清单测试）由 objection 7 覆盖；objection 1-6 针对此前各切片"
 behavior_contract_exception: null
 ---
 
@@ -69,11 +69,13 @@ The system MUST format every simulated timestamp through `shared/time`, so chart
 5. **Objection**: 删除 `legacyModel` 后仍有测试引用 (`src/sim/plantModel.ts:119`) — **Mitigation**: `rg legacyModel src tests scripts` 只剩一处注释；相关测试已改跑 `networkModel`，全量 708 项通过。
 6. **Objection**: `PLANT.tanks` 删除后参考引擎几何来自拓扑，两引擎几何可能不再独立 (`src/sim/config.ts:28`) — **Mitigation**: 参考引擎仅用于 cross-engine 对照，共享几何正是本轮要消除的重复；对照测试改为比较响应方向而非绝对值（既有设计）。
 
+7. **Objection**: 删除 `aerationOn` / `pumpSpeed` 后编辑器的单元库少了两个"能力" (`src/model/topology.ts:90`) — **Mitigation**: 这两个键从来不在 `ControlSettings`/`CONTROL_BOUNDS` 里、检视器只能按名过滤，保留只会让界面宣布不可写的控件；`tests/interventions.test.ts` 断言每个声明都可写，四个调色板分组不受影响。
+
 ## Verification (2026-10-27)
 
 | check | command | result |
 |---|---|---|
-| full | `npx vitest run` | 716 passed / 55 files |
+| full | `npx vitest run` | 720 passed / 56 files |
 | coverage | `npx vitest run --coverage` | lines 92.83 / branches 82.16 / functions 96.32 / statements 94.58 |
 | types | `npx tsc --noEmit` + `--noUnusedLocals --noUnusedParameters` | 0 |
 | lint | `npx eslint src tests` | 0 |

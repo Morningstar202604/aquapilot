@@ -199,9 +199,7 @@ const INTERVENTION_BY_KIND: Partial<Record<UnitKind, UnitSpec['interventions']>>
   aerobic: ['doSetpoint', 'pacDose', 'alkDose'],
   clarifier: ['rasRatio', 'wasRatio'],
   storage: ['stormStore'],
-  blower: ['aerationOn'],
   chemical: ['pacDose', 'carbonDose', 'alkDose'],
-  screening: ['pumpSpeed'],
 };
 
 const STATE_BY_KIND: Partial<Record<UnitKind, string[]>> = {

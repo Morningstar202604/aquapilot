@@ -96,9 +96,7 @@ export type InterventionKey =
   | 'carbonDose'
   | 'alkDose'
   | 'stormStore'
-  | 'stepFeed'
-  | 'aerationOn'
-  | 'pumpSpeed';
+  | 'stepFeed';
 
 export interface Connection {
   id: string;
@@ -159,7 +157,6 @@ export const PLANT_TOPOLOGY: ProcessTopology = {
       role: '拦截 · 提升',
       ports: [P('in', 'in', 'influent'), P('out', 'out', 'influent')],
       states: ['ss'],
-      interventions: ['pumpSpeed'],
       meta: { 栅距: '20 mm', 提升泵: '3 用 1 备' },
     },
     {
@@ -271,7 +268,6 @@ export const PLANT_TOPOLOGY: ProcessTopology = {
       role: '供氧',
       ports: [P('air', 'out', 'air')],
       states: ['airflow'],
-      interventions: ['aerationOn'],
       meta: { 机组: '离心风机 ×3（2 用 1 备）', 单机风量: '6 000 m³/h' },
     },
     {

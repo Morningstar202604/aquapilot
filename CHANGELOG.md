@@ -30,6 +30,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Removed
 
+- **Phantom intervention keys.** `aerationOn` and `pumpSpeed` were listed as unit
+  interventions and shown in the editor palette, but neither exists in
+  `ControlSettings` / `CONTROL_BOUNDS`; the inspector had to filter them by name at
+  render time, i.e. the UI advertised controls that could not be written. Both keys
+  are gone and `tests/interventions.test.ts` asserts every declared intervention is
+  actually writable.
 - `legacyModel` adapter, `unitsByKind`, `neighboringUnits`, `createShadowBenchmark`,
   `looksLikeCommand`, `commandNeedsOpenPermission`, `AGENT_CAPABILITIES`,
   `summarizeForLog`, `permissionLabel`, `capabilitiesFor`, `unitIcons.ts`,
@@ -58,7 +64,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Docs
 
-- READMEs: test count 716, coverage 92.8 % lines / 82.2 % branches, source tree updated
+- READMEs: test count 720, coverage 92.8 % lines / 82.2 % branches, source tree updated
   (forcing/alarmRules added, reference engine removed from the runtime description).
 - `.aqg/code-construction/debt-payoff-and-theory-audit.md` records the theoretical
   audit below.
