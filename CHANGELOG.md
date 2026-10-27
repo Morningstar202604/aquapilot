@@ -64,7 +64,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Docs
 
-- READMEs: test count 720, coverage 92.8 % lines / 82.2 % branches, source tree updated
+- READMEs: test count 724, coverage 92.8 % lines / 82.2 % branches, source tree updated
   (forcing/alarmRules added, reference engine removed from the runtime description).
 - `.aqg/code-construction/debt-payoff-and-theory-audit.md` records the theoretical
   audit below.
