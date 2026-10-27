@@ -69,6 +69,15 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - `.aqg/code-construction/debt-payoff-and-theory-audit.md` records the theoretical
   audit below.
 
+### Fixed (controls that did nothing)
+
+- **`carbonDose` was a fake control.** It was only added to the chemical-cost ledger;
+  0 and 60 mg/L produced bit-identical effluent (measured, four doses). External carbon
+  is now injected as readily biodegradable COD into the anoxic reactor (the
+  denitrification zone), which is where a real plant doses it: TN 11.44 → 9.37 mg/L
+  and anoxic NO₃ 1.28 → 0.38 at 60 mg/L. `tests/carbonDose.test.ts` (4 cases) locks
+  the monotonic response, the zone scope and that dosing is still billed.
+
 ### Fixed (nitrogen)
 
 - **Nitrification yield was 0.88 instead of 1.0.** Every gram of ammonia oxidised
@@ -91,6 +100,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 | T5 | ASM1 and simple modes expose different TP definitions through one field | simple 0.010 vs asm1 2.509 mg/L |
 | T6 | Takács thickening zone has ~4 distinct values | profile `8,13,22,53,254,258,259,260,259,5474` |
 | T7 | Clarifier solids balance residual 1.5 % | 7020 vs 6917 kg/h steady state |
+| T8 | **Fixed**: `carbonDose` changed cost only | now enters the anoxic zone; TN 11.44 → 9.37 at 60 mg/L |
 
 
 ## [Unreleased] — authoring completion and full-debug pass

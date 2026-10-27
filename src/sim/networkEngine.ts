@@ -609,6 +609,7 @@ function solveReactors(ctx: StepContext): {
        *
        * 只要 asmIn 正确包含了回流携带的颗粒物，生物量就不会被冲走。
        */
+      const externalCarbon = reactor.kind === 'anoxic' ? state.controls.carbonDose : 0;
       for (const comp of ASM1_COMPONENTS) {
         if (comp === 'S_ALK') continue;
         nextAsm1[comp] = Math.max(
@@ -616,6 +617,8 @@ function solveReactors(ctx: StepContext): {
           reactor.asm1[comp] + dtH * (qOverV * (asmIn[comp] - reactor.asm1[comp]) + r[comp]),
         );
       }
+      // 外加碳源以易降解 COD（S_S）进入缺氧区；ASM1 的异养菌直接消耗它做反硝化
+      if (externalCarbon > 0) nextAsm1.S_S = Math.max(0, nextAsm1.S_S + dtH * qOverV * externalCarbon);
       nextAsm1.S_ALK = Math.max(0, reactor.asm1.S_ALK + dtH * qOverV * (asmIn.S_ALK - reactor.asm1.S_ALK));
 
       // 溶解氧：好氧池维持在设定值（供氧能力已由 aerationCapacity 表达）
@@ -677,7 +680,18 @@ function solveReactors(ctx: StepContext): {
       o2Rate = hetero * KINETICS.o2PerCod + -nhRate * KINETICS.o2PerNh;
     }
 
-    reactor.cod = Math.max(2, (reactor.cod + dtH * (qOverV * codIn + codRate)) / (1 + dtH * qOverV));
+    /**
+     * 外加碳源只进缺氧区，且按 Q/V 稀释。
+     *
+     * 旧实现只在成本里记一笔 carbonKg，工艺上完全无效：投 0 与投 60 mg/L
+     * 的出水 COD/TN 逐位相同。检视器与决策面板却都把它当"可调参数"，
+     * 属于假控件。这里按「外加碳源 → 易降解 COD」进入反硝化段。
+     *
+     * 不进厌氧区：碳源加在厌氧区会被聚磷菌优先吸收，反而削弱释磷与后续
+     * 反硝化的碳源供给；工艺上也只把碳源加在缺氧段。
+     */
+    const externalCarbon = reactor.kind === 'anoxic' ? state.controls.carbonDose : 0;
+    reactor.cod = Math.max(2, (reactor.cod + dtH * (qOverV * (codIn + externalCarbon) + codRate)) / (1 + dtH * qOverV));
     reactor.nh = Math.max(0.01, (reactor.nh + dtH * (qOverV * nhIn + nhRate)) / (1 + dtH * qOverV));
 
     const nOxidized = Math.max(0, -nhRate) * dtH;

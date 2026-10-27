@@ -75,7 +75,7 @@ The system MUST format every simulated timestamp through `shared/time`, so chart
 
 | check | command | result |
 |---|---|---|
-| full | `npx vitest run` | 720 passed / 56 files |
+| full | `npx vitest run` | 724 passed / 57 files |
 | coverage | `npx vitest run --coverage` | lines 92.83 / branches 82.16 / functions 96.32 / statements 94.58 |
 | types | `npx tsc --noEmit` + `--noUnusedLocals --noUnusedParameters` | 0 |
 | lint | `npx eslint src tests` | 0 |
@@ -125,9 +125,10 @@ The audit below is the "从底层找出问题" deliverable; each finding names t
 | T5 | ASM1 and simple modes expose two different TP definitions behind one field | simple: 0.010; asm1: 2.509 | mode-dependent semantics |
 | T6 | Takács thickening zone collapses to ~4 distinct values | profile `8,13,22,53,254,258,259,260,259,5474` | known limiter; documented in roadmap §18 |
 | T7 | Clarifier solids balance residual 1.5 % (steady state) | measured in/out 7020 vs 6917 kg/h | acceptable, documented |
-| T8 | Unknown units are validated only at the WebSocket boundary | `sanitizeTopologyInput` | covered by 12-case test |
-| T9 | `edgeFlows` was exposed on the state but never read | removed | dead state |
-| T10 | `shared/protocol.ts` imported from `server/benchmark` (reverse dependency) | moved `BenchmarkSummary` to protocol | architecture |
+| T8 | **Fixed**: `carbonDose` only added cost — 0 vs 60 mg/L produced bit-identical effluent | now injected as readily biodegradable COD into the anoxic zone: TN 11.44 → 9.37 mg/L at 60 mg/L, anoxic NO3 1.28 → 0.38; `tests/carbonDose.test.ts` (4 cases) | was a fake control |
+| T9 | Unknown units are validated only at the WebSocket boundary | `sanitizeTopologyInput` | covered by 12-case test |
+| T10 | `edgeFlows` was exposed on the state but never read | removed | dead state |
+| T11 | `shared/protocol.ts` imported from `server/benchmark` (reverse dependency) | moved `BenchmarkSummary` to protocol | architecture |
 
 ### Not done (explicitly out of scope this round)
 
