@@ -1,5 +1,5 @@
 import { chromium } from 'playwright-core';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 
 /**
@@ -18,9 +18,25 @@ function fail(msg: string): never {
 }
 
 await mkdir(OUT, { recursive: true });
+await rm('out/e2e-data', { recursive: true, force: true });
 
 const server = spawn(process.execPath, ['dist/server/index.mjs'], {
-  env: { ...process.env, PORT: String(PORT), AQUAPILOT_PERSIST: '0' },
+  /**
+   * 完全隔离运行时数据。
+   *
+   * 只关持久化（AQUAPILOT_PERSIST=0）不够：拓扑文档与版本历史是独立文件，
+   * 冒烟测试里点一次「应用到仿真」就会写进开发者真实的 data/ 目录，
+   * 实测把它撑到 66 KB 且混入测试厂。这里全部指向临时目录。
+   */
+  env: {
+    ...process.env,
+    PORT: String(PORT),
+    AQUAPILOT_PERSIST: '0',
+    AQUAPILOT_TOPOLOGY: 'out/e2e-data/topology.json',
+    AQUAPILOT_TOPOLOGY_HISTORY: 'out/e2e-data/topology-history.json',
+    AQUAPILOT_LLM_CONFIG: 'out/e2e-data/llm-config.json',
+    AQUAPILOT_AGENT_CONFIG: 'out/e2e-data/agent-config.json',
+  },
   stdio: 'ignore',
 });
 
@@ -79,6 +95,36 @@ try {
   await page.screenshot({ path: `${OUT}/ci-replay.png` });
 
   /**
+   * 本轮新增能力的冒烟（此前只有单测与手工浏览器验收）：
+   * - 沿程剖面：主序列单元必须画出 5 行且当前行高亮
+   * - 拓扑版本页：能打开、能列出当前 revision
+   * - 拖拽连线的端口层必须有 data-unit（否则命中测试无从定位，
+   *   这正是真实浏览器里拖拽失效的根因）
+   */
+  await page.locator('.side-tab', { hasText: 'AI 对话' }).click();
+  await page.waitForTimeout(400);
+  await page.locator('[data-unit-node="aerobic1"]').click();
+  await page.waitForTimeout(600);
+  const trainRows = await page.locator('.train-row:not(.train-head)').count();
+  if (trainRows !== 5) fail(`train profile should render 5 rows, got ${trainRows}`);
+  const currentRows = await page.locator('.train-row[data-current="true"]').count();
+  if (currentRows !== 1) fail(`train profile should highlight exactly one row, got ${currentRows}`);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+
+  await page.getByRole('button', { name: '工艺编排' }).click();
+  await page.waitForTimeout(1000);
+  const portLayers = await page.locator('.port-layer[data-unit]').count();
+  if (portLayers < 10) fail(`port layers should expose data-unit, got ${portLayers}`);
+  await page.getByRole('button', { name: '版本' }).click();
+  await page.waitForTimeout(600);
+  const versionRows = await page.locator('[data-version]').count();
+  if (versionRows < 1) fail(`version history should list at least the boot baseline, got ${versionRows}`);
+  await page.screenshot({ path: `${OUT}/ci-editor.png` });
+  await page.getByRole('button', { name: '运行监视' }).click();
+  await page.waitForTimeout(600);
+
+  /**
    * 布局回归：这些问题靠单测抓不到，只能量真实几何。
    * - 连线穿过池体（早期内回流横穿好氧池）
    * - 顶栏数值被挤成竖排（1440/1366 下出现过多行）
@@ -120,7 +166,9 @@ try {
   if (errors.length > 0) fail(`console errors: ${errors.slice(0, 3).join(' | ')}`);
 
   await browser.close();
-  console.log('E2E PASS: 7 KPIs, health pill, 5 health parts, 17 nodes, 3 charts, 6 panels, 0 console errors');
+  console.log(
+    'E2E PASS: 7 KPIs, health pill, 5 health parts, 17 nodes, 3 charts, 6 panels, train profile, port layers, version history, 0 console errors',
+  );
 } finally {
   server.kill();
 }

@@ -4,7 +4,13 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — topology history, along-train profile, drag-to-connect
+## [0.4.0] — 2026-10-27
+
+Six unbounded `[Unreleased]` blocks accumulated between v0.3.0 and this release; they are
+merged here unchanged (newest first) so "what shipped in which version" is answerable again.
+Minor version, not patch: the release adds user-facing capabilities (flowsheet authoring,
+version history, drag-to-connect, along-train profile, custom model onboarding, Agent
+settings) alongside the correctness fixes.
 
 ### Added
 
@@ -29,145 +35,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   rejection and the `recycle` flag cannot drift apart. The ports now expose
   `data-unit` / `data-port` (also used by assistive tech and end-to-end tests).
 
-### Fixed
-
-- **What-if forecasts simulated the wrong severity.** The forecast clone hard-coded
-  `magnitude: 1`, but the field's meaning differs per scenario: `blower_failure` uses
-  it as *remaining* aeration capacity (1 = no fault) and `winter` as the target water
-  temperature in °C. Consequences measured before the fix: "what if the blower fails"
-  returned the baseline NH₄ bit-for-bit (0.67 vs 0.67) while the real fault drives it
-  to 8.04 mg/L; winter forecast produced 8 °C instead of 12 °C. The clone now reads
-  `SCENARIOS[type].defaultMagnitude`, and the scenario window is stretched to cover the
-  whole forecast horizon (power outage defaults to 45 min against a 240 min forecast, so
-  the last sample used to be back to normal operation).
-- **`aerationCapacityOf` could amplify aeration instead of derating it.** The protocol
-  allows `magnitude` 0–30 (reserved for storm/shock multipliers); feeding that into the
-  blower formula produced a capacity of up to 30× (3000 % oxygen). Non-finite input
-  produced `NaN` for the whole aeration factor. The value is now clamped to 0–1 and a
-  non-finite magnitude falls back to the 0.5 default.
-- **An injected scenario never disappeared from the UI.** `scenario` was only present in
-  full snapshots, so after the window ended (and after `清除场景`) the control panel kept
-  showing 「进行中 · 剩 N 分钟」 forever. The incremental patch now carries `scenario` and
-  `snapshotMerge` applies it; verified in the browser: server `scenario=null` after the
-  window → UI summary count returns to 0.
-- **Per-tank MLSS was a disguised plant average.** The snapshot repeated one global
-  `biomassKg / bioVolume` value on every reactor, so five tanks all read 2475 mg/L and
-  looked like per-zone measurements. `server/tankStates.ts` now emits
-  `mlssSource: 'plant-average' | 'reactor'`: in the simplified model the value is the
-  plant average and the inspector labels it 「全厂均值」; in ASM1 mode each reactor's
-  own particulate components (X_I+X_S+X_B_H+X_B_A+X_P)/1.42 are used, giving genuinely
-  different concentrations per zone (2339/1943/1931/1924/1918 in the standard plant).
-  Full snapshot and patch frames now derive tanks from the same function.
-- **Port dots had no unit binding in the DOM.** End-to-end tests could only guess a
-  dot's owner by render order and screen readers could not say which device a port
-  belonged to; the port layer now carries `data-unit`, each dot `data-port`.
-- **Slow closed-loop test exceeded the 20 s timeout under coverage instrumentation.**
-  The test measures whether DO stays controlled over 48 cycles, not the ensemble; it now
-  runs with `robust: false` (the ensemble adds three trajectories per candidate).
-
-## [Unreleased] — debt payoff and theoretical audit
-
-### Changed
-
-- **One forcing module.** Diurnal flow, seasonal temperature, scenario envelope, toxic
-  suppression, aeration capacity and recycle derating had up to five copies across the
-  two engines. They now live in `src/sim/forcing.ts` and both the engine and the
-  forecast clone call the same functions.
-- **One alarm rule table.** `sim/networkEngine.raiseLimitAlarms`, the server's
-  `currentAlarms` and the reference engine each had their own thresholds, severities
-  and messages. All three now consume `src/sim/alarmRules.ts`; the metric strings and
-  limits are identical everywhere.
-- **One presentation table.** Stream colours/widths/dash/labels and unit icons/labels
-  were duplicated in `PlantCanvas`, `ProcessEditor` and `UnitInspector`. They now come
-  from `src/shared/streamMeta.ts`; a test fails if a component embeds a colour literal.
-- **One clock formatter.** `D2 03:40` was hand-assembled in eight places (charts,
-  replay, alarms, exports, report, top bar). All of them call `src/shared/time.ts`.
-- **One tariff table.** The shadow benchmark hard-coded 0.68 ¥/kWh and 2.2 ¥/kg PAC;
-  it now reads `TARIFF` from `kinetics.ts`, so a price change cannot silently skew the
-  AI-vs-fixed comparison.
-- **One plant geometry.** `PLANT.tanks` / `BIO_VOLUME` duplicated the topology's tank
-  list for the reference engine; the reference geometry is now derived from
-  `PLANT_TOPOLOGY`.
-
-### Removed
-
-- **Phantom intervention keys.** `aerationOn` and `pumpSpeed` were listed as unit
-  interventions and shown in the editor palette, but neither exists in
-  `ControlSettings` / `CONTROL_BOUNDS`; the inspector had to filter them by name at
-  render time, i.e. the UI advertised controls that could not be written. Both keys
-  are gone and `tests/interventions.test.ts` asserts every declared intervention is
-  actually writable.
-- `legacyModel` adapter, `unitsByKind`, `neighboringUnits`, `createShadowBenchmark`,
-  `looksLikeCommand`, `commandNeedsOpenPermission`, `AGENT_CAPABILITIES`,
-  `summarizeForLog`, `permissionLabel`, `capabilitiesFor`, `unitIcons.ts`,
-  `state.edgeFlows`, `CompiledReactor.inlets` / `receives*`, `PLANT.tanks`,
-  `BIO_VOLUME`, `AEROBIC_VOLUME`, `TankConfig`, `TankKind` — 855 deleted lines in total.
-- The `plantModel ↔ networkEngine` import cycle (the leg adapter was the back-edge) and
-  the `shared/protocol → server/benchmark` reverse dependency.
-
-### Fixed
-
-- **Per-tick derived work was recomputed 2–3×.** `buildPatch`/`buildSnapshot` called
-  `currentAlarms` twice, `estimateMargin` three times and rebuilt health/attribution
-  for every client. Each is now computed once per frame.
-- **Prediction clones deep-copied the compiled network.** `structuredClone` cost
-  0.146 ms per forecast; a shallow clone of the mutable fields costs 0.0006 ms and
-  shares the read-only compiled result. Single step 0.0175 → 0.0118 ms, nominal
-  decision 142.5 → 104.7 ms, robust decision 199.4 → 134.9 ms, 30-day warm-up
-  495 → 390 ms.
-- **Hot loop filtered and sorted the edge list every step.** `CompiledNetwork` now
-  carries `incomingByReactor` / `outgoingByReactor` / `order`, built once at compile
-  time.
-- **Production gates ran on the retired engine.** `engine.test.ts`, `agent.test.ts`,
-  `coverage-extra` and `network.test` asserted the fixed five-tank reference engine —
-  a path the server no longer executes. They now run `networkEngine`, so the gates
-  cover what ships.
-
-### Docs
-
-- READMEs: test count 758, coverage 92.8 % lines / 82.1 % branches, source tree updated
-  (forcing/alarmRules added, reference engine removed from the runtime description).
-- `.aqg/code-construction/debt-payoff-and-theory-audit.md` records the theoretical
-  audit below.
-
-### Fixed (controls that did nothing)
-
-- **`carbonDose` was a fake control.** It was only added to the chemical-cost ledger;
-  0 and 60 mg/L produced bit-identical effluent (measured, four doses). External carbon
-  is now injected as readily biodegradable COD into the anoxic reactor (the
-  denitrification zone), which is where a real plant doses it: TN 11.44 → 9.37 mg/L
-  and anoxic NO₃ 1.28 → 0.38 at 60 mg/L. `tests/carbonDose.test.ts` (4 cases) locks
-  the monotonic response, the zone scope and that dosing is still billed.
-
-### Fixed (nitrogen)
-
-- **Nitrification yield was 0.88 instead of 1.0.** Every gram of ammonia oxidised
-  produced only 0.88 g of nitrate, so 12 % of nitrified nitrogen disappeared and the
-  plant's nitrogen balance was systematically optimistic. Both engines now use
-  `KINETICS.nitrateYieldPerNitrifiedN = 1.0`; denitrification was retuned in the same
-  commit (`kDen` 4.6 → 8.0) because the corrected balance otherwise pushes TN over
-  the limit (15.40 mg/L at the old kDen). Measured after the pair: TN 11.18 mg/L,
-  nitrogen removal 65 % → 75 %. `tests/nitrogenBalance.test.ts` (8 cases) locks the
-  stoichiometry, the removal range and the scenario responses.
-
-### Theoretical audit (measured, not opinion)
-
-| # | Finding | Evidence |
-|---|---|---|
-| T1 | Simplified nitrification runs ~420× the ASM1 rate constant, compensated by a biomass factor | `kNit=14/h` vs `ASM1 mu_A/24≈0.033/h`, `bf=xBiomass/DESIGN_MLSS` |
-| T2 | **Fixed together with T3**: default control exceeded the 15 mg/L TN limit | 15.40 → 11.18 mg/L at seed 7 |
-| T3 | **Fixed**: nitrate yield was 0.88, so 12 % of nitrified N vanished | `KINETICS.nitrateYieldPerNitrifiedN = 1.0` + `kDen` 4.6 → 8.0 |
-| T4 | Every tank reports the plant-average MLSS | `server/index.ts` tank mapping |
-| T5 | ASM1 and simple modes expose different TP definitions through one field | simple 0.010 vs asm1 2.509 mg/L |
-| T6 | Takács thickening zone has ~4 distinct values | profile `8,13,22,53,254,258,259,260,259,5474` |
-| T7 | Clarifier solids balance residual 1.5 % | 7020 vs 6917 kg/h steady state |
-| T8 | **Fixed**: `carbonDose` changed cost only | now enters the anoxic zone; TN 11.44 → 9.37 at 60 mg/L |
-
-
-## [Unreleased] — authoring completion and full-debug pass
-
-### Added
-
 - **Batch delete in the flowsheet editor.** Delete/Backspace and a toolbar
   「删除选中」 button now remove every selected unit together with all connections,
   train entries, stored positions and waypoints — in one undoable step. The earlier
@@ -189,38 +56,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   or non-runnable file falls back to the standard plant with a logged reason instead
   of silently losing the layout.
 
-### Fixed
-
-- **Drag delta accumulated per frame.** Node dragging used the just-laid-out
-  coordinates on every pointermove, so a two-grid drag moved three grids. The
-  gesture now snapshots its origins and moves by `origin + total delta`.
-- **Manual positions ignored utility and sludge units.** `applyManualPositions` ran
-  before the blower/chemical/thickener nodes were placed, so dragging them had no
-  effect. Positions are now applied in two passes.
-- **Arrow keys teleported auto-laid-out units to the top-left.** Nudging used
-  `positions[id] ?? {0,0}`; it now starts from the rendered position (`nudgeUnit`).
-- **Incremental patches dropped controls, totals, F/M and alarms.** The client kept
-  the values from the last full snapshot, so AI-executed setpoints, the cumulative
-  water/energy/cost block and the alarm history stayed frozen. Merging moved into
-  `snapshotMerge` (unit-tested) and the patch now carries those fields.
-- **Trends froze after a reset or topology change.** Each client's incremental
-  cursor stayed at the old simulation time while the buffer restarted at t=0. Full
-  snapshots now re-sync the cursor to the buffer tail.
-- **SMIL animation regression.** The flowing-dash overlay was still an SVG
-  `<animate>` element, the mechanism previously measured at 92 % main-thread time;
-  it now uses the `flow-pulse` CSS animation (0 `<animate>` elements in the DOM).
-- **Topology apply trusted arbitrary JSON.** `topology.apply` frames were cast to
-  `ProcessTopology` after a single `Array.isArray` check. `sanitizeTopologyInput`
-  now validates units, ports, connections, train, positions and routes, caps counts
-  and coordinate ranges, and rejects malformed frames before the engine sees them.
-- **AI decision cadence drifted with playback speed.** Decisions fired on
-  `tick % 30`, i.e. every 60 simulated minutes at 1× and every 240 at 4×, despite
-  the UI promising a 15-minute cycle. Cadence is now based on simulated time
-  (`aiCadence.ts`).
-
-## [Unreleased] — flowsheet authoring, collapsible panels
-
-### Added — the flowsheet is now actually edible, like a process simulator
+#### the flowsheet is now actually edible, like a process simulator
 
 - **Drag-and-drop authoring.** Palette items can be dragged onto the canvas (or
   clicked to add); the drop point snaps to a 14 px grid. Units already on the
@@ -246,7 +82,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   decision panel's candidate comparison) now collapse to one summary row that keeps
   the current DO / recirculation / PAC / active-scenario reading visible.
 
-### Added — selection, alignment and unit-level polish
+#### selection, alignment and unit-level polish
 
 - **Multi-select with marquee.** Drag on empty canvas to box-select; Shift/Ctrl+click
   to add or remove. Selected units move together (one undo step), and the toolbar
@@ -270,27 +106,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   top-bar 设置 dropdown that also shows the current model / persona / permission
   inline, and both configs are fetched on connect so the menu is never stale.
 
-### Fixed
-
-- **自检面板的告警项没有样式。** 数据里的严重度是 `warn`，而 `.issue` 的
-  CSS 选择器写的是 `[data-sev='warning']`，两者对不上，警示项渲染成了默认的
-  灰边——看起来像"正常项"，实际是模型降级/钩子失败。现在面板做 severity 映射
-  （`warn → warning`），并由 `tests/watchdogPanel.test.tsx` 锁定。
-- **画布缺渲染层测试。** 端口数量/配色、多选标记、单元图标、端口点击回调都没有
-  断言，只有浏览器手工验证。新增 `tests/plantCanvas.test.tsx`（8 项）补上，
-  并在测试里补了 jsdom 缺失的 `ResizeObserver` 桩。
-
-### Changed
-
-- **Overview canvas is denser and readable.** Node sizes, gaps and lane spacing
-  were tightened (the corridor heights were retuned so no pipe crosses a unit —
-  caught by the existing no-crossing test) and the auto-layout width dropped, taking
-  the overview from 44 % to ~51 % at the same viewport. The authoring view now opens
-  at 1:1 with scrolling instead of being squeezed to fit.
-
-## [Unreleased] — Agent settings, hooks, watchdog
-
-### Added — the AI operator is now configurable from UI, chat, CLI and file
+#### the AI operator is now configurable from UI, chat, CLI and file
 
 - **Agent 设置 dialog (top bar, six tabs).** Persona (name/role/tone + answer length),
   prompt blocks (enable/edit/add/delete), skill library (4 built-ins + custom + URL
@@ -328,27 +144,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   connections) and broadcasts a report only when the verdict changes. Each finding
   carries an actionable next step.
 
-### Fixed
-
-- **Reasoning models produced no "model supplement".** u2-flash spends small token
-  budgets entirely on `reasoning_content` (empty `content`, `finish_reason:
-length`, 17–39 s). The chat path now uses a reasoning-aware budget/timeout,
-  retries once with a larger budget, and exposes a new 推理强度 control
-  (自动 / 压低思考 / 关闭思考) that maps to `enable_thinking` / `reasoning_effort` /
-  `thinking` for OpenAI-compatible endpoints.
-- **Grounded-number check rejected legitimate answers.** It only accepted numbers
-  that appeared literally in the grounding text, so "去除率约 89.6%" (derived from
-  337 and 35) was thrown away. The check now accepts exact derivations (difference,
-  ratio, percentage change, and ratio × 100 when a ≤ b) while still rejecting
-  fabricated magnitudes; a divide-by-zero path that let arbitrary numbers match
-  through `Infinity` was also closed.
-- **Insights showed "100 % saving" on a freshly reset plant.** Zero accumulated
-  volume produced a 0 kWh/m³ reading; the panel now shows 数据不足 until it has a
-  real sample and hides the percentage delta.
-
-## [Unreleased] — model onboarding
-
-### Added — custom model onboarding in the UI
+#### custom model onboarding in the UI
 
 - **模型设置 dialog (top bar).** Connecting a model is now
   a real UI flow: pick a protocol, paste a base URL (one-click presets for
@@ -378,6 +174,207 @@ length`, 17–39 s). The chat path now uses a reasoning-aware budget/timeout,
 - **SSRF guard on user-supplied base URLs.** Only `http(s)`, no embedded
   credentials, and cloud metadata hosts plus `169.254.0.0/16` are refused, while
   localhost and private ranges stay usable for self-hosted endpoints.
+
+### Changed
+
+- **Coverage thresholds re-pinned to the Node 20 measurement.** The previous gate
+  (lines 91 / branches 82 / functions 93) came from an older suite; on the current one
+  Node 20 measures 90.70 / 81.04 / 95.81, so the `node: [20, 22]` CI matrix would have
+  failed on branches. Thresholds are now 90 / 81 / 95 — still above any real regression
+  (a one-point drop fails) but valid on both runtimes.
+- **One forcing module.** Diurnal flow, seasonal temperature, scenario envelope, toxic
+  suppression, aeration capacity and recycle derating had up to five copies across the
+  two engines. They now live in `src/sim/forcing.ts` and both the engine and the
+  forecast clone call the same functions.
+- **One alarm rule table.** `sim/networkEngine.raiseLimitAlarms`, the server's
+  `currentAlarms` and the reference engine each had their own thresholds, severities
+  and messages. All three now consume `src/sim/alarmRules.ts`; the metric strings and
+  limits are identical everywhere.
+- **One presentation table.** Stream colours/widths/dash/labels and unit icons/labels
+  were duplicated in `PlantCanvas`, `ProcessEditor` and `UnitInspector`. They now come
+  from `src/shared/streamMeta.ts`; a test fails if a component embeds a colour literal.
+- **One clock formatter.** `D2 03:40` was hand-assembled in eight places (charts,
+  replay, alarms, exports, report, top bar). All of them call `src/shared/time.ts`.
+- **One tariff table.** The shadow benchmark hard-coded 0.68 ¥/kWh and 2.2 ¥/kg PAC;
+  it now reads `TARIFF` from `kinetics.ts`, so a price change cannot silently skew the
+  AI-vs-fixed comparison.
+- **One plant geometry.** `PLANT.tanks` / `BIO_VOLUME` duplicated the topology's tank
+  list for the reference engine; the reference geometry is now derived from
+  `PLANT_TOPOLOGY`.
+
+- **Overview canvas is denser and readable.** Node sizes, gaps and lane spacing
+  were tightened (the corridor heights were retuned so no pipe crosses a unit —
+  caught by the existing no-crossing test) and the auto-layout width dropped, taking
+  the overview from 44 % to ~51 % at the same viewport. The authoring view now opens
+  at 1:1 with scrolling instead of being squeezed to fit.
+
+### Fixed
+
+- **Three test entry points wrote into the developer's real `data/`.** Turning off
+  `AQUAPILOT_PERSIST` only disables SQLite; the flowsheet document, its version history
+  and the model/Agent configs are separate files. Measured pollution: `npm run e2e`
+  clicked 「应用到仿真」 and grew `data/topology-history.json` to 66 KB with test plants,
+  and `tests/topologyStore.test.ts` constructed `new TopologyStore(path)` without the
+  second argument, so its default history path was the real `data/topology-history.json`.
+  The E2E and media scripts now point every config path at `out/<script>-data/`, and the
+  store test passes an explicit history path inside its temp dir.
+- **What-if forecasts simulated the wrong severity.** The forecast clone hard-coded
+  `magnitude: 1`, but the field's meaning differs per scenario: `blower_failure` uses
+  it as *remaining* aeration capacity (1 = no fault) and `winter` as the target water
+  temperature in °C. Consequences measured before the fix: "what if the blower fails"
+  returned the baseline NH₄ bit-for-bit (0.67 vs 0.67) while the real fault drives it
+  to 8.04 mg/L; winter forecast produced 8 °C instead of 12 °C. The clone now reads
+  `SCENARIOS[type].defaultMagnitude`, and the scenario window is stretched to cover the
+  whole forecast horizon (power outage defaults to 45 min against a 240 min forecast, so
+  the last sample used to be back to normal operation).
+- **`aerationCapacityOf` could amplify aeration instead of derating it.** The protocol
+  allows `magnitude` 0–30 (reserved for storm/shock multipliers); feeding that into the
+  blower formula produced a capacity of up to 30× (3000 % oxygen). Non-finite input
+  produced `NaN` for the whole aeration factor. The value is now clamped to 0–1 and a
+  non-finite magnitude falls back to the 0.5 default.
+- **An injected scenario never disappeared from the UI.** `scenario` was only present in
+  full snapshots, so after the window ended (and after `清除场景`) the control panel kept
+  showing 「进行中 · 剩 N 分钟」 forever. The incremental patch now carries `scenario` and
+  `snapshotMerge` applies it; verified in the browser: server `scenario=null` after the
+  window → UI summary count returns to 0.
+- **Per-tank MLSS was a disguised plant average.** The snapshot repeated one global
+  `biomassKg / bioVolume` value on every reactor, so five tanks all read 2475 mg/L and
+  looked like per-zone measurements. `server/tankStates.ts` now emits
+  `mlssSource: 'plant-average' | 'reactor'`: in the simplified model the value is the
+  plant average and the inspector labels it 「全厂均值」; in ASM1 mode each reactor's
+  own particulate components (X_I+X_S+X_B_H+X_B_A+X_P)/1.42 are used, giving genuinely
+  different concentrations per zone (2339/1943/1931/1924/1918 in the standard plant).
+  Full snapshot and patch frames now derive tanks from the same function.
+- **Port dots had no unit binding in the DOM.** End-to-end tests could only guess a
+  dot's owner by render order and screen readers could not say which device a port
+  belonged to; the port layer now carries `data-unit`, each dot `data-port`.
+- **Slow closed-loop test exceeded the 20 s timeout under coverage instrumentation.**
+  The test measures whether DO stays controlled over 48 cycles, not the ensemble; it now
+  runs with `robust: false` (the ensemble adds three trajectories per candidate).
+
+- **Per-tick derived work was recomputed 2–3×.** `buildPatch`/`buildSnapshot` called
+  `currentAlarms` twice, `estimateMargin` three times and rebuilt health/attribution
+  for every client. Each is now computed once per frame.
+- **Prediction clones deep-copied the compiled network.** `structuredClone` cost
+  0.146 ms per forecast; a shallow clone of the mutable fields costs 0.0006 ms and
+  shares the read-only compiled result. Single step 0.0175 → 0.0118 ms, nominal
+  decision 142.5 → 104.7 ms, robust decision 199.4 → 134.9 ms, 30-day warm-up
+  495 → 390 ms.
+- **Hot loop filtered and sorted the edge list every step.** `CompiledNetwork` now
+  carries `incomingByReactor` / `outgoingByReactor` / `order`, built once at compile
+  time.
+- **Production gates ran on the retired engine.** `engine.test.ts`, `agent.test.ts`,
+  `coverage-extra` and `network.test` asserted the fixed five-tank reference engine —
+  a path the server no longer executes. They now run `networkEngine`, so the gates
+  cover what ships.
+
+- **`carbonDose` was a fake control.** It was only added to the chemical-cost ledger;
+  0 and 60 mg/L produced bit-identical effluent (measured, four doses). External carbon
+  is now injected as readily biodegradable COD into the anoxic reactor (the
+  denitrification zone), which is where a real plant doses it: TN 11.44 → 9.37 mg/L
+  and anoxic NO₃ 1.28 → 0.38 at 60 mg/L. `tests/carbonDose.test.ts` (4 cases) locks
+  the monotonic response, the zone scope and that dosing is still billed.
+
+- **Nitrification yield was 0.88 instead of 1.0.** Every gram of ammonia oxidised
+  produced only 0.88 g of nitrate, so 12 % of nitrified nitrogen disappeared and the
+  plant's nitrogen balance was systematically optimistic. Both engines now use
+  `KINETICS.nitrateYieldPerNitrifiedN = 1.0`; denitrification was retuned in the same
+  commit (`kDen` 4.6 → 8.0) because the corrected balance otherwise pushes TN over
+  the limit (15.40 mg/L at the old kDen). Measured after the pair: TN 11.18 mg/L,
+  nitrogen removal 65 % → 75 %. `tests/nitrogenBalance.test.ts` (8 cases) locks the
+  stoichiometry, the removal range and the scenario responses.
+
+- **Drag delta accumulated per frame.** Node dragging used the just-laid-out
+  coordinates on every pointermove, so a two-grid drag moved three grids. The
+  gesture now snapshots its origins and moves by `origin + total delta`.
+- **Manual positions ignored utility and sludge units.** `applyManualPositions` ran
+  before the blower/chemical/thickener nodes were placed, so dragging them had no
+  effect. Positions are now applied in two passes.
+- **Arrow keys teleported auto-laid-out units to the top-left.** Nudging used
+  `positions[id] ?? {0,0}`; it now starts from the rendered position (`nudgeUnit`).
+- **Incremental patches dropped controls, totals, F/M and alarms.** The client kept
+  the values from the last full snapshot, so AI-executed setpoints, the cumulative
+  water/energy/cost block and the alarm history stayed frozen. Merging moved into
+  `snapshotMerge` (unit-tested) and the patch now carries those fields.
+- **Trends froze after a reset or topology change.** Each client's incremental
+  cursor stayed at the old simulation time while the buffer restarted at t=0. Full
+  snapshots now re-sync the cursor to the buffer tail.
+- **SMIL animation regression.** The flowing-dash overlay was still an SVG
+  `<animate>` element, the mechanism previously measured at 92 % main-thread time;
+  it now uses the `flow-pulse` CSS animation (0 `<animate>` elements in the DOM).
+- **Topology apply trusted arbitrary JSON.** `topology.apply` frames were cast to
+  `ProcessTopology` after a single `Array.isArray` check. `sanitizeTopologyInput`
+  now validates units, ports, connections, train, positions and routes, caps counts
+  and coordinate ranges, and rejects malformed frames before the engine sees them.
+- **AI decision cadence drifted with playback speed.** Decisions fired on
+  `tick % 30`, i.e. every 60 simulated minutes at 1× and every 240 at 4×, despite
+  the UI promising a 15-minute cycle. Cadence is now based on simulated time
+  (`aiCadence.ts`).
+
+- **自检面板的告警项没有样式。** 数据里的严重度是 `warn`，而 `.issue` 的
+  CSS 选择器写的是 `[data-sev='warning']`，两者对不上，警示项渲染成了默认的
+  灰边——看起来像"正常项"，实际是模型降级/钩子失败。现在面板做 severity 映射
+  （`warn → warning`），并由 `tests/watchdogPanel.test.tsx` 锁定。
+- **画布缺渲染层测试。** 端口数量/配色、多选标记、单元图标、端口点击回调都没有
+  断言，只有浏览器手工验证。新增 `tests/plantCanvas.test.tsx`（8 项）补上，
+  并在测试里补了 jsdom 缺失的 `ResizeObserver` 桩。
+
+- **Reasoning models produced no "model supplement".** u2-flash spends small token
+  budgets entirely on `reasoning_content` (empty `content`, `finish_reason:
+length`, 17–39 s). The chat path now uses a reasoning-aware budget/timeout,
+  retries once with a larger budget, and exposes a new 推理强度 control
+  (自动 / 压低思考 / 关闭思考) that maps to `enable_thinking` / `reasoning_effort` /
+  `thinking` for OpenAI-compatible endpoints.
+- **Grounded-number check rejected legitimate answers.** It only accepted numbers
+  that appeared literally in the grounding text, so "去除率约 89.6%" (derived from
+  337 and 35) was thrown away. The check now accepts exact derivations (difference,
+  ratio, percentage change, and ratio × 100 when a ≤ b) while still rejecting
+  fabricated magnitudes; a divide-by-zero path that let arbitrary numbers match
+  through `Infinity` was also closed.
+- **Insights showed "100 % saving" on a freshly reset plant.** Zero accumulated
+  volume produced a 0 kWh/m³ reading; the panel now shows 数据不足 until it has a
+  real sample and hides the percentage delta.
+
+### Removed
+
+- **Phantom intervention keys.** `aerationOn` and `pumpSpeed` were listed as unit
+  interventions and shown in the editor palette, but neither exists in
+  `ControlSettings` / `CONTROL_BOUNDS`; the inspector had to filter them by name at
+  render time, i.e. the UI advertised controls that could not be written. Both keys
+  are gone and `tests/interventions.test.ts` asserts every declared intervention is
+  actually writable.
+- `legacyModel` adapter, `unitsByKind`, `neighboringUnits`, `createShadowBenchmark`,
+  `looksLikeCommand`, `commandNeedsOpenPermission`, `AGENT_CAPABILITIES`,
+  `summarizeForLog`, `permissionLabel`, `capabilitiesFor`, `unitIcons.ts`,
+  `state.edgeFlows`, `CompiledReactor.inlets` / `receives*`, `PLANT.tanks`,
+  `BIO_VOLUME`, `AEROBIC_VOLUME`, `TankConfig`, `TankKind` — 855 deleted lines in total.
+- The `plantModel ↔ networkEngine` import cycle (the leg adapter was the back-edge) and
+  the `shared/protocol → server/benchmark` reverse dependency.
+
+### Docs
+
+- READMEs: test count and coverage are refreshed at release time (794 tests, 92.9 % lines /
+  82.4 % branches on Node 24, 90.7 / 81.0 on Node 20), source tree updated
+  (forcing/alarmRules/topologyEdit/topologyInput/trainProfile/tankStates/topologyStore added,
+  reference engine removed from the runtime description).
+- `docs/BENCHMARKS.md`, `docs/DEPLOYMENT.md`, `docs/UI-ARCHITECTURE.md` and
+  `scripts/README.md` were re-measured against this build; every number now names the
+  command that produced it.
+- `.aqg/code-construction/debt-payoff-and-theory-audit.md` and
+  `.aqg/code-construction/cross-round-audit.md` record the two audit rounds below.
+
+### Audit trail (measured, not opinion)
+
+| # | Finding | Evidence |
+|---|---|---|
+| T1 | Simplified nitrification runs ~420× the ASM1 rate constant, compensated by a biomass factor | `kNit=14/h` vs `ASM1 mu_A/24≈0.033/h`, `bf=xBiomass/DESIGN_MLSS` |
+| T2 | **Fixed together with T3**: default control exceeded the 15 mg/L TN limit | 15.40 → 11.18 mg/L at seed 7 |
+| T3 | **Fixed**: nitrate yield was 0.88, so 12 % of nitrified N vanished | `KINETICS.nitrateYieldPerNitrifiedN = 1.0` + `kDen` 4.6 → 8.0 |
+| T4 | **Fixed**: every tank reported the plant-average MLSS | `server/tankStates.ts` now labels `mlssSource`; ASM1 mode gives per-reactor values |
+| T5 | ASM1 and simple modes expose different TP definitions through one field | simple 0.010 vs asm1 2.509 mg/L |
+| T6 | Takács thickening zone has ~4 distinct values | profile `8,13,22,53,254,258,259,260,259,5474` |
+| T7 | Clarifier solids balance residual 1.5 % | 7020 vs 6917 kg/h steady state |
+| T8 | **Fixed**: `carbonDose` changed cost only | now enters the anoxic zone; TN 11.44 → 9.37 at 60 mg/L |
 
 ## [0.3.0] — 2026-10-24
 

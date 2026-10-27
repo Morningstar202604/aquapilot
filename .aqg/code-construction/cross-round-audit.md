@@ -42,6 +42,7 @@ The system MUST read the nitrate yield from `KINETICS.nitrateYieldPerNitrifiedN`
 | condition | ack | reason |
 |---|---|---|
 | W8: docs changed | yes | README/README.zh-CN/BENCHMARKS/DEPLOYMENT/UI-ARCHITECTURE/scripts README 全部按当次实测值校正；每个数字都标注生成命令 |
+| W6: package.json changed | yes | 只改了 `version` 0.3.0 → 0.4.0（发版），依赖列表零变动；`npm ci` 已实跑验证 lockfile 一致（424 packages） |
 | W7: large diff | yes | 本轮是跨轮次审计，改动同时包含 2 个物理语义修复（what-if magnitude、曝气夹紧）、3 个新测试文件与 6 份文档校正；按 plan 级流程执行 |
 
 ## Predicted Objections
@@ -56,8 +57,9 @@ The system MUST read the nitrate yield from `KINETICS.nitrateYieldPerNitrifiedN`
 
 | check | command | result |
 |---|---|---|
-| full | `npx vitest run` | 781 passed / 64 files |
-| coverage | `npx vitest run --coverage` | lines 92.89 / branches 82.37 / functions 96.48 |
+| full | `npx vitest run` | 794 passed / 66 files |
+| coverage (Node 24) | `npx vitest run --coverage` | lines 92.89 / branches 82.37 / functions 96.48 |
+| coverage (Node 20) | `npx -y node@20 node_modules/vitest/vitest.mjs run --coverage` | lines 90.70 / branches 81.04 / functions 95.81 |
 | types / lint / format | `tsc --noEmit`, `eslint src tests`, `npm run format` | 0 / 0 / clean |
 | build / e2e | `npm run build`, `npm run e2e` | OK / PASS |
 
@@ -102,3 +104,15 @@ See the delivery message for the full list. Summary of what was wrong or missing
 
 浏览器复核：问「如果鼓风机故障会怎样」→ 13 个超标采样点、末点 NH₄ 11.08、TP 2.326；
 问「如果全厂停电会怎样」→ 单独的推演（此前两者会给出相同结论）。
+
+## 追加：把「不确定」逐条钉死
+
+| 原不确定项 | 结论 | 证据 | 落点 |
+|---|---|---|---|
+| kDen = 8.0 有无物理依据 | **有边界依据，无文献值** | 扫描 4.6/8/10/12/16/20：TN 15.40/11.18/10.62/10.35/10.10/9.98。8.0 在边际收益拐点（8→12 仅 −0.83 mg/L），缺氧区仍残留 NO₃ 1.35（未饱和）。独立校核：反硝化占进水氮 49.6% < 回流理论上限 73.7% | `src/sim/kinetics.ts:25`、`tests/nitrogenPhysics.test.ts` 9 项 |
+| blower_failure 的 magnitude 语义 | **「剩余供气能力」** | `SCENARIOS.blower_failure.defaultMagnitude = 0.5` + 文案「最大供气能力降至 50%」；原公式 `1 - env*(1-mag)` 只有这个解释自洽 | `src/sim/forcing.ts:44`、`tests/scenarioForecast.test.ts` |
+| 性能数字的稳定性 | **±30% 抖动，只报量级** | 连跑三次：单步 0.0115–0.0148 ms、鲁棒决策 128–234 ms | `docs/BENCHMARKS.md` 已加注 |
+| 覆盖率阈值能否在 Node 20 通过 | **旧阈值不能，已重钉** | Node 20 实测 90.70/81.04/95.81，旧阈值 91/82/93 在 branches 上差 0.96 pp | `vitest.config.ts:31` |
+| CHANGELOG 六个 Unreleased 是否要发版 | **发 0.4.0** | v0.3.0 后 24 个提交，含 8 feat / 11 fix；合并六个段落为单一 0.4.0，同步 package.json / package-lock / CITATION / 徽章 / 部署文档 | `CHANGELOG.md:7` |
+| 新功能无 E2E 覆盖 | **已补** | `scripts/e2e-ci.ts` 新增沿程剖面 5 行、端口层 data-unit、版本页 ≥1 条三项断言，CI 的 e2e job 会跑 | `scripts/e2e-ci.ts` |
+| 测试污染 data/ 目录 | **发现并修复** | 实测 `data/topology-history.json` 被撑到 66 KB（含「第一版/第二版/自定义厂」）：e2e 点「应用到仿真」+ media + `topologyStore.test` 单参数构造三处 | `scripts/e2e-ci.ts`、`scripts/media.ts`、`tests/topologyStore.test.ts`、`tests/dataIsolation.test.ts` 4 项 |

@@ -188,6 +188,18 @@ checked server-side; unknown keys in a control patch are dropped, not trusted.
 `benchmark.mature` turns true after six simulated hours; before that the UI labels
 the comparison as indicative.
 
+### Fields added in 0.4.0
+
+| Field | Meaning |
+|---|---|
+| `clarifier.profile` / `clarifier.feedLayer` | Ten-layer Takács settler profile (g SS/m³) and the feed layer index |
+| `tanks[].mlssSource` | `plant-average` (simplified model, one global biomass) or `reactor` (ASM1 per-zone value); the inspector labels the former 「全厂均值」 |
+| `snapshotPatch.scenario` | Active scenario including `null` when it ends — without it the control panel kept showing 「进行中」 after the window closed |
+| `snapshotPatch.controls` / `totals` / `fmRatio` / `alarms` | The patch must carry these or the UI freezes at the values from the last full snapshot |
+
+Topology frames gained `action: 'history' | 'revert'`; `revert` re-applies an old
+document as a **new** revision (see `GET /api/topology/history`).
+
 ### Custom model configuration (`llmConfig`)
 
 The dialog writes through the same WebSocket; there is no HTTP write endpoint.

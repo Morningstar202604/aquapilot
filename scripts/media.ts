@@ -49,6 +49,11 @@ const server = spawn(process.execPath, ['dist/server/index.mjs'], {
     AQUAPILOT_PERSIST: '1',
     TICK_MS: '200',
     SIM_MINUTES_PER_TICK: '4',
+    // 与 e2e 同理：截图生成不能把测试拓扑写进开发者真实的 data/
+    AQUAPILOT_TOPOLOGY: 'out/media-data/topology.json',
+    AQUAPILOT_TOPOLOGY_HISTORY: 'out/media-data/topology-history.json',
+    AQUAPILOT_LLM_CONFIG: 'out/media-data/llm-config.json',
+    AQUAPILOT_AGENT_CONFIG: 'out/media-data/agent-config.json',
   },
   stdio: 'ignore',
 });
