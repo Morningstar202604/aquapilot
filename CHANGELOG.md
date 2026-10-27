@@ -484,6 +484,18 @@ length`, 17–39 s). The chat path now uses a reasoning-aware budget/timeout,
 
 - Unused `TARIFF` / `SETPOINT_LIMITS` exports from `src/sim/config.ts`.
 
+## [0.3.0] — release notes addendum
+
+The full entry for 0.3.0 is above. Two implementation notes worth recording:
+
+- The secondary-clarifier area change (2 400 → 3 600 m²) is a **model correction**,
+  not a tuning trick: at the old area the steady state violated the plant's own
+  discharge limit (SS 11.1 mg/L vs 10), which made the AI enter emergency mode at
+  every cycle. The new area matches the BSM1 design surface loading within 10 %.
+- The shadow benchmark resets the manual plant from the **same** warm-up and the
+  **same** default controls before switching to the fixed strategy. Comparing two
+  differently-initialised plants would measure initial conditions, not policy.
+
 ## [0.2.2] — 2026-10-23
 
 ### Fixed
@@ -613,15 +625,3 @@ length`, 17–39 s). The chat path now uses a reasoning-aware budget/timeout,
 Initial public version: topology-driven A²/O simulation, ASM1 kinetics, Takács
 ten-layer clarifier, AI operator with guardrails, flowsheet editor, replay, and
 a bilingual README.
-
-## [0.3.0] — release notes addendum
-
-The full entry for 0.3.0 is above. Two implementation notes worth recording:
-
-- The secondary-clarifier area change (2 400 → 3 600 m²) is a **model correction**,
-  not a tuning trick: at the old area the steady state violated the plant's own
-  discharge limit (SS 11.1 mg/L vs 10), which made the AI enter emergency mode at
-  every cycle. The new area matches the BSM1 design surface loading within 10 %.
-- The shadow benchmark resets the manual plant from the **same** warm-up and the
-  **same** default controls before switching to the fixed strategy. Comparing two
-  differently-initialised plants would measure initial conditions, not policy.

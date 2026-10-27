@@ -128,7 +128,7 @@ npm run e2e        # Playwright browser smoke against the production build
 With Docker (published image, `linux/amd64`):
 
 ```bash
-docker run --rm -p 5173:5173 -v aquapilot-data:/app/data ghcr.io/morningstar202604/aquapilot:v0.3.0
+docker run --rm -p 5173:5173 -v aquapilot-data:/app/data ghcr.io/morningstar202604/aquapilot:v0.4.0
 ```
 
 Or build locally:
