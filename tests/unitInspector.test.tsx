@@ -105,6 +105,78 @@ describe('UnitInspector', () => {
     expect(document.querySelectorAll('.settler-layer')).toHaveLength(0);
   });
 
+  it('简化模型的 MLSS 标注为全厂均值（不伪装成分池实测）', () => {
+    const tanks = PLANT_TOPOLOGY.train.map((id) => ({
+      id,
+      name: id,
+      short: id,
+      kind: 'aerobic' as const,
+      volume: 5000,
+      cod: 30,
+      nh: 1,
+      no3: 8,
+      tp: 0.2,
+      do: 2,
+      mlss: 2475,
+      mlssSource: 'plant-average' as const,
+      alkalinity: 200,
+      temperature: 20,
+      codRemoved: 0,
+      nhRemoved: 0,
+      o2Demand: 0,
+      klaUsed: 0,
+    }));
+    const unit = findUnit(PLANT_TOPOLOGY, 'aerobic1')!;
+    render(
+      <UnitInspector
+        snap={makeSnapshot({ tanks })}
+        topo={PLANT_TOPOLOGY}
+        unit={unit}
+        onClose={vi.fn()}
+        onSelect={vi.fn()}
+        onChangeControls={vi.fn()}
+        onEditTopology={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('全厂均值')).toBeTruthy();
+  });
+
+  it('ASM1 分池值不显示全厂均值标记', () => {
+    const tanks = PLANT_TOPOLOGY.train.map((id, i) => ({
+      id,
+      name: id,
+      short: id,
+      kind: 'aerobic' as const,
+      volume: 5000,
+      cod: 30,
+      nh: 1,
+      no3: 8,
+      tp: 0.2,
+      do: 2,
+      mlss: 1900 + i * 100,
+      mlssSource: 'reactor' as const,
+      alkalinity: 200,
+      temperature: 20,
+      codRemoved: 0,
+      nhRemoved: 0,
+      o2Demand: 0,
+      klaUsed: 0,
+    }));
+    const unit = findUnit(PLANT_TOPOLOGY, 'aerobic1')!;
+    render(
+      <UnitInspector
+        snap={makeSnapshot({ tanks })}
+        topo={PLANT_TOPOLOGY}
+        unit={unit}
+        onClose={vi.fn()}
+        onSelect={vi.fn()}
+        onChangeControls={vi.fn()}
+        onEditTopology={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText('全厂均值')).toBeNull();
+  });
+
   it('主序列单元显示沿程剖面，当前行唯一高亮', () => {
     const tanks = PLANT_TOPOLOGY.train.map((id, i) => ({
       id,

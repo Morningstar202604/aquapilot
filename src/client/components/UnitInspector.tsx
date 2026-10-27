@@ -85,7 +85,18 @@ export function UnitInspector({ snap, topo, unit, onClose, onSelect, onChangeCon
             </div>
             <div className="unit-inspector-row">
               <span>MLSS</span>
-              <b>{Math.round(tank.mlss)} mg/L</b>
+              <b
+                title={
+                  tank.mlssSource === 'plant-average'
+                    ? '简化模型只有一个全局生物量，这里显示的是全厂均值'
+                    : '该池按颗粒组分换算的真实浓度'
+                }
+              >
+                {Math.round(tank.mlss)} mg/L
+                {tank.mlssSource === 'plant-average' && (
+                  <span style={{ color: 'var(--text-3)', marginLeft: 4, fontSize: 9 }}>全厂均值</span>
+                )}
+              </b>
             </div>
             <div className="unit-inspector-row">
               <span>NH₄ / NO₃</span>

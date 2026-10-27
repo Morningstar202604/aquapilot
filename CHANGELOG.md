@@ -31,6 +31,14 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Fixed
 
+- **Per-tank MLSS was a disguised plant average.** The snapshot repeated one global
+  `biomassKg / bioVolume` value on every reactor, so five tanks all read 2475 mg/L and
+  looked like per-zone measurements. `server/tankStates.ts` now emits
+  `mlssSource: 'plant-average' | 'reactor'`: in the simplified model the value is the
+  plant average and the inspector labels it 「全厂均值」; in ASM1 mode each reactor's
+  own particulate components (X_I+X_S+X_B_H+X_B_A+X_P)/1.42 are used, giving genuinely
+  different concentrations per zone (2339/1943/1931/1924/1918 in the standard plant).
+  Full snapshot and patch frames now derive tanks from the same function.
 - **Port dots had no unit binding in the DOM.** End-to-end tests could only guess a
   dot's owner by render order and screen readers could not say which device a port
   belonged to; the port layer now carries `data-unit`, each dot `data-port`.
@@ -98,7 +106,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Docs
 
-- READMEs: test count 724, coverage 92.8 % lines / 82.2 % branches, source tree updated
+- READMEs: test count 758, coverage 92.8 % lines / 82.1 % branches, source tree updated
   (forcing/alarmRules added, reference engine removed from the runtime description).
 - `.aqg/code-construction/debt-payoff-and-theory-audit.md` records the theoretical
   audit below.

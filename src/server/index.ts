@@ -10,6 +10,7 @@ import { SCENARIOS, ScenarioType } from '../sim/scenarios';
 import { NetworkSimState, networkModel, qualityScoreOf, stepNetwork } from '../sim/networkEngine';
 import { BSM1_SETTLER } from '../sim/takacs';
 import { evaluateAlarms } from '../sim/alarmRules';
+import { buildTankStates, buildTankPatch } from './tankStates';
 import { aiCycleDue } from './aiCadence';
 import { formatClockLong } from '../shared/time';
 import type { ForecastOutcomeX } from '../sim/plantModel';
@@ -199,26 +200,8 @@ function buildSnapshot(): PlantSnapshot {
   const s = runtime.net;
   const fc = forecastForSnapshot();
 
-  // 把拓扑反应器映射成前端沿用的 tank 结构，保持界面契约不变
-  const tanks = s.reactors.map((r) => ({
-    id: r.id,
-    name: r.name,
-    short: r.name,
-    kind: r.kind,
-    volume: r.volume,
-    cod: r.cod,
-    nh: r.nh,
-    no3: r.no3,
-    tp: r.tp,
-    do: r.doLevel,
-    mlss: Math.round((s.biomassKg * 1000) / Math.max(1, s.volume.bio)),
-    alkalinity: r.alkalinity,
-    temperature: r.temperature,
-    codRemoved: 0,
-    nhRemoved: 0,
-    o2Demand: r.o2Demand,
-    klaUsed: r.kla,
-  }));
+  // 分池状态与增量帧同源（server/tankStates）；MLSS 口径如实标注
+  const tanks = buildTankStates(s);
 
   const effluent = {
     ...s.effluent,
@@ -376,16 +359,7 @@ function buildPatch(client: ClientState): SnapshotPatch | null {
     timeMin: s.timeMin,
     influentFlow: s.influent.flow,
     effluent: { ...s.effluent },
-    tanks: s.reactors.map((r) => ({
-      id: r.id,
-      do: r.doLevel,
-      mlss: Math.round((s.biomassKg * 1000) / Math.max(1, s.volume.bio)),
-      cod: r.cod,
-      nh: r.nh,
-      no3: r.no3,
-      tp: r.tp,
-      alkalinity: r.alkalinity,
-    })),
+    tanks: buildTankPatch(s),
     clarifier: {
       blanketM: s.clarifier.blanketM,
       xRas: s.clarifier.xRas,

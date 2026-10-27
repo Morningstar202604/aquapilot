@@ -118,7 +118,7 @@ export interface PlantSnapshot {
   modelMode: 'simple' | 'asm1';
   influent: InfluentState;
   effluent: EffluentState;
-  tanks: TankState[];
+  tanks: (TankState & { mlssSource?: 'plant-average' | 'reactor' })[];
   clarifier: ClarifierState;
   controls: ControlSettings;
   scenario: ScenarioSpec | null;
@@ -231,7 +231,9 @@ export interface SnapshotPatch {
   timeMin: number;
   influentFlow: number;
   effluent: EffluentState;
-  tanks: Pick<TankState, 'id' | 'do' | 'mlss' | 'cod' | 'nh' | 'no3' | 'tp' | 'alkalinity'>[];
+  tanks: (Pick<TankState, 'id' | 'do' | 'mlss' | 'cod' | 'nh' | 'no3' | 'tp' | 'alkalinity'> & {
+    mlssSource?: 'plant-average' | 'reactor';
+  })[];
   clarifier: {
     blanketM: number;
     xRas: number;

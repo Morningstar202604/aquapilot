@@ -69,8 +69,8 @@ The system MUST create the same connection when the user drags from an outlet po
 | check | command | result |
 |---|---|---|
 | focused | `npx vitest run tests/topologyHistory.test.ts tests/topologyVersionsUi.test.tsx tests/trainProfile.test.ts tests/portDragConnect.test.tsx tests/unitInspector.test.tsx` | 37 passed |
-| full | `npx vitest run` | 752 passed / 61 files |
-| coverage | `npx vitest run --coverage` | lines 92.85 / branches 82.23 / functions 96.45 |
+| full | `npx vitest run` | 758 passed / 62 files |
+| coverage | `npx vitest run --coverage` | lines 92.75 / branches 82.09 / functions 96.15 |
 | types | `npx tsc --noEmit` (+ noUnused) | 0 |
 | lint / format | `npx eslint src tests` · `npm run format` | 0 · clean |
 | build / e2e | `npm run build` · `npm run e2e` | OK · PASS |
@@ -91,3 +91,15 @@ The system MUST create the same connection when the user drags from an outlet po
 而真实浏览器里指针一旦离开圆点事件就改派给光标下的元素。改为在画布容器上跟踪
 pointermove/pointerup + `elementFromPoint` 命中，并把测试改为在容器上派事件、
 显式 stub `elementFromPoint`，两条路径（命中/未命中）都有断言。
+
+## 追加：分池 MLSS 口径（T4）
+
+审计发现快照把全局 `biomassKg / bioVolume` 平摊给每个反应器：五个池全部显示 2475 mg/L，
+看起来像分池实测。新增 `src/server/tankStates.ts`：
+
+- 简化模式：值仍是全厂均值，但 `mlssSource: 'plant-average'`，检视器如实标注「全厂均值」；
+- ASM1 模式：按该池 `(X_I+X_S+X_B_H+X_B_A+X_P)/1.42` 给出真实分池浓度（实测
+  2339/1943/1931/1924/1918 mg/L），`mlssSource: 'reactor'`；
+- 全量快照与增量帧改为同一函数派生，避免两帧口径分叉。
+
+测试：`tests/tankStates.test.ts` 4 项 + 检视器 2 项（标注/不标注）。
