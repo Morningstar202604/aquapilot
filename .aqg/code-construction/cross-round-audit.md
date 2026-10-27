@@ -4,7 +4,7 @@ path: plan
 created_at: 2026-10-27T12:10:00Z
 session_agent: zcode
 skipped_checks: []
-objections_diff_coverage_exception: null
+objections_diff_coverage_exception: "末轮只改 README.md 与 CHANGELOG.md 两处文档（Docker 标签版本、addendum 归位）；objection 5 已覆盖「文档与实际行为脱节」这一类风险"
 behavior_contract_exception: null
 ---
 
