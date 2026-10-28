@@ -31,11 +31,13 @@ export function ReplayPanel() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [cursor, setCursor] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const el = useRef<HTMLDivElement | null>(null);
   const chart = useRef<echarts.ECharts | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       // 启用访问控制时，所有 API 需带令牌
       const token = (() => {
@@ -50,6 +52,21 @@ export function ReplayPanel() {
         fetch('/api/history/snapshots', { headers }),
         fetch('/api/history/decisions', { headers }),
       ]);
+      /**
+       * 必须检查 HTTP 状态。
+       *
+       * 401/500 时 body 是 `{error:...}`，直接当数据解析会让 enabled 变
+       * undefined、列表为空，界面显示「还没有历史数据」——把鉴权失败
+       * 误报成「没有数据」，用户完全不知道要重新登录。
+       */
+      if (sRes.status === 401 || dRes.status === 401) {
+        setError('令牌无效或已过期，请重新输入访问令牌');
+        return;
+      }
+      if (!sRes.ok || !dRes.ok) {
+        setError(`读取历史失败（HTTP ${sRes.ok ? dRes.status : sRes.status}）`);
+        return;
+      }
       const sJson = (await sRes.json()) as { enabled: boolean; snapshots: SnapshotRow[] };
       const dJson = (await dRes.json()) as { enabled: boolean; decisions: DecisionRow[] };
       setEnabled(sJson.enabled);
@@ -176,6 +193,19 @@ export function ReplayPanel() {
         <div className="empty-note">加载历史…</div>
       </div>
     );
+
+  if (error) {
+    return (
+      <div className="scroll-panel">
+        <div className="panel-empty" role="alert">
+          {error}
+        </div>
+        <button className="btn" onClick={() => void load()}>
+          重试
+        </button>
+      </div>
+    );
+  }
 
   if (enabled === false) {
     return (

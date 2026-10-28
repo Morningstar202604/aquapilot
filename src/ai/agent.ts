@@ -318,13 +318,15 @@ export function decide(context: DecisionContext): Recommendation {
   };
 
   /**
-   * 「维持现状」必须按**真实的当前控制量**评分。
+   * 「维持现状」必须按**真实的当前控制量**评分，不能过 applyGuard。
    *
-   * 旧实现把 base 也过了一遍 applyGuard：guard 的下限（如 pacDose 18、
-   * doSetpoint 1.5）会把 hold 改写成一组从未被评估为「现状」的控制量。
-   * 后果是 `chosens.controls` 与界面上的当前值不一致，且死区比较基准错误。
+   * guard 的下限（如 pacDose 18、doSetpoint 1.5）会把 hold 改写成一组
+   * 从未被评估为「现状」的控制量：`chosens.controls` 与界面上的当前值不一致，
+   * 采纳时还会把用户设的控制静默改掉。hold 的语义就是「什么都不做」。
    */
-  add('hold', base);
+  const holdScored = scoreCandidate(state, model, base, horizonMin, guard);
+  holdScored.label = CANDIDATE_NAMES.hold;
+  candidates.push(holdScored);
 
   for (const key of KEY_ORDER) {
     const bounds = CONTROL_BOUNDS[key];

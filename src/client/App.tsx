@@ -11,6 +11,7 @@ import {
   undoHistory,
 } from './hooks/topoHistory';
 import { PlantCanvas } from './components/PlantCanvas';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProcessEditor } from './components/ProcessEditor';
 import { PLANT_TOPOLOGY, ProcessTopology, findUnit } from '../model/topology';
 import { deleteUnits, nudgeUnit } from '../model/topologyEdit';
@@ -339,12 +340,14 @@ export default function App() {
           {view === 'plant' ? (
             <>
               <div className="stage-canvas-wrap">
-                <PlantCanvas
-                  snap={snap}
-                  topo={sim.topology ?? PLANT_TOPOLOGY}
-                  selected={selectedTank}
-                  onSelect={setSelectedTank}
-                />
+                <ErrorBoundary compact label="工艺流程画布">
+                  <PlantCanvas
+                    snap={snap}
+                    topo={sim.topology ?? PLANT_TOPOLOGY}
+                    selected={selectedTank}
+                    onSelect={setSelectedTank}
+                  />
+                </ErrorBoundary>
                 {/**
                  * 单元检视器浮在画布上而不是塞进侧栏：
                  * 点哪个池子就在池子旁边看数据、改参数，视线不用离开工艺图。
@@ -376,7 +379,9 @@ export default function App() {
                 keepMounted
                 className="trend-section"
               >
-                <Trends snap={snap} />
+                <ErrorBoundary compact label="趋势图">
+                  <Trends snap={snap} />
+                </ErrorBoundary>
               </Collapsible>
             </>
           ) : (
@@ -504,8 +509,16 @@ export default function App() {
                 aiEnabled={aiEnabled}
               />
             )}
-            {tab === 'alarms' && <AlarmsPanel snap={snap} />}
-            {tab === 'insights' && <InsightsPanel snap={snap} aiEnabled={aiEnabled} />}
+            {tab === 'alarms' && (
+              <ErrorBoundary compact label="告警面板">
+                <AlarmsPanel snap={snap} />
+              </ErrorBoundary>
+            )}
+            {tab === 'insights' && (
+              <ErrorBoundary compact label="收益面板">
+                <InsightsPanel snap={snap} aiEnabled={aiEnabled} />
+              </ErrorBoundary>
+            )}
             {tab === 'replay' && <ReplayPanel />}
             {tab === 'health' && <WatchdogPanel report={sim.watchdog} />}
           </aside>

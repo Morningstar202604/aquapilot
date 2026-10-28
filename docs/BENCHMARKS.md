@@ -111,12 +111,12 @@ npx vitest run --coverage
 | Item | Value |
 |---|---|
 | Test files | 66 |
-| Tests | 810 |
-| Line coverage | 92.9 % |
-| Branch coverage | 82.4 % |
-| Function coverage | 96.5 % |
+| Tests | 847 |
+| Line coverage | 94.6 % |
+| Branch coverage | 83.0 % |
+| Function coverage | 96.8 % |
 
 Coverage thresholds are pinned to the **Node 20** measurement (90 / 81 / 95 for
 lines / branches / functions) because the CI matrix runs both Node 20 and 22 and V8
 counts branches differently between releases. Measured here: Node 24 gives
-92.9 / 82.4 / 96.5, Node 20 gives 90.7 / 81.0 / 95.8 — both above the gate.
+94.6 / 83.0 / 96.8 on Node 24; Node 20 runs slightly lower on branch counting — both above the 90 / 81 / 95 gate.

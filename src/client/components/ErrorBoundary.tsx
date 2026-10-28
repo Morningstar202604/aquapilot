@@ -2,6 +2,15 @@ import { Component, ErrorInfo, ReactNode } from 'react';
 
 interface Props {
   children: ReactNode;
+  /**
+   * 面板级降级：为 true 时只渲染一行提示而不铺满整屏。
+   *
+   * 根级边界捕获的是「整个 App 崩溃」，但更常见的是一个子面板数据异常
+   * （例如 margins[0] 为空）。那种情况不应该让暂停/控制/告警一起不可用。
+   */
+  compact?: boolean;
+  /** 出错时展示的名称，便于用户知道是哪一块坏了 */
+  label?: string;
 }
 
 interface State {
@@ -58,6 +67,17 @@ export class ErrorBoundary extends Component<Props, State> {
 
   override render(): ReactNode {
     if (!this.state.hasError) return this.props.children;
+
+    if (this.props.compact) {
+      return (
+        <div className="panel-empty" role="alert" style={{ padding: 12, color: '#ff6b5a', fontSize: 12 }}>
+          {this.props.label ?? '该面板'}渲染失败：{this.state.message}
+          <button className="chip" style={{ marginLeft: 8 }} onClick={this.retry}>
+            重试
+          </button>
+        </div>
+      );
+    }
 
     return (
       <div

@@ -50,6 +50,65 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   and `/api/history/alarms` were folded into `__unmatched__`, so their traffic was
   invisible in Prometheus.
 
+### Security
+
+- **Stored LLM API keys could be exfiltrated.** `llmConfig` `discover`/`test`
+  accepted an arbitrary `baseUrl` while resolving an empty `apiKey` to the saved
+  secret, so one WebSocket message could send `Authorization: Bearer <saved key>`
+  to an attacker-controlled host. Keys are now bound to their saved origin;
+  changing host or port requires re-entering the key.
+- **Skill import was a readable SSRF.** `agentConfig/importSkill` fetched any URL
+  server-side (private networks included) and stored the body in the skill, which
+  `agentConfig/get` returned verbatim. Fetching now uses a strict public-only
+  guard and refuses redirects. Webhook hooks use the same guard.
+- **Single malformed request could kill the process.** Query strings were parsed
+  against a client-controlled `Host` header (`new URL` throws on `Host: a b`), and
+  non-integer `?limit=` reached SQLite as a `LIMIT ?` binding (`datatype
+  mismatch`). Both raised outside any try/catch. Query parsing no longer touches
+  `Host`, every HTTP handler is wrapped, and LIMIT values are truncated.
+- **Permission model allowed self-escalation.** One `save` could switch
+  `permission` to `open` and add a webhook hook in the same payload; open-only
+  capabilities now take effect from the next save.
+- **SSRF guard bypasses.** IPv4-mapped IPv6 (`[::ffff:169.254.169.254]`),
+  trailing-dot hosts (`metadata.google.internal.`), AWS IMDS IPv6 and redirect
+  follow-ups are now rejected; LLM response-body reads are covered by the same
+  timeout as the request head.
+- `qs` (transitive via Stryker) updated; `npm audit` reports zero findings.
+- **0.25× and 0.5× speeds were fake.** `Math.round(SIM_MINUTES_PER_TICK * speed)`
+  turned a 0.5-minute step into a full minute, so low speeds ran exactly like 1×.
+  Fractional accumulated minutes are carried between frames.
+- **A critical forecast could be reported as "stable".** `actionFor` checked the
+  deadband before severity, so a predicted exceedance with no control delta was
+  downgraded to `hold`. Critical now always wins, and non-finite model output
+  produces an explicit "prediction invalid" state instead of NaN advice.
+- **"Hold" was scored on guard-clamped controls**, so `chosens.controls` could
+  differ from what the operator actually had set.
+- **Topology validation gaps.** Non-recycle cycles passed validation and then
+  crashed the solver with an empty-reference `TypeError`; connections were not
+  required to run out→in, nor to match the source port's stream. Volumes above
+  engineering scale (1e308) overflowed derived values to Infinity, duplicate
+  train ids doubled plant volume, and the layout produced `-Infinity` coordinates
+  when no main-line unit existed.
+- **Incremental snapshots were barely validated.** `effluent: {}` passed the
+  three-field check and crashed the page; `tanks` were merged by id so added or
+  removed units never appeared; influent quality froze at connect time. Patches
+  now get field-level validation and tank sets follow the patch.
+- **WebSocket token subprotocol broke reconnects.** Base64 tokens contain
+  `=`/`+`/`/`, which are illegal in `Sec-WebSocket-Protocol`; `new WebSocket`
+  threw outside any handler and the reconnect chain died. Tokens now travel
+  base64url-encoded under `token.b64.`.
+- **Slider drags flooded the control channel.** A range input fires ~60 Hz; the
+  server allows one control change per 500 ms, so nearly every event was rejected
+  with a notice and the final value could be dropped. Sliders are throttled with a
+  trailing commit.
+- **Forecast bands lingered after reset.** `setOption({notMerge:false})` kept the
+  previous P10/P90/P50 series when `forecastBand` became null.
+- Login probe failure no longer fails open; agent settings keep unsaved edits when
+  a save fails; history replay reports 401/403 instead of "no data yet"; the
+  topology editor's `dirty` flag no longer stays true forever.
+- Log redaction covers `apiKey`/`accessToken`/`privateKey`; the watchdog no longer
+  broadcasts an absolute config path.
+
 ### Changed
 
 - Brand in the top bar follows the applied topology name instead of the hard-coded

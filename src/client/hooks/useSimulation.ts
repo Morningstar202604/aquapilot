@@ -332,6 +332,18 @@ export function useSimulation() {
       };
       ws.onclose = () => {
         setLink((prev) => ({ ...prev, connected: false, error: '与仿真服务的连接已断开' }));
+        /**
+         * 断线必须复位所有 in-flight 状态。
+         *
+         * 这些 flag 只在收到响应时清零；连接一断，请求永远不会回来，
+         * 界面就会永久卡在「正在拉取模型…」「保存中…」，且无法再次触发。
+         */
+        llmPending.current = {};
+        llmSaveResolve.current = null;
+        setLlmDiscovering(false);
+        setLlmTesting(false);
+        setLlmSaving(false);
+        setAgentSaving(false);
         if (closed) return;
         retry.current += 1;
         // 抖动退避：多客户端同时断线时避免重连请求同步撞击服务端

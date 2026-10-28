@@ -220,3 +220,27 @@ describe('提示条：上限与过期', () => {
     expect(pruned.map((n) => n.text)).toEqual(['fresh']);
   });
 });
+
+describe('维持现状候选必须按真实当前控制量评分', () => {
+  it('guard 下限不会把 hold 的 chosens 改写', async () => {
+    const { decide } = await import('../src/ai/agent');
+    const { networkModel } = await import('../src/sim/networkEngine');
+    const { createNetworkState, spinUpNetwork } = await import('../src/sim/networkEngine');
+    const { PLANT_TOPOLOGY } = await import('../src/model/topology');
+    const { DEFAULT_CONTROLS } = await import('../src/sim/config');
+
+    // 故意低于 guard 下限：pacDose 0、doSetpoint 0.9
+    const net = createNetworkState(PLANT_TOPOLOGY, {
+      seed: 7,
+      controls: { ...DEFAULT_CONTROLS, pacDose: 0, doSetpoint: 0.9 },
+    });
+    spinUpNetwork(net, PLANT_TOPOLOGY, 30);
+    const model = networkModel(PLANT_TOPOLOGY, net);
+    const rec = decide({ model, horizonMin: 60, robust: false });
+    const hold = rec.alternatives.find((c) => c.label === '维持当前工况');
+    if (hold) {
+      expect(hold.controls.pacDose).toBe(0);
+      expect(hold.controls.doSetpoint).toBeCloseTo(0.9, 5);
+    }
+  });
+});

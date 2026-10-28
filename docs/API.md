@@ -99,11 +99,15 @@ predicted score and separation. `{ "enabled": false }` when persistence is off.
 ### `GET /api/history/snapshots?from=<min>&to=<min>`
 
 Sampled effluent history for replay, scoped to the latest run unless `runId` is
-given. Also lists all runs.
+given. Also lists all runs. `from`/`to` are simulated minutes; a single request
+covers at most 7 simulated days (10080 min) and returns at most 20 000 rows —
+larger windows are rejected with 400 so one request cannot pull the whole table
+into memory. `to` defaults to `from + 10080`.
 
 ### `GET /api/history/alarms?limit=<n>&runId=<id>`
 
-Persisted alarms (newest first, `limit` clamped to 1–500, default 100), optionally
+Persisted alarms (newest first, `limit` truncated to an integer and clamped to
+1–500, default 100), optionally
 scoped to one run. The server records an alarm row the first time each code
 becomes active, so the shutdown timeline can be reconstructed after the fact.
 
@@ -126,7 +130,9 @@ custom topology has been applied).
 ### `GET /api/export/snapshots.csv?from=<min>&to=<min>`
 
 Sampled effluent history for the latest run as RFC 4180 CSV (CRLF line endings,
-quoted fields where needed). Served with `Content-Disposition: attachment`.
+quoted fields where needed). Served with `Content-Disposition: attachment`. Same
+window rules as `GET /api/history/snapshots`: at most 7 simulated days and
+20 000 rows per request.
 
 ### `GET /api/export/decisions.csv`
 
@@ -157,15 +163,15 @@ Frames are JSON objects with a `type`. Client → server:
 | `type`                | Purpose                                                                         |
 | --------------------- | ------------------------------------------------------------------------------- |
 | `hello`               | Ask for a full snapshot, sim state, current decision and topology               |
-| `chat`                | Ask a question about the current state (`text`, ≤ 2000 chars)                   |
+| `chat`                | Ask a question about the current state (`text`, ≤ 2000 chars; one request per 1.5 s, max 2 in flight) |
 | `control`             | Apply a control patch (rate-limited to one per 500 ms)                          |
 | `aiEnabled`           | Switch between automatic and advisory mode                                      |
 | `applyRecommendation` | Accept the current AI recommendation                                            |
 | `scenario`            | Inject or clear a scenario                                                      |
 | `sim`                 | `pause` / `resume` / `reset`                                                    |
-| `speed`               | Simulation speed, 0.25–8                                                        |
+| `speed`               | Simulation speed, 0.25–8 (fractional minutes are carried between frames, so 0.25× really runs at a quarter of 1×) |
 | `topology`            | `get` / `apply` / `history` / `revert` a flowsheet (mutations limited to one per 5 s) |
-| `preset`              | Apply a shipped template by id (rebuilds and warms up the plant)                |
+| `preset`              | Apply a shipped template by id (rebuilds and warms up the plant; shares the 5 s topology limit) |
 | `refreshDecision`     | Recompute the recommendation immediately                                        |
 | `llmConfig`           | Custom model onboarding: `get`, `discover`, `test`, `save`, `clear` (see below) |
 
