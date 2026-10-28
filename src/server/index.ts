@@ -49,6 +49,7 @@ import {
   type AgentConfig,
 } from '../shared/agentConfig';
 import {
+  SCENARIO_MAGNITUDE_RANGE,
   VALID_SCENARIOS,
   sanitizeBoolean,
   sanitizeChatText,
@@ -1333,7 +1334,12 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
             10080,
             meta.defaultDurationMin,
           ),
-          magnitude: sanitizeRange((msg as { magnitude?: unknown }).magnitude, 0, 30, meta.defaultMagnitude),
+          magnitude: sanitizeRange(
+            (msg as { magnitude?: unknown }).magnitude,
+            SCENARIO_MAGNITUDE_RANGE[scenarioType]?.min ?? 0,
+            SCENARIO_MAGNITUDE_RANGE[scenarioType]?.max ?? 30,
+            meta.defaultMagnitude,
+          ),
           startedAt: runtime.net.timeMin,
         };
         broadcast({ type: 'notice', level: 'warn', text: `已注入场景：${meta.label}` });
