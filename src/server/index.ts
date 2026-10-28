@@ -888,6 +888,28 @@ function rateLimited(ws: WebSocket, kind: 'control' | 'topology' | 'decision' | 
 }
 
 /**
+ * 限流提示的抑制窗口。
+ *
+ * 被限流的消息若逐条回一条 notice，就形成了反向放大：
+ * 客户端拖一次滑块发 40 条，服务端回 40 条提示，把「保护」变成新的噪音源。
+ * 同一连接同一类提示在 2 秒内只回一次。
+ */
+const NOTICE_COOLDOWN_MS = 2000;
+
+function throttledNotice(ws: WebSocket, kind: string, text: string): void {
+  const state = runtime.clientState.get(ws) ?? freshClientState();
+  const now = Date.now();
+  const key = `notice:${kind}`;
+  const seen = (state as unknown as Record<string, number>)[key] ?? 0;
+  if (now - seen < NOTICE_COOLDOWN_MS) return;
+  (state as unknown as Record<string, number>)[key] = now;
+  runtime.clientState.set(ws, state);
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'notice', level: 'warn', text } satisfies ServerMessage));
+  }
+}
+
+/**
  * 把当前状态压成 LLM 可引用的最小事实集。
  *
  * 只放已经有数值的量，不放控制器写权限、不放日志、不放环境变量。
@@ -1131,9 +1153,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
        * 不限流时一条连接即可堆满内存与第三方配额。
        */
       if (rateLimited(ws, 'chat')) {
-        ws.send(
-          JSON.stringify({ type: 'notice', level: 'warn', text: '提问过于频繁，请稍后再试' } satisfies ServerMessage),
-        );
+        throttledNotice(ws, 'chat', '提问过于频繁，请稍后再试');
         break;
       }
       const chatState = runtime.clientState.get(ws) ?? freshClientState();
@@ -1233,9 +1253,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
     }
     case 'control': {
       if (rateLimited(ws, 'control')) {
-        ws.send(
-          JSON.stringify({ type: 'notice', level: 'error', text: '操作过于频繁，请稍后再试' } satisfies ServerMessage),
-        );
+        throttledNotice(ws, 'control', '操作过于频繁，请稍后再试');
         break;
       }
       const result = sanitizeControlPatch((msg as { patch?: unknown }).patch);
@@ -1396,13 +1414,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
        * 与拓扑变更共用一套客户端限流，间隔 2 s；被拦时给出明确提示。
        */
       if (rateLimited(ws, 'decision')) {
-        ws.send(
-          JSON.stringify({
-            type: 'notice',
-            level: 'warn',
-            text: '推演过于频繁，请 2 秒后再试',
-          } satisfies ServerMessage),
-        );
+        throttledNotice(ws, 'decision', '推演过于频繁，请 2 秒后再试');
         break;
       }
       runAiCycle(true);
