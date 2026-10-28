@@ -6,7 +6,7 @@
 > 厂是图，图就是模型，AI 值班员来跑。
 
 [![tests](https://img.shields.io/badge/tests-855%20passing-brightgreen)](tests)
-[![coverage](https://img.shields.io/badge/line%20coverage-94.6%25-brightgreen)](vitest.config.ts)
+[![coverage](https://img.shields.io/badge/line%20coverage-94.7%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![release](https://img.shields.io/badge/release-v0.4.0-blue)](https://github.com/Morningstar202604/aquapilot/releases/tag/v0.4.0)

@@ -6,7 +6,7 @@
 > The plant is a graph, the graph is the model, and an AI operator runs it.
 
 [![tests](https://img.shields.io/badge/tests-855%20passing-brightgreen)](tests)
-[![coverage](https://img.shields.io/badge/line%20coverage-94.6%25-brightgreen)](vitest.config.ts)
+[![coverage](https://img.shields.io/badge/line%20coverage-94.7%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520.19-339933)](package.json)
@@ -357,7 +357,7 @@ DO 2.0 mg/L, internal recycle 2.0×Q, RAS 0.8×Q, WAS 2.2 %, PAC 40 mg/L, step f
 | Decision, production engine (robust, 3 candidates × 3 samples) | 135 ms                         | same                        |
 | 30-day warm-up                                                 | 390 ms                         | same                        |
 | Tests                                                          | 855 passing                    | `npm test`                  |
-| Coverage                                                       | 94.6 % lines / 83.0 % branches | `npx vitest run --coverage` |
+| Coverage                                                       | 94.7 % lines / 83.1 % branches | `npx vitest run --coverage` |
 
 ## How the AI decides
 
@@ -407,7 +407,7 @@ Verified in this repository by `npm run ci` plus `npm run e2e`:
 
 - TypeScript strict (0 errors, including unused-code checks), ESLint 9 and
   Prettier 3 clean.
-- 855 tests passing; 94.6 % line / 83.0 % branch coverage.
+- 855 tests passing; 94.7 % line / 83.1 % branch coverage.
 - Client + server production build; browser smoke asserts 7 KPI tiles, the health
   pill with 5 sub-scores, 17 nodes, 3 charts, 6 panels, no console errors, no
   connection crossing a unit body and no horizontal overflow on mobile.
