@@ -85,6 +85,10 @@ function newHistogram(): Histogram {
   return { buckets: HTTP_BUCKETS, counts: HTTP_BUCKETS.map(() => 0), sum: 0, count: 0 };
 }
 
+function newTickHistogram(buckets: number[]): { buckets: number[]; counts: number[]; sum: number; count: number } {
+  return { buckets, counts: buckets.map(() => 0), sum: 0, count: 0 };
+}
+
 function observe(h: Histogram, seconds: number): void {
   h.sum += seconds;
   h.count += 1;
@@ -120,6 +124,14 @@ export const metrics = {
   /** 最近一次 tick 的耗时（毫秒），用于发现"仿真跟不上节拍" */
   lastTickMs: 0,
   maxTickMs: 0,
+  /**
+   * tick 耗时直方图（毫秒桶）。
+   *
+   * SLO 写的是「p99 < 1000 ms」，但此前只暴露 last/max 两个 gauge：
+   * max 会被一次偶发尖峰永久抬高，last 又看不到分布，两者都推不出 p99。
+   * 用桶计数才能在抓取侧算 `histogram_quantile(0.99, …)`。
+   */
+  tickDuration: newTickHistogram([5, 10, 25, 50, 100, 250, 500, 1000, 2500]),
 };
 
 export function recordHttp(method: string, path: string, status: number, seconds: number): void {
@@ -172,6 +184,12 @@ export function recordTick(ms: number): void {
   metrics.simTicks += 1;
   metrics.lastTickMs = ms;
   if (ms > metrics.maxTickMs) metrics.maxTickMs = ms;
+  const h = metrics.tickDuration;
+  h.sum += ms;
+  h.count += 1;
+  for (let i = 0; i < h.buckets.length; i++) {
+    if (ms <= h.buckets[i]) h.counts[i] += 1;
+  }
 }
 
 export interface SloDefinition {
@@ -259,6 +277,16 @@ export function renderPrometheus(): string {
   gauge('aquapilot_uptime_seconds', 'Process uptime in seconds', (Date.now() - startedAt) / 1000);
   gauge('aquapilot_tick_duration_last_ms', 'Duration of the last simulation tick', metrics.lastTickMs);
   gauge('aquapilot_tick_duration_max_ms', 'Slowest simulation tick since start', metrics.maxTickMs);
+  lines.push('# HELP aquapilot_tick_duration_ms Simulation tick duration in milliseconds');
+  lines.push('# TYPE aquapilot_tick_duration_ms histogram');
+  for (let i = 0; i < metrics.tickDuration.buckets.length; i++) {
+    lines.push(
+      `aquapilot_tick_duration_ms_bucket{le="${metrics.tickDuration.buckets[i]}"} ${metrics.tickDuration.counts[i]}`,
+    );
+  }
+  lines.push(`aquapilot_tick_duration_ms_bucket{le="+Inf"} ${metrics.tickDuration.count}`);
+  lines.push(`aquapilot_tick_duration_ms_sum ${fmt(metrics.tickDuration.sum)}`);
+  lines.push(`aquapilot_tick_duration_ms_count ${metrics.tickDuration.count}`);
 
   lines.push('# HELP aquapilot_http_request_duration_seconds HTTP request latency');
   lines.push('# TYPE aquapilot_http_request_duration_seconds histogram');
@@ -308,6 +336,12 @@ export function metricsJson(): Record<string, unknown> {
       errors: metrics.tickErrors,
       lastTickMs: Number(metrics.lastTickMs.toFixed(1)),
       maxTickMs: Number(metrics.maxTickMs.toFixed(1)),
+      durationMs: {
+        count: metrics.tickDuration.count,
+        sum: Number(metrics.tickDuration.sum.toFixed(1)),
+        buckets: metrics.tickDuration.buckets,
+        counts: metrics.tickDuration.counts,
+      },
     },
     persistence: { flushes: metrics.persistenceFlushes, errors: metrics.persistenceErrors },
     slo: SLO,
@@ -335,4 +369,5 @@ export function resetMetrics(): void {
   metrics.persistenceErrors = 0;
   metrics.lastTickMs = 0;
   metrics.maxTickMs = 0;
+  metrics.tickDuration = newTickHistogram([5, 10, 25, 50, 100, 250, 500, 1000, 2500]);
 }

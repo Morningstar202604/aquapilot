@@ -163,3 +163,23 @@ describe('指标采集', () => {
     }
   });
 });
+
+describe('tick 耗时直方图（支撑 SLO 的 p99）', () => {
+  it('按桶累计并能算出 p99', () => {
+    resetMetrics();
+    for (const ms of [1, 2, 3, 4, 5, 10, 20, 40, 80, 120, 200, 400, 800, 1100]) recordTick(ms);
+    const text = renderPrometheus();
+    expect(text).toContain('aquapilot_tick_duration_ms_bucket{le="1000"} 13');
+    expect(text).toContain('aquapilot_tick_duration_ms_count 14');
+    const json = metricsJson() as { simulation: { durationMs: { count: number; counts: number[] } } };
+    expect(json.simulation.durationMs.count).toBe(14);
+    expect(json.simulation.durationMs.counts.at(-1)).toBe(14);
+  });
+
+  it('resetMetrics 清空直方图', () => {
+    recordTick(500);
+    resetMetrics();
+    const json = metricsJson() as { simulation: { durationMs: { count: number } } };
+    expect(json.simulation.durationMs.count).toBe(0);
+  });
+});

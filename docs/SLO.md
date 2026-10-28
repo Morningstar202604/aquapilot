@@ -7,7 +7,7 @@ The code is the source of truth; if the two disagree, the code wins.
 |---|---|---|---|
 | Availability | 99.5% of requests non-5xx | 30 days | `aquapilot_http_errors_total` ÷ `aquapilot_http_requests_total` |
 | API latency | p95 < 300 ms | 30 days | `aquapilot_http_request_duration_seconds` histogram |
-| Simulation tick budget | p99 < 1000 ms | 1 hour | `aquapilot_tick_duration_max_ms` (per-process gauge) |
+| Simulation tick budget | p99 < 1000 ms | 1 hour | `histogram_quantile(0.99, aquapilot_tick_duration_ms_bucket)` |
 | WebSocket stability | unexpected disconnects < 1% | 24 hours | `aquapilot_ws_disconnections_total` ÷ accepted |
 
 ## Endpoints
@@ -35,7 +35,7 @@ database inside a simulator would be the wrong trade.
 | Condition | Severity | Meaning |
 |---|---|---|
 | `rate(aquapilot_http_errors_total[5m]) > 0` | page | Requests are failing |
-| `aquapilot_tick_duration_max_ms > 1000` | page | Simulation is falling behind its 1 s cadence |
+| `histogram_quantile(0.99, rate(aquapilot_tick_duration_ms_bucket[5m])) > 1000` | page | Simulation is falling behind its 1 s cadence |
 | `rate(aquapilot_auth_failures_total[5m]) > 10` | ticket | Possible credential stuffing or a misconfigured client |
 | `aquapilot_ws_connections == 0` for 5 min while traffic continues | ticket | Clients cannot keep a live link |
 | `rate(aquapilot_persistence_errors_total[5m]) > 0` | ticket | History is silently not being written |
