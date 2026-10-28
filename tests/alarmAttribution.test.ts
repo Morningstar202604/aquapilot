@@ -167,3 +167,23 @@ describe('全厂健康度', () => {
     expect(LIMITS.ss).toBe(10);
   });
 });
+
+describe('健康度对异常输入的稳健性', () => {
+  it('Infinity / NaN 不会产出 NaN 分或 "Infinity%" 文案', () => {
+    const health = plantHealth({
+      margins: [{ metric: 'TP', ratio: Number.POSITIVE_INFINITY }],
+      lastDo: Number.NaN,
+      doSetpoint: Number.NaN,
+      srtDays: Number.NaN,
+      blanketM: Number.NaN,
+      depth: Number.NaN,
+      activeAlarms: 0,
+    });
+    expect(Number.isFinite(health.score)).toBe(true);
+    expect(['good', 'watch', 'bad']).toContain(health.grade);
+    for (const p of health.parts) {
+      expect(Number.isFinite(p.score)).toBe(true);
+      expect(p.detail).not.toMatch(/NaN|Infinity/);
+    }
+  });
+});

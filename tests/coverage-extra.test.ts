@@ -216,3 +216,26 @@ describe('空反应器列表的防御分支', () => {
     expect(snap.reactorCount).toBe(0);
   });
 });
+
+describe('出水评分的非有限输入', () => {
+  it('NaN 指标不会让评分变成 NaN 或 0', () => {
+    const base = { flow: 1000, cod: 20, bod: 5, ss: 5, nh: 1, tn: 8, tp: 0.2, ph: 7, temperature: 20 };
+    const normal = qualityScore(base);
+    expect(Number.isFinite(normal)).toBe(true);
+    expect(normal).toBeGreaterThan(0);
+    const withNan = qualityScore({ ...base, nh: Number.NaN });
+    expect(Number.isFinite(withNan)).toBe(true);
+    expect(withNan).toBe(0);
+  });
+});
+
+describe('裕度表的非有限输入', () => {
+  it('NaN 指标不会让排序结果出现 NaN 比值', () => {
+    const base = { flow: 1000, cod: 20, bod: 5, ss: 5, nh: 1, tn: 8, tp: 0.2, ph: 7, temperature: 20 };
+    const rows = estimateMargin({ ...base, tp: Number.NaN });
+    // 非有限值按「极紧」处理：ratio 是 Infinity 而不是 NaN（NaN 会让排序不确定）
+    expect(rows.every((r) => !Number.isNaN(r.ratio))).toBe(true);
+    expect(rows.every((r) => Number.isFinite(r.value))).toBe(true);
+    expect(rows[0].metric).toBe('TP');
+  });
+});

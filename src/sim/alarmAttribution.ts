@@ -232,21 +232,35 @@ export function plantHealth(input: {
   activeAlarms: number;
 }): PlantHealth {
   const worst = input.margins[0]?.ratio ?? 0;
-  const marginScore = Math.max(0, Math.min(1, (1 - worst) / 0.4)) * 100;
-  const doScore = Math.max(0, Math.min(1, (input.lastDo - 0.8) / Math.max(0.5, input.doSetpoint - 0.8))) * 100;
-  const srtScore = Math.max(0, Math.min(1, (input.srtDays - 6) / 8)) * 100;
-  const blanketScore = Math.max(0, Math.min(1, 1 - input.blanketM / Math.max(0.1, input.depth - 0.4))) * 100;
+  /**
+   * Infinity / NaN 必须收敛成可显示的有限值。
+   *
+   * estimateMargin 对非有限输入返回 Infinity（表示「极紧」），
+   * 直接参与 `(worst * 100).toFixed(0)` 会渲染成 "Infinity%"，
+   * 加权分也会变成 NaN 并让整厂健康度显示 null。
+   */
+  const worstSafe = Number.isFinite(worst) ? worst : 100;
+  const marginScore = Math.max(0, Math.min(1, (1 - worstSafe) / 0.4)) * 100;
+  const finiteOr = (v: number, fallback: number) => (Number.isFinite(v) ? v : fallback);
+  const lastDo = finiteOr(input.lastDo, 0);
+  const doSetpoint = finiteOr(input.doSetpoint, 2);
+  const srtDays = finiteOr(input.srtDays, 0);
+  const blanketM = finiteOr(input.blanketM, 0);
+  const depth = finiteOr(input.depth, 4);
+  const doScore = Math.max(0, Math.min(1, (lastDo - 0.8) / Math.max(0.5, doSetpoint - 0.8))) * 100;
+  const srtScore = Math.max(0, Math.min(1, (srtDays - 6) / 8)) * 100;
+  const blanketScore = Math.max(0, Math.min(1, 1 - blanketM / Math.max(0.1, depth - 0.4))) * 100;
   const alarmScore = Math.max(0, 100 - input.activeAlarms * 25);
   const parts: HealthPart[] = [
-    { label: '出水裕度', score: marginScore, weight: 0.35, detail: `最紧指标占限值 ${(worst * 100).toFixed(0)}%` },
+    { label: '出水裕度', score: marginScore, weight: 0.35, detail: `最紧指标占限值 ${(worstSafe * 100).toFixed(0)}%` },
     {
       label: '溶解氧',
       score: doScore,
       weight: 0.15,
-      detail: `${input.lastDo.toFixed(2)} / 设定 ${input.doSetpoint.toFixed(1)}`,
+      detail: `${lastDo.toFixed(2)} / 设定 ${doSetpoint.toFixed(1)}`,
     },
-    { label: '污泥龄', score: srtScore, weight: 0.15, detail: `${input.srtDays.toFixed(1)} d` },
-    { label: '二沉池', score: blanketScore, weight: 0.2, detail: `泥位 ${input.blanketM.toFixed(2)} m` },
+    { label: '污泥龄', score: srtScore, weight: 0.15, detail: `${srtDays.toFixed(1)} d` },
+    { label: '二沉池', score: blanketScore, weight: 0.2, detail: `泥位 ${blanketM.toFixed(2)} m` },
     { label: '告警', score: alarmScore, weight: 0.15, detail: `${input.activeAlarms} 条活跃` },
   ];
   const score = Math.round(parts.reduce((sum, p) => sum + p.score * p.weight, 0));

@@ -33,15 +33,22 @@ export function clampControls(c: ControlSettings): ControlSettings {
   };
 }
 
-/** 0–100 的出水综合评分：最差指标超标重罚，整体裕度轻罚 */
+/**
+ * 0–100 的出水综合评分：最差指标超标重罚，整体裕度轻罚。
+ *
+ * 非有限输入按「严重超标」处理而不是让整个分数变 0 或 NaN：
+ * 一个 NaN 指标乘出来会让 `Math.max` 得到 NaN，界面显示 null，
+ * 运营方看不到任何可行动信息。
+ */
 export function qualityScore(e: EffluentState): number {
+  const safe = (v: number) => (Number.isFinite(v) && v >= 0 ? v : LIMITS.cod * 10);
   const ratios = [
-    e.cod / LIMITS.cod,
-    e.bod / LIMITS.bod,
-    e.ss / LIMITS.ss,
-    e.nh / LIMITS.nh,
-    e.tn / LIMITS.tn,
-    e.tp / LIMITS.tp,
+    safe(e.cod) / LIMITS.cod,
+    safe(e.bod) / LIMITS.bod,
+    safe(e.ss) / LIMITS.ss,
+    safe(e.nh) / LIMITS.nh,
+    safe(e.tn) / LIMITS.tn,
+    safe(e.tp) / LIMITS.tp,
   ];
   const worst = Math.max(...ratios);
   const mean = ratios.reduce((a, b) => a + b, 0) / ratios.length;
@@ -55,14 +62,26 @@ export interface MarginRow {
   limit: number;
 }
 
-/** 各指标占限值的比例，按最紧张排序 */
+/**
+ * 各指标占限值的比例，按最紧张排序。
+ *
+ * 比值必须是有限数：NaN 参与 `sort` 会让排序结果不确定，界面上
+ * 「最紧指标」显示 null，AI 的接地事实也会带一个 NaN 百分比。
+ * 非有限值按「极紧」处理（ratio 取一个明确的大数），宁可报警也不静默。
+ */
 export function estimateMargin(e: EffluentState): MarginRow[] {
+  const row = (metric: string, value: number, limit: number): MarginRow => ({
+    metric,
+    ratio: Number.isFinite(value) && value >= 0 ? value / limit : Number.POSITIVE_INFINITY,
+    value: Number.isFinite(value) ? value : 0,
+    limit,
+  });
   return [
-    { metric: 'COD', ratio: e.cod / LIMITS.cod, value: e.cod, limit: LIMITS.cod },
-    { metric: 'BOD₅', ratio: e.bod / LIMITS.bod, value: e.bod, limit: LIMITS.bod },
-    { metric: 'SS', ratio: e.ss / LIMITS.ss, value: e.ss, limit: LIMITS.ss },
-    { metric: 'NH₃-N', ratio: e.nh / LIMITS.nh, value: e.nh, limit: LIMITS.nh },
-    { metric: 'TN', ratio: e.tn / LIMITS.tn, value: e.tn, limit: LIMITS.tn },
-    { metric: 'TP', ratio: e.tp / LIMITS.tp, value: e.tp, limit: LIMITS.tp },
+    row('COD', e.cod, LIMITS.cod),
+    row('BOD₅', e.bod, LIMITS.bod),
+    row('SS', e.ss, LIMITS.ss),
+    row('NH₃-N', e.nh, LIMITS.nh),
+    row('TN', e.tn, LIMITS.tn),
+    row('TP', e.tp, LIMITS.tp),
   ].sort((a, b) => b.ratio - a.ratio);
 }
