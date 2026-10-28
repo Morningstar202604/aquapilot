@@ -60,7 +60,9 @@ function sameOrigin(a: string, b: string): boolean {
   try {
     const ua = new URL(a.trim());
     const ub = new URL(b.trim());
-    return ua.protocol === ub.protocol && ua.hostname.toLowerCase() === ub.hostname.toLowerCase() && ua.port === ub.port;
+    return (
+      ua.protocol === ub.protocol && ua.hostname.toLowerCase() === ub.hostname.toLowerCase() && ua.port === ub.port
+    );
   } catch {
     return false;
   }

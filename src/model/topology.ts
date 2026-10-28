@@ -678,14 +678,8 @@ export function validateTopology(topo: ProcessTopology): TopologyIssue[] {
    * `resolveFlows` 里以 `mainEdge` 为 undefined 抛 TypeError 收场——
    * 校验层必须在这里拦住它，而不是留给求解器崩。
    */
-  const RECYCLE_STREAMS: StreamKind[] = [
-    'return_activated_sludge',
-    'internal_recycle',
-    'waste_sludge',
-  ];
-  const forwardEdges = topo.connections.filter(
-    (c) => !c.recycle && !RECYCLE_STREAMS.includes(c.stream),
-  );
+  const RECYCLE_STREAMS: StreamKind[] = ['return_activated_sludge', 'internal_recycle', 'waste_sludge'];
+  const forwardEdges = topo.connections.filter((c) => !c.recycle && !RECYCLE_STREAMS.includes(c.stream));
   const adjacency = new Map<string, string[]>();
   for (const unit of topo.units) adjacency.set(unit.id, []);
   for (const c of forwardEdges) adjacency.get(c.from.unit)?.push(c.to.unit);

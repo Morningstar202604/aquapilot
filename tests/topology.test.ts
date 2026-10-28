@@ -414,14 +414,12 @@ describe('拓扑校验：环路、端口方向与主序列重复', () => {
       const storage = topo.units.find((u) => u.kind === 'storage');
       const pre = topo.units.find((u) => u.id === 'screening') ?? topo.units[1];
       if (!storage || !pre) return;
-      topo.connections.push(
-        {
-          id: 'cyc-1',
-          from: { unit: storage.id, port: 'out' },
-          to: { unit: pre.id, port: 'in' },
-          stream: 'influent',
-        } as ProcessTopology['connections'][number],
-      );
+      topo.connections.push({
+        id: 'cyc-1',
+        from: { unit: storage.id, port: 'out' },
+        to: { unit: pre.id, port: 'in' },
+        stream: 'influent',
+      } as ProcessTopology['connections'][number]);
     });
     const issues = validateTopology(t);
     expect(issues.some((i) => i.code === 'CYCLE' && i.severity === 'error')).toBe(true);

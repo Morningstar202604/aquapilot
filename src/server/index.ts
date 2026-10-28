@@ -34,7 +34,7 @@ import { buildOperationsReport, decisionsCsv, snapshotsCsv } from './export';
 import { takeNewPoints, syncCursorToBuffer } from './trendCursor';
 import { createShadowPlant, stepShadow, summarizeBenchmark, type ShadowPlant } from './benchmark';
 import { llmConfigStore, sanitizeDraft } from './llmConfig';
-import { assertSafeBaseUrl, discoverModels, testConnection } from '../ai/providers';
+import { assertPublicFetchUrl, discoverModels, testConnection } from '../ai/providers';
 import { agentConfigStore } from './agentConfig';
 import { HookRuntime } from './hooks';
 import { parseAgentCommand } from './agentConfigCommands';
@@ -58,9 +58,22 @@ import {
   sanitizeSpeed,
 } from './validation';
 
-const PORT = Number(process.env.PORT ?? 5173);
-const TICK_MS = Number(process.env.TICK_MS ?? 1000);
-const SIM_MINUTES_PER_TICK = Number(process.env.SIM_MINUTES_PER_TICK ?? 2);
+/**
+ * 环境变量必须校验后再用。
+ *
+ * `Number('abc')` 是 NaN：PORT=NaN 会让 listen 抛错，TICK_MS=NaN 会让
+ * setInterval 退化成 1 ms 忙循环（直接把 CPU 打满）。给每个变量一个
+ * 合理区间与默认值，非法输入降级而不是让进程异常。
+ */
+function envNumber(name: string, fallback: number, min: number, max: number): number {
+  const raw = Number(process.env[name]);
+  if (!Number.isFinite(raw) || raw < min || raw > max) return fallback;
+  return raw;
+}
+
+const PORT = envNumber('PORT', 5173, 1, 65535);
+const TICK_MS = envNumber('TICK_MS', 1000, 50, 60_000);
+const SIM_MINUTES_PER_TICK = envNumber('SIM_MINUTES_PER_TICK', 2, 0.1, 60);
 /** 人工调整后的 AI 静默期（仿真分钟） */
 const MANUAL_OVERRIDE_MIN = 30;
 const TREND_EVERY_TICKS = 10;
@@ -124,6 +137,8 @@ interface Runtime {
   recommendation: Recommendation | null;
   trend: TrendPoint[];
   tick: number;
+  /** 小数步长的累积余量（分钟）：低倍速下每帧不足 1 分钟时靠它补齐 */
+  simCarryMin: number;
   /** 上次决策的仿真时刻（分钟）：决策节拍按仿真时间而不是 tick 次数 */
   lastDecisionAtMin: number;
   clients: Set<WebSocket>;
@@ -188,6 +203,7 @@ const runtime: Runtime = {
   recommendation: null,
   trend: [],
   tick: 0,
+  simCarryMin: 0,
   lastDecisionAtMin: 0,
   clients: new Set(),
   clientState: new Map(),
@@ -745,8 +761,17 @@ function runAiCycle(force = false): Recommendation {
 
 function advance(): void {
   const s = runtime.net;
-  const dt = SIM_MINUTES_PER_TICK * runtime.speed;
-  const steps = Math.max(1, Math.round(dt));
+  /**
+   * 倍速必须是真的倍速。
+   *
+   * 旧实现 `Math.round(SIM_MINUTES_PER_TICK * speed)` 把 dt 取整成步数：
+   * 0.25× 时 2×0.25=0.5 → round = 1，实际速度与 1× 完全相同，
+   * 界面上的 0.25×/0.5× 档位是假的。改为按小数步长推进，
+   * 步数向下取整、余量累积到下一帧，长期平均速度才准确。
+   */
+  runtime.simCarryMin += SIM_MINUTES_PER_TICK * runtime.speed;
+  const steps = Math.floor(runtime.simCarryMin);
+  runtime.simCarryMin -= steps;
   for (let i = 0; i < steps; i++) {
     stepNetwork(s, runtime.topology, 1);
     runtime.tick += 1;
@@ -1333,6 +1358,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         runtime.trend = [];
         runtime.recommendation = null;
         runtime.tick = 0;
+        runtime.simCarryMin = 0;
         runtime.lastDecisionAtMin = 0;
         runtime.paused = false;
         broadcast({ type: 'notice', level: 'info', text: '仿真已重置到初始稳态。' });
@@ -1384,7 +1410,11 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
        */
       if (rateLimited(ws, 'topology')) {
         ws.send(
-          JSON.stringify({ type: 'notice', level: 'error', text: '工艺切换过于频繁，请稍后再试' } satisfies ServerMessage),
+          JSON.stringify({
+            type: 'notice',
+            level: 'error',
+            text: '工艺切换过于频繁，请稍后再试',
+          } satisfies ServerMessage),
         );
         break;
       }
@@ -1683,10 +1713,7 @@ async function handleLlmConfig(ws: WebSocket, msg: Extract<ClientMessage, { type
       const models = await discoverModels({
         protocol: msg.protocol,
         baseUrl: msg.baseUrl,
-        apiKey: llmConfigStore.resolveKey(
-          typeof msg.apiKey === 'string' ? msg.apiKey.trim() : '',
-          msg.baseUrl,
-        ),
+        apiKey: llmConfigStore.resolveKey(typeof msg.apiKey === 'string' ? msg.apiKey.trim() : '', msg.baseUrl),
       });
       send({ type: 'llmConfig', action: 'discovered', requestId: msg.requestId, models });
     } catch (err) {
@@ -1712,10 +1739,7 @@ async function handleLlmConfig(ws: WebSocket, msg: Extract<ClientMessage, { type
     const result = await testConnection({
       protocol: msg.protocol,
       baseUrl: msg.baseUrl,
-      apiKey: llmConfigStore.resolveKey(
-        typeof msg.apiKey === 'string' ? msg.apiKey.trim() : '',
-        msg.baseUrl,
-      ),
+      apiKey: llmConfigStore.resolveKey(typeof msg.apiKey === 'string' ? msg.apiKey.trim() : '', msg.baseUrl),
       model: msg.model.trim(),
       maxOutput: typeof msg.maxOutput === 'number' ? msg.maxOutput : undefined,
     });
@@ -1851,11 +1875,16 @@ async function handleAgentConfig(ws: WebSocket, msg: Extract<ClientMessage, { ty
        */
       if (!content && typeof incoming?.url === 'string' && incoming.url.trim()) {
         try {
-          const url = assertSafeBaseUrl(incoming.url.trim());
+          /**
+           * 抓取用严格公网守卫，而不是模型端点的宽松守卫：
+           * 抓回的正文会写进技能、并在 agentConfig/get 里原样回传，
+           * 允许私网就等于给任意客户端一个可读的内网探测器。
+           */
+          const url = assertPublicFetchUrl(incoming.url.trim());
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 10000);
           try {
-            const res = await fetch(url.toString(), { signal: controller.signal });
+            const res = await fetch(url.toString(), { signal: controller.signal, redirect: 'manual' });
             if (!res.ok) {
               send({ type: 'agentConfig', action: 'error', requestId, error: `导入失败：HTTP ${res.status}` });
               return;
@@ -2114,7 +2143,6 @@ async function main(): Promise<void> {
   });
 
   function handleHttpRequest(req: IncomingMessage, res: import('node:http').ServerResponse): void {
-
     /**
      * 访问控制只作用于 API 与 WebSocket，不拦静态资源。
      *

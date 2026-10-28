@@ -1,5 +1,5 @@
 import type { AgentConfig, HookSpec } from '../shared/agentConfig';
-import { assertSafeBaseUrl } from '../ai/providers';
+import { assertPublicFetchUrl } from '../ai/providers';
 import { logger } from './observability';
 
 /**
@@ -104,7 +104,14 @@ export class HookRuntime {
         });
       } else if (hook.action === 'webhook') {
         try {
-          assertSafeBaseUrl(hook.target);
+          /**
+           * webhook 也必须用严格公网守卫。
+           *
+           * 宽松守卫允许私网（模型端点需要），但 webhook 的目标来自
+
+           * 界面配置，能打到 127.0.0.1 就等于给了一个内网请求触发器。
+           */
+          assertPublicFetchUrl(hook.target);
         } catch (err) {
           logger.warn('hook webhook rejected', { hook: hook.name, reason: String(err) });
           return { ...base, text: '', skipped: 'unsafe-target' };

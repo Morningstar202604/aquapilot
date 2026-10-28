@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AGENT_LIMITS,
   CONTROL_KEYS,
@@ -73,6 +73,22 @@ export function AgentSettingsPanel({ agent, open, onClose }: Props) {
     if (!dirty && cfg) setDraft(cfg);
   }, [cfg, dirty]);
 
+  /**
+   * 保存完成后再清 dirty。
+   *
+   * 保存期间保持 dirty=true 才不会让上面的 effect 用旧 cfg 覆盖草稿；
+   * 只有在 saving 由 true 回到 false 且没有报错（即服务端已确认并回传新
+   * 配置）时才认为草稿已落盘。
+   */
+  const wasSaving = useRef(false);
+  useEffect(() => {
+    if (wasSaving.current && !agent.saving && !agent.lastError) {
+      setDraft((prev) => (agent.config && JSON.stringify(agent.config) !== JSON.stringify(prev) ? agent.config : prev));
+      setDirty(false);
+    }
+    wasSaving.current = agent.saving;
+  }, [agent.saving, agent.lastError, agent.config]);
+
   const update = useCallback((mut: (c: AgentConfig) => AgentConfig) => {
     setDraft((prev) => (prev ? mut(JSON.parse(JSON.stringify(prev)) as AgentConfig) : prev));
     setDirty(true);
@@ -108,8 +124,15 @@ export function AgentSettingsPanel({ agent, open, onClose }: Props) {
   };
 
   const save = () => {
+    /**
+     * 不能在发出保存请求时就清 dirty。
+     *
+     * `save` 是异步 WS 往返；提前置 dirty=false 会让下面那个
+     * `[cfg, dirty]` effect 立刻用**旧的服务端配置**覆盖 draft：
+     * 保存失败时用户所有未保存的编辑凭空消失，成功时也会先回滚再跳新值。
+     * 保持 dirty 到保存被确认（saved 回调里 reload 后 cfg 更新）为止。
+     */
     agent.save(draft);
-    setDirty(false);
   };
   const revert = () => {
     setDraft(cfg);

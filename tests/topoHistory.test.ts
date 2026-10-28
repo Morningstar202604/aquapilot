@@ -3,6 +3,7 @@ import { PLANT_TOPOLOGY, ProcessTopology } from '../src/model/topology';
 import {
   HISTORY_CAP,
   MERGE_WINDOW_MS,
+  pureTopology,
   canRedoHistory,
   canUndoHistory,
   commitHistory,
@@ -83,5 +84,18 @@ describe('拓扑编辑历史（撤销/重做）', () => {
       steps += 1;
     }
     expect(h.idx).toBe(0);
+  });
+});
+
+describe('历史条目内部字段不得泄漏到拓扑', () => {
+  it('pureTopology 去掉 __t，使 dirty 比较与提交内容正确', () => {
+    const seeded = seedHistory(emptyHistory(), PLANT_TOPOLOGY);
+    const changed = { ...PLANT_TOPOLOGY, name: '改过的厂名' };
+    const h = commitHistory(seeded, changed, 1000);
+    const entry = h.stack[h.idx];
+    expect((entry as { __t?: number }).__t).toBe(1000);
+    const pure = pureTopology(entry);
+    expect('__t' in pure).toBe(false);
+    expect(JSON.stringify(pure)).toBe(JSON.stringify(changed));
   });
 });

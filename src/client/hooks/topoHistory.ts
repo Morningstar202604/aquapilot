@@ -19,6 +19,18 @@ export interface TopoHistory {
 export const HISTORY_CAP = 30;
 export const MERGE_WINDOW_MS = 800;
 
+/**
+ * 去掉历史条目上的内部字段，得到可比较/可提交的纯拓扑。
+ *
+ * 历史条目带 `__t`（合并窗口的时间戳）。直接拿整条 entry 与已应用的
+ * 拓扑做 JSON 比较，两者永远不相等——界面会一直显示「草稿未应用」，
+ * 即使用户把图改回原样也脏；提交给服务端时还会多带一个未知字段。
+ */
+export function pureTopology(entry: HistoryEntry): ProcessTopology {
+  const { __t: _ignored, ...rest } = entry;
+  return rest as ProcessTopology;
+}
+
 export function emptyHistory(): TopoHistory {
   return { stack: [], idx: -1 };
 }

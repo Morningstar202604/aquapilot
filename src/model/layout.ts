@@ -179,8 +179,7 @@ export function layoutTopology(
   // 污泥线：对齐到二沉池正下方，让"泥从哪来"一眼可见
   const sludgeY = utilBottom + gapY;
   const clarifierX =
-    nodeMap.get('clarifier')?.x ??
-    (nodeMap.size > 0 ? Math.max(...[...nodeMap.values()].map((n) => n.x)) - 300 : PAD);
+    nodeMap.get('clarifier')?.x ?? (nodeMap.size > 0 ? Math.max(...[...nodeMap.values()].map((n) => n.x)) - 300 : PAD);
   let sludgeCursor = Math.max(PAD, clarifierX - 60);
   for (const unit of sludges) {
     const size = sizeOf(unit);

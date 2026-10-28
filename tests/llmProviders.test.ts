@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ProviderError,
+  assertPublicFetchUrl,
   assertSafeBaseUrl,
   chatComplete,
   describeHttpFailure,
@@ -358,5 +359,28 @@ describe('能力自动匹配', () => {
     expect(masked.endsWith('mnop')).toBe(true);
     expect(masked).not.toContain('abcdefghij');
     expect(maskApiKey('short')).toBe('••••');
+  });
+});
+
+describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
+  it('拒绝内网、回环、链路本地与 .local', () => {
+    for (const u of [
+      'http://127.0.0.1:8500/v1/status',
+      'http://localhost:3000/',
+      'http://10.0.0.5/',
+      'http://192.168.1.1/',
+      'http://172.16.0.1/',
+      'http://169.254.169.254/latest/meta-data',
+      'http://[::1]/',
+      'http://router.local/',
+      'http://metadata.google.internal/',
+    ]) {
+      expect(() => assertPublicFetchUrl(u)).toThrow();
+    }
+  });
+
+  it('放行真正的公网地址', () => {
+    expect(assertPublicFetchUrl('https://example.com/doc.md').hostname).toBe('example.com');
+    expect(assertPublicFetchUrl('https://docs.example.org/a/b').hostname).toBe('docs.example.org');
   });
 });

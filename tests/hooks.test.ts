@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HookRuntime, type HookEffects } from '../src/server/hooks';
+import { HookRuntime, type HookEffects, type HookOutcome } from '../src/server/hooks';
 import { defaultAgentConfig, type AgentConfig, type HookSpec } from '../src/shared/agentConfig';
 
 /**
@@ -225,5 +225,28 @@ describe('Webhook 权限与 SSRF', () => {
     ];
     await rt.fire(c, { event: 'alarm', detail: 'x', key: 'x' });
     expect(effects.notices).toEqual(['第二个']);
+  });
+});
+
+describe('Webhook 只允许公网目标', () => {
+  it('回环与私网地址被拒绝（防止把 webhook 当成内网探测器）', async () => {
+    const outcomes: HookOutcome[] = [];
+    const runtime = new HookRuntime({
+      notice: () => {},
+      skill: () => {},
+      logLine: () => {},
+      webhook: async () => {
+        outcomes.push({} as HookOutcome);
+        return true;
+      },
+    });
+    for (const target of ['http://127.0.0.1:8500/admin', 'http://10.1.2.3/x', 'http://localhost/x']) {
+      const c = defaultAgentConfig();
+      c.permission = 'open';
+      c.hooks = [hook({ action: 'webhook', target })];
+      const res = await runtime.fire(c, { event: 'alarm', detail: 'x', key: 'x' });
+      expect(res[0].skipped).toBe('unsafe-target');
+    }
+    expect(outcomes).toHaveLength(0);
   });
 });

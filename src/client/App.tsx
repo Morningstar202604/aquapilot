@@ -5,6 +5,7 @@ import {
   canUndoHistory,
   commitHistory,
   emptyHistory,
+  pureTopology,
   redoHistory,
   seedHistory,
   undoHistory,
@@ -51,7 +52,7 @@ export default function App() {
    * 具体合并/裁剪逻辑在 hooks/topoHistory（纯函数，有单测）。
    */
   const [hist, setHist] = useState(emptyHistory);
-  const draft: ProcessTopology | null = hist.idx >= 0 ? hist.stack[hist.idx] : null;
+  const draft: ProcessTopology | null = hist.idx >= 0 ? pureTopology(hist.stack[hist.idx]) : null;
   const canUndo = canUndoHistory(hist);
   const canRedo = canRedoHistory(hist);
 

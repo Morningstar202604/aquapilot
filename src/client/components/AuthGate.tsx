@@ -7,7 +7,7 @@ import { useEffect, useState, type ReactNode } from 'react';
  * 令牌存 sessionStorage，不落 localStorage：关闭标签页即失效，减少泄露面。
  */
 export function AuthGate({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<'checking' | 'open' | 'locked'>('checking');
+  const [state, setState] = useState<'checking' | 'open' | 'locked' | 'unreachable'>('checking');
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -44,7 +44,17 @@ export function AuthGate({ children }: { children: ReactNode }) {
           setState('locked');
         }
       } catch {
-        if (!cancelled) setState('open');
+        /**
+         * 探测失败不能 fail-open。
+         *
+         * 旧实现在这里直接进应用：如果服务端其实启用了令牌（只是这次探测
+         * 网络抖动/代理超时），WebSocket 会一直被拒，界面停在「断线重连」，
+         * 而且再也拿不到令牌输入框。失败必须显示可重试的提示。
+         */
+        if (!cancelled) {
+          setError('无法确认访问策略（服务不可达），请检查服务后重试');
+          setState('unreachable');
+        }
       }
     })();
     return () => {
@@ -83,6 +93,26 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (state === 'checking') return <div className="loading">检查访问权限…</div>;
   if (state === 'open') return <>{children}</>;
+  if (state === 'unreachable') {
+    return (
+      <div className="auth-gate">
+        <div className="auth-card">
+          <div className="auth-brand">AQUAPILOT</div>
+          <p className="auth-hint">{error ?? '无法连接仿真服务。'}</p>
+          <button
+            className="auth-submit"
+            onClick={() => {
+              setError(null);
+              setState('checking');
+              window.location.reload();
+            }}
+          >
+            重试
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="auth-gate">

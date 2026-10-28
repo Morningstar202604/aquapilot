@@ -168,9 +168,7 @@ export function useSimulation() {
        */
       let ws: WebSocket;
       try {
-        ws = token
-          ? new WebSocket(url, [encodeWsTokenSubprotocol(token)])
-          : new WebSocket(url);
+        ws = token ? new WebSocket(url, [encodeWsTokenSubprotocol(token)]) : new WebSocket(url);
       } catch (err) {
         setLink({ connected: false, error: `无法建立连接：${String(err)}`, lastUpdateAt: null });
         retry.current += 1;

@@ -41,7 +41,10 @@ export function normalizeBaseUrl(raw: string): string {
 
 /** 主机名归一：小写、去尾点、IPv6 去方括号 */
 function canonicalHost(hostname: string): string {
-  return hostname.toLowerCase().replace(/\.+$/, '').replace(/^\[|\]$/g, '');
+  return hostname
+    .toLowerCase()
+    .replace(/\.+$/, '')
+    .replace(/^\[|\]$/g, '');
 }
 
 /**
@@ -108,6 +111,39 @@ export function assertSafeBaseUrl(raw: string): URL {
   const host = canonicalHost(url.hostname);
   if (BLOCKED_HOSTS.has(host) || isDangerousIpv4(host) || isDangerousIpv6(host)) {
     throw new ProviderError('该地址属于云元数据或链路本地服务，禁止访问');
+  }
+  return url;
+}
+
+/**
+ * 严格公网守卫（供「服务端主动抓取第三方内容」的场景使用）。
+ *
+ * `assertSafeBaseUrl` 故意允许私网（自建 Ollama 需要），但同一份守卫
+ * 被技能 URL 导入复用时就成了**可回读的内网 SSRF**：抓回正文写进技能，
+ * 再通过 agentConfig/get 原样返回给攻击者。
+ * 因此抓取类场景必须额外拒绝回环、私网、链路本地与 .local 域名。
+ */
+const PRIVATE_HOST_PATTERNS = [
+  /^localhost$/,
+  /^127\./,
+  /^10\./,
+  /^192\.168\./,
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^169\.254\./,
+  /^0\./,
+  /^\[?::1\]?$/,
+  /\.local$/,
+  /\.internal$/,
+];
+
+export function assertPublicFetchUrl(raw: string): URL {
+  const url = assertSafeBaseUrl(raw);
+  const host = canonicalHost(url.hostname);
+  if (PRIVATE_HOST_PATTERNS.some((re) => re.test(host))) {
+    throw new ProviderError('该地址属于内网或回环地址，服务端不允许抓取');
+  }
+  if (isDangerousIpv6(host)) {
+    throw new ProviderError('该地址属于内网或回环地址，服务端不允许抓取');
   }
   return url;
 }
