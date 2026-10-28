@@ -296,6 +296,18 @@ export function resolveFlows(
           (x) => !reactorIds.has(x.from) && !x.recycle && x.stream === 'influent',
         );
         const mainEdge = extInfluent.find((x) => x.flowRef === 'influentFlow') ?? extInfluent[0];
+        /**
+         * 找不到外部进水边时必须是语义清晰的错误。
+         *
+         * 旧实现直接 `mainEdge.id`，拓扑若有环路或断链会得到
+         * `TypeError: Cannot read properties of undefined (reading 'id')`，
+         * 排查时完全看不出是哪张图、哪个反应器的问题。
+         */
+        if (!mainEdge) {
+          throw new Error(
+            `反应器 ${reactor.id}（${reactor.name}）没有可用的外部进水边：检查 inlet 到该池的连线与 stream 声明`,
+          );
+        }
         edgeFlow.set(mainEdge.id, inflow - stepFeedFlow);
         qIn += inflow - stepFeedFlow;
         mainEdgeId = mainEdge.id;

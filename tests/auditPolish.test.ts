@@ -121,6 +121,11 @@ describe('AI 决策死区', () => {
   it('没有可执行改动就是 hold', () => {
     expect(actionFor({ gain: 100, tweaks: 0, severity: 'normal', deadband: 18 })).toBe('hold');
   });
+
+  it('critical 即使无改动也不得降级为 hold（风险不能静默）', () => {
+    // 预测已超标、但 guard 已把最优候选压到与当前控制一致：仍必须是 emergency
+    expect(actionFor({ gain: 0, tweaks: 0, severity: 'critical', deadband: 18 })).toBe('emergency');
+  });
 });
 
 describe('增量快照必须刷新预测与双跑', () => {

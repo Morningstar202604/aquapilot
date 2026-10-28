@@ -149,7 +149,15 @@ export function layoutTopology(
    * 再公用工程与污泥（此前只对主线生效，拖鼓风机房/浓缩池完全没反应）。
    */
   const manualMain = applyManualPositions(topo, nodeMap, ['main']);
-  const mainBottom = Math.max(...[...nodeMap.values()].map((n) => n.y + n.h));
+  /**
+   * `Math.max(...[])` 返回 -Infinity。
+   *
+   * 拓扑若没有任何主处理单元（只有 storage、或用户把 train 清空但仍可编辑），
+   * nodeMap 为空 ⇒ mainBottom = -Infinity ⇒ 公用工程的 y 变成 -Infinity
+   * （JSON 序列化成 null）⇒ 画布高度塌成 22 px，整个编辑器空白。
+   * 空集合必须退回内边距。
+   */
+  const mainBottom = nodeMap.size > 0 ? Math.max(...[...nodeMap.values()].map((n) => n.y + n.h)) : PAD;
 
   // 公用工程：吸附在其主要输出目标的正下方，避免斜跨主线
   const utilY = mainBottom + gapY;
@@ -170,7 +178,9 @@ export function layoutTopology(
 
   // 污泥线：对齐到二沉池正下方，让"泥从哪来"一眼可见
   const sludgeY = utilBottom + gapY;
-  const clarifierX = nodeMap.get('clarifier')?.x ?? Math.max(...[...nodeMap.values()].map((n) => n.x)) - 300;
+  const clarifierX =
+    nodeMap.get('clarifier')?.x ??
+    (nodeMap.size > 0 ? Math.max(...[...nodeMap.values()].map((n) => n.x)) - 300 : PAD);
   let sludgeCursor = Math.max(PAD, clarifierX - 60);
   for (const unit of sludges) {
     const size = sizeOf(unit);
@@ -186,7 +196,20 @@ export function layoutTopology(
 
   const edges = topo.connections.map((conn, i) => placeEdge(conn, nodeMap, i, manual, topo.routes?.[conn.id]));
 
-  const maxX = Math.max(...[...nodeMap.values()].map((n) => n.x + n.w), mainWidth + PAD);
+  /**
+   * 画布尺寸必须包住**边**，不只是节点。
+   *
+   * 用户可以把连线折点拖到很远（或粘贴一张 routes 里带大坐标的拓扑），
+   * 旧实现只按节点算 width/height，超出 viewBox 的部分被直接裁掉，
+   * 表现是「线画到画布外面看不见」。
+   */
+  const routePointsX = topo.connections.flatMap((c) => (topo.routes?.[c.id] ?? []).map((pt) => pt.x));
+  const routePointsY = topo.connections.flatMap((c) => (topo.routes?.[c.id] ?? []).map((pt) => pt.y));
+  const maxX = Math.max(
+    ...[...nodeMap.values()].map((n) => n.x + n.w),
+    mainWidth + PAD,
+    ...(routePointsX.length ? routePointsX : [0]),
+  );
   /**
    * 画布高度按内容收口。
    *
@@ -194,9 +217,9 @@ export function layoutTopology(
    * 节点下方很远；同时 `edges` 参与的 max 会把高度撑到不需要的位置。
    * 这里只取「节点底边」与「回流线实际折返点」的较大者，避免大片空白。
    */
-  const nodeBottom = Math.max(...[...nodeMap.values()].map((n) => n.y + n.h));
+  const nodeBottom = nodeMap.size > 0 ? Math.max(...[...nodeMap.values()].map((n) => n.y + n.h)) : PAD;
   const edgeBottom = edges.reduce((m, e) => Math.max(m, e.labelY + 8), 0);
-  const maxY = Math.max(nodeBottom, edgeBottom);
+  const maxY = Math.max(nodeBottom, edgeBottom, ...(routePointsY.length ? routePointsY : [0]));
 
   return {
     nodes: [...nodeMap.values()],

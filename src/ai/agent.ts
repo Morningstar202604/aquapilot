@@ -13,6 +13,8 @@ export interface ScoredCandidate extends DecisionCandidate {
 
 export interface DecisionCandidate {
   label: string;
+  /** 模型输出非有限（NaN/Inf）时标记；这类候选不参与排序，也不得被执行 */
+  invalid?: boolean;
   controls: ControlSettings;
   score: number;
   violations: number;
@@ -200,10 +202,27 @@ function scoreCandidate(
   const score =
     600 + qualityBonus - compliancePenalty - marginPenalty - costPenalty - instability - srtCost - movementPenalty;
 
+  /**
+   * 模型输出必须是有限数。
+   *
+   * 求解器一旦出现 NaN（参数越界、极端拓扑、数值发散），旧实现会把 NaN
+   * 一路带进排序：比较全为 false，severity 判成 normal，summary 写成
+   * 「工况稳定」，而 clampControls 的 Math.min/max 对 NaN 也原样返回，
+   * 最终把 NaN 写回控制量。这里标记为 invalid，由 decide 统一排除。
+   */
+  const finite =
+    Number.isFinite(score) &&
+    Number.isFinite(worstRatio) &&
+    Number.isFinite(quality) &&
+    Number.isFinite(result.costDelta) &&
+    Number.isFinite(result.peakEnergyKw) &&
+    Number.isFinite(result.endSrt);
+
   return {
     label: '',
+    invalid: !finite,
     controls,
-    score,
+    score: finite ? score : Number.NEGATIVE_INFINITY,
     violations: violationCount,
     worstRatio,
     cost: result.costDelta,
@@ -298,6 +317,13 @@ export function decide(context: DecisionContext): Recommendation {
     candidates.push(scored);
   };
 
+  /**
+   * 「维持现状」必须按**真实的当前控制量**评分。
+   *
+   * 旧实现把 base 也过了一遍 applyGuard：guard 的下限（如 pacDose 18、
+   * doSetpoint 1.5）会把 hold 改写成一组从未被评估为「现状」的控制量。
+   * 后果是 `chosens.controls` 与界面上的当前值不一致，且死区比较基准错误。
+   */
   add('hold', base);
 
   for (const key of KEY_ORDER) {
@@ -335,6 +361,44 @@ export function decide(context: DecisionContext): Recommendation {
     }),
   );
 
+  /**
+   * 排除模型输出非有限的候选。
+   * 全部候选都非法时给出显式状态，而不是让 NaN 继续走到执行层。
+   */
+  const validCandidates = candidates.filter((c) => !c.invalid);
+  if (validCandidates.length === 0) {
+    const holdFallback: ScoredCandidate = {
+      label: CANDIDATE_NAMES.hold,
+      controls: base,
+      score: 0,
+      violations: 0,
+      worstRatio: 0,
+      cost: 0,
+      energyPeak: state.energy.totalKw,
+      quality: 0,
+      predictedEffluent: state.effluent,
+      endSrt: state.srtDays,
+      endBlanket: state.clarifier.blanketM,
+      exceedanceProbability: null,
+    };
+    return {
+      action: 'hold',
+      severity: 'critical',
+      summary: '模型输出异常（预测结果非有限值），已停止自动调节，请检查工艺参数或重置仿真。',
+      rationale: ['至少一个候选的预测值出现 NaN/Inf，说明当前求解状态已不可信。'],
+      chosens: holdFallback,
+      alternatives: [],
+      predictedEffluent: state.effluent,
+      predictedScore: 0,
+      horizonMin,
+      separation: 0,
+      risks: ['预测不可信：模型输出非有限值'],
+      tweaks: [],
+      generatedAt: state.timeMin,
+      ensemble: null,
+      robustEvaluated: false,
+    };
+  }
   candidates.sort((a, b) => b.score - a.score);
 
   /**
@@ -357,8 +421,8 @@ export function decide(context: DecisionContext): Recommendation {
      * 决策周期是 30 s 实时时间，200 ms 的可控阻塞不会挤掉 tick。
      */
     const topN = Math.max(1, context.robustTopN ?? 3);
-    const shortlist = candidates.slice(0, topN);
-    const holdCandidate = candidates.find((c) => c.label === CANDIDATE_NAMES.hold);
+    const shortlist = validCandidates.slice(0, topN);
+    const holdCandidate = validCandidates.find((c) => c.label === CANDIDATE_NAMES.hold);
     if (holdCandidate && !shortlist.includes(holdCandidate)) shortlist.push(holdCandidate);
     for (const candidate of shortlist) {
       const ens = forecastEnsemble(model, candidate.controls, horizonMin, 30, qualityScore);
@@ -493,8 +557,15 @@ export function actionFor(input: {
   severity: 'normal' | 'watch' | 'critical';
   deadband: number;
 }): 'hold' | 'adjust' | 'emergency' {
-  if (input.tweaks <= 0) return 'hold';
+  /**
+   * critical 必须在死区与「无改动」判断之前。
+   *
+   * 旧顺序先判 `tweaks <= 0` 再判 critical：预测到出水超标、但最优候选
+   * 恰好与当前控制一致时（真实现象：guard 已把控制推到边界），
+   * 动作被降级成 hold，摘要还写「工况稳定」，风险被静默吞掉。
+   */
   if (input.severity === 'critical') return 'emergency';
+  if (input.tweaks <= 0) return 'hold';
   if (input.gain < input.deadband) return 'hold';
   return 'adjust';
 }

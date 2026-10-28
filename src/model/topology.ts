@@ -551,6 +551,44 @@ export function validateTopology(topo: ProcessTopology): TopologyIssue[] {
     }
   }
 
+  /**
+   * 连接必须从 out 端口到 in 端口。
+   *
+   * 此前只校验「端口存在 + 目标端口 stream 兼容」，于是把 blower.air(out)
+   * 当成源、声明成 influent 接到 aerobic.feed(in) 也能通过，导致该边被当作
+   * 主进水边分走全部流量、真实进水边变成 0。方向与声明流股都必须一致。
+   */
+  const portById = new Map<string, Map<string, Port>>();
+  for (const unit of topo.units) portById.set(unit.id, new Map(unit.ports.map((p) => [p.id, p])));
+  for (const conn of topo.connections) {
+    const fromPort = portById.get(conn.from.unit)?.get(conn.from.port);
+    const toPort = portById.get(conn.to.unit)?.get(conn.to.port);
+    if (fromPort && fromPort.kind !== 'out') {
+      issues.push({
+        severity: 'error',
+        code: 'BAD_PORT_DIRECTION',
+        message: `${conn.id} 的起点必须是出口端口，${conn.from.unit}.${conn.from.port} 是入口`,
+        connectionId: conn.id,
+      });
+    }
+    if (toPort && toPort.kind !== 'in') {
+      issues.push({
+        severity: 'error',
+        code: 'BAD_PORT_DIRECTION',
+        message: `${conn.id} 的终点必须是入口端口，${conn.to.unit}.${conn.to.port} 是出口`,
+        connectionId: conn.id,
+      });
+    }
+    if (fromPort && fromPort.stream !== conn.stream && fromPort.stream !== 'mixed_liquor') {
+      issues.push({
+        severity: 'error',
+        code: 'STREAM_DECLARED_MISMATCH',
+        message: `${conn.id} 声明为 ${conn.stream}，但源端口 ${conn.from.unit}.${conn.from.port} 输送的是 ${fromPort.stream}`,
+        connectionId: conn.id,
+      });
+    }
+  }
+
   // 流股兼容性：某些物流不能接到不匹配的入口
   const STREAM_COMPAT: Record<string, StreamKind[]> = {
     air: ['air'],
@@ -629,6 +667,57 @@ export function validateTopology(topo: ProcessTopology): TopologyIssue[] {
     }
     if (unit.kind !== 'outlet' && unit.kind !== 'dewatering' && unit.kind !== 'storage' && !hasOut) {
       issues.push({ severity: 'warning', code: 'NO_OUTPUT', message: `${unit.name} 没有出口物流`, unitId: unit.id });
+    }
+  }
+
+  /**
+   * 环路检测（非回流边）。
+   *
+   * `compileNetwork` 只对反应器子图做拓扑排序；inlet→pre→storage→pre 这类
+   * 非反应器环路能通过端口/流股校验与 checkRunReadiness，然后在
+   * `resolveFlows` 里以 `mainEdge` 为 undefined 抛 TypeError 收场——
+   * 校验层必须在这里拦住它，而不是留给求解器崩。
+   */
+  const RECYCLE_STREAMS: StreamKind[] = [
+    'return_activated_sludge',
+    'internal_recycle',
+    'waste_sludge',
+  ];
+  const forwardEdges = topo.connections.filter(
+    (c) => !c.recycle && !RECYCLE_STREAMS.includes(c.stream),
+  );
+  const adjacency = new Map<string, string[]>();
+  for (const unit of topo.units) adjacency.set(unit.id, []);
+  for (const c of forwardEdges) adjacency.get(c.from.unit)?.push(c.to.unit);
+  const WHITE = 0;
+  const GRAY = 1;
+  const BLACK = 2;
+  const color = new Map<string, number>();
+  for (const unit of topo.units) color.set(unit.id, WHITE);
+  const cyclePath: string[] = [];
+  const visit = (id: string): boolean => {
+    color.set(id, GRAY);
+    cyclePath.push(id);
+    for (const next of adjacency.get(id) ?? []) {
+      const c = color.get(next) ?? WHITE;
+      if (c === GRAY) {
+        cyclePath.push(next);
+        return true;
+      }
+      if (c === WHITE && visit(next)) return true;
+    }
+    cyclePath.pop();
+    color.set(id, BLACK);
+    return false;
+  };
+  for (const unit of topo.units) {
+    if ((color.get(unit.id) ?? WHITE) === WHITE && visit(unit.id)) {
+      issues.push({
+        severity: 'error',
+        code: 'CYCLE',
+        message: `存在非回流环路：${cyclePath.join(' → ')}。回流物流请显式标记为回流。`,
+      });
+      break;
     }
   }
 

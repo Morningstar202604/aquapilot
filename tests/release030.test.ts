@@ -499,3 +499,30 @@ describe('数字白名单的派生命中（真实使用反馈）', () => {
     expect(numbersAreGrounded('出水 COD 42.42 mg/L。', grounding)).toBe(false);
   });
 });
+
+describe('数字白名单：小整数只放行计数语境', () => {
+  const grounding = buildGroundingText({
+    plant: '澄川',
+    simClock: '第 1 天 00:00',
+    facts: [
+      { label: '出水氨氮', value: '1.20', unit: 'mg/L（限值 5）' },
+      { label: '出水 SS', value: '7.3', unit: 'mg/L（限值 10）' },
+      { label: '出水总磷', value: '0.300', unit: 'mg/L（限值 0.5）' },
+    ],
+    recommendation: null,
+    risks: [],
+  });
+
+  it('凭空的小整数读数必须被拒（旧实现 0–12 无条件放行）', () => {
+    expect(numbersAreGrounded('出水氨氮 9 mg/L。', grounding)).toBe(false);
+    expect(numbersAreGrounded('出水 SS 12 mg/L。', grounding)).toBe(false);
+    expect(numbersAreGrounded('出水总磷 0.9 mg/L。', grounding)).toBe(false);
+    expect(numbersAreGrounded('去除率 11%。', grounding)).toBe(false);
+  });
+
+  it('计数语境仍然放行', () => {
+    expect(numbersAreGrounded('建议分 3 步处理。', grounding)).toBe(true);
+    expect(numbersAreGrounded('2 小时后复核。', grounding)).toBe(true);
+    expect(numbersAreGrounded('检查 1 号池。', grounding)).toBe(true);
+  });
+});

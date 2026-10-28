@@ -94,12 +94,57 @@ export const SYSTEM_PROMPT = [
  *
  * 真正会伤人的凭空量级（如氨氮 42.7）仍然会被拒。
  */
+/**
+ * 数字是否出现在「计数语境」里。
+ *
+ * 允许：「分 3 步执行」「停 2 小时」「1 号池」
+ * 拒绝：「出水氨氮 9 mg/L」「总磷 0.9」「去除率 12%」
+ * ——后者带测量单位，必须走字面/派生命中。
+ */
+const COUNT_UNITS = /^(步|个|小时|分钟|秒|次|号|项|台|座|池|层|条|组|轮|天)/;
+const PERCENT_UNITS = /^(%|％|个百分点)/;
+
+/** 取某个数字后面紧跟的单位类型：percent / measure / count / none */
+function unitAfter(answer: string, n: number): 'percent' | 'measure' | 'count' | 'none' {
+  const re = new RegExp(`${n}\s*([^\s，。；、]{1,6})`, 'g');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(answer)) !== null) {
+    const unit = m[1].trim();
+    if (!unit) continue;
+    if (PERCENT_UNITS.test(unit)) return 'percent';
+    if (MEASURE_UNITS.test(unit)) return 'measure';
+    if (COUNT_UNITS.test(unit)) return 'count';
+  }
+  return 'none';
+}
+const MEASURE_UNITS = /(mg\/L|mg|g\/m3|g\/m³|%|％|℃|°C|m³|m3|kWh|kW|m\/d|m\/h|d|h|倍|元)/;
+
+function isCountContext(answer: string, n: number): boolean {
+  const re = new RegExp(`${n}\s*([^\s，。；、]{1,3})`, 'g');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(answer)) !== null) {
+    const unit = m[1].trim();
+    if (!unit) continue;
+    if (COUNT_UNITS.test(unit)) return true;
+    if (MEASURE_UNITS.test(unit)) return false;
+  }
+  return false;
+}
+
 export function numbersAreGrounded(answer: string, grounding: string, tolerance = 0.05): boolean {
   const extract = (text: string) => (text.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
   const known = extract(grounding);
   if (known.length === 0) return false;
   const allowed = new Set<number>(known);
-  // 派生值：两两组合的和、差、比值与百分比
+  /**
+   * 比值/百分比派生单独一组。
+   *
+   * 和与差的问题：grounding 里有「第 1 天」和「限值 10」，两者相减得 9，
+   * 于是凭空写出的「出水氨氮 9 mg/L」被当成合法派生值放行——9 甚至正是
+   * 超标读数。两个不相关量之间的和差没有物理意义，只有比值/占比才是
+   * 模型真正会在回答里计算的派生量，因此整数只允许从比值类派生命中。
+   */
+  const ratioAllowed = new Set<number>();
   for (const a of known) {
     for (const b of known) {
       if (a === b) continue;
@@ -113,19 +158,29 @@ export function numbersAreGrounded(answer: string, grounding: string, tolerance 
       // 凭空数字"近似命中"，所以这类跨量级派生直接不收。
       if (b !== 0 && Math.abs(a / b) <= 20) {
         allowed.add(a / b);
+        ratioAllowed.add(a / b);
         // 「占限值的 87%」是最高频的派生值：8.7 / 10 × 100。
         // 只在 a ≤ b（真正的"占比"）时收录，否则 337/35*100≈962 这类
         // 跨量级乘积会把 999.9 之类的凭空数字吸附成"近似命中"。
-        if (Math.abs(a) <= Math.abs(b)) allowed.add((a / b) * 100);
+        if (Math.abs(a) <= Math.abs(b)) {
+          allowed.add((a / b) * 100);
+          ratioAllowed.add((a / b) * 100);
+        }
       }
-      if (b !== 0) allowed.add(((a - b) / b) * 100);
+      if (b !== 0) {
+        allowed.add(((a - b) / b) * 100);
+        ratioAllowed.add(((a - b) / b) * 100);
+      }
       if (a !== 0) {
         allowed.add(((b - a) / a) * 100);
         allowed.add(((a - b) / a) * 100);
+        ratioAllowed.add(((b - a) / a) * 100);
+        ratioAllowed.add(((a - b) / a) * 100);
       }
     }
   }
   const derived = [...allowed].filter((v) => !known.includes(v));
+  const derivedRatio = [...ratioAllowed].filter((v) => !known.includes(v));
   for (const n of extract(answer)) {
     // 1) 字面命中，允许四舍五入的 5% 相对误差
     if (known.some((k) => Math.abs(k - n) <= Math.max(Math.abs(k) * tolerance, 0.05))) continue;
@@ -135,10 +190,39 @@ export function numbersAreGrounded(answer: string, grounding: string, tolerance 
      * 0.05% 相对 + 0.005 绝对既容得下四舍五入（89.6 vs 89.614），
      * 又不会把凭空数字吸附到 100 这类整数派生值上。
      */
-    // 变化率天然带符号（-89.6 与 89.6 指同一件事），比较时忽略符号
-    if (derived.some((k) => Math.abs(Math.abs(k) - Math.abs(n)) <= Math.max(Math.abs(k) * 0.0005, 0.005))) continue;
-    // 3) 结构性小整数：步数 / 小时数 / 序号
-    if (Number.isInteger(n) && n >= 0 && n <= 12) continue;
+    /**
+     * 2a) 派生命中：小数形态的派生值（89.6、1.234）任何来源都接受。
+     * 2b) 整数形态只接受比值/占比类派生（87% 这类「占限值多少」）。
+     *     纯整数且只能由和差得到时一律拒绝，避免 10−1=9 这类伪命中。
+     */
+    /**
+     * 派生匹配必须看**数字出现的语境**。
+     *
+     * 只有「百分数」语境允许用比值类派生（去除率 89.6%、占限值 87%）。
+     * 带浓度/流量/电量等测量单位的读数必须字面命中：grounding 是扁平的数字
+     * 序列，跨量纲相除会造出伪派生值（1.20 / 10 × 100 = 12，于是凭空写出的
+     * 「出水 SS 12 mg/L」被当成合法派生），而 12 恰好可能是超标读数。
+     */
+    const near = (k: number) => Math.abs(Math.abs(k) - Math.abs(n)) <= Math.max(Math.abs(k) * 0.0005, 0.005);
+    const unit = unitAfter(answer, n);
+    if (unit === 'percent') {
+      // 百分数只承认比值/占比类派生：和差同样会造出伪命中
+      if (derivedRatio.some(near)) continue;
+    } else if (unit === 'measure') {
+      // 测量值只承认字面命中（已在第 1 步处理），派生一律不认
+      return false;
+    } else if (Number.isInteger(n) ? derivedRatio.some(near) : derived.some(near)) {
+      continue;
+    }
+    /**
+     * 3) 结构性小整数：只放行「计数语境」，不是无条件放行。
+     *
+     * 旧实现无条件接受 0–12 的整数，于是「出水氨氮 9 mg/L」「总磷 0.9」
+     * 这类凭空读数直接通过——事实校验形同虚设（9 甚至正是超标值）。
+     * 现在要求该数字紧跟计数单位（步/个/小时/分钟/次/号池…），
+     * 且不能带浓度或比例单位。
+     */
+    if (Number.isInteger(n) && n >= 0 && n <= 12 && isCountContext(answer, n)) continue;
     return false;
   }
   return true;

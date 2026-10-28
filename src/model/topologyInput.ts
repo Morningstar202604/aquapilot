@@ -43,9 +43,20 @@ function str(v: unknown, max = MAX_TEXT_LEN): string | null {
   return trimmed;
 }
 
-function positive(v: unknown): number | undefined | false {
+/**
+ * 正数参数的工程上限。
+ *
+ * `>0 && finite` 是不够的：1e308 的池容能通过校验，但两个池相加即 Infinity，
+ * 派生量（HRT、生物量）变成 NaN 并污染整个求解器——引擎跑十分钟后出水全 NaN。
+ * 上限按真实水厂量级取：单池容积 1e6 m³、面积 1e5 m²、水深 30 m 已远超任何工程。
+ */
+const MAX_VOLUME = 1e6;
+const MAX_AREA = 1e5;
+const MAX_DEPTH = 30;
+
+function boundedPositive(v: unknown, max: number): number | undefined | false {
   if (v === undefined) return undefined;
-  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return false;
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0 || v > max) return false;
   return v;
 }
 
@@ -75,9 +86,9 @@ function sanitizeUnit(raw: unknown): UnitSpec | null {
     ports.push({ id: pid, kind: p.kind, stream: p.stream as UnitSpec['ports'][number]['stream'] });
   }
 
-  const volume = positive(raw.volume);
-  const area = positive(raw.area);
-  const depth = positive(raw.depth);
+  const volume = boundedPositive(raw.volume, MAX_VOLUME);
+  const area = boundedPositive(raw.area, MAX_AREA);
+  const depth = boundedPositive(raw.depth, MAX_DEPTH);
   if (volume === false || area === false || depth === false) return null;
 
   const unit: UnitSpec = { id, kind: kind as UnitSpec['kind'], name, role, ports };
@@ -161,9 +172,21 @@ export function sanitizeTopologyInput(raw: unknown): TopologySanitizeResult {
     connections.push(conn);
   }
 
+  /**
+   * 主序列必须去重且不能超过单元数。
+   *
+   * 重复 id 会编译出多个同 id 反应器：池容/生物量口径直接翻倍，
+   * 而界面上看不出任何异常；超长 train 还能在 applyTopology 里同步阻塞数秒。
+   */
   const train: string[] = [];
+  const seenTrain = new Set<string>();
+  if (raw.train.length > units.length) {
+    return { ok: false, error: `主序列长度 ${raw.train.length} 超过单元数 ${units.length}` };
+  }
   for (const id of raw.train) {
     if (typeof id !== 'string' || !ids.has(id)) return { ok: false, error: `主序列引用了不存在的单元 ${String(id)}` };
+    if (seenTrain.has(id)) return { ok: false, error: `主序列重复引用单元 ${id}` };
+    seenTrain.add(id);
     train.push(id);
   }
 

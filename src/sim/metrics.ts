@@ -6,7 +6,15 @@ import type { EffluentState } from './plantTypes';
  * 两套引擎与决策层都从这里取，避免各自实现导致口径漂移。
  */
 
+/**
+ * 数值夹紧。
+ *
+ * 非有限值必须回落到下限，不能原样穿过去：
+ * `Math.min(max, Math.max(min, NaN))` 等于 NaN，控制量一旦被写成 NaN，
+ * 后续每个 tick 的求解结果都是 NaN，且界面上只看到一串 null。
+ */
 export function clamp(v: number, min: number, max: number): number {
+  if (!Number.isFinite(v)) return min;
   return Math.min(max, Math.max(min, v));
 }
 

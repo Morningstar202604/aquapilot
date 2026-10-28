@@ -10,6 +10,7 @@ import {
   deriveTrain,
 } from '../src/model/topology';
 import { layoutTopology, unreachableUnits } from '../src/model/layout';
+import { sanitizeTopologyInput } from '../src/model/topologyInput';
 import { checkRunReadiness, createRuntime, applyTopology, stepRuntime } from '../src/server/topologyRuntime';
 
 describe('工艺拓扑模型', () => {
@@ -399,3 +400,78 @@ function polylineHitsNodes(
   }
   return [...hits];
 }
+
+describe('拓扑校验：环路、端口方向与主序列重复', () => {
+  const withExtra = (mutate: (t: ProcessTopology) => void): ProcessTopology => {
+    const t = JSON.parse(JSON.stringify(PLANT_TOPOLOGY)) as ProcessTopology;
+    mutate(t);
+    return t;
+  };
+
+  it('非回流环路必须报 error，而不是留给求解器抛空引用', () => {
+    const t = withExtra((topo) => {
+      // inlet → pre → storage → pre（storage 有 in/out 端口）
+      const storage = topo.units.find((u) => u.kind === 'storage');
+      const pre = topo.units.find((u) => u.id === 'screening') ?? topo.units[1];
+      if (!storage || !pre) return;
+      topo.connections.push(
+        {
+          id: 'cyc-1',
+          from: { unit: storage.id, port: 'out' },
+          to: { unit: pre.id, port: 'in' },
+          stream: 'influent',
+        } as ProcessTopology['connections'][number],
+      );
+    });
+    const issues = validateTopology(t);
+    expect(issues.some((i) => i.code === 'CYCLE' && i.severity === 'error')).toBe(true);
+  });
+
+  it('连接方向错误（从入口端口出发）被拒绝', () => {
+    const t = withExtra((topo) => {
+      const unit = topo.units.find((u) => u.id === 'aerobic1') ?? topo.units.find((u) => u.kind === 'aerobic')!;
+      const inPort = unit.ports.find((p) => p.kind === 'in')!;
+      const outPort = unit.ports.find((p) => p.kind === 'out')!;
+      topo.connections.push({
+        id: 'rev-1',
+        from: { unit: unit.id, port: inPort.id },
+        to: { unit: unit.id, port: outPort.id },
+        stream: inPort.stream,
+      } as ProcessTopology['connections'][number]);
+    });
+    expect(validateTopology(t).some((i) => i.code === 'BAD_PORT_DIRECTION')).toBe(true);
+  });
+
+  it('声明流股与源端口不一致被拒绝', () => {
+    const t = withExtra((topo) => {
+      const blower = topo.units.find((u) => u.kind === 'blower');
+      const aerobic = topo.units.find((u) => u.kind === 'aerobic');
+      if (!blower || !aerobic) return;
+      topo.connections.push({
+        id: 'bad-stream',
+        from: { unit: blower.id, port: blower.ports.find((p) => p.kind === 'out')!.id },
+        to: { unit: aerobic.id, port: aerobic.ports.find((p) => p.kind === 'in')!.id },
+        stream: 'influent',
+      } as ProcessTopology['connections'][number]);
+    });
+    expect(validateTopology(t).some((i) => i.code === 'STREAM_DECLARED_MISMATCH')).toBe(true);
+  });
+
+  it('主序列重复引用同一单元被 sanitize 拒绝', () => {
+    const raw = JSON.parse(JSON.stringify(PLANT_TOPOLOGY)) as Record<string, unknown>;
+    const train = [...(raw.train as string[])];
+    train.splice(1, 0, train[0]);
+    raw.train = train;
+    const out = sanitizeTopologyInput(raw);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toMatch(/重复/);
+  });
+
+  it('超大池容（1e308）被拒绝，避免派生量溢出为 Infinity', () => {
+    const raw = JSON.parse(JSON.stringify(PLANT_TOPOLOGY)) as Record<string, unknown>;
+    const units = raw.units as { id: string; volume?: number }[];
+    units[0].volume = 1e308;
+    const out = sanitizeTopologyInput(raw);
+    expect(out.ok).toBe(false);
+  });
+});

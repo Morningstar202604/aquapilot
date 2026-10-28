@@ -166,3 +166,42 @@ describe('端口锚点', () => {
     expect(Number(m[2])).toBeCloseTo(anchor.y, 5);
   });
 });
+
+describe('布局退化输入（不产生 -Infinity / 不裁掉连线）', () => {
+  it('没有主处理单元时仍给出有限坐标与画布尺寸', () => {
+    const topo = {
+      id: 'x',
+      name: 'x',
+      units: [
+        {
+          id: 'st',
+          kind: 'storage',
+          name: '调蓄池',
+          role: '',
+          ports: [
+            { id: 'in', kind: 'in', stream: 'influent' },
+            { id: 'out', kind: 'out', stream: 'influent' },
+          ],
+        },
+      ],
+      connections: [],
+      train: [],
+    } as unknown as ProcessTopology;
+    const l = layoutTopology(topo);
+    expect(Number.isFinite(l.width)).toBe(true);
+    expect(Number.isFinite(l.height)).toBe(true);
+    expect(l.height).toBeGreaterThan(100);
+    for (const n of l.nodes) {
+      expect(Number.isFinite(n.x)).toBe(true);
+      expect(Number.isFinite(n.y)).toBe(true);
+    }
+  });
+
+  it('远处的连线折点会把画布撑开，而不是被裁掉', () => {
+    const base = JSON.parse(JSON.stringify(PLANT_TOPOLOGY)) as ProcessTopology;
+    const connId = base.connections[0].id;
+    base.routes = { [connId]: [{ x: 15000, y: 100 }] };
+    const l = layoutTopology(base);
+    expect(l.width).toBeGreaterThan(14000);
+  });
+});
