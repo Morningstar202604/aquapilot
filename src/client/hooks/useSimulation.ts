@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { encodeWsTokenSubprotocol } from '../../shared/wsToken';
 import type { ClientMessage, PlantSnapshot, ServerMessage } from '../../shared/protocol';
 import type { Answer, Recommendation } from '../../ai/agent';
 import type { ControlSettings } from '../../sim/config';
@@ -141,6 +142,16 @@ export function useSimulation() {
 
   useEffect(() => {
     let closed = false;
+
+    /** 把断线/背压期间积压的最后一条意图发出去（连接可用时才动作） */
+    const flushPending = () => {
+      const live = socketRef.current;
+      if (!pendingSendRef.current || !live || live.readyState !== WebSocket.OPEN) return;
+      const msg = pendingSendRef.current;
+      pendingSendRef.current = null;
+      live.send(JSON.stringify(msg));
+    };
+
     const connect = () => {
       if (closed) return;
       const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -149,9 +160,23 @@ export function useSimulation() {
        * 因此令牌通过子协议传递（服务端 verifyClient 支持 `token.<value>`）。
        */
       const token = readToken();
-      const ws = token
-        ? new WebSocket(`${proto}://${window.location.host}/ws`, [`token.${token}`])
-        : new WebSocket(`${proto}://${window.location.host}/ws`);
+      const url = `${proto}://${window.location.host}/ws`;
+      /**
+       * 建连必须包 try/catch：`new WebSocket` 对非法子协议名、非法 URL
+       * 会抛 SyntaxError，而抛出点不在任何事件回调里。
+       * 之前令牌含 `=`/`/` 时整个重连链就此中断（onclose 都不会触发）。
+       */
+      let ws: WebSocket;
+      try {
+        ws = token
+          ? new WebSocket(url, [encodeWsTokenSubprotocol(token)])
+          : new WebSocket(url);
+      } catch (err) {
+        setLink({ connected: false, error: `无法建立连接：${String(err)}`, lastUpdateAt: null });
+        retry.current += 1;
+        setTimeout(connect, reconnectDelayMs(retry.current));
+        return;
+      }
       socketRef.current = ws;
 
       ws.onopen = () => {
@@ -166,15 +191,17 @@ export function useSimulation() {
          */
         ws.send(JSON.stringify({ type: 'llmConfig', action: 'get' } satisfies ClientMessage));
         ws.send(JSON.stringify({ type: 'agentConfig', action: 'get' } satisfies ClientMessage));
+        /**
+         * 冲刷断线期间积压的意图。
+         *
+         * 之前只靠 `bufferedamountlow`：该事件仅在缓冲「从高降到低」时触发，
+         * 而新建连接的 bufferedAmount 本来就是 0，永远不会触发——
+         * 用户在断线那 1–2 秒里拖的滑块/发的场景，重连后被静默丢弃。
+         */
+        flushPending();
       };
       // 发送缓冲降到低水位时冲刷背压积压的最后一条意图
-      ws.addEventListener('bufferedamountlow', () => {
-        const live = socketRef.current;
-        if (!pendingSendRef.current || !live || live.readyState !== WebSocket.OPEN) return;
-        const msg = pendingSendRef.current;
-        pendingSendRef.current = null;
-        live.send(JSON.stringify(msg));
-      });
+      ws.addEventListener('bufferedamountlow', flushPending);
       ws.onmessage = (event) => {
         setLink((prev) => ({ ...prev, lastUpdateAt: Date.now() }));
         let msg: ServerMessage;

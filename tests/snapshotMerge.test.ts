@@ -18,6 +18,7 @@ const basePatch = (over: Partial<SnapshotPatch> = {}): SnapshotPatch => {
   return {
     timeMin: snap.timeMin + 2,
     influentFlow: 2100,
+    influent: snap.influent,
     effluent: snap.effluent,
     tanks: snap.tanks.map((t) => ({
       id: t.id,
@@ -109,5 +110,70 @@ describe('mergeSnapshot', () => {
     const snap = makeSnapshot();
     const next = mergeSnapshot(snap, { ...basePatch(), tanks: null } as unknown as SnapshotPatch);
     expect(next).toBe(snap);
+  });
+});
+
+describe('增量帧字段级校验（协议漂移防线）', () => {
+  it('effluent 缺字段时整帧丢弃，保留上一帧', () => {
+    const snap = makeSnapshot();
+    const broken = { ...basePatch(), effluent: {} as never };
+    const out = mergeSnapshot(snap, broken);
+    expect(out).toBe(snap);
+  });
+
+  it('缺失 trendsAppend / energy / totals 时整帧丢弃', () => {
+    const snap = makeSnapshot();
+    for (const broken of [
+      { ...basePatch(), trendsAppend: undefined as never },
+      { ...basePatch(), energy: undefined as never },
+      { ...basePatch(), totals: undefined as never },
+    ]) {
+      expect(mergeSnapshot(snap, broken)).toBe(snap);
+    }
+  });
+
+  it('tanks 以补丁集合为准：新增单元出现、删除单元消失', () => {
+    const ts = (id: string, doLevel: number) => ({
+      id,
+      name: id,
+      short: id,
+      kind: 'aerobic' as const,
+      volume: 1000,
+      cod: 20,
+      nh: 1,
+      no3: 5,
+      tp: 0.5,
+      do: doLevel,
+      mlss: 3000,
+      alkalinity: 4,
+      temperature: 20,
+      codRemoved: 100,
+      nhRemoved: 10,
+      o2Demand: 50,
+      klaUsed: 100,
+    });
+    const snap = { ...makeSnapshot(), tanks: [ts('a1', 2), ts('a2', 2)] };
+    const patch = basePatch({
+      tanks: [
+        { id: 'a1', do: 2.5, mlss: 3100, cod: 20, nh: 1, no3: 5, tp: 0.5, alkalinity: 4 },
+        { id: 'a3', do: 1.8, mlss: 2900, cod: 20, nh: 1, no3: 5, tp: 0.5, alkalinity: 4 },
+      ],
+    });
+    const out = mergeSnapshot(snap, patch);
+    expect(out.tanks.map((t) => t.id)).toEqual(['a1']);
+    expect(out.tanks[0].do).toBe(2.5);
+    expect(out.tanks[0].mlss).toBe(3100);
+  });
+
+  it('进水水质随增量更新（暴雨/冲击负荷场景）', () => {
+    const snap = makeSnapshot();
+    const patch = basePatch({
+      influent: { ...snap.influent, flow: 3000, cod: 900, nh: 55, tp: 12, ss: 480, temperature: 15 },
+    });
+    const out = mergeSnapshot(snap, patch);
+    expect(out.influent.flow).toBe(3000);
+    expect(out.influent.cod).toBe(900);
+    expect(out.influent.nh).toBe(55);
+    expect(out.influent.temperature).toBe(15);
   });
 });

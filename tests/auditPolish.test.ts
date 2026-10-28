@@ -129,6 +129,7 @@ describe('增量快照必须刷新预测与双跑', () => {
     return {
       timeMin: snap.timeMin + 2,
       influentFlow: 2100,
+      influent: snap.influent,
       effluent: snap.effluent,
       tanks: [],
       clarifier: {

@@ -1,4 +1,5 @@
 import { CONTROL_BOUNDS, SCENARIO_LABELS, labelOf, precisionOf } from './labels';
+import { useThrottledControl } from '../hooks/useThrottledControl';
 import { Collapsible } from './Collapsible';
 import { SCENARIO_ORDER, SCENARIOS } from '../../sim/scenarios';
 import { PRESETS } from '../../model/presets';
@@ -27,6 +28,11 @@ const ORDER: (keyof Omit<ControlSettings, 'aiEnabled'>)[] = [
 ];
 
 export function ControlPanel({ snap, onChange, onStartScenario, onClearScenario, onApplyPreset, aiEnabled }: Props) {
+  /**
+   * 滑块节流：拖动期间的 60 Hz 事件不能逐条变成 WS 消息。
+   * 服务端限流 500 ms/次，逐条发会让绝大多数请求被拒并弹出提示。
+   */
+  const commitControls = useThrottledControl(onChange);
   const activeType = snap.scenario?.type ?? null;
   const activeRemaining = snap.scenario
     ? Math.max(0, snap.scenario.startedAt + snap.scenario.durationMin - snap.timeMin)
@@ -86,7 +92,7 @@ export function ControlPanel({ snap, onChange, onStartScenario, onClearScenario,
                   max={meta.max}
                   step={meta.step}
                   value={value}
-                  onChange={(e) => onChange({ [key]: Number(e.target.value) } as Partial<ControlSettings>)}
+                  onChange={(e) => commitControls({ [key]: Number(e.target.value) } as Partial<ControlSettings>)}
                   aria-label={`${labelOf(key)}，当前 ${value.toFixed(precisionOf(key))} ${meta.unit}`}
                 />
               </div>

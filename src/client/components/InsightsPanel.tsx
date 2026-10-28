@@ -185,9 +185,15 @@ export function InsightsPanel({ snap, aiEnabled }: Props) {
           <span className="alt-score">¥{(snap.totals.chemicalCost + snap.totals.sludgeCost).toFixed(0)}</span>
         </div>
         <div className="alt-row">
-          <span className="alt-name">年化电费{annualSaving >= 0 ? '节省' : '超支'}（按当前负荷线性外推，仅示意）</span>
-          <span className="alt-score" data-best={annualSaving > 0}>
-            {annualSaving >= 0 ? '' : '−'}¥{(Math.abs(annualSaving) / 10000).toFixed(1)} 万
+          <span className="alt-name">
+            年化电费{!Number.isFinite(annualSaving) ? '' : annualSaving >= 0 ? '节省' : '超支'}
+            （按当前负荷线性外推，仅示意）
+          </span>
+          <span className="alt-score" data-best={Number.isFinite(annualSaving) && annualSaving > 0}>
+            {/* 复位/刚应用拓扑时样本不足，比值是 NaN；直接渲染会显示「−¥NaN 万」 */}
+            {Number.isFinite(annualSaving)
+              ? `${annualSaving >= 0 ? '' : '−'}¥${(Math.abs(annualSaving) / 10000).toFixed(1)} 万`
+              : '数据不足'}
           </span>
         </div>
       </div>

@@ -4,6 +4,7 @@ import type { PlantSnapshot } from '../../shared/protocol';
 import type { ProcessTopology, UnitSpec } from '../../model/topology';
 import { unitKindIcon, unitKindLabel } from '../../shared/streamMeta';
 import { buildTrainProfile, shouldShowTrainProfile } from '../../model/trainProfile';
+import { useThrottledControl } from '../hooks/useThrottledControl';
 
 interface Props {
   snap: PlantSnapshot;
@@ -25,6 +26,7 @@ interface Props {
  * 走「在工艺编排中编辑」这条有校验与撤销的路径。
  */
 export function UnitInspector({ snap, topo, unit, onClose, onSelect, onChangeControls, onEditTopology }: Props) {
+  const commitControls = useThrottledControl(onChangeControls);
   const tank = snap.tanks.find((t) => t.id === unit.id);
   /**
    * 只列该单元声明、且真的能在控制通道里写的量。
@@ -244,7 +246,7 @@ export function UnitInspector({ snap, topo, unit, onClose, onSelect, onChangeCon
                       max={meta.max}
                       step={meta.step}
                       value={value}
-                      onChange={(e) => onChangeControls({ [key]: Number(e.target.value) } as Partial<ControlSettings>)}
+                      onChange={(e) => commitControls({ [key]: Number(e.target.value) } as Partial<ControlSettings>)}
                       aria-label={`${labelOf(key)}，当前 ${value.toFixed(precisionOf(key))} ${meta.unit}`}
                     />
                   </div>

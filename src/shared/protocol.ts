@@ -229,7 +229,15 @@ export type ClientMessage =
  */
 export interface SnapshotPatch {
   timeMin: number;
+  /** 进水流量（兼容字段，等价于 influent.flow） */
   influentFlow: number;
+  /**
+   * 进水水质。
+   *
+   * 只发流量的话，暴雨/冲击负荷场景里进水的 COD、NH₄、TP、SS、水温
+   * 在界面上会永远停在连接那一刻——这些量每 tick 都在变，必须随增量下发。
+   */
+  influent: InfluentState;
   effluent: EffluentState;
   tanks: (Pick<TankState, 'id' | 'do' | 'mlss' | 'cod' | 'nh' | 'no3' | 'tp' | 'alkalinity'> & {
     mlssSource?: 'plant-average' | 'reactor';

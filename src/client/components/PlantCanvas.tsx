@@ -525,7 +525,13 @@ export function PlantCanvas({
              * 同时避免内容被垂直居中后与图例/缩放控件重叠。
              */
             preserveAspectRatio={fitToWindow ? 'xMidYMin meet' : 'xMinYMin meet'}
-            role="img"
+            /**
+             * 不能用 role="img"：ARIA 里 img 是叶子角色，
+             * 会把内部每个 `role="button" tabIndex={0}` 的工艺单元从可访问性树里抹掉，
+             * 屏幕阅读器只念一句总述，键盘用户也无法定位单元。
+             * 用 group 保留子树语义，总述由 aria-label 提供。
+             */
+            role="group"
             aria-label={`${topo.name} 工艺流程实时图，共 ${topo.units.length} 个工艺单元、${topo.connections.length} 条物流连接`}
           >
             <defs>

@@ -146,6 +146,7 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
       xData2 = [...xData, ...hourly.map((p) => `+${Math.round(p.minute / 60)}h`)];
       series.push(
         {
+          id: 'band-p10',
           name: 'P10',
           type: 'line',
           showSymbol: false,
@@ -155,6 +156,7 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
           silent: true,
         },
         {
+          id: 'band-range',
           name: 'P10–P90 预测区间',
           type: 'line',
           showSymbol: false,
@@ -165,6 +167,7 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
           silent: true,
         },
         {
+          id: 'band-p50',
           name: 'P50 预测',
           type: 'line',
           showSymbol: false,
@@ -173,6 +176,22 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
           data: p50,
           silent: true,
         },
+      );
+    }
+
+    /**
+     * 预测消失后必须显式清空，不能只是「不 push」。
+     *
+     * `setOption(..., {notMerge:false})` 会按 series 索引做增量合并：
+     * 少传 3 条 band 序列时，ECharts 保留上一次的 P10/P90/P50 并继续画，
+     * 于是重置仿真后趋势图上会挂着一条幽灵预测扇区（实测可复现）。
+     * 用固定 id + 空数据覆盖，保证序列被真正清掉。
+     */
+    if (!(spec.bandMetric && band && band.points.length > 0)) {
+      series.push(
+        { id: 'band-p10', name: 'P10', type: 'line', data: [], silent: true },
+        { id: 'band-range', name: 'P10–P90 预测区间', type: 'line', data: [], silent: true },
+        { id: 'band-p50', name: 'P50 预测', type: 'line', data: [], silent: true },
       );
     }
 

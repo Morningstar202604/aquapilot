@@ -27,6 +27,7 @@ import { PRESETS, buildPreset, presetById } from '../model/presets';
 import { applyTopology, checkRunReadiness, createRuntime } from './topologyRuntime';
 import { Store } from './store';
 import { authRequired, authorize } from './auth';
+import { decodeWsTokenSubprotocol } from '../shared/wsToken';
 import { isApiPath, isPublicApiPath, isReadMethod, pathnameOf, shouldFallbackToIndex } from './httpRoutes';
 import { logger, metrics, metricsJson, recordHttp, recordTick, renderPrometheus } from './observability';
 import { buildOperationsReport, decisionsCsv, snapshotsCsv } from './export';
@@ -398,6 +399,7 @@ function buildPatch(client: ClientState): SnapshotPatch | null {
   return {
     timeMin: s.timeMin,
     influentFlow: s.influent.flow,
+    influent: { ...s.influent, bod: s.influent.cod * 0.44, ph: 7.2 },
     effluent: { ...s.effluent },
     tanks: buildTankPatch(s),
     clarifier: {
@@ -2358,15 +2360,16 @@ async function main(): Promise<void> {
     // Origin 白名单：仅允许同源与本地开发来源，缓解跨站 WebSocket 劫持
     verifyClient: (info: { origin?: string; req: IncomingMessage }) => {
       // 访问控制优先：令牌不对直接拒绝，不再看 Origin
+      /**
+       * 令牌子协议按 base64url 解码。
+       *
+       * 直接用明文令牌作为子协议名会在令牌含 `=`/`/`/`+` 时让浏览器
+       * 在构造 WebSocket 时抛 SyntaxError（Base64 令牌几乎必然含这些字符）。
+       */
       const subprotocol = info.req.headers['sec-websocket-protocol'];
-      const protoToken =
-        typeof subprotocol === 'string'
-          ? subprotocol
-              .split(',')
-              .map((x) => x.trim())
-              .find((x) => x.startsWith('token.'))
-              ?.slice(6)
-          : null;
+      const protoToken = decodeWsTokenSubprotocol(
+        typeof subprotocol === 'string' ? subprotocol : Array.isArray(subprotocol) ? subprotocol : undefined,
+      );
       const verdict = authorize(info.req, protoToken);
       if (!verdict.allowed) {
         metrics.authFailures += 1;
