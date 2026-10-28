@@ -106,7 +106,7 @@ const PERCENT_UNITS = /^(%|％|个百分点)/;
 
 /** 取某个数字后面紧跟的单位类型：percent / measure / count / none */
 function unitAfter(answer: string, n: number): 'percent' | 'measure' | 'count' | 'none' {
-  const re = new RegExp(`${n}\s*([^\s，。；、]{1,6})`, 'g');
+  const re = new RegExp(`${n}\\s*([^\\s，。；、]{1,6})`, 'g');
   let m: RegExpExecArray | null;
   while ((m = re.exec(answer)) !== null) {
     const unit = m[1].trim();
@@ -120,7 +120,7 @@ function unitAfter(answer: string, n: number): 'percent' | 'measure' | 'count' |
 const MEASURE_UNITS = /(mg\/L|mg|g\/m3|g\/m³|%|％|℃|°C|m³|m3|kWh|kW|m\/d|m\/h|d|h|倍|元)/;
 
 function isCountContext(answer: string, n: number): boolean {
-  const re = new RegExp(`${n}\s*([^\s，。；、]{1,3})`, 'g');
+  const re = new RegExp(`${n}\\s*([^\\s，。；、]{1,3})`, 'g');
   let m: RegExpExecArray | null;
   while ((m = re.exec(answer)) !== null) {
     const unit = m[1].trim();
