@@ -37,3 +37,7 @@ Thumbs.db
 .stryker-tmp/
 reports/
 .workbuddy/
+
+# audit probe scratch (must never be committed)
+.tmp/
+.tmp_*
