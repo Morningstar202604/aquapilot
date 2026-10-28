@@ -49,6 +49,23 @@ function isProtocol(v: unknown): v is LlmProtocol {
   return typeof v === 'string' && (PROTOCOLS as string[]).includes(v);
 }
 
+/**
+ * 两个 baseUrl 是否同源。
+ *
+ * 只比较 protocol + hostname + port：路径不同（`/v1` vs `/`）仍算同一端点，
+ * 但主机或端口一换就意味着密钥会被发往另一方，必须视为不同来源。
+ * 解析失败一律视为不同源（fail-closed）。
+ */
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    const ua = new URL(a.trim());
+    const ub = new URL(b.trim());
+    return ua.protocol === ub.protocol && ua.hostname.toLowerCase() === ub.hostname.toLowerCase() && ua.port === ub.port;
+  } catch {
+    return false;
+  }
+}
+
 function num(v: unknown, min: number, max: number, fallback: number): number {
   return typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max ? Math.round(v) : fallback;
 }
@@ -159,10 +176,36 @@ export class LlmConfigStore {
     };
   }
 
-  /** 已有密钥但界面留空时沿用旧密钥 */
-  resolveKey(incoming: string): string {
+  /**
+   * 已有密钥但界面留空时沿用旧密钥。
+   *
+   * 必须绑定 origin：`discover` / `test` 的 baseUrl 完全由客户端提供，
+   * 若无条件回落已存密钥，任意 WS 客户端只要把 baseUrl 指向自己的服务器，
+   * 就能收到 `Authorization: Bearer <已存密钥>`——一次消息即可把密钥外带。
+   * 因此只有目标地址与保存时的地址同源才允许复用；换地址必须重新输入。
+   */
+  resolveKey(incoming: string, baseUrl?: string): string {
     this.ensureLoaded();
-    return incoming.length > 0 ? incoming : (this.current?.apiKey ?? '');
+    const provided = incoming.trim();
+    if (provided.length > 0) return provided;
+    const stored = this.current?.apiKey ?? '';
+    if (!stored) return '';
+    if (baseUrl === undefined) return stored;
+    return this.keyBelongsTo(baseUrl) ? stored : '';
+  }
+
+  /** 已存密钥是否可用于该地址（同 origin 才算） */
+  keyBelongsTo(baseUrl: string): boolean {
+    const saved = this.current;
+    if (!saved || !saved.apiKey) return false;
+    return sameOrigin(saved.baseUrl, baseUrl);
+  }
+
+  /** 是否存在「已存密钥但与目标地址不同源」的情况：用于给出明确提示 */
+  hasKeyForOtherOrigin(baseUrl: string): boolean {
+    const saved = this.current;
+    if (!saved || !saved.apiKey) return false;
+    return !sameOrigin(saved.baseUrl, baseUrl);
   }
 
   save(draft: LlmDraft): SaveResult {

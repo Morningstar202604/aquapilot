@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ProviderError,
   assertSafeBaseUrl,
@@ -54,6 +54,51 @@ describe('SSRF 守卫', () => {
     expect(() => assertSafeBaseUrl('http://metadata.google.internal/computeMetadata')).toThrow(/元数据/);
     expect(() => assertSafeBaseUrl('not a url')).toThrow(/合法的 URL/);
   });
+
+  it('IPv4-mapped IPv6、主机名尾点、AWS IMDS IPv6 都不能绕过', () => {
+    expect(() => assertSafeBaseUrl('http://[::ffff:169.254.169.254]/latest/meta-data')).toThrow(/元数据|链路本地/);
+    expect(() => assertSafeBaseUrl('http://[0:0:0:0:0:ffff:a9fe:a9fe]/')).toThrow(/元数据|链路本地/);
+    expect(() => assertSafeBaseUrl('http://metadata.google.internal./computeMetadata')).toThrow(/元数据/);
+    expect(() => assertSafeBaseUrl('http://metadata.goog./')).toThrow(/元数据/);
+    expect(() => assertSafeBaseUrl('http://[fd00:ec2::254]/')).toThrow(/元数据|链路本地/);
+    expect(() => assertSafeBaseUrl('http://[fe80::1]/')).toThrow(/元数据|链路本地/);
+  });
+
+  it('重定向被拒绝，不跟随到内网/元数据', async () => {
+    mockFetch(() => new Response('', { status: 302, headers: { Location: 'http://169.254.169.254/' } }));
+    await expect(
+      discoverModels({ protocol: 'openai', baseUrl: 'https://api.example.com/v1', apiKey: 'sk-x' }),
+    ).rejects.toThrow(/重定向/);
+  });
+
+  it('响应体读取也受超时约束（端点头返回后挂住 body）', async () => {
+    vi.useFakeTimers();
+    try {
+      mockFetch(
+        (_url, init) =>
+          // 头已返回（HTTP 200），但 body 永远不结束：读取必须被同一个 signal 打断
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                init.signal?.addEventListener('abort', () => controller.error(new Error('aborted')));
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+      );
+      const pending = testConnection({
+        protocol: 'openai',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'sk-x',
+        model: 'm',
+      });
+      // 推进到测试超时点：若 signal 未覆盖读体，这个 Promise 永远不会 settle
+      await vi.advanceTimersByTimeAsync(31_000);
+      await expect(pending).resolves.toMatchObject({ ok: false });
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 10000);
 
   it('允许本地与私网端点（自建 Ollama/vLLM）', () => {
     expect(assertSafeBaseUrl('http://127.0.0.1:11434/v1').hostname).toBe('127.0.0.1');

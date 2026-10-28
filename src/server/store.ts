@@ -154,16 +154,34 @@ export class Store {
   recordDecision(row: DecisionRow): void {
     if (!this.db) return;
     this.writeBuffer.decisions.push(row);
+    this.capBuffer();
   }
 
   recordAlarm(row: AlarmRow): void {
     if (!this.db) return;
     this.writeBuffer.alarms.push(row);
+    this.capBuffer();
   }
 
   recordSnapshot(row: SnapshotRow): void {
     if (!this.db) return;
     this.writeBuffer.snapshots.push(row);
+    this.capBuffer();
+  }
+
+  /**
+   * 缓冲上限。
+   *
+   * 磁盘满 / 目录只读时 flush 会持续失败且不清空缓冲，
+   * 每 tick 都往里 push 最终会把进程 OOM。超限后丢掉最旧的样本：
+   * 回放曲线缺少几条比服务挂掉要好。
+   */
+  private capBuffer(): void {
+    const MAX = 50_000;
+    for (const key of PERSIST_TABLES) {
+      const buf = this.writeBuffer[key] as unknown[];
+      if (buf.length > MAX) buf.splice(0, buf.length - MAX);
+    }
   }
 
   /** 批量写入，避免每 tick 都落盘 */
@@ -254,20 +272,25 @@ export class Store {
    * 不同run 的 at_min 会重叠，不加限制会得到锯齿状的假曲线。
    * 默认只返回最近一次运行。
    */
-  snapshotsBetween(fromMin: number, toMin: number, runId?: string): SnapshotRow[] {
+  snapshotsBetween(fromMin: number, toMin: number, runId?: string, limit?: number): SnapshotRow[] {
     if (!this.db) return [];
     const latest = this.latestRunId();
     const useRun = runId ?? latest;
+    // LIMIT 必须是整数：node:sqlite 对 1.5 这类绑定值抛 datatype mismatch，
+    // 而该异常会冒泡到请求处理器。调用方传进来的值一律在这里夹紧。
+    const cap =
+      typeof limit === 'number' && Number.isFinite(limit) ? Math.max(1, Math.min(100_000, Math.trunc(limit))) : null;
+    const limitSql = cap === null ? '' : ' LIMIT ?';
     const sql = useRun
       ? `SELECT run_id as runId, at_min as atMin, cod as effluentCod, nh as effluentNh, tn as effluentTn,
                 tp as effluentTp, ss as effluentSs, mlss, srt as srtDays, energy_kw as energyKw, score
-         FROM snapshots WHERE at_min BETWEEN ? AND ? AND run_id = ? ORDER BY at_min ASC`
+         FROM snapshots WHERE at_min BETWEEN ? AND ? AND run_id = ? ORDER BY at_min ASC${limitSql}`
       : `SELECT run_id as runId, at_min as atMin, cod as effluentCod, nh as effluentNh, tn as effluentTn,
                 tp as effluentTp, ss as effluentSs, mlss, srt as srtDays, energy_kw as energyKw, score
-         FROM snapshots WHERE at_min BETWEEN ? AND ? ORDER BY at_min ASC`;
-    return this.db
-      .prepare(sql)
-      .all(...(useRun ? [fromMin, toMin, useRun] : [fromMin, toMin])) as unknown as SnapshotRow[];
+         FROM snapshots WHERE at_min BETWEEN ? AND ? ORDER BY at_min ASC${limitSql}`;
+    const args: unknown[] = useRun ? [fromMin, toMin, useRun] : [fromMin, toMin];
+    if (cap !== null) args.push(cap);
+    return this.db.prepare(sql).all(...args) as unknown as SnapshotRow[];
   }
 
   /** 最近一次运行的标识 */

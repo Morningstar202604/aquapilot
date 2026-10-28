@@ -135,16 +135,21 @@ export class AgentConfigStore {
     const normalized = normalizeAgentConfig(raw);
     const next = normalized.config;
     const warnings = [...normalized.warnings];
-    const effectiveLevel = next.permission;
 
-    // 权限切换：readonly 之外都可自主选择档位（本机单用户场景）。
-    // 核心保护区在任何档位都不可写，因此提权不等于可以改限值/鉴权/密钥。
+    /**
+     * 能力判定必须用「请求到达时的档位」，不能用「保存后的档位」。
+     *
+     * 旧实现按 `next.permission` 判定：任何已连接客户端只要在一次 save 里
+     * 同时写 `permission:'open'` + webhook 钩子 + `maxStepPct:100`，
+     * 就会以提权后的身份一次性全部生效——权限模型形同虚设。
+     * 现在：提权本身允许（本机单用户），但 open 专属能力从下一次保存起才生效。
+     */
+    const capabilityLevel = currentLevel;
     if (next.permission !== currentLevel && next.permission === 'open') {
-      warnings.push('已切到「完全放开」：除核心保护区外全部可改，请确认是本人操作');
+      warnings.push('已切到「完全放开」：Webhook 与大步长从下一次保存起生效，请再保存一次确认');
     }
 
-    // 按「保存后的档位」判定能力：本次一并切到 open 时，webhook 与大步长立即生效
-    if (effectiveLevel !== 'open') {
+    if (capabilityLevel !== 'open') {
       const webhooks = next.hooks.filter((h) => h.action === 'webhook');
       if (webhooks.length > 0) {
         next.hooks = next.hooks.filter((h) => h.action !== 'webhook');

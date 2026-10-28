@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { basename } from 'node:path';
 
 /**
  * 运行自检（watchdog）。
@@ -191,7 +192,14 @@ export function evaluateChecks(input: CheckInput): CheckResult[] {
 
   out.push(
     existsSync(input.configPath)
-      ? { id: 'agent-file', label: '配置文件', severity: 'ok', detail: input.configPath, action: '无需处理' }
+      ? {
+          id: 'agent-file',
+          label: '配置文件',
+          severity: 'ok',
+          // 只回传文件名：报告会广播给所有客户端，绝对路径会泄露部署目录结构
+          detail: basename(input.configPath),
+          action: '无需处理',
+        }
       : {
           id: 'agent-file',
           label: '配置文件',

@@ -25,8 +25,14 @@ function threshold(): number {
   return LEVEL_ORDER[configured] ?? LEVEL_ORDER.info;
 }
 
-/** 密钥类字段一律不落日志 */
-const REDACT_KEYS = /^(authorization|token|password|cookie|set-cookie|secret)$/i;
+/**
+ * 密钥类字段一律不落日志。
+ *
+ * 必须覆盖项目实际使用的命名：`LlmRuntimeConfig.apiKey`、`accessToken`、
+ * `privateKey` 都不在上面的短名单里，漏一个就等于把明文写进日志。
+ */
+const REDACT_KEYS =
+  /^(authorization|token|access[-_]?token|refresh[-_]?token|api[-_]?key|password|passwd|cookie|set-cookie|secret|private[-_]?key)$/i;
 
 function redact(value: unknown, depth = 0, seen = new WeakSet<object>()): unknown {
   if (depth > 3 || value === null || typeof value !== 'object') return value;

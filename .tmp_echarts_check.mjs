@@ -1,0 +1,10 @@
+import * as echarts from 'echarts/core';
+import { LineChart } from 'echarts/charts';
+import { GridComponent } from 'echarts/components';
+import { SVGRenderer } from 'echarts/renderers';
+echarts.use([LineChart, GridComponent, SVGRenderer]);
+const c = echarts.init(null, null, { renderer: 'svg', ssr: true, width: 200, height: 100 });
+c.setOption({ xAxis:{type:'category',data:['a','b']}, yAxis:{type:'value'}, series:[{type:'line',data:[1,2]},{type:'line',data:[2,3]},{type:'line',data:[3,4]}] }, { notMerge:false, lazyUpdate:true });
+c.setOption({ xAxis:{type:'category',data:['a','b']}, yAxis:{type:'value'}, series:[{type:'line',data:[1,2]}] }, { notMerge:false, lazyUpdate:true });
+const opt = c.getOption();
+console.log('series count after shrinking:', opt.series.length, JSON.stringify(opt.series.map(s=>s.data)));

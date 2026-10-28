@@ -127,3 +127,35 @@ describe('持久化', () => {
     expect(reloaded.getPublic()?.model).toBe('u2-flash');
   });
 });
+
+describe('密钥与地址绑定（防外带）', () => {
+  it('界面留空时，同源地址可以复用已存密钥', () => {
+    store.save(draft);
+    expect(store.resolveKey('', 'https://maas-api.example.com/v1')).toBe('sk-secret-value-123456');
+    // 路径不同但同源
+    expect(store.resolveKey('', 'https://maas-api.example.com')).toBe('sk-secret-value-123456');
+  });
+
+  it('目标地址换主机或换端口时，绝不回落到已存密钥', () => {
+    store.save(draft);
+    expect(store.resolveKey('', 'https://attacker.example.com/v1')).toBe('');
+    expect(store.resolveKey('', 'https://maas-api.example.com:8443/v1')).toBe('');
+    expect(store.resolveKey('', 'http://maas-api.example.com/v1')).toBe('');
+  });
+
+  it('显式传入的新密钥始终优先，不受绑定限制', () => {
+    store.save(draft);
+    expect(store.resolveKey('sk-new', 'https://attacker.example.com')).toBe('sk-new');
+  });
+
+  it('hasKeyForOtherOrigin 能提示界面需要重填', () => {
+    store.save(draft);
+    expect(store.hasKeyForOtherOrigin('https://attacker.example.com')).toBe(true);
+    expect(store.hasKeyForOtherOrigin('https://maas-api.example.com/v1')).toBe(false);
+  });
+
+  it('未配置密钥时任何地址都返回空', () => {
+    expect(store.resolveKey('', 'https://maas-api.example.com')).toBe('');
+    expect(store.hasKeyForOtherOrigin('https://any.example.com')).toBe(false);
+  });
+});

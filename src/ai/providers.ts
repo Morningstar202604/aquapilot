@@ -39,11 +39,58 @@ export function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, '');
 }
 
+/** 主机名归一：小写、去尾点、IPv6 去方括号 */
+function canonicalHost(hostname: string): string {
+  return hostname.toLowerCase().replace(/\.+$/, '').replace(/^\[|\]$/g, '');
+}
+
+/**
+ * IPv6 地址段判定（只覆盖与 SSRF 相关的危险段）。
+ *
+ * `URL.hostname` 会把 IPv4-mapped 地址归一成 `[::ffff:a9fe:a9fe]` 这种形式，
+ * 正则匹配 `169.254.` 永远命中不了——必须按 IPv6 段单独判定，
+ * 否则 `http://[::ffff:169.254.169.254]/` 可直达云元数据。
+ */
+function isDangerousIpv6(host: string): boolean {
+  if (!host.includes(':')) return false;
+  const lower = host.toLowerCase();
+  // IPv4-mapped（::ffff:a.b.c.d）与 IPv4-compatible：把末两段解成 IPv4 再判一次
+  const mapped = matchingIpv4(lower);
+  if (mapped) return isDangerousIpv4(mapped);
+  // 链路本地 fe80::/10、唯一本地 fc00::/7、AWS IMDS IPv6 fd00:ec2::254 落在 ULA 内
+  if (/^fe[89ab][0-9a-f]?:/.test(lower)) return true;
+  if (/^f[cd][0-9a-f]{2}:/.test(lower)) return true;
+  // ::1 回环与未指定地址
+  if (lower === '::1' || lower === '::') return true;
+  return false;
+}
+
+/** 从 IPv4-mapped IPv6 主机名里取出内嵌 IPv4（形如 ::ffff:a9fe:a9fe） */
+function matchingIpv4(host: string): string | null {
+  const m = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+  if (!m) return null;
+  const hi = parseInt(m[1], 16);
+  const lo = parseInt(m[2], 16);
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+}
+
+function isDangerousIpv4(host: string): boolean {
+  if (BLOCKED_HOSTS.has(host)) return true;
+  // 链路本地 169.254.0.0/16
+  if (/^169\\.254\\./.test(host)) return true;
+  // 云元数据常用别名 IP（阿里云 / 腾讯云）
+  if (host === '100.100.100.200') return true;
+  return false;
+}
+
 /**
  * SSRF 守卫。
  *
  * 允许 localhost / 私网（自建 Ollama、vLLM 就在内网），
  * 但拒绝非 http(s)、URL 内嵌凭据、链路本地与云元数据主机。
+ *
+ * 归一化是必须的：`metadata.google.internal.`（尾点）、`[::ffff:169.254.169.254]`
+ * （IPv4-mapped IPv6）都能绕过朴素的字面量匹配。
  */
 export function assertSafeBaseUrl(raw: string): URL {
   let url: URL;
@@ -58,10 +105,10 @@ export function assertSafeBaseUrl(raw: string): URL {
   if (url.username || url.password) {
     throw new ProviderError('地址里不允许内嵌账号密码，请把密钥填在 API Key 字段');
   }
-  const host = url.hostname.toLowerCase();
-  if (BLOCKED_HOSTS.has(host)) throw new ProviderError('该地址属于云元数据服务，禁止访问');
-  if (/^169\.254\./.test(host)) throw new ProviderError('链路本地地址不可用');
-  if (host.startsWith('[') && host.startsWith('[fe80')) throw new ProviderError('链路本地地址不可用');
+  const host = canonicalHost(url.hostname);
+  if (BLOCKED_HOSTS.has(host) || isDangerousIpv4(host) || isDangerousIpv6(host)) {
+    throw new ProviderError('该地址属于云元数据或链路本地服务，禁止访问');
+  }
   return url;
 }
 
@@ -150,12 +197,31 @@ function asNumber(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+/**
+ * 带超时的请求 + 读体。
+ *
+ * 超时必须覆盖「拿到响应头」和「读完响应体」两段：
+ * 旧实现只给 fetch 套了 AbortSignal，一旦端点先回头再挂住 body，
+ * `res.text()` 没有任何超时约束，连接与 Promise 会永久挂起。
+ * 同时固定 `redirect:'manual'`：跟随重定向会让 SSRF 守卫只看第一跳，
+ * 公网地址 302 到云元数据即可绕过。
+ */
+async function requestJson(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<{ res: Response; json: Record<string, unknown> }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const res = await fetch(url, { ...init, signal: controller.signal, redirect: 'manual' });
+    if (res.status >= 300 && res.status < 400) {
+      throw new ProviderError(`端点返回重定向（HTTP ${res.status}），已拒绝跟随`, res.status);
+    }
+    const json = await readJson(res);
+    return { res, json };
   } catch (err) {
+    if (err instanceof ProviderError) throw err;
     if (err instanceof Error && err.name === 'AbortError') throw new ProviderError('请求超时，端点没有响应');
     throw new ProviderError('无法连接端点：检查地址与网络，或该端点是否允许跨域访问');
   } finally {
@@ -220,8 +286,7 @@ export function parseModelList(protocol: LlmProtocol, json: Record<string, unkno
 
 export async function discoverModels(input: LlmDiscoverInput): Promise<DiscoveredModel[]> {
   const { url, init } = buildDiscoverRequest(input);
-  const res = await fetchWithTimeout(url, init, DISCOVER_TIMEOUT_MS);
-  const json = await readJson(res);
+  const { res, json } = await requestJson(url, init, DISCOVER_TIMEOUT_MS);
   if (!res.ok) {
     const detail = errorMessageOf(json);
     throw new ProviderError(
@@ -333,8 +398,7 @@ export async function testConnection(input: LlmTestInput): Promise<LlmTestResult
   const budget = Math.min(Math.max(input.maxOutput ?? 512, 64), 4096);
   try {
     let { url, init } = buildChatRequest(input, budget);
-    let res = await fetchWithTimeout(url, init, TEST_TIMEOUT_MS);
-    let json = await readJson(res);
+    let { res, json } = await requestJson(url, init, TEST_TIMEOUT_MS);
     if (!res.ok) {
       const detail = errorMessageOf(json);
       return {
@@ -348,8 +412,7 @@ export async function testConnection(input: LlmTestInput): Promise<LlmTestResult
     // 这种情形不是链路失败，放宽预算重试一次再判定。
     if (!outcome.reply && outcome.emptyBecauseTruncated) {
       ({ url, init } = buildChatRequest(input, Math.max(budget, 2048)));
-      res = await fetchWithTimeout(url, init, TEST_TIMEOUT_MS);
-      json = await readJson(res);
+      ({ res, json } = await requestJson(url, init, TEST_TIMEOUT_MS));
       if (!res.ok) {
         const detail = errorMessageOf(json);
         return {
@@ -430,8 +493,7 @@ export async function chatComplete(
         attempt.generationConfig = gc;
       }
       const init: RequestInit = { ...request.init, body: JSON.stringify(attempt) };
-      const res = await fetchWithTimeout(request.url, init, timeoutMs);
-      const json = await readJson(res);
+      const { res, json } = await requestJson(request.url, init, timeoutMs);
       if (!res.ok) return { ok: false, reason: `http-${res.status}` };
       const outcome = parseChatReply(config.protocol, json);
       if (outcome.reply) return { ok: true, text: outcome.reply };

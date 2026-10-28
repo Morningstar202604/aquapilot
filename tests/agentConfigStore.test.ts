@@ -143,7 +143,7 @@ describe('权限与核心保护（服务端统一入口）', () => {
     expect(outcome.warnings.join()).toContain('Webhook');
   });
 
-  it('open 下 webhook 与大步长都保留', () => {
+  it('open 下 webhook 与大步长都保留（提权与能力分开两次保存）', () => {
     const cfg = defaultAgentConfig();
     cfg.permission = 'open';
     cfg.constraints.maxStepPct = 80;
@@ -158,11 +158,41 @@ describe('权限与核心保护（服务端统一入口）', () => {
       enabled: true,
       cooldownMin: 1,
     });
-    const outcome = store.save(cfg, { writer: 'ui' });
-    expect(outcome.ok).toBe(true);
+    /**
+     * 第一次保存只切档位：open 专属能力（webhook / >30% 步长）
+     * 必须从「下一次」保存起才生效，否则一次请求即可自己提权并落地外发钩子。
+     */
+    const first = store.save(cfg, { writer: 'ui' });
+    expect(first.ok).toBe(true);
     expect(store.get().permission).toBe('open');
+    expect(store.get().hooks.some((h) => h.action === 'webhook')).toBe(false);
+    expect(store.get().constraints.maxStepPct).toBe(30);
+    expect(first.warnings.join()).toContain('下一次保存');
+
+    // 第二次保存时当前档位已是 open，能力才会保留
+    const second = store.save(cfg, { writer: 'ui' });
+    expect(second.ok).toBe(true);
     expect(store.get().hooks.some((h) => h.action === 'webhook')).toBe(true);
     expect(store.get().constraints.maxStepPct).toBe(80);
+  });
+
+  it('单次保存不能同时提权并落地 webhook（防止自提权）', () => {
+    const cfg = defaultAgentConfig();
+    cfg.permission = 'open';
+    cfg.hooks.push({
+      id: 'h-esc',
+      name: '外发',
+      event: 'alarm',
+      match: '',
+      action: 'webhook',
+      target: 'http://127.0.0.1:8500/admin',
+      level: 'info',
+      enabled: true,
+      cooldownMin: 0,
+    });
+    const outcome = store.save(cfg, { writer: 'ui' });
+    expect(outcome.ok).toBe(true);
+    expect(store.get().hooks.some((h) => h.action === 'webhook')).toBe(false);
   });
 
   it('standard 下超 30% 步长被夹紧', () => {

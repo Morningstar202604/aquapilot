@@ -65,6 +65,8 @@ const MANUAL_OVERRIDE_MIN = 30;
 const TREND_EVERY_TICKS = 10;
 
 interface ClientState {
+  /** 心跳存活标记：上一轮 ping 之后是否收到过 pong */
+  alive: boolean;
   /** 上次触发重算决策的时间，用于防止同步阻塞被滥用 */
   lastControlAt: number;
   lastTopologyAt: number;
@@ -80,6 +82,14 @@ interface ClientState {
   lastLlmAt: number;
   /** 上次手动重新推演的时间：推演是 ~200 ms 同步阻塞，必须限频 */
   lastDecisionAt: number;
+  /** 上次 LLM 增强对话的时间：单条消息最多发起 4 次长超时出站请求 */
+  lastChatAt: number;
+  /** 已发送过全量快照：hello 每连接只允许一次 */
+  helloSent: boolean;
+  /** 上次触发全量快照广播的时间：小消息放大成 N×240 KB 的放大器 */
+  lastSnapshotAt: number;
+  /** 该连接在途的 LLM 请求数：限制并发避免一条连接打满出站配额 */
+  llmInFlight: number;
 }
 
 /**
@@ -89,7 +99,18 @@ interface ClientState {
  * 比较运算 `now - undefined` 恒为 NaN 而静默放行——限流形同虚设。
  */
 function freshClientState(): ClientState {
-  return { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0, lastLlmAt: 0, lastDecisionAt: 0 };
+  return {
+    alive: true,
+    lastControlAt: 0,
+    lastTopologyAt: 0,
+    lastTrendT: 0,
+    lastLlmAt: 0,
+    lastDecisionAt: 0,
+    lastChatAt: 0,
+    helloSent: false,
+    lastSnapshotAt: 0,
+    llmInFlight: 0,
+  };
 }
 
 interface Runtime {
@@ -124,7 +145,12 @@ const store = new Store();
  * 仿真时钟每次启动都从 0 开始，若不区分 run，
  * 多次运行的快照会在 at_min 上重叠，回放曲线呈现假锯齿。
  */
-const RUN_ID = `run-${Date.now().toString(36)}`;
+let RUN_ID = `run-${Date.now().toString(36)}`;
+
+/** 重置仿真时轮换运行标识：否则同一 run 下 at_min 从 0 重来，回放出现锯齿 */
+function rotateRunId(): void {
+  RUN_ID = `run-${Date.now().toString(36)}`;
+}
 
 /**
  * 启动时恢复上次保存的拓扑。
@@ -454,21 +480,37 @@ function buildAttribution(
   return out;
 }
 
+/**
+ * 背压保护：发送队列堆积说明对端不读数据。
+ *
+ * 入站有 maxPayload 限制，出站此前完全没有：一个连上就暂停读取的客户端
+ * 会让每帧增量在服务端内存里无限排队。超过阈值直接断开，
+ * 客户端重连后自然会重新对齐（趋势游标按时间戳，重连安全）。
+ */
+function sendGuarded(ws: WebSocket, payload: string): void {
+  if (ws.readyState !== WebSocket.OPEN) return;
+  if (ws.bufferedAmount > MAX_BUFFERED_BYTES) {
+    logger.warn('ws send buffer overflow, terminating slow client', { buffered: ws.bufferedAmount });
+    metrics.rateLimited += 1;
+    ws.terminate();
+    return;
+  }
+  ws.send(payload);
+}
+
 function broadcastPatch(): void {
   for (const ws of runtime.clients) {
     if (ws.readyState !== WebSocket.OPEN) continue;
     const client = runtime.clientState.get(ws) ?? freshClientState();
     const patch = buildPatch(client);
     runtime.clientState.set(ws, client);
-    if (patch) ws.send(JSON.stringify({ type: 'snapshotPatch', data: patch } satisfies ServerMessage));
+    if (patch) sendGuarded(ws, JSON.stringify({ type: 'snapshotPatch', data: patch } satisfies ServerMessage));
   }
 }
 
 function broadcast(message: ServerMessage): void {
   const payload = JSON.stringify(message);
-  for (const ws of runtime.clients) {
-    if (ws.readyState === WebSocket.OPEN) ws.send(payload);
-  }
+  for (const ws of runtime.clients) sendGuarded(ws, payload);
 }
 
 /**
@@ -510,12 +552,25 @@ const hooksRuntime = new HookRuntime({
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
     try {
+      /**
+       * 不跟随重定向。
+       *
+       * 钩子目标是用户可写的信任边界输入：校验只看得到第一跳，
+       * 若默认 follow，一个公网地址 302 到 `http://169.254.169.254/…`
+       * 就能把请求打进云元数据。`manual` 下 3xx 直接按失败处理。
+       */
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Aquapilot-Hook': hook.id },
         body: JSON.stringify(body),
         signal: controller.signal,
+        redirect: 'manual',
       });
+      if (res.status >= 300 && res.status < 400) {
+        hookFailures += 1;
+        logger.warn('hook webhook redirect rejected', { hook: hook.name, status: res.status });
+        return false;
+      }
       if (!res.ok) {
         hookFailures += 1;
         logger.warn('hook webhook non-2xx', { hook: hook.name, status: res.status });
@@ -751,9 +806,22 @@ const RATE_LIMIT = {
   topologyMs: 5000,
   /** 一次推演 ≈200 ms 同步阻塞：2 s 一次足够操作员连点，又不会把 tick 挤掉 */
   decisionMs: 2000,
+  /** 聊天会触发最多 4 次长超时出站请求（含推理模型 60 s） */
+  chatMs: 1500,
+  /** 全量快照约 240 KB：同一连接 1 s 内只允许触发一次广播 */
+  snapshotMs: 1000,
 };
 
-function rateLimited(ws: WebSocket, kind: 'control' | 'topology' | 'decision'): boolean {
+/** 单连接同时允许的在途 LLM 请求数 */
+const MAX_LLM_IN_FLIGHT = 2;
+
+/** 同时在线连接上限：限流状态按连接维护，必须限制连接数才能封住放大效应 */
+const MAX_WS_CLIENTS = 50;
+
+/** 慢客户端阈值：发送队列超过该字节数说明对端不读，继续排队只会吃满内存 */
+const MAX_BUFFERED_BYTES = 1024 * 1024;
+
+function rateLimited(ws: WebSocket, kind: 'control' | 'topology' | 'decision' | 'chat' | 'snapshot'): boolean {
   const state = runtime.clientState.get(ws) ?? freshClientState();
   const now = Date.now();
   if (kind === 'control') {
@@ -768,6 +836,18 @@ function rateLimited(ws: WebSocket, kind: 'control' | 'topology' | 'decision'): 
       return true;
     }
     state.lastDecisionAt = now;
+  } else if (kind === 'chat') {
+    if (now - state.lastChatAt < RATE_LIMIT.chatMs) {
+      metrics.rateLimited += 1;
+      return true;
+    }
+    state.lastChatAt = now;
+  } else if (kind === 'snapshot') {
+    if (now - state.lastSnapshotAt < RATE_LIMIT.snapshotMs) {
+      metrics.rateLimited += 1;
+      return true;
+    }
+    state.lastSnapshotAt = now;
   } else {
     if (now - state.lastTopologyAt < RATE_LIMIT.topologyMs) {
       metrics.rateLimited += 1;
@@ -978,6 +1058,19 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
 
   switch (msg.type) {
     case 'hello': {
+      /**
+       * hello 每连接只允许一次。
+       *
+       * 全量快照含 720 个趋势点（约 240 KB），而 hello 消息只有几十字节：
+       * 不设限的话单连接循环发 hello 就能把 CPU 与带宽打满。
+       */
+      const helloState = runtime.clientState.get(ws) ?? freshClientState();
+      if (helloState.helloSent) {
+        metrics.invalidMessages += 1;
+        break;
+      }
+      helloState.helloSent = true;
+      runtime.clientState.set(ws, helloState);
       sendSnapshotTo(ws);
       ws.send(
         JSON.stringify({
@@ -1000,6 +1093,29 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
             type: 'notice',
             level: 'error',
             text: '问题为空或过长（上限 2000 字）',
+          } satisfies ServerMessage),
+        );
+        break;
+      }
+      /**
+       * 聊天限流：每条消息最多触发 4 次长超时出站 LLM 请求
+       * （两套请求预算 × 数字校验失败后的整轮重试，推理模型单次 60 s）。
+       * 不限流时一条连接即可堆满内存与第三方配额。
+       */
+      if (rateLimited(ws, 'chat')) {
+        ws.send(
+          JSON.stringify({ type: 'notice', level: 'warn', text: '提问过于频繁，请稍后再试' } satisfies ServerMessage),
+        );
+        break;
+      }
+      const chatState = runtime.clientState.get(ws) ?? freshClientState();
+      if (chatState.llmInFlight >= MAX_LLM_IN_FLIGHT) {
+        metrics.rateLimited += 1;
+        ws.send(
+          JSON.stringify({
+            type: 'notice',
+            level: 'warn',
+            text: '上一条回答仍在生成，请等它完成',
           } satisfies ServerMessage),
         );
         break;
@@ -1074,8 +1190,17 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
        *
        * 先发规则答案保证「任何配置下都有回答」，再尝试 LLM 追问一条补充。
        * 失败只记指标，不打扰用户——用户已经看到可用答案。
+       *
+       * 在途计数必须成对增减：它保证单连接不会堆满长超时出站请求，
+       * 漏掉 finally 会让一次超时永久占掉一个名额（最终把聊天卡死）。
        */
-      void enhanceWithLlm(ws, text, ruleAnswer);
+      const trackState = runtime.clientState.get(ws) ?? freshClientState();
+      trackState.llmInFlight += 1;
+      runtime.clientState.set(ws, trackState);
+      void enhanceWithLlm(ws, text, ruleAnswer).finally(() => {
+        const cur = runtime.clientState.get(ws);
+        if (cur) cur.llmInFlight = Math.max(0, cur.llmInFlight - 1);
+      });
       break;
     }
     case 'control': {
@@ -1150,11 +1275,12 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
           text: enabled ? 'AI 自动值守已启用，将自动执行控制调节。' : 'AI 已切换为建议模式，控制调节需人工确认。',
         } satisfies ServerMessage),
       );
-      broadcastSnapshot();
+      if (!rateLimited(ws, 'snapshot')) broadcastSnapshot();
       break;
     }
     case 'applyRecommendation': {
       if (!runtime.recommendation) return;
+      if (rateLimited(ws, 'snapshot')) break;
       runtime.net.controls = { ...runtime.recommendation.chosens.controls, aiEnabled: runtime.net.controls.aiEnabled };
       broadcast({ type: 'notice', level: 'info', text: '已采纳 AI 建议，控制参数已更新。' });
       broadcastSnapshot();
@@ -1190,9 +1316,16 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       break;
     }
     case 'sim': {
+      if (msg.action !== 'pause' && msg.action !== 'resume' && msg.action !== 'reset') {
+        metrics.invalidMessages += 1;
+        ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '未知的仿真操作' } satisfies ServerMessage));
+        break;
+      }
+      if (rateLimited(ws, 'snapshot')) break;
       if (msg.action === 'pause') runtime.paused = true;
       if (msg.action === 'resume') runtime.paused = false;
       if (msg.action === 'reset') {
+        rotateRunId();
         runtime.net = createRuntime(runtime.topology, 20261019).net;
         runtime.shadow = createShadowPlant(runtime.topology, 20261019, 0);
         runtime.trend = [];
@@ -1243,6 +1376,16 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       break;
     }
     case 'preset': {
+      /**
+       * 切换模板会重建运行时并预热 30 天（21600 次 stepNetwork，实测 400 ms 级）。
+       * 与拓扑变更同等代价，必须共用同一限流；此前完全没限，连点即打停 tick。
+       */
+      if (rateLimited(ws, 'topology')) {
+        ws.send(
+          JSON.stringify({ type: 'notice', level: 'error', text: '工艺切换过于频繁，请稍后再试' } satisfies ServerMessage),
+        );
+        break;
+      }
       const known = PRESETS.map((p) => p.id);
       if (typeof msg.id !== 'string' || !known.includes(msg.id)) {
         ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '未知的工艺模板' } satisfies ServerMessage));
@@ -1526,10 +1669,22 @@ async function handleLlmConfig(ws: WebSocket, msg: Extract<ClientMessage, { type
       return;
     }
     try {
+      if (llmConfigStore.hasKeyForOtherOrigin(msg.baseUrl) && !(typeof msg.apiKey === 'string' && msg.apiKey.trim())) {
+        send({
+          type: 'llmConfig',
+          action: 'error',
+          requestId: msg.requestId,
+          error: '目标地址与已保存配置不同源，请重新填写 API Key（已保存的密钥不会发往新地址）',
+        });
+        return;
+      }
       const models = await discoverModels({
         protocol: msg.protocol,
         baseUrl: msg.baseUrl,
-        apiKey: llmConfigStore.resolveKey(typeof msg.apiKey === 'string' ? msg.apiKey.trim() : ''),
+        apiKey: llmConfigStore.resolveKey(
+          typeof msg.apiKey === 'string' ? msg.apiKey.trim() : '',
+          msg.baseUrl,
+        ),
       });
       send({ type: 'llmConfig', action: 'discovered', requestId: msg.requestId, models });
     } catch (err) {
@@ -1543,10 +1698,22 @@ async function handleLlmConfig(ws: WebSocket, msg: Extract<ClientMessage, { type
       send({ type: 'llmConfig', action: 'error', requestId: msg.requestId, error: '请先填写地址与模型' });
       return;
     }
+    if (llmConfigStore.hasKeyForOtherOrigin(msg.baseUrl) && !(typeof msg.apiKey === 'string' && msg.apiKey.trim())) {
+      send({
+        type: 'llmConfig',
+        action: 'error',
+        requestId: msg.requestId,
+        error: '目标地址与已保存配置不同源，请重新填写 API Key（已保存的密钥不会发往新地址）',
+      });
+      return;
+    }
     const result = await testConnection({
       protocol: msg.protocol,
       baseUrl: msg.baseUrl,
-      apiKey: llmConfigStore.resolveKey(typeof msg.apiKey === 'string' ? msg.apiKey.trim() : ''),
+      apiKey: llmConfigStore.resolveKey(
+        typeof msg.apiKey === 'string' ? msg.apiKey.trim() : '',
+        msg.baseUrl,
+      ),
       model: msg.model.trim(),
       maxOutput: typeof msg.maxOutput === 'number' ? msg.maxOutput : undefined,
     });
@@ -1781,6 +1948,25 @@ const MIME: Record<string, string> = {
   '.ico': 'image/x-icon',
 };
 
+/**
+ * 解析请求的查询串。
+ *
+ * 不能用 `new URL(req.url, `http://${req.headers.host}`)` 构造基址：
+ * Host 头由客户端完全控制，含空格等非法字符时 `new URL` 抛 TypeError，
+ * 而请求处理函数没有 try/catch，这个异常会冒泡到进程级并让服务退出。
+ * 查询串只与 path 有关，基址写死即可。
+ */
+function queryOf(req: IncomingMessage): URLSearchParams {
+  const raw = req.url ?? '/';
+  const q = raw.indexOf('?');
+  if (q < 0) return new URLSearchParams();
+  try {
+    return new URLSearchParams(raw.slice(q + 1));
+  } catch {
+    return new URLSearchParams();
+  }
+}
+
 async function serveStatic(req: IncomingMessage, res: import('node:http').ServerResponse): Promise<void> {
   const clientDir = resolve(process.cwd(), 'dist/client');
 
@@ -1869,6 +2055,28 @@ async function serveStatic(req: IncomingMessage, res: import('node:http').Server
   }
 }
 
+/**
+ * 时间窗口参数的边界。
+ *
+ * 快照表没有保留策略时，`to` 缺省为 MAX_SAFE_INTEGER 会让一次请求
+ * 把整张表读进内存并在主线程 JSON/CSV 拼接——长跑后这就是 OOM。
+ * 这里强制单次窗口有上限，并要求两个端点都是有限数。
+ */
+const MAX_SNAPSHOT_WINDOW_MIN = 7 * 24 * 60;
+const MAX_SNAPSHOT_POINTS = 20_000;
+
+function boundedWindow(url: URLSearchParams): { ok: true; from: number; to: number } | { ok: false; error: string } {
+  const from = Number(url.get('from') ?? 0);
+  const rawTo = url.get('to');
+  const to = rawTo === null ? from + MAX_SNAPSHOT_WINDOW_MIN : Number(rawTo);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return { ok: false, error: 'from/to 必须是有限数值' };
+  if (to < from) return { ok: false, error: 'to 必须大于等于 from' };
+  if (to - from > MAX_SNAPSHOT_WINDOW_MIN) {
+    return { ok: false, error: `单次最多查询 ${MAX_SNAPSHOT_WINDOW_MIN} 仿真分钟` };
+  }
+  return { ok: true, from, to };
+}
+
 async function main(): Promise<void> {
   // 在开始服务前完成持久化初始化（Node 20 上会自动降级为不持久化）
   await store.open();
@@ -1879,6 +2087,31 @@ async function main(): Promise<void> {
       const seconds = Number(process.hrtime.bigint() - startedHr) / 1e9;
       recordHttp(req.method ?? 'GET', req.url ?? '/', res.statusCode, seconds);
     });
+    res.on('error', (err) => {
+      logger.warn('http response error', { route: (req.url ?? '/').split('?')[0], error: String(err) });
+    });
+    try {
+      handleHttpRequest(req, res);
+    } catch (err) {
+      /**
+       * 兜底：单个请求的任何未预期异常都不能杀掉进程。
+       *
+       * 请求路由是一串同步分支；此前 `new URL(..., host)` 与 `LIMIT ?`
+       * 的非整数绑定都能把异常抛到事件循环顶层，
+       * 表现为「一个畸形请求 = 服务下线」。
+       */
+      metrics.httpErrors += 1;
+      logger.error('http handler failed', { route: (req.url ?? '/').split('?')[0], error: String(err) });
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'internal error' }));
+      } else {
+        res.end();
+      }
+    }
+  });
+
+  function handleHttpRequest(req: IncomingMessage, res: import('node:http').ServerResponse): void {
 
     /**
      * 访问控制只作用于 API 与 WebSocket，不拦静态资源。
@@ -1940,8 +2173,8 @@ async function main(): Promise<void> {
        * 早期实现无条件返回 {ok:true}，tick 已经因异常停摆也照样"健康"，
        * 这对自动重启策略来说是假信号。
        */
-      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-      const deep = url.searchParams.get('deep') === '1';
+      const url = queryOf(req);
+      const deep = url.get('deep') === '1';
       const body: Record<string, unknown> = {
         ok: true,
         authRequired: authRequired(),
@@ -1968,8 +2201,8 @@ async function main(): Promise<void> {
     }
     if (pathname === '/api/metrics') {
       // Prometheus 抓取默认走文本；?format=json 便于人读与前端展示
-      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-      if (url.searchParams.get('format') === 'json') {
+      const url = queryOf(req);
+      if (url.get('format') === 'json') {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(metricsJson()));
         return;
@@ -2013,24 +2246,29 @@ async function main(): Promise<void> {
       return;
     }
     if (pathname === '/api/history/alarms') {
-      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-      const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit') ?? 100) || 100));
-      const runId = url.searchParams.get('runId') ?? undefined;
+      const url = queryOf(req);
+      const limit = Math.min(500, Math.max(1, Math.trunc(Number(url.get('limit') ?? 100) || 100)));
+      const runId = url.get('runId') ?? undefined;
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ enabled: store.enabled, alarms: store.recentAlarms(limit, runId ?? undefined) }));
       return;
     }
     if (pathname === '/api/history/snapshots') {
-      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-      const from = Number(url.searchParams.get('from') ?? 0);
-      const to = Number(url.searchParams.get('to') ?? Number.MAX_SAFE_INTEGER);
+      const url = queryOf(req);
+      const window = boundedWindow(url);
+      if (!window.ok) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: window.error }));
+        return;
+      }
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(
         JSON.stringify({
           enabled: store.enabled,
           runId: store.latestRunId(),
           runs: store.listRuns(),
-          snapshots: Number.isFinite(from) && Number.isFinite(to) ? store.snapshotsBetween(from, to) : [],
+          snapshots: store.snapshotsBetween(window.from, window.to, undefined, MAX_SNAPSHOT_POINTS),
+          limit: MAX_SNAPSHOT_POINTS,
         }),
       );
       return;
@@ -2051,10 +2289,14 @@ async function main(): Promise<void> {
       return;
     }
     if (pathname === '/api/export/snapshots.csv') {
-      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-      const from = Number(url.searchParams.get('from') ?? 0);
-      const to = Number(url.searchParams.get('to') ?? Number.MAX_SAFE_INTEGER);
-      const rows = Number.isFinite(from) && Number.isFinite(to) ? store.snapshotsBetween(from, to) : [];
+      const url = queryOf(req);
+      const window = boundedWindow(url);
+      if (!window.ok) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: window.error }));
+        return;
+      }
+      const rows = store.snapshotsBetween(window.from, window.to, undefined, MAX_SNAPSHOT_POINTS);
       const body = snapshotsCsv(rows);
       res.writeHead(200, {
         'Content-Type': 'text/csv; charset=utf-8',
@@ -2106,7 +2348,7 @@ async function main(): Promise<void> {
         res.end();
       }
     });
-  });
+  }
 
   const wss = new WebSocketServer({
     server,
@@ -2148,6 +2390,15 @@ async function main(): Promise<void> {
   });
 
   wss.on('connection', (ws) => {
+    /**
+     * 连接数上限：限流状态是按连接维护的，不设上限的话
+     * 开 N 条连接就能把每个限流额度放大 N 倍。
+     */
+    if (runtime.clients.size >= MAX_WS_CLIENTS) {
+      logger.warn('ws rejected', { reason: 'too-many-clients', clients: runtime.clients.size });
+      ws.close(1013, 'too many connections');
+      return;
+    }
     metrics.wsActive += 1;
     metrics.wsAccepted += 1;
     logger.info('ws connected', { clients: runtime.clients.size + 1 });
@@ -2175,12 +2426,38 @@ async function main(): Promise<void> {
     ws.on('error', (err) => {
       logger.warn('ws error', { error: String(err) });
     });
-    // heartbeat：清理半开连接，避免 clients 集合泄漏
-    const ping = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) ws.ping();
-    }, 30000);
-    ws.on('close', () => clearInterval(ping));
+    /**
+     * heartbeat：真正的半开检测。
+     *
+     * 只 ping 不校验 pong 的话，拔网线/客户端假死的连接永远不会被清理：
+     * `clients`、`clientState` 与 30 s 定时器全部常驻。
+     * 标准做法是每轮置 isAlive=false、收到 pong 置 true，超时 terminate。
+     */
+    const cs = runtime.clientState.get(ws) ?? freshClientState();
+    cs.alive = true;
+    runtime.clientState.set(ws, cs);
+    ws.on('pong', () => {
+      const cur = runtime.clientState.get(ws);
+      if (cur) cur.alive = true;
+    });
   });
+
+  /**
+   * 全局心跳扫描：每 30 s 检查所有连接是否在上一轮之后回过 pong。
+   * 放在连接级定时器之外，避免每条连接各持一个 interval。
+   */
+  setInterval(() => {
+    for (const ws of runtime.clients) {
+      const st = runtime.clientState.get(ws);
+      if (st && st.alive === false) {
+        logger.warn('ws terminated', { reason: 'no-pong' });
+        ws.terminate();
+        continue;
+      }
+      if (st) st.alive = false;
+      if (ws.readyState === WebSocket.OPEN) ws.ping();
+    }
+  }, 30000);
 
   setInterval(() => {
     if (runtime.paused) return;
