@@ -37,5 +37,14 @@ export function mergeSnapshot(prev: PlantSnapshot, patch: SnapshotPatch): PlantS
     health: patch.health ?? prev.health,
     stormStorageM3: patch.stormStorageM3,
     reactorCount: patch.reactorCount,
+    /**
+     * 预测扇区与双跑摘要也必须合并。
+     *
+     * 它们此前只在全量快照里带：连接后趋势图的预测区永远停在连接那一刻，
+     * 收益面板的「AI vs 固定策略」也是一份不动的旧数据。两者都是运行中
+     * 持续变化的量，不合并就是假实时。
+     */
+    forecastBand: patch.forecastBand ?? prev.forecastBand,
+    benchmark: patch.benchmark ?? prev.benchmark,
   };
 }

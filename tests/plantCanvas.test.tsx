@@ -115,10 +115,32 @@ describe('PlantCanvas 渲染', () => {
     expect(container.querySelectorAll('.plant-node[data-multi="true"]')).toHaveLength(2);
   });
 
-  it('每个单元标题前有工艺图标', () => {
+  it('1:1 细读模式下每个单元标题前有工艺图标', () => {
+    /**
+     * 全览模式不画图标：24px 标题才是读图主线，图标只占宽度。
+     * 小屏默认 1:1（fitToWindow=false），用这个模式验证图标层仍在。
+     */
+    const original = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { value: 800, configurable: true });
+    try {
+      const { container } = render(
+        <PlantCanvas snap={makeSnapshot()} topo={PLANT_TOPOLOGY} selected={null} onSelect={vi.fn()} />,
+      );
+      expect(container.querySelectorAll('.unit-icon')).toHaveLength(PLANT_TOPOLOGY.units.length);
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { value: original, configurable: true });
+    }
+  });
+
+  it('全览模式标题按节点宽度收缩，长名字不越界', () => {
     const { container } = render(
       <PlantCanvas snap={makeSnapshot()} topo={PLANT_TOPOLOGY} selected={null} onSelect={vi.fn()} />,
     );
-    expect(container.querySelectorAll('.unit-icon')).toHaveLength(PLANT_TOPOLOGY.units.length);
+    const titles = [...container.querySelectorAll('.unit-title-lg')] as SVGTextElement[];
+    expect(titles.length).toBe(PLANT_TOPOLOGY.units.length);
+    // 长名字必须降过字号（24px 是短名字的上限）
+    const thickener = titles.find((t) => t.textContent === '污泥浓缩池');
+    expect(thickener).toBeTruthy();
+    expect(Number(thickener!.style.fontSize.replace('px', ''))).toBeLessThan(24);
   });
 });

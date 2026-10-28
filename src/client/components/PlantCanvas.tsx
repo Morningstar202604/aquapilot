@@ -9,6 +9,7 @@ import {
   unitKindIcon,
 } from '../../shared/streamMeta';
 import { moveNodes, nodesInRect, nextSelection } from '../hooks/editorSelection';
+import { fitCompactTitle } from './labels';
 import { PLANT_TOPOLOGY, UnitKind, ProcessTopology } from '../../model/topology';
 import type { PlantSnapshot } from '../../shared/protocol';
 
@@ -923,6 +924,8 @@ function Node({
   const bad = isUnitAlarming(unit.kind, unit.id, snap);
   const stroke = selected ? 'var(--water)' : bad ? 'var(--alarm)' : 'var(--line)';
   const strokeWidth = selected ? 1.8 : 1;
+  /** 紧凑标题按节点宽度选字号：长名字不能压到相邻单元（截图实测过） */
+  const compactTitle = compactView ? fitCompactTitle(unit.name, w) : { text: unit.name, fontSize: 24 };
 
   return (
     <g
@@ -964,12 +967,24 @@ function Node({
         strokeWidth={strokeWidth}
       />
       <rect x={x} y={y} width={w} height="20" rx="2" fill="rgba(6,16,15,0.66)" />
-      <text x={x + 6} y={y + 14.5} className="unit-icon" aria-hidden="true">
-        {unitKindIcon(unit.kind) ?? '▢'}
-      </text>
-      <text x={x + 20} y={y + 15} className={compactView ? 'unit-title-lg' : 'unit-title'}>
-        {compactView ? shortName(unit.name) : unit.name}
-      </text>
+      {/**
+       * 全览模式不画图标：24px 字号的标题才是读图主线，图标只占宽度。
+       * 标题从 x+8 起算，配合 fitCompactTitle 的宽度估算，长名字不会压到邻居。
+       */}
+      {!compactView && (
+        <text x={x + 6} y={y + 14.5} className="unit-icon" aria-hidden="true">
+          {unitKindIcon(unit.kind) ?? '▢'}
+        </text>
+      )}
+      {compactView ? (
+        <text x={x + 8} y={y + 15} className="unit-title-lg" style={{ fontSize: `${compactTitle.fontSize}px` }}>
+          {compactTitle.text}
+        </text>
+      ) : (
+        <text x={x + 20} y={y + 15} className="unit-title">
+          {unit.name}
+        </text>
+      )}
 
       {showLabel && (
         <UnitBody unit={unit} x={x} y={y} w={w} h={h} snap={snap} liveTank={liveTank} compact={compactView} />
@@ -978,11 +993,6 @@ function Node({
       {bad && <circle cx={x + w - 9} cy={y + 10} r="3.4" fill="var(--alarm)" />}
     </g>
   );
-}
-
-/** 全览只保留主名称：节点宽 124，带 "· 副标题" 会压到相邻池子 */
-function shortName(name: string): string {
-  return name.split(' · ')[0];
 }
 
 function fillFor(kind: UnitKind, tank?: { do: number; kind: string }): string {
@@ -1035,7 +1045,7 @@ function UnitBody({
           <text x={lx} y={y + 58} className="unit-value-lg">
             {unit.kind === 'aerobic' ? `DO ${liveTank.do.toFixed(1)}` : `NH₄ ${liveTank.nh.toFixed(0)}`}
           </text>
-          <text x={lx} y={y + 88} className="unit-sub">
+          <text x={lx} y={y + 88} className="unit-sub-lg">
             MLSS {Math.round(liveTank.mlss)}
           </text>
         </g>

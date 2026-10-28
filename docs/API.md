@@ -196,6 +196,15 @@ the comparison as indicative.
 | `tanks[].mlssSource` | `plant-average` (simplified model, one global biomass) or `reactor` (ASM1 per-zone value); the inspector labels the former 「全厂均值」 |
 | `snapshotPatch.scenario` | Active scenario including `null` when it ends — without it the control panel kept showing 「进行中」 after the window closed |
 | `snapshotPatch.controls` / `totals` / `fmRatio` / `alarms` | The patch must carry these or the UI freezes at the values from the last full snapshot |
+| `snapshotPatch.forecastBand` / `benchmark` | Same reason: without them the forecast fan and the AI-vs-fixed comparison stay frozen at connection time |
+
+Static assets are served with `ETag`, conditional `304`, `Accept-Encoding: gzip`
+for text payloads (≈901 kB → 290 kB for the client bundle), `Cache-Control:
+no-cache` for `index.html` and `immutable` one-year caching for the hashed
+`/assets/*` files.
+
+`refreshDecision` is rate-limited to one call per 2 s per socket: one decision
+cycle is a ~200 ms synchronous forecast burst, so unbounded clicking stalls ticks.
 
 Topology frames gained `action: 'history' | 'revert'`; `revert` re-applies an old
 document as a **new** revision (see `GET /api/topology/history`).

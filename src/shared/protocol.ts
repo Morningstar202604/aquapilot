@@ -279,6 +279,20 @@ export interface SnapshotPatch {
   health: PlantHealth;
   stormStorageM3: number;
   reactorCount: number;
+  /**
+   * 选中方案的集合预测（P10–P90）。
+   *
+   * 必须随增量下发：它每 15 仿真分钟（AI 决策周期）才换一次，但只在全量
+   * 快照里带的话，客户端连上后趋势图上的预测扇区就永久冻结在连接那一刻。
+   */
+  forecastBand: EnsembleForecast | null;
+  /**
+   * 影子双跑摘要。
+   *
+   * 同样只在全量快照里会有「AI vs 固定策略」永远显示最早的几分钟样本——
+   * 收益面板的对照必须随运行推进更新。
+   */
+  benchmark: BenchmarkSummary | null;
 }
 
 export type ServerMessage =

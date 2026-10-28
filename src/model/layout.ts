@@ -467,39 +467,44 @@ function placeEdgeRaw(conn: Connection, nodes: Map<string, PlacedNode>, index: n
   }
 
   if (crossLayer) {
+    /**
+     * 跨层边必须终止在目标端口锚点上，不能停在中线/池底。
+     *
+     * 端口锚点是「看到并可以拖拽的圆点」，连线不落在它上面时，
+     * 编排器里会出现"线断了半截"的假象，读数也指向了错误的位置。
+     * 统一从目标左侧 18px 的空白带竖直爬升/下降到端口高度再横向接入。
+     */
+    const approachX = b.x - 18;
     if (to.layer === 'sludge') {
-      // 污泥线：从主排下来，走污泥排上方的走廊，从顶部进料
+      // 污泥线：走污泥排上方的走廊，再从目标左侧进料
       const corridor = to.y - 18 - (index % 3) * 6;
-      const cx = to.x + to.w / 2;
       const outX = a.x + 20;
       return {
         connection: conn,
-        path: `M ${a.x} ${a.y} H ${outX} V ${corridor} H ${cx} V ${to.y}`,
-        labelX: (outX + cx) / 2,
+        path: `M ${a.x} ${a.y} H ${outX} V ${corridor} H ${approachX} V ${b.y} H ${b.x}`,
+        labelX: (outX + approachX) / 2,
         labelY: corridor - 7,
         reverse: false,
       };
     }
-    // 公用工程 → 主排：走主排下方走廊，从池底进入（空气/药剂本来就是从底部进池）
+    // 公用工程 → 主排：走主排下方走廊，再沿池间空白带上升到端口
     if (to.layer === 'main') {
-      const cx = to.x + to.w / 2;
       const outX = a.x + 18;
       return {
         connection: conn,
-        path: `M ${a.x} ${a.y} H ${outX} V ${utilTrack} H ${cx} V ${to.y + to.h}`,
-        labelX: (outX + cx) / 2,
+        path: `M ${a.x} ${a.y} H ${outX} V ${utilTrack} H ${approachX} V ${b.y} H ${b.x}`,
+        labelX: (outX + approachX) / 2,
         labelY: utilTrack - 7,
         reverse: false,
       };
     }
-    // 主排 → 调蓄池：从顶部进池，避免竖线纵穿池体
-    const sx = to.x + to.w / 2;
+    // 主排 → 调蓄池：离开主排后沿池间空白带竖直下降，再从左侧端口进料
     const ox = a.x + 18;
     return {
       connection: conn,
-      path: `M ${a.x} ${a.y} H ${ox} V ${to.y - 20} H ${sx} V ${to.y}`,
-      labelX: (ox + sx) / 2,
-      labelY: to.y - 27,
+      path: `M ${a.x} ${a.y} H ${ox} V ${b.y} H ${b.x}`,
+      labelX: (ox + b.x) / 2,
+      labelY: b.y - 7,
       reverse: false,
     };
   }

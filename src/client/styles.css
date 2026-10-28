@@ -711,7 +711,10 @@ button {
 .side-tab {
   flex: 1;
   height: 40px;
-  font-size: 11.5px;
+  font-size: 10.5px;
+  /* 七个页签挤在 372px 侧栏里：11.5px 时「控制与工况」会被折成两行，
+     与其他页签的垂直对齐全乱（截图实测）。禁止换行 + 略小字号即可单行放下。 */
+  white-space: nowrap;
   color: var(--text-3);
   border-bottom: 1.5px solid transparent;
   transition:
@@ -1504,6 +1507,28 @@ button {
   margin-top: 2px;
 }
 
+/**
+ * 顶栏一条命：不允许把任何控件裁到屏幕外。
+ *
+ * 实测 1440/1600 宽下整条内容 1553px：品牌被推到 -101px、最右侧「链路正常」
+ * 直接被切掉，而 e2e 只量了 meta-value 高度（仍是单行）所以没抓到。
+ * 这里按「先收重复信息 → 再收次要字段 → 最后换行」三档降级。
+ */
+@media (max-width: 1600px) {
+  /* 顶栏一行总宽约 1553px（1440/1600 实测）：先收「处理规模」（与厂站信息重复）
+     与「执行标准」（静态常量，title 里仍可查），保住身份、时钟与求解结构。 */
+  .topbar-meta .meta-item:nth-child(3),
+  .topbar-meta .meta-item:nth-child(5) {
+    display: none;
+  }
+  .topbar {
+    gap: 12px;
+  }
+  .topbar-meta {
+    gap: 16px;
+  }
+}
+
 @media (max-width: 1500px) {
   /* 1440 / 1366 笔记本：先收掉装饰性文字和间距，保证一行放得下 */
   .brand-sub {
@@ -1524,10 +1549,17 @@ button {
   }
 }
 
-@media (max-width: 1360px) {
-  /* 更窄一档：处理规模与厂站信息重复，先让位 */
-  .topbar-meta .meta-item:nth-child(3) {
-    display: none;
+@media (max-width: 1400px) {
+  /* 更窄一档：处理规模与执行标准都已在前一档隐藏，这里再收紧间距。
+     1366 宽实测仍溢出 2px（厂站名换成拓扑名后更长），提前到 1400 生效。 */
+  .topbar-meta {
+    gap: 12px;
+  }
+  .topbar-right {
+    gap: 4px;
+  }
+  .topbar-right .pill {
+    padding: 0 6px;
   }
 }
 
@@ -2551,7 +2583,18 @@ button {
   overflow: hidden;
 }
 
-/* 全览模式下的关键数值：用更大字号抵消缩放，保证缩到 60% 仍可辨认 */
+/**
+ * 全览模式下的节点正文副行（MLSS）。
+ *
+ * 12px 的 unit-value 在 60% 缩放后只剩 7px，截图里「MLSS 2735」读不出；
+ * 全览用 18px，落到屏幕约 11px，与标题同级可读。
+ */
+.unit-sub-lg {
+  font-size: 18px;
+  fill: var(--text-3);
+  font-family: var(--mono);
+}
+
 .unit-value-lg {
   font-family: var(--mono);
   font-size: 30px;

@@ -111,7 +111,7 @@ npx vitest run --coverage
 | Item | Value |
 |---|---|
 | Test files | 66 |
-| Tests | 794 |
+| Tests | 810 |
 | Line coverage | 92.9 % |
 | Branch coverage | 82.4 % |
 | Function coverage | 96.5 % |

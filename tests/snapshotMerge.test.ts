@@ -51,6 +51,8 @@ const basePatch = (over: Partial<SnapshotPatch> = {}): SnapshotPatch => {
     health: snap.health,
     stormStorageM3: snap.stormStorageM3,
     reactorCount: snap.reactorCount,
+    forecastBand: null,
+    benchmark: null,
     ...over,
   };
 };

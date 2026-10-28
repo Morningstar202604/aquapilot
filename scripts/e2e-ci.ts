@@ -159,6 +159,45 @@ try {
   });
   if (topbar.some((h) => h > 34)) fail(`topbar values wrapped: heights ${topbar.join(',')}`);
 
+  /**
+   * 顶栏溢出：只量 meta-value 高度抓不到这个问题。
+   * 实测 1440/1600 宽下整条 1553px：品牌被推到 -101px、最右的链路状态被裁掉，
+   * 而 meta-value 仍是单行（高度 27px），旧断言全绿。改为量真实几何：
+   * 条内不产生横向溢出、品牌左边缘不为负、最右控件完整可见。
+   */
+  for (const width of [1920, 1600, 1440, 1366, 1280, 1024]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(400);
+    const bar = await page.evaluate(() => {
+      const tb = document.querySelector('.topbar') as HTMLElement;
+      const brand = document.querySelector('.brand') as HTMLElement;
+      const right = document.querySelector('.topbar-right') as HTMLElement;
+      const last = right?.lastElementChild as HTMLElement | null;
+      const lastBox = last?.getBoundingClientRect();
+      return {
+        overflow: tb.scrollWidth - tb.clientWidth,
+        brandLeft: Math.round(brand.getBoundingClientRect().left),
+        lastRight: lastBox ? Math.round(lastBox.right) : null,
+      };
+    });
+    if (bar.overflow > 1) fail(`topbar overflows at ${width}px: ${bar.overflow}px`);
+    if (bar.brandLeft < 0) fail(`brand pushed off-screen at ${width}px: ${bar.brandLeft}px`);
+    if (bar.lastRight !== null && bar.lastRight > width + 1) {
+      fail(`right-most topbar control clipped at ${width}px: ${bar.lastRight} > ${width}`);
+    }
+  }
+
+  /**
+   * 侧栏页签必须单行：七个页签塞在 372px 里，「控制与工况」折成两行时
+   * 与其他页签的垂直对齐全乱（截图实测）。scrollHeight > clientHeight 即可判定。
+   */
+  const wrappedTabs = await page.evaluate(() =>
+    [...document.querySelectorAll('.side-tab')]
+      .filter((e) => e.scrollHeight > (e as HTMLElement).clientHeight + 1)
+      .map((e) => e.textContent?.trim() ?? '?'),
+  );
+  if (wrappedTabs.length > 0) fail(`side tabs wrapped: ${wrappedTabs.join(', ')}`);
+
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(600);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -167,7 +206,7 @@ try {
 
   await browser.close();
   console.log(
-    'E2E PASS: 7 KPIs, health pill, 5 health parts, 17 nodes, 3 charts, 6 panels, train profile, port layers, version history, 0 console errors',
+    'E2E PASS: 7 KPIs, health pill, 5 health parts, 17 nodes, 3 charts, 6 panels, train profile, port layers, version history, topbar 6 widths, 0 console errors',
   );
 } finally {
   server.kill();

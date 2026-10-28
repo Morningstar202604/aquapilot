@@ -4,6 +4,58 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Connections ended nowhere.** 8 of 23 flowsheet edges stopped at a node's
+  horizontal/vertical centre or at the top edge instead of the port dot the user
+  sees (cross-layer sludge, aeration, chemical and storm-bypass lines). In the
+  editor they read as broken wires, and the reported flow pointed at the wrong
+  place. Cross-layer routes now climb in the gutter between units and terminate
+  on the declared port anchor; a test asserts all 23 edges start and end on their
+  anchors within 0.75 px (`tests/auditPolish.test.ts`).
+- **Compact-mode titles overlapped their neighbours.** 「污泥浓缩池」 at 24 px
+  ran into 「脱水机房」 in the all-in-view mode. Titles are now fitted to the
+  node width (24 → 16 px, then ellipsis), the icon is dropped in compact mode to
+  free 14 px, and the MLSS sub-line got a compact size so it stays readable at
+  60 % zoom instead of shrinking to 7 px.
+- **Top bar clipped its own controls.** At 1440/1600 px the row is 1553 px wide:
+  the brand was pushed off-screen to −101 px and the right-most link pill was
+  cut. The e2e guard only measured value heights, so it stayed green. The bar now
+  drops the duplicated 处理规模 / 执行标准 fields below 1600 px and tightens gaps
+  below 1400 px; `scripts/e2e-ci.ts` measures real geometry at six widths.
+- **Side tab label wrapped.** 「控制与工况」 broke into two lines in the 372 px
+  rail, misaligning all tabs. Tabs are now nowrap at 10.5 px, asserted by e2e.
+- **The AI nudged the plant every cycle.** Closed-loop runs showed 1–2 point
+  "adjustments" every 15 minutes with the internal recycle oscillating between
+  0.8 and 1.6×Q. A `AI_HOLD_DEADBAND = 18` score deadband now holds when the best
+  candidate is not materially better; critical risks always pass. 24 h closed-loop
+  measurement: 24 actions / 72 holds versus 34 / 14 before, with TN staying inside
+  limits (10.7–14.2 mg/L).
+- **Forecast fan and AI-vs-fixed panel froze at connection time.** Both fields
+  only existed in full snapshots, so the trend fan and the shadow comparison never
+  advanced. They now travel in every `snapshotPatch` and are merged client-side.
+- **Toasts never disappeared.** The notice stack appended forever, covering the
+  chart corner with stale 「AI 已执行」 rows. Notices are now capped at three and
+  expire after 12 s (`src/client/hooks/notices.ts`).
+- **The 重新推演 button could stall the tick loop.** Each click runs a ~200 ms
+  synchronous forecast burst with no throttle. It is now rate-limited to one call
+  per 2 s per socket with an explicit warning.
+- **Static assets were re-downloaded on every visit.** The server sent neither
+  `ETag` nor `Content-Encoding`: 901 kB of JS on each navigation. Text payloads now
+  gzip to 290 kB, hashed `/assets/*` are cached for a year, `index.html` stays
+  `no-cache`, and conditional requests return `304`.
+- **Two routes were missing from the metrics label set.** `/api/topology/history`
+  and `/api/history/alarms` were folded into `__unmatched__`, so their traffic was
+  invisible in Prometheus.
+
+### Changed
+
+- Brand in the top bar follows the applied topology name instead of the hard-coded
+  standard plant.
+- Unit icons are hidden in the all-in-view mode; titles carry the reading line.
+
 ## [0.4.0] — 2026-10-27
 
 Six unbounded `[Unreleased]` blocks accumulated between v0.3.0 and this release; they are

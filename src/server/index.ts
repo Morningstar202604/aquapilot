@@ -1,5 +1,7 @@
 import { createServer, IncomingMessage } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
 import { existsSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -76,6 +78,18 @@ interface ClientState {
   lastTrendT: number;
   /** 上次模型发现/连接测试的时间，防止界面连续点击打爆第三方端点 */
   lastLlmAt: number;
+  /** 上次手动重新推演的时间：推演是 ~200 ms 同步阻塞，必须限频 */
+  lastDecisionAt: number;
+}
+
+/**
+ * 每个 WS 连接一份的运行态。
+ *
+ * 之前 5 处各写一遍对象字面量，新增字段时漏掉一处就会变成 undefined，
+ * 比较运算 `now - undefined` 恒为 NaN 而静默放行——限流形同虚设。
+ */
+function freshClientState(): ClientState {
+  return { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0, lastLlmAt: 0, lastDecisionAt: 0 };
 }
 
 interface Runtime {
@@ -397,6 +411,15 @@ function buildPatch(client: ClientState): SnapshotPatch | null {
     health,
     stormStorageM3: s.stormStorageM3,
     reactorCount: s.reactors.length,
+    /**
+     * 预测扇区与双跑摘要也要随增量下发。
+     *
+     * 只在全量快照里带的话，客户端连接后趋势图的预测区与收益面板的
+     * 「AI vs 固定策略」会永久冻结在连接那一刻——界面上看不出来，
+     * 但那是假数据。两者都很小（几 KB），随帧发不会抵消增量收益。
+     */
+    forecastBand: runtime.recommendation?.ensemble ?? null,
+    benchmark: summarizeBenchmark(runtime.shadow.benchmark),
   };
 }
 
@@ -434,7 +457,7 @@ function buildAttribution(
 function broadcastPatch(): void {
   for (const ws of runtime.clients) {
     if (ws.readyState !== WebSocket.OPEN) continue;
-    const client = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0, lastLlmAt: 0 };
+    const client = runtime.clientState.get(ws) ?? freshClientState();
     const patch = buildPatch(client);
     runtime.clientState.set(ws, client);
     if (patch) ws.send(JSON.stringify({ type: 'snapshotPatch', data: patch } satisfies ServerMessage));
@@ -458,7 +481,7 @@ function broadcast(message: ServerMessage): void {
 function broadcastSnapshot(): void {
   broadcast({ type: 'snapshot', data: buildSnapshot() });
   for (const ws of runtime.clients) {
-    const client = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0, lastLlmAt: 0 };
+    const client = runtime.clientState.get(ws) ?? freshClientState();
     syncCursorToBuffer(runtime.trend, client);
     runtime.clientState.set(ws, client);
   }
@@ -467,7 +490,7 @@ function broadcastSnapshot(): void {
 /** 单发给一个连接的全量快照（hello / 重连），同样需要对齐趋势游标 */
 function sendSnapshotTo(ws: WebSocket): void {
   ws.send(JSON.stringify({ type: 'snapshot', data: buildSnapshot() } satisfies ServerMessage));
-  const client = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0, lastLlmAt: 0 };
+  const client = runtime.clientState.get(ws) ?? freshClientState();
   syncCursorToBuffer(runtime.trend, client);
   runtime.clientState.set(ws, client);
 }
@@ -726,10 +749,12 @@ function advance(): void {
 const RATE_LIMIT = {
   controlMs: 500,
   topologyMs: 5000,
+  /** 一次推演 ≈200 ms 同步阻塞：2 s 一次足够操作员连点，又不会把 tick 挤掉 */
+  decisionMs: 2000,
 };
 
-function rateLimited(ws: WebSocket, kind: 'control' | 'topology'): boolean {
-  const state = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0, lastLlmAt: 0 };
+function rateLimited(ws: WebSocket, kind: 'control' | 'topology' | 'decision'): boolean {
+  const state = runtime.clientState.get(ws) ?? freshClientState();
   const now = Date.now();
   if (kind === 'control') {
     if (now - state.lastControlAt < RATE_LIMIT.controlMs) {
@@ -737,6 +762,12 @@ function rateLimited(ws: WebSocket, kind: 'control' | 'topology'): boolean {
       return true;
     }
     state.lastControlAt = now;
+  } else if (kind === 'decision') {
+    if (now - state.lastDecisionAt < RATE_LIMIT.decisionMs) {
+      metrics.rateLimited += 1;
+      return true;
+    }
+    state.lastDecisionAt = now;
   } else {
     if (now - state.lastTopologyAt < RATE_LIMIT.topologyMs) {
       metrics.rateLimited += 1;
@@ -1192,6 +1223,21 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       break;
     }
     case 'refreshDecision': {
+      /**
+       * 「重新推演」是一个昂贵的同步操作（≈200 ms，含 3 组扰动轨迹）。
+       * 之前没有限流：连点或恶意脚本可以把主线程钉死、tick 全部积压。
+       * 与拓扑变更共用一套客户端限流，间隔 2 s；被拦时给出明确提示。
+       */
+      if (rateLimited(ws, 'decision')) {
+        ws.send(
+          JSON.stringify({
+            type: 'notice',
+            level: 'warn',
+            text: '推演过于频繁，请 2 秒后再试',
+          } satisfies ServerMessage),
+        );
+        break;
+      }
       runAiCycle(true);
       broadcastSnapshot();
       break;
@@ -1465,7 +1511,7 @@ async function handleLlmConfig(ws: WebSocket, msg: Extract<ClientMessage, { type
     return;
   }
 
-  const state = runtime.clientState.get(ws) ?? { lastControlAt: 0, lastTopologyAt: 0, lastTrendT: 0, lastLlmAt: 0 };
+  const state = runtime.clientState.get(ws) ?? freshClientState();
   const now = Date.now();
   if (now - state.lastLlmAt < LLM_RATE_LIMIT_MS) {
     send({ type: 'llmConfig', action: 'error', requestId, error: '操作过于频繁，请稍后再试' });
@@ -1776,8 +1822,46 @@ async function serveStatic(req: IncomingMessage, res: import('node:http').Server
   try {
     const info = await stat(filePath);
     if (!info.isFile()) throw new Error('not a file');
-    const body = await readFile(filePath);
-    res.writeHead(200, { 'Content-Type': MIME[extname(filePath)] ?? 'application/octet-stream' });
+    const raw = await readFile(filePath);
+    /**
+     * 静态资源的缓存与压缩。
+     *
+     * 之前每次导航都重新下载 900 kB 的 JS（无 Content-Encoding、无 Cache-Control），
+     * 局域网与移动网络下首屏明显发白。规则：
+     * - `assets/` 下是 Vite 的哈希文件名 → 内容寻址，可以 immutable 长缓存；
+     * - `index.html` 必须 no-cache，否则升级后仍引用旧 chunk；
+     * - 文本类按 Accept-Encoding 现场 gzip（构建产物只有几十 KB～1 MB，压缩是毫秒级）。
+     * 不做压缩缓存：内容随版本变，多一层缓存只会变成新的失效源。
+     */
+    const ext = extname(filePath);
+    const compressible = ['.js', '.css', '.html', '.json', '.svg'].includes(ext);
+    const acceptsGzip = /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''));
+    // Vite 产物名形如 index-CSCN34Vd.js / index-Ce2X6dJr.css：带内容哈希才允许长缓存
+    const hashedAsset = urlPath.startsWith('/assets/') && /-[A-Za-z0-9_-]{6,}\.[a-z0-9]+$/.test(urlPath);
+    const etag = `"${createHash('sha1').update(raw).digest('base64url').slice(0, 20)}"`;
+    // 条件请求：内容没变就 304，浏览器复用本地副本，省掉一次完整下载
+    if (String(req.headers['if-none-match'] ?? '') === etag) {
+      res.writeHead(304, {
+        ETag: etag,
+        'Cache-Control': hashedAsset ? 'public, max-age=31536000, immutable' : 'no-cache',
+      });
+      res.end();
+      return;
+    }
+    const headers: Record<string, string> = {
+      'Content-Type': MIME[ext] ?? 'application/octet-stream',
+      'Cache-Control': hashedAsset ? 'public, max-age=31536000, immutable' : 'no-cache',
+      ETag: etag,
+      'Last-Modified': info.mtime.toUTCString(),
+    };
+    let body: Buffer = raw;
+    if (compressible && acceptsGzip && raw.length > 1024) {
+      body = gzipSync(raw, { level: 6 });
+      headers['Content-Encoding'] = 'gzip';
+      headers.Vary = 'Accept-Encoding';
+    }
+    headers['Content-Length'] = String(body.length);
+    res.writeHead(200, headers);
     res.end(body);
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });

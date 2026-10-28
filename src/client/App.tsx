@@ -188,7 +188,7 @@ export default function App() {
           <div className="meta-item">
             <span className="meta-label">厂站</span>
             <span className="meta-value">
-              {PLANT.name} · {PLANT.code}
+              {sim.topology?.name ?? PLANT.name} · {PLANT.code}
             </span>
           </div>
           <div className="meta-item">
@@ -515,7 +515,7 @@ export default function App() {
       <AgentSettingsPanel agent={sim.agent} open={agentPanelOpen} onClose={() => setAgentPanelOpen(false)} />
 
       <div className="notice-stack" aria-live="polite">
-        {sim.notices.slice(0, 3).map((n) => (
+        {sim.notices.map((n) => (
           <div className="notice" data-level={n.level} key={n.id}>
             {n.text}
           </div>

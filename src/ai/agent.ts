@@ -417,17 +417,31 @@ export function decide(context: DecisionContext): Recommendation {
   const severity: Recommendation['severity'] =
     best.violations > 0 || best.worstRatio > 1 ? 'critical' : best.worstRatio > 0.85 ? 'watch' : 'normal';
 
-  const action: Recommendation['action'] =
-    tweaks.length === 0 ? 'hold' : severity === 'critical' ? 'emergency' : 'adjust';
+  /**
+   * 决策死区。
+   *
+   * 实测（seed 20261019，24 h 闭环）：不加死区时几乎每个 15 分钟周期都在
+   * 做 1–2 分的"微调"，内回流比在 0.8↔1.6 之间来回摆动，控制阀与泵实际
+   * 上被持续来回拨动。增益超过 18 分的调整才具备实质意义（低于它的候选
+   * 与"维持现状"的差异落在扰动集合本身的噪声里）。
+   *
+   * 只抑制正常/预警工况的微调；critical 永远放行，风险不受死区影响。
+   */
+  const gain = best.score - hold.score;
+  const action = actionFor({ gain, tweaks: tweaks.length, severity, deadband: AI_HOLD_DEADBAND });
+  const suppressed = action === 'hold' && tweaks.length > 0;
+  const effectiveTweaks = suppressed ? [] : tweaks;
 
   const summary =
     action === 'hold'
-      ? 'AI 判定当前工况稳定，维持现有控制，继续滚动监视。'
+      ? suppressed
+        ? `AI 判定当前工况稳定：最优候选仅比维持现状高 ${gain.toFixed(0)} 分（死区 ${AI_HOLD_DEADBAND} 分），不做无意义调节。`
+        : 'AI 判定当前工况稳定，维持现有控制，继续滚动监视。'
       : severity === 'critical'
-        ? `预测到 ${best.violations > 0 ? '出水超标风险' : '逼近限值'}，立即执行应急调节：${tweaks
+        ? `预测到 ${best.violations > 0 ? '出水超标风险' : '逼近限值'}，立即执行应急调节：${effectiveTweaks
             .map((t) => `${CONTROL_BOUNDS[t.key].label} ${formatNum(t.from, t.key)}→${formatNum(t.to, t.key)}`)
             .join('，')}。`
-        : `建议微调 ${tweaks.length} 项：${tweaks
+        : `建议微调 ${effectiveTweaks.length} 项：${effectiveTweaks
             .map((t) => `${CONTROL_BOUNDS[t.key].label} ${formatNum(t.from, t.key)}→${formatNum(t.to, t.key)}`)
             .join('，')}。`;
 
@@ -450,7 +464,9 @@ export function decide(context: DecisionContext): Recommendation {
     action,
     severity,
     summary,
-    rationale,
+    rationale: suppressed
+      ? [...rationale, `本轮最优候选与维持现状的得分差只有 ${gain.toFixed(0)} 分，低于 ${AI_HOLD_DEADBAND} 分死区。`]
+      : rationale,
     chosens: best,
     alternatives: deduped.slice(0, 3),
     predictedEffluent: best.predictedEffluent,
@@ -458,12 +474,33 @@ export function decide(context: DecisionContext): Recommendation {
     horizonMin,
     separation,
     risks,
-    tweaks,
+    tweaks: effectiveTweaks,
     generatedAt: state.timeMin,
     ensemble: chosenEnsemble,
     robustEvaluated: robustEnabled,
   };
 }
+
+/**
+ * 决策动作分类（纯函数）。
+ *
+ * 与打分逻辑分开，才能在不构造完整仿真的情况下锁住「死区只抑制微调、
+ * 不抑制应急」这条契约。
+ */
+export function actionFor(input: {
+  gain: number;
+  tweaks: number;
+  severity: 'normal' | 'watch' | 'critical';
+  deadband: number;
+}): 'hold' | 'adjust' | 'emergency' {
+  if (input.tweaks <= 0) return 'hold';
+  if (input.severity === 'critical') return 'emergency';
+  if (input.gain < input.deadband) return 'hold';
+  return 'adjust';
+}
+
+/** 动作死区（分）：低于它的最优候选与维持现状无实质差别 */
+export const AI_HOLD_DEADBAND = 18;
 
 function formatNum(value: number, key: keyof Omit<ControlSettings, 'aiEnabled'>): string {
   return value.toFixed(CONTROL_BOUNDS[key].precision);

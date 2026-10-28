@@ -9,6 +9,7 @@ import type { AgentConfig, AgentSummary } from '../../shared/agentConfig';
 import type { TopologyVersionSummary, WatchdogReport } from '../../shared/protocol';
 import { nextSendPlan, reconnectDelayMs } from './wsPolicy';
 import { mergeSnapshot } from './snapshotMerge';
+import { NOTICE_TTL_MS, pruneNotices, pushNotice, type Notice } from './notices';
 
 export interface AgentConfigApi {
   config: AgentConfig | null;
@@ -100,7 +101,7 @@ export function useSimulation() {
   const [snapshot, setSnapshot] = useState<PlantSnapshot | null>(null);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [chat, setChat] = useState<ChatEntry[]>([]);
-  const [notices, setNotices] = useState<{ id: number; level: string; text: string }[]>([]);
+  const [notices, setNotices] = useState<Notice[]>([]);
   const [link, setLink] = useState<LinkState>({ connected: false, error: null, lastUpdateAt: null });
   const [paused, setPaused] = useState(false);
   const [speed, setSpeed] = useState(1);
@@ -211,7 +212,9 @@ export function useSimulation() {
             break;
           case 'notice':
             noticeId.current += 1;
-            setNotices((prev) => [{ id: noticeId.current, level: msg.level, text: msg.text }, ...prev.slice(0, 4)]);
+            setNotices((prev) =>
+              pushNotice(prev, { id: noticeId.current, level: msg.level, text: msg.text, at: Date.now() }),
+            );
             break;
           case 'simState':
             setPaused(msg.paused);
@@ -319,6 +322,23 @@ export function useSimulation() {
       socketRef.current?.close();
     };
   }, []);
+
+  /**
+   * 提示条过期清理。
+   *
+   * 只在有提示时挂定时器：没有提示的连接不产生任何定时开销；
+   * 每 2 秒扫一遍，超出存活期的直接移除（规则见 hooks/notices）。
+   */
+  useEffect(() => {
+    if (notices.length === 0) return;
+    const timer = setInterval(() => {
+      setNotices((prev) => {
+        const next = pruneNotices(prev, Date.now(), NOTICE_TTL_MS);
+        return next.length === prev.length ? prev : next;
+      });
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [notices.length]);
 
   const send = (msg: ClientMessage) => {
     const ws = socketRef.current;
