@@ -29,6 +29,7 @@ import { agentConfigStore } from './agentConfig';
 import { HookRuntime } from './hooks';
 import { parseAgentCommand } from './agentConfigCommands';
 import { buildReport, type CheckInput } from './watchdog';
+import { runAnalysis } from '../sim/analysis';
 import { CONTROL_KEYS, checkAllowedControls, clampControlMoves } from '../shared/agentConfig';
 import { serveStatic, queryOf } from './staticFiles';
 import { boundedWindow, MAX_SNAPSHOT_POINTS } from './queryBounds';
@@ -1202,6 +1203,40 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
     case 'watchdog': {
       const report = buildReport(watchdogInput());
       ws.send(JSON.stringify({ type: 'watchdog', report } satisfies ServerMessage));
+      break;
+    }
+    case 'analysis': {
+      /**
+       * 运行分析是重操作（~25 次 4h 预测，实测 300+ ms 同步阻塞），
+       * 因此按需触发、限流，并与「重新推演」共用同一套冷却。
+       */
+      if (rateLimited(ws, 'decision')) {
+        throttledNotice(ws, 'decision', '分析请求过于频繁，请 2 秒后再试');
+        break;
+      }
+      try {
+        const horizon = sanitizeRange(msg.horizonMin, 60, 480, 240);
+        const data = runAnalysis(
+          networkModel(runtime.topology, runtime.net),
+          {
+            totals: runtime.net.totals,
+            effluent: runtime.net.effluent,
+            biomassKg: runtime.net.biomassKg,
+            influentCodAvg: runtime.net.influent.cod,
+          },
+          horizon,
+        );
+        ws.send(JSON.stringify({ type: 'analysis', requestId: msg.requestId, data } satisfies ServerMessage));
+      } catch (err) {
+        ws.send(
+          JSON.stringify({
+            type: 'analysis',
+            action: 'error',
+            requestId: msg.requestId,
+            error: err instanceof Error ? err.message : '分析失败',
+          } satisfies ServerMessage),
+        );
+      }
       break;
     }
     default:

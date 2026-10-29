@@ -8,6 +8,7 @@ import type { ProcessTopology } from '../../model/topology';
 import type { DiscoveredModel, LlmDraft, LlmProtocol, LlmPublicConfig, LlmTestResult } from '../../shared/llm';
 import type { AgentConfig, AgentSummary } from '../../shared/agentConfig';
 import type { TopologyVersionSummary, WatchdogReport } from '../../shared/protocol';
+import type { AnalysisSnapshot } from '../../sim/analysis';
 import { nextSendPlan, reconnectDelayMs } from './wsPolicy';
 import { mergeSnapshot } from './snapshotMerge';
 import { NOTICE_TTL_MS, pruneNotices, pushNotice, type Notice } from './notices';
@@ -139,6 +140,10 @@ export function useSimulation() {
   const [agentPromptPreview, setAgentPromptPreview] = useState<string | null>(null);
   const agentRequestId = useRef(0);
   const [watchdog, setWatchdog] = useState<WatchdogReport | null>(null);
+  const [analysis, setAnalysis] = useState<AnalysisSnapshot | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const analysisId = useRef(0);
 
   useEffect(() => {
     let closed = false;
@@ -326,6 +331,16 @@ export function useSimulation() {
           case 'watchdog':
             setWatchdog(msg.report);
             break;
+          case 'analysis': {
+            setAnalysisLoading(false);
+            if ('action' in msg && msg.action === 'error') {
+              setAnalysisError(msg.error);
+            } else if ('data' in msg) {
+              setAnalysis(msg.data);
+              setAnalysisError(null);
+            }
+            break;
+          }
           default:
             break;
         }
@@ -344,6 +359,7 @@ export function useSimulation() {
         setLlmTesting(false);
         setLlmSaving(false);
         setAgentSaving(false);
+        setAnalysisLoading(false);
         if (closed) return;
         retry.current += 1;
         // 抖动退避：多客户端同时断线时避免重连请求同步撞击服务端
@@ -539,6 +555,15 @@ export function useSimulation() {
     agent: agentApi,
     watchdog,
     watchdogReload: () => send({ type: 'watchdog', action: 'get' }),
+    analysis,
+    analysisLoading,
+    analysisError,
+    runAnalysis: (horizonMin?: number) => {
+      analysisId.current += 1;
+      setAnalysisLoading(true);
+      setAnalysisError(null);
+      send({ type: 'analysis', action: 'run', requestId: `analysis-${analysisId.current}`, horizonMin });
+    },
   };
 }
 

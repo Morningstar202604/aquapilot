@@ -15,6 +15,7 @@ import type { AlarmAttribution, PlantHealth } from '../sim/alarmAttribution';
 import type { ProcessTopology } from '../model/topology';
 import type { DiscoveredModel, LlmDraft, LlmProtocol, LlmPublicConfig, LlmTestResult } from './llm';
 import type { AgentConfig, AgentSummary } from './agentConfig';
+import type { AnalysisSnapshot } from '../sim/analysis';
 
 /**
  * AI vs 固定策略的双跑汇总。
@@ -218,7 +219,14 @@ export type ClientMessage =
       skill: { name?: string; description?: string; triggers?: string[]; content?: string; url?: string };
     }
   | { type: 'agentConfig'; action: 'previewPrompt'; requestId: string; question?: string; config?: AgentConfig }
-  | { type: 'watchdog'; action: 'get'; requestId?: string };
+  | { type: 'watchdog'; action: 'get'; requestId?: string }
+  /**
+   * 运行分析：灵敏度 / Pareto 前沿 / 质量平衡。
+   *
+   * 按需触发而不是每帧推送：一次分析要做 ~25 次 4 小时预测（实测 300+ ms），
+   * 只在用户打开「分析」面板时算一次。
+   */
+  | { type: 'analysis'; action: 'run'; requestId: string; horizonMin?: number };
 
 /**
  * 增量快照：只包含每个 tick 都会变的字段。
@@ -348,4 +356,6 @@ export type ServerMessage =
       error?: string;
     }
   | { type: 'agentConfig'; action: 'error'; requestId?: string; error: string }
-  | { type: 'watchdog'; report: WatchdogReport };
+  | { type: 'watchdog'; report: WatchdogReport }
+  | { type: 'analysis'; requestId: string; data: AnalysisSnapshot }
+  | { type: 'analysis'; action: 'error'; requestId: string; error: string };

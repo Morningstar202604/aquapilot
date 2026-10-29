@@ -39,11 +39,12 @@ const AgentSettingsPanel = lazy(() =>
 import { WatchdogPanel } from './components/WatchdogPanel';
 import { UnitInspector } from './components/UnitInspector';
 import { TopbarMenu } from './components/TopbarMenu';
+import { AnalysisPanel } from './components/AnalysisPanel';
 import { Collapsible } from './components/Collapsible';
 import { PLANT } from '../sim/config';
 import { formatClockLong } from '../shared/time';
 
-type Tab = 'chat' | 'decision' | 'control' | 'alarms' | 'insights' | 'replay' | 'health';
+type Tab = 'chat' | 'decision' | 'control' | 'alarms' | 'insights' | 'analysis' | 'replay' | 'health';
 type View = 'plant' | 'editor';
 
 export default function App() {
@@ -477,6 +478,15 @@ export default function App() {
               <button
                 className="side-tab"
                 role="tab"
+                aria-selected={tab === 'analysis'}
+                data-active={tab === 'analysis'}
+                onClick={() => setTab('analysis')}
+              >
+                分析
+              </button>
+              <button
+                className="side-tab"
+                role="tab"
                 aria-selected={tab === 'replay'}
                 data-active={tab === 'replay'}
                 onClick={() => setTab('replay')}
@@ -532,6 +542,14 @@ export default function App() {
               <ErrorBoundary compact label="收益面板">
                 <InsightsPanel snap={snap} aiEnabled={aiEnabled} />
               </ErrorBoundary>
+            )}
+            {tab === 'analysis' && (
+              <AnalysisPanel
+                analysis={sim.analysis}
+                loading={sim.analysisLoading}
+                error={sim.analysisError}
+                onRun={() => sim.runAnalysis()}
+              />
             )}
             {tab === 'replay' && (
               <Suspense fallback={<div className="empty-note">加载回放面板…</div>}>

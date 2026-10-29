@@ -3983,3 +3983,147 @@ button {
 .trend-section[data-open='true'] {
   height: clamp(200px, 31vh, 300px);
 }
+
+/* 运行分析面板：三块结论式内容，不做成第二张仪表盘 */
+.analysis-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 0 8px;
+}
+
+.analysis-block {
+  border-top: 1px solid var(--line-soft);
+  padding: 10px 0 12px;
+}
+
+.analysis-title {
+  font-size: 12px;
+  color: var(--text-1);
+  margin-bottom: 2px;
+}
+
+.analysis-sub {
+  font-size: 10.5px;
+  color: var(--text-3);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.analysis-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.analysis-row {
+  display: grid;
+  grid-template-columns: 88px 1fr 62px;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+}
+
+.analysis-name {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analysis-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.analysis-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--warn, #f0a83c);
+  border-radius: 2px;
+}
+
+.analysis-bar-fill[data-positive='true'] {
+  background: var(--accent, #3ee0b5);
+}
+
+.analysis-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  text-align: right;
+  color: var(--warn, #f0a83c);
+}
+
+.analysis-value[data-positive='true'] {
+  color: var(--accent, #3ee0b5);
+}
+
+.analysis-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.analysis-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-3);
+  padding: 3px 6px 5px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.analysis-table td {
+  padding: 4px 6px 4px 0;
+  color: var(--text-2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.analysis-table td[data-warn='true'] {
+  color: var(--warn, #f0a83c);
+}
+
+.analysis-kv {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 10px;
+  margin: 0 0 8px;
+  font-size: 11px;
+}
+
+.analysis-kv dt {
+  color: var(--text-3);
+}
+
+.analysis-kv dd {
+  margin: 0;
+  text-align: right;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-2);
+}
+
+.analysis-kv dd[data-warn='true'] {
+  color: var(--warn, #f0a83c);
+}
+
+.analysis-note {
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+  margin-top: 6px;
+}
+
+.analysis-note[data-warn='true'] {
+  color: var(--warn, #f0a83c);
+}
+
+.analysis-empty {
+  font-size: 11px;
+  color: var(--text-3);
+  padding: 6px 0;
+}
