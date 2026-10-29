@@ -12,6 +12,22 @@ token on every `/api/*` route except `/api/health` and `/api/auth-required`
 (those two must stay public, otherwise the browser cannot tell whether to show
 the token prompt).
 
+### Roles
+
+Three token slots map to three roles. All are optional; leaving them empty keeps
+authentication off (every client is `admin`, which is the right default for local
+development).
+
+| Env var | Role | Can do |
+| --- | --- | --- |
+| `AQUAPILOT_VIEWER_TOKEN` | `viewer` | Read every GET endpoint, watch the live stream, run analysis |
+| `AQUAPILOT_OPERATOR_TOKEN` | `operator` | Everything above, plus `control`, `scenario`, `sim`, `speed`, `applyRecommendation`, `refreshDecision`, `preset` |
+| `AQUAPILOT_TOKEN` | `admin` | Everything, plus `topology`, `llmConfig`, `agentConfig` |
+
+A single-token deployment keeps working unchanged: `AQUAPILOT_TOKEN` alone means
+"this token is admin". A `viewer` token that tries to change a setpoint gets a
+`notice` explaining the required role; nothing is applied.
+
 ```
 Authorization: Bearer <token>
 ```

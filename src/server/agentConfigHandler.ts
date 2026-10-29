@@ -179,8 +179,15 @@ export function createAgentConfigHandler(deps: AgentConfigHandlerDeps) {
         return;
       }
     }
-    if (!name && !content) {
-      send({ type: 'agentConfig', action: 'error', requestId, error: '导入技能需要名称与正文（或可抓取的 URL）' });
+    /**
+     * 必须有正文。
+     *
+     * 只校验 `!name && !content` 会放行「只有名字、没有正文」的技能：
+     * 它能存进配置、出现在列表里，但拼进 system prompt 时是空串——
+     * 一个看得见却不起作用的假条目。名称可以由正文标题推断，正文不能。
+     */
+    if (!content) {
+      send({ type: 'agentConfig', action: 'error', requestId, error: '导入技能需要正文（或可抓取的 URL）' });
       return;
     }
     const finalName = (name || fetchedSkillTitle || '导入技能').slice(0, 80);

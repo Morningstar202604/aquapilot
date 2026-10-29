@@ -145,7 +145,9 @@ export function createLlmChat(deps: LlmChatDeps) {
         metrics.llmCalls += 1;
         if (!retry.ok) {
           metrics.llmFallbacks += 1;
-          // 失败必须可见：否则「配置好了却没补充」无法自查
+          // 失败必须可见：否则「配置好了却没补充」无法自查。
+          // 但连接已关闭时不能再写（会抛异常并打断调用链）。
+          if (!deps.isOpen(ws)) return;
           deps.send(ws, {
             type: 'notice',
             level: 'warn',
@@ -169,6 +171,7 @@ export function createLlmChat(deps: LlmChatDeps) {
         });
         return;
       }
+      if (!deps.isOpen(ws)) return;
       deps.send(ws, {
         type: 'notice',
         level: 'warn',

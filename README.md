@@ -22,6 +22,38 @@ questions and sets boundaries. The flowsheet is not a drawing: it compiles into
 reactors, is solved topologically, and every number on screen comes from that
 solve.
 
+### What this is — and what it is not
+
+This matters more than any feature list, because the project is easy to misread.
+
+**It is** an operations-side prototype: a plant model you can edit as a graph, an
+AI operator that decides inside hard guardrails, and an analysis surface that
+answers "which knob actually matters", "what does compliance cost", and "are these
+numbers self-consistent". It is built to be run, watched and questioned — not to
+produce a design report.
+
+**It is not** a design-grade process simulator. It does not do BSM2/ADM1, it has no
+parameter-calibration or state-estimation pipeline, no LCA/TEA boundary, and no
+OPC UA/Modbus fieldbus adapter. Commercial tools (GPS-X, BioWin, SIMBA#) and
+research libraries (`bsm2-python`, QSDsan, PyADM1ODE) are the right tools for
+those jobs.
+
+If you need design verification, use a design simulator. If you need to see what
+an AI operator would *do* with a plant — and be able to audit every decision —
+that is the gap this project fills. The full comparison, with verified facts on
+seven peer projects, is in [`docs/COMPETITIVE-ANALYSIS.md`](docs/COMPETITIVE-ANALYSIS.md).
+
+### Where it differs, concretely
+
+| Capability | Why it is unusual |
+| --- | --- |
+| **Graph is the model** | The flowsheet compiles into reactors and is solved topologically. Add a tank and the solver really solves one more tank — not a hard-coded five. |
+| **AI with four guardrails** | Allowed-control whitelist, per-step magnitude clamp, manual-override window, and `critical` severity that outranks the deadband. A predicted exceedance can never be reported as "stable". |
+| **Explainable by construction** | Every recommendation carries the predicted effluent, the candidate ranking, a per-tweak reason and a separation figure (explicitly not a probability). |
+| **Shadow benchmark** | A second plant runs the same seed and influent under a fixed manual strategy, so the benefit panel compares *strategy*, not initial conditions. |
+| **Run-time analysis** | Parameter sensitivity (central differences), a Pareto frontier over compliance vs cost, and a plant-wide COD mass-balance audit — all on the same model the controller uses. |
+| **Roles, not just a token** | `viewer` / `operator` / `admin`, so a wall display cannot change setpoints. |
+
 ---
 
 ## Why

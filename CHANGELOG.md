@@ -50,6 +50,45 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   and `/api/history/alarms` were folded into `__unmatched__`, so their traffic was
   invisible in Prometheus.
 
+### Added
+
+- **Run-time analysis surface** (`analysis/run` over WebSocket, new 「分析」 tab).
+  Three capabilities no peer project in the domain offers in one place:
+  parameter sensitivity by central differences (which knob actually moves the
+  compliance margin), a Pareto frontier over compliance vs operating cost (the
+  trade-off a single weighted score hides), and a plant-wide COD mass-balance
+  audit (does the accumulated bookkeeping close). All three run on the same model
+  the controller uses, so analysis and control cannot drift apart.
+- **Three-role access control**: `viewer` / `operator` / `admin` via
+  `AQUAPILOT_VIEWER_TOKEN` / `AQUAPILOT_OPERATOR_TOKEN` / `AQUAPILOT_TOKEN`.
+  A wall display can watch without being able to change setpoints. Single-token
+  deployments keep working unchanged.
+- `docs/COMPETITIVE-ANALYSIS.md`: verified comparison against seven peer projects
+  (`bsm2-python`, QSDsan, PooPyLab, PyADM1ODE, Junction-2025, wwtw-digital-twin,
+  wwtmodels/Activated-Sludge-Models), including an explicit list of what
+  AquaPilot does *not* do.
+
+### Changed
+
+- `src/server/index.ts` split from 2556 into 1731 lines across six single-purpose
+  modules: `staticFiles`, `queryBounds`, `snapshotView`, `llmChat`,
+  `agentConfigHandler`, `rateLimit`.
+- WebSocket message validation moved from hand-written checks to a `valibot`
+  schema. Three real gaps closed: `scenario.kind`, `sim.action` and
+  `llmConfig.protocol` previously accepted any value.
+
+### Performance
+
+- Client bundle split by vendor + lazy-loaded chart/settings panels: first-load JS
+  went from 906.56 kB (gzip 294.12) to 133.15 kB (gzip 40.90) for the entry chunk,
+  with ECharts fetched only when the trends panel scrolls into view.
+- Static asset gzip results are cached by (path, mtime) instead of recompressed on
+  every request.
+- Incremental snapshots are built once per frame and shared across clients
+  (20 clients: 0.497 → 0.295 ms/frame, −40.7%). A per-frame memo keyed on control
+  values was tried and **reverted**: building the key cost more than recomputing
+  (derived metrics total 6.3 µs).
+
 ### Security
 
 - **Stored LLM API keys could be exfiltrated.** `llmConfig` `discover`/`test`
