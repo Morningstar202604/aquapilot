@@ -36,6 +36,7 @@ import { boundedWindow, MAX_SNAPSHOT_POINTS } from './queryBounds';
 import { createSnapshotService } from './snapshotView';
 import { createLlmChat, errorText } from './llmChat';
 import { createAgentConfigHandler } from './agentConfigHandler';
+import { parseClientMessage } from './messageSchema';
 import {
   MAX_BUFFERED_BYTES,
   MAX_LLM_IN_FLIGHT,
@@ -50,7 +51,6 @@ import {
   sanitizeBoolean,
   sanitizeChatText,
   sanitizeControlPatch,
-  sanitizeMessage,
   sanitizeRange,
   sanitizeSpeed,
 } from './validation';
@@ -628,14 +628,23 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
   }
 
   // 形状校验：JSON.parse 的结果是任意值，null/数组/缺 type 都必须挡在这里
-  const shaped = sanitizeMessage(parsed);
-  if (!shaped) {
+  /**
+   * 结构校验交给 valibot schema（messageSchema.ts）。
+   *
+   * 手写版只查 `type` 是字符串，实测有三处真缺口：scenario.kind 任意值
+   * 都按 start 处理、sim.action 非法值静默成功、llmConfig.protocol 未知值
+   * 落入 Google 分支。schema 逐分支校验，非法输入在入口就被拒。
+   */
+  const gate = parseClientMessage(parsed);
+  if (!gate.ok) {
     metrics.invalidMessages += 1;
-    logger.warn('ws message rejected', { reason: 'bad-shape' });
-    ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '消息结构不合法' } satisfies ServerMessage));
+    logger.warn('ws message rejected', { reason: 'schema', detail: gate.error });
+    ws.send(
+      JSON.stringify({ type: 'notice', level: 'error', text: `消息结构不合法：${gate.error}` } satisfies ServerMessage),
+    );
     return;
   }
-  const msg = shaped as unknown as ClientMessage;
+  const msg = gate.message as unknown as ClientMessage;
 
   switch (msg.type) {
     case 'hello': {
