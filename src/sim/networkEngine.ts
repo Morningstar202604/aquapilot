@@ -160,7 +160,19 @@ export interface NetworkSimState {
    * 累计物料量：必须按每步流量/功率积分，不能用「当前值 × 已运行时间」外推。
    * 进水流量、负荷与能耗都是时变量，外推在日内会系统性偏差。
    */
-  totals: { inflowM3: number; energyKwh: number; wasteSludgeKg: number };
+  totals: {
+    inflowM3: number;
+    energyKwh: number;
+    wasteSludgeKg: number;
+    /**
+     * 累计被氧化的 COD 质量（kg）。
+     *
+     * 好氧系统里进水 COD 的最大去向不是出水也不是排泥，而是被氧化成 CO₂。
+     * 不记这一项，任何质量平衡审计都会报出 30%+ 的假差额——
+     * 那不是模型漏了组分，是账本漏了最大的一笔支出。
+     */
+    oxidizedCodKg: number;
+  };
   lastDay: number;
   /**
    * 不确定度因子（仅预测克隆使用）：让集合预测可以在同一状态上做参数扰动，
@@ -264,7 +276,7 @@ export function createNetworkState(
     alarmSeq: 0,
     cost: { energy: 0, chemical: 0, sludge: 0, total: 0 },
     costToday: { energy: 0, chemical: 0, sludge: 0, total: 0 },
-    totals: { inflowM3: 0, energyKwh: 0, wasteSludgeKg: 0 },
+    totals: { inflowM3: 0, energyKwh: 0, wasteSludgeKg: 0, oxidizedCodKg: 0 },
     lastDay: 0,
     stormStorageM3: 0,
     volume: {
@@ -435,6 +447,8 @@ function resolveHydraulics(state: NetworkSimState, dtH: number): { influent: Net
 function solveReactors(ctx: StepContext): {
   o2DemandKgH: number;
   codOxidizedKgH: number;
+  /** 质量平衡专用：按实际耗氧折算，不受内回流重复计账影响 */
+  balancedOxidizedKgH: number;
   nhOxidizedKgH: number;
 } {
   const { state, net, dtH, flows, byId, xBiomass, bf, T, thetaH, thetaN, clar, lastReactor, influent, sup } = ctx;
@@ -735,7 +749,23 @@ function solveReactors(ctx: StepContext): {
     nhOxidizedKgH += (Math.max(0, -nhRate) * reactor.volume) / 1000;
   }
 
-  return { o2DemandKgH, codOxidizedKgH, nhOxidizedKgH };
+  /**
+   * 质量平衡用的氧化量必须按**实际耗氧**折算，不能复用上面那个值。
+   *
+   * 原因：`codOxidizedKgH` 是逐池净降解速率之和，内回流会把同一份 COD
+   * 反复送回各池，逐池累加会把同一分子 COD 记成多次氧化——实测 30 天
+   * 累计达到进水的 91%（436 t 进水记出 399 t 氧化），质量平衡崩成 -54%。
+   *
+   * 但**不能直接改 `codOxidizedKgH` 本身**：它同时驱动生物量增长
+   * （growth = yieldH × codOxidized），改它等于改物理，实测会让 MLSS
+   * 从 2400 掉到 1350、出水 COD 从 35 涨到 64。因此另设独立计数。
+   *
+   * 氧消耗没有重复计账问题：每个氧分子只被消耗一次。
+   * 扣除硝化耗氧后的异养耗氧，按 1 kg O₂ ≡ 1/0.9 kg COD 折算。
+   */
+  const balancedOxidizedKgH = Math.max(0, (o2DemandKgH - nhOxidizedKgH * KINETICS.o2PerNh) / KINETICS.o2PerCod);
+
+  return { o2DemandKgH, codOxidizedKgH, balancedOxidizedKgH, nhOxidizedKgH };
 }
 
 /** 阶段 3：二沉池（Takács 十层）。返回进水固体负荷与排泥带走的干固体。 */
@@ -818,7 +848,7 @@ function solveClarifier(ctx: StepContext): { clarifierInflow: number; wasted: nu
 /** 阶段 4：生物量与 SRT。 */
 function solveBiomass(
   ctx: StepContext,
-  oxidized: { o2DemandKgH: number; codOxidizedKgH: number; nhOxidizedKgH: number },
+  oxidized: { o2DemandKgH: number; codOxidizedKgH: number; balancedOxidizedKgH: number; nhOxidizedKgH: number },
   wasted: number,
 ): void {
   const { state, dtH, Qw, clar, Q, influent } = ctx;
@@ -888,7 +918,13 @@ function solveEffluent(ctx: StepContext): number {
 }
 
 /** 阶段 6：能耗与成本。 */
-function solveEnergyAndCost(ctx: StepContext, o2DemandKgH: number, wasted: number, pacDose: number): void {
+function solveEnergyAndCost(
+  ctx: StepContext,
+  o2DemandKgH: number,
+  wasted: number,
+  pacDose: number,
+  codOxidizedKgH: number,
+): void {
   const { state, dtH, Q, Qr, rec } = ctx;
   // 能耗
   const anoxicVol = state.volume.anoxic + state.volume.anaerobic;
@@ -924,6 +960,8 @@ function solveEnergyAndCost(ctx: StepContext, o2DemandKgH: number, wasted: numbe
   state.totals.inflowM3 += Q * dtH;
   state.totals.energyKwh += totalKw * dtH;
   state.totals.wasteSludgeKg += wasted;
+  // 氧化掉的 COD 是质量平衡里最大的一笔去向，必须单独记账
+  state.totals.oxidizedCodKg += Math.max(0, codOxidizedKgH) * dtH;
 }
 
 /** 阶段 7：限值告警。 */
@@ -1016,7 +1054,7 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
   const { wasted } = solveClarifier(ctx);
   solveBiomass(ctx, oxidized, wasted);
   const pacDose = solveEffluent(ctx);
-  solveEnergyAndCost(ctx, oxidized.o2DemandKgH, wasted, pacDose);
+  solveEnergyAndCost(ctx, oxidized.o2DemandKgH, wasted, pacDose, oxidized.balancedOxidizedKgH);
   raiseLimitAlarms(state);
 
   return state;
@@ -1029,7 +1067,7 @@ export function spinUpNetwork(state: NetworkSimState, topo: ProcessTopology, day
   state.alarmSeq = 0;
   state.cost = { energy: 0, chemical: 0, sludge: 0, total: 0 };
   state.costToday = { energy: 0, chemical: 0, sludge: 0, total: 0 };
-  state.totals = { inflowM3: 0, energyKwh: 0, wasteSludgeKg: 0 };
+  state.totals = { inflowM3: 0, energyKwh: 0, wasteSludgeKg: 0, oxidizedCodKg: 0 };
   state.lastDay = 0;
   state.timeMin = 0;
   return state;

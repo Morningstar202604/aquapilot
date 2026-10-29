@@ -59,6 +59,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   trade-off a single weighted score hides), and a plant-wide COD mass-balance
   audit (does the accumulated bookkeeping close). All three run on the same model
   the controller uses, so analysis and control cannot drift apart.
+  The mass audit accounts for all four COD destinations — effluent, waste sludge,
+  **aeration oxidation** and **in-system inventory**. Missing either of the last
+  two produces a fake 30–90% "leak": oxidation is the single largest sink in an
+  aerobic plant, and the biomass inventory is a large temporary store. ASM1 runs
+  are labelled `approximate` (±20%) because its three sampling points use
+  different bases; claiming strict closure there would be over-claiming.
 - **Three-role access control**: `viewer` / `operator` / `admin` via
   `AQUAPILOT_VIEWER_TOKEN` / `AQUAPILOT_OPERATOR_TOKEN` / `AQUAPILOT_TOKEN`.
   A wall display can watch without being able to change setpoints. Single-token

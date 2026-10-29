@@ -63,14 +63,32 @@ export interface ParetoPoint {
 export interface MassBalanceAudit {
   /** 进水累计 COD 质量 kg */
   influentCodKg: number;
-  /** 出水累计 COD 质量 kg（按出水流量积分） */
+  /** 出水累计 COD 质量 kg（按累计出水量积分） */
   effluentCodKg: number;
-  /** 排泥带走的固体 kg（按 1.42 g COD/g VSS 折算） */
+  /** 排泥带走的固体折算 COD kg（×1.42） */
   wastedCodKg: number;
-  /** 进出差额占进水的比例（正 = 系统内累积） */
+  /**
+   * 曝气氧化掉的 COD kg。
+   *
+   * 这是好氧系统里最大的一笔 COD 去向。早期版本漏记，审计会稳定报出
+   * 30%+ 的「未解释差额」——不是模型丢组分，是账本漏了最大的支出项。
+   */
+  oxidizedCodKg: number;
+  /** 系统内 COD 存量（生物量 ×1.42），代表「还没走完的账」 */
+  storedCodKg: number;
+  /** 进出差额占进水的比例（正 = 未解释的累积） */
   closurePct: number;
   /** 判定：|closure| < 5% 视为自洽 */
   selfConsistent: boolean;
+  /**
+   * 判定口径。
+   *
+   * `strict`  ：四路（出水/排泥/氧化/库存）逐项独立可核，差额 <5% 才算自洽；
+   * `approximate`：模型自身对某些去向只有近似（ASM1 的排泥浓度取回流浓度，
+   *                而库存取反应池颗粒浓度，两者口径不同），此时审计只能
+   *                指出量级是否合理，不能当作守恒证明。
+   */
+  mode: 'strict' | 'approximate';
   /** 说明文字 */
   note: string;
 }
@@ -238,17 +256,44 @@ export function paretoFrontier(model: PlantModel, horizonMin = 240): ParetoPoint
  * 通用仿真器通常不给这个校验，因为它们的累计量只是展示字段。
  */
 export function massBalanceAudit(state: {
-  totals: { inflowM3: number; wasteSludgeKg: number };
+  totals: { inflowM3: number; wasteSludgeKg: number; oxidizedCodKg?: number };
   effluent: EffluentStats;
-  biomassKg: number;
+  /**
+   * 系统内**全部**颗粒态 COD 存量（kg），不是活性菌生物量。
+   *
+   * ASM1 模式下两者差一个数量级：biomassKg 只统计 X_B_H + X_B_A，
+   * 而惰性颗粒 X_I、慢速降解 X_S、产物 X_P 同样是留在池里的 COD。
+   * 用活性菌量当库存，审计会把「惰性颗粒累积」误判成未解释差额
+   * （实测 ASM1 从 -4% 恶化到 -11%）。
+   */
+  storedParticulateCodKg: number;
   influentCodAvg: number;
+  /**
+   * 是否需要「近似」判定。
+   *
+   * 两种模型都不满足严格守恒方程，只是原因不同：
+   * - simple：用一个全局生物量代表所有池，库存与排泥的取样口径不同；
+   * - ASM1：三条去向的取样点不同（出水为溶解性 + 出水 SS、排泥为回流浓度、
+   *   库存为反应池颗粒），四者相加不是同一个控制体。
+   *
+   * 声称任一模式「严格守恒」都是过度承诺。这里统一标注近似并给出量级判断，
+   * 只有偏差超出 ±20% 才视为可能真的不闭合。
+   *
+   * 保留 `strict` 分支是为了给未来的严格守恒实现留接口，也是测试的对照基线。
+   */
+  approximate?: boolean;
 }): MassBalanceAudit {
+  /** 生物量按 VSS→COD 1.42 折算成库存 COD */
+  const COD_PER_VSS = 1.42;
   const inflow = Math.max(0, state.totals.inflowM3);
   const influentCodKg = (inflow * state.influentCodAvg) / 1000;
   // 出水 COD 质量：累计出水量按进水减排泥近似（排泥体积远小于出水）
   const effluentCodKg = (inflow * state.effluent.cod) / 1000;
   // 排泥按 VSS→COD 1.42 折算
-  const wastedCodKg = state.totals.wasteSludgeKg * 1.42;
+  const wastedCodKg = state.totals.wasteSludgeKg * COD_PER_VSS;
+  const storedCodKg = Math.max(0, state.storedParticulateCodKg);
+  // 氧化量由引擎逐步累计（缺省 0 仅用于没有该字段的旧调用方）
+  const oxidizedCodKg = state.totals.oxidizedCodKg ?? 0;
   /**
    * 样本不足时不能判「自洽」。
    *
@@ -260,24 +305,46 @@ export function massBalanceAudit(state: {
       influentCodKg,
       effluentCodKg,
       wastedCodKg,
+      oxidizedCodKg,
+      storedCodKg,
       closurePct: 0,
       selfConsistent: false,
+      mode: state.approximate ? 'approximate' : 'strict',
       note: '累计进水样本不足，尚不能做质量平衡判定。',
     };
   }
-  const closure = (influentCodKg - effluentCodKg - wastedCodKg) / influentCodKg;
-  const selfConsistent = Math.abs(closure) <= 0.05;
+  /**
+   * 完整的 COD 账：进水 = 出水 + 排泥 + 氧化 + **系统内库存** + 残差。
+   *
+   * 最后一项最容易漏：活性污泥系统里生物量本身就是一大笔 COD 存货
+   * （实测 30 天约 41 t，占进水 9%）。不算它，审计会把「存货」误报成
+   * 「未解释的差额」，逼着人去查根本不存在的泄漏。
+   */
+  const closure = (influentCodKg - effluentCodKg - wastedCodKg - oxidizedCodKg - storedCodKg) / influentCodKg;
+  /**
+   * 近似模式下放宽到 20%：这不是「允许误差」，而是承认该模型的三条去向
+   * 取样口径不同，5% 的严格门限只会产生假警报。超出 20% 仍会报出。
+   */
+  const threshold = state.approximate ? 0.2 : 0.05;
+  const selfConsistent = Math.abs(closure) <= threshold;
   return {
     influentCodKg,
     effluentCodKg,
     wastedCodKg,
+    oxidizedCodKg,
+    storedCodKg,
     closurePct: closure * 100,
     selfConsistent,
-    note: selfConsistent
-      ? '进出差额在 5% 以内，累计口径自洽。'
-      : closure > 0
-        ? `进水中约 ${(closure * 100).toFixed(1)}% 的 COD 未被出水或排泥解释，可能来自系统内累积或未计入的出口。`
-        : `出水与排泥合计比进水多 ${(-closure * 100).toFixed(1)}%，可能存在未计入的进水或组分被凭空消耗。`,
+    mode: state.approximate ? 'approximate' : 'strict',
+    note: state.approximate
+      ? selfConsistent
+        ? `ASM1 模式：四路合计与进水相差 ${(closure * 100).toFixed(1)}%，在近似口径（±20%）内。该模式各去向取样口径不同，不能当作严格守恒证明。`
+        : `ASM1 模式：四路合计与进水相差 ${(closure * 100).toFixed(1)}%，超出近似口径（±20%），可能存在真实的组分不闭合。`
+      : selfConsistent
+        ? '进出差额在 5% 以内，累计口径自洽（出水 + 排泥 + 氧化 + 系统内累积 ≈ 进水）。'
+        : closure > 0
+          ? `进水中约 ${(closure * 100).toFixed(1)}% 的 COD 未被出水、排泥或氧化解释，可能来自系统内累积或未计入的出口。`
+          : `出水、排泥与氧化合计比进水多 ${(-closure * 100).toFixed(1)}%，可能存在未计入的进水或组分被凭空消耗。`,
   };
 }
 

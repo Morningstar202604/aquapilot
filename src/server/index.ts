@@ -261,6 +261,24 @@ function topologyMessage(): {
   };
 }
 
+/**
+ * 系统内颗粒态 COD 存量（kg）。
+ *
+ * ASM1 用全部颗粒组分；简化模型只有全局生物量，按 VSS→COD 1.42 折算。
+ * 这是质量平衡审计的「库存」项，缺了它会把存货误报成泄漏。
+ */
+function particulateCodKg(net: NetworkSimState): number {
+  let total = 0;
+  let hasAsm1 = false;
+  for (const r of net.reactors) {
+    if (!r.asm1) continue;
+    hasAsm1 = true;
+    const a = r.asm1;
+    total += ((a.X_I + a.X_S + a.X_B_H + a.X_B_A + a.X_P) * r.volume) / 1000;
+  }
+  return hasAsm1 ? total : net.biomassKg * 1.42;
+}
+
 /** 对话增强（规则答案之后的模型补充） */
 const enhanceWithLlm = createLlmChat({
   snapshot: () => ({ net: runtime.net, recommendation: runtime.recommendation }),
@@ -1251,8 +1269,10 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
           {
             totals: runtime.net.totals,
             effluent: runtime.net.effluent,
-            biomassKg: runtime.net.biomassKg,
+            storedParticulateCodKg: particulateCodKg(runtime.net),
             influentCodAvg: runtime.net.influent.cod,
+            // 两种引擎的取样口径都不构成严格守恒方程，统一按近似判定
+            approximate: true,
           },
           horizon,
         );

@@ -142,13 +142,22 @@ export function AnalysisPanel({
         <dl className="analysis-kv">
           <dt>进水累计 COD</dt>
           <dd>{(mb.influentCodKg / 1000).toFixed(1)} t</dd>
-          <dt>出水累计 COD</dt>
-          <dd>{(mb.effluentCodKg / 1000).toFixed(1)} t</dd>
+          <dt>出水带走</dt>
+          <dd>−{(mb.effluentCodKg / 1000).toFixed(1)} t</dd>
           <dt>排泥带走（×1.42）</dt>
-          <dd>{(mb.wastedCodKg / 1000).toFixed(1)} t</dd>
-          <dt>进出差额</dt>
+          <dd>−{(mb.wastedCodKg / 1000).toFixed(1)} t</dd>
+          <dt>曝气氧化</dt>
+          <dd>−{(mb.oxidizedCodKg / 1000).toFixed(1)} t</dd>
+          <dt>系统内库存</dt>
+          <dd>{(mb.storedCodKg / 1000).toFixed(1)} t</dd>
+          <dt>未解释差额</dt>
           <dd data-warn={!mb.selfConsistent}>{mb.closurePct.toFixed(1)}%</dd>
         </dl>
+        {mb.mode === 'approximate' && (
+          <div className="analysis-note">
+            当前为 ASM1 模式：三条去向的取样口径不同，审计按 ±20% 近似判定，不能当作严格守恒证明。
+          </div>
+        )}
         <div className="analysis-note" data-warn={!mb.selfConsistent}>
           {mb.note}
         </div>
