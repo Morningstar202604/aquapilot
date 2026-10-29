@@ -244,3 +244,71 @@ describe('维持现状候选必须按真实当前控制量评分', () => {
     }
   });
 });
+
+describe('增量帧批量构建（多客户端）', () => {
+  it('多个游标共享同一帧内容，趋势增量各自独立', async () => {
+    const { createSnapshotService } = await import('../src/server/snapshotView');
+    const { createNetworkState, spinUpNetwork } = await import('../src/sim/networkEngine');
+    const { PLANT_TOPOLOGY } = await import('../src/model/topology');
+    const { summarizeBenchmark, createShadowPlant } = await import('../src/server/benchmark');
+
+    const net = createNetworkState(PLANT_TOPOLOGY, { seed: 3 });
+    spinUpNetwork(net, PLANT_TOPOLOGY, 30);
+    const trend = [
+      {
+        t: 10,
+        influentCod: 300,
+        influentNh: 30,
+        influentFlow: 1800,
+        effluentCod: 30,
+        effluentNh: 1,
+        effluentTn: 8,
+        effluentTp: 0.2,
+        effluentSs: 5,
+        do: 2,
+        mlss: 3000,
+        energyKw: 300,
+        blanket: 1,
+      },
+      {
+        t: 20,
+        influentCod: 300,
+        influentNh: 30,
+        influentFlow: 1800,
+        effluentCod: 30,
+        effluentNh: 1,
+        effluentTn: 8,
+        effluentTp: 0.2,
+        effluentSs: 5,
+        do: 2,
+        mlss: 3000,
+        energyKw: 300,
+        blanket: 1,
+      },
+    ];
+    const runtime = {
+      topology: PLANT_TOPOLOGY,
+      net,
+      trend,
+      speed: 1,
+      paused: false,
+      recommendation: null,
+      forecastCache: { key: null, value: null },
+      shadow: createShadowPlant(PLANT_TOPOLOGY, 3, 0),
+    };
+    const svc = createSnapshotService({
+      source: () => runtime as never,
+      forecastFor: () => null,
+      summarizeBenchmark,
+    });
+    // 新连接（游标 -1）应收到全部趋势点；已同步过的连接只收到新增
+    const fresh = { lastTrendT: -1 };
+    const synced = { lastTrendT: 10 };
+    const [a, b] = svc.buildPatches([fresh, synced]);
+    expect(a.trendsAppend.map((p) => p.t)).toEqual([10, 20]);
+    expect(b.trendsAppend.map((p) => p.t)).toEqual([20]);
+    // 共享字段必须完全一致
+    expect(a.timeMin).toBe(b.timeMin);
+    expect(a.effluent).toEqual(b.effluent);
+  });
+});

@@ -9,7 +9,7 @@ import { NetworkSimState, networkModel, qualityScoreOf, stepNetwork } from '../s
 import { aiCycleDue } from './aiCadence';
 import type { ForecastOutcomeX } from '../sim/plantModel';
 import { CompiledNetwork } from '../sim/network';
-import type { ClientMessage, PlantSnapshot, ServerMessage, SnapshotPatch, TrendPoint } from '../shared/protocol';
+import type { ClientMessage, PlantSnapshot, ServerMessage, TrendPoint } from '../shared/protocol';
 import { PLANT_TOPOLOGY, ProcessTopology, validateTopology } from '../model/topology';
 import { sanitizeTopologyInput } from '../model/topologyInput';
 import { TopologyStore } from './topologyStore';
@@ -191,7 +191,6 @@ const snapshots = createSnapshotService({
 });
 
 const buildSnapshot = (): PlantSnapshot => snapshots.buildSnapshot();
-const buildPatch = (client: ClientState): SnapshotPatch => snapshots.buildPatch(client);
 const currentAlarms = (s: NetworkSimState) => snapshots.currentAlarms(s);
 
 function pushTrend(state: NetworkSimState, trend: TrendPoint[]): void {
@@ -292,12 +291,25 @@ function sendGuarded(ws: WebSocket, payload: string): void {
 }
 
 function broadcastPatch(): void {
+  /**
+   * 一帧只构造一次共享补丁体，再按连接补趋势增量。
+   *
+   * 旧实现对每个连接各调一次 buildPatch：告警规则表、裕度排序、
+   * 健康度加权、归因全部按连接数重复执行。内容本来完全相同，
+   * 差异只有「该连接还没收到哪些趋势点」。
+   */
+  const live: WebSocket[] = [];
+  const cursors: ClientState[] = [];
   for (const ws of runtime.clients) {
     if (ws.readyState !== WebSocket.OPEN) continue;
-    const client = runtime.clientState.get(ws) ?? freshClientState();
-    const patch = buildPatch(client);
-    runtime.clientState.set(ws, client);
-    if (patch) sendGuarded(ws, JSON.stringify({ type: 'snapshotPatch', data: patch } satisfies ServerMessage));
+    live.push(ws);
+    cursors.push(runtime.clientState.get(ws) ?? freshClientState());
+  }
+  if (live.length === 0) return;
+  const patches = snapshots.buildPatches(cursors);
+  for (let i = 0; i < live.length; i++) {
+    runtime.clientState.set(live[i], cursors[i]);
+    sendGuarded(live[i], JSON.stringify({ type: 'snapshotPatch', data: patches[i] } satisfies ServerMessage));
   }
 }
 
