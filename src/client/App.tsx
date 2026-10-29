@@ -40,11 +40,12 @@ import { WatchdogPanel } from './components/WatchdogPanel';
 import { UnitInspector } from './components/UnitInspector';
 import { TopbarMenu } from './components/TopbarMenu';
 import { AnalysisPanel } from './components/AnalysisPanel';
+import { CalibrationPanel } from './components/CalibrationPanel';
 import { Collapsible } from './components/Collapsible';
 import { PLANT } from '../sim/config';
 import { formatClockLong } from '../shared/time';
 
-type Tab = 'chat' | 'decision' | 'control' | 'alarms' | 'insights' | 'analysis' | 'replay' | 'health';
+type Tab = 'chat' | 'decision' | 'control' | 'alarms' | 'insights' | 'analysis' | 'calibration' | 'replay' | 'health';
 type View = 'plant' | 'editor';
 
 export default function App() {
@@ -487,6 +488,15 @@ export default function App() {
               <button
                 className="side-tab"
                 role="tab"
+                aria-selected={tab === 'calibration'}
+                data-active={tab === 'calibration'}
+                onClick={() => setTab('calibration')}
+              >
+                校准
+              </button>
+              <button
+                className="side-tab"
+                role="tab"
                 aria-selected={tab === 'replay'}
                 data-active={tab === 'replay'}
                 onClick={() => setTab('replay')}
@@ -550,6 +560,16 @@ export default function App() {
                 error={sim.analysisError}
                 onRun={() => sim.runAnalysis()}
               />
+            )}
+            {tab === 'calibration' && (
+              <ErrorBoundary compact label="校准面板">
+                <CalibrationPanel
+                  state={sim.calibration}
+                  onIdentify={sim.identifyCalibration}
+                  onStart={() => sim.startCalibration(2)}
+                  onCancel={sim.cancelCalibration}
+                />
+              </ErrorBoundary>
             )}
             {tab === 'replay' && (
               <Suspense fallback={<div className="empty-note">加载回放面板…</div>}>

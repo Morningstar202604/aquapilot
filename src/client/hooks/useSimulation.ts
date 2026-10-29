@@ -9,6 +9,18 @@ import type { DiscoveredModel, LlmDraft, LlmProtocol, LlmPublicConfig, LlmTestRe
 import type { AgentConfig, AgentSummary } from '../../shared/agentConfig';
 import type { TopologyVersionSummary, WatchdogReport } from '../../shared/protocol';
 import type { AnalysisSnapshot } from '../../sim/analysis';
+import type { CalibrationResultSummary } from '../../shared/protocol';
+import type { CalibrationProgress, IdentifiabilityRow } from '../../sim/calibration';
+
+/** 校准 UI 状态 */
+export interface CalibrationUiState {
+  running: boolean;
+  phase: CalibrationProgress['phase'] | null;
+  progress: CalibrationProgress | null;
+  identifiability: IdentifiabilityRow[] | null;
+  result: CalibrationResultSummary | null;
+  error: string | null;
+}
 import { nextSendPlan, reconnectDelayMs } from './wsPolicy';
 import { mergeSnapshot } from './snapshotMerge';
 import { NOTICE_TTL_MS, pruneNotices, pushNotice, type Notice } from './notices';
@@ -144,6 +156,15 @@ export function useSimulation() {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const analysisId = useRef(0);
+  const [calibration, setCalibration] = useState<CalibrationUiState>({
+    running: false,
+    phase: null,
+    progress: null,
+    identifiability: null,
+    result: null,
+    error: null,
+  });
+  const calibrationId = useRef(0);
 
   useEffect(() => {
     let closed = false;
@@ -331,6 +352,27 @@ export function useSimulation() {
           case 'watchdog':
             setWatchdog(msg.report);
             break;
+          case 'calibration': {
+            setCalibration((prev) => {
+              if ('action' in msg && msg.action === 'progress') {
+                return { ...prev, running: true, phase: msg.progress.phase, progress: msg.progress };
+              }
+              if ('action' in msg && msg.action === 'identifiability') {
+                return { ...prev, running: false, identifiability: msg.rows };
+              }
+              if ('action' in msg && msg.action === 'done') {
+                return { ...prev, running: false, phase: null, progress: null, result: msg.result, error: null };
+              }
+              if ('action' in msg && msg.action === 'cancelled') {
+                return { ...prev, running: false, phase: null, progress: null };
+              }
+              if ('action' in msg && msg.action === 'error') {
+                return { ...prev, running: false, phase: null, progress: null, error: msg.error };
+              }
+              return prev;
+            });
+            break;
+          }
           case 'analysis': {
             setAnalysisLoading(false);
             if ('action' in msg && msg.action === 'error') {
@@ -360,6 +402,7 @@ export function useSimulation() {
         setLlmSaving(false);
         setAgentSaving(false);
         setAnalysisLoading(false);
+        setCalibration((prev) => ({ ...prev, running: false, phase: null, progress: null }));
         if (closed) return;
         retry.current += 1;
         // 抖动退避：多客户端同时断线时避免重连请求同步撞击服务端
@@ -558,6 +601,25 @@ export function useSimulation() {
     analysis,
     analysisLoading,
     analysisError,
+    calibration,
+    identifyCalibration: () => {
+      calibrationId.current += 1;
+      setCalibration((prev) => ({ ...prev, running: true, phase: 'identifiability', error: null, progress: null }));
+      send({ type: 'calibration', action: 'identify', requestId: `cal-${calibrationId.current}` });
+    },
+    startCalibration: (maxIterations?: number) => {
+      calibrationId.current += 1;
+      setCalibration((prev) => ({ ...prev, running: true, phase: 'identifiability', error: null, result: null }));
+      send({
+        type: 'calibration',
+        action: 'start',
+        requestId: `cal-${calibrationId.current}`,
+        maxIterations,
+      });
+    },
+    cancelCalibration: () => {
+      send({ type: 'calibration', action: 'cancel', requestId: `cal-${calibrationId.current}` });
+    },
     runAnalysis: (horizonMin?: number) => {
       analysisId.current += 1;
       setAnalysisLoading(true);

@@ -16,6 +16,24 @@ import type { ProcessTopology } from '../model/topology';
 import type { DiscoveredModel, LlmDraft, LlmProtocol, LlmPublicConfig, LlmTestResult } from './llm';
 import type { AgentConfig, AgentSummary } from './agentConfig';
 import type { AnalysisSnapshot } from '../sim/analysis';
+import type { CalibrationProgress, IdentifiabilityRow } from '../sim/calibration';
+
+/**
+ * 标定结果摘要（去掉 trace 的完整参数对象，只保留可展示的部分）。
+ *
+ * 全量 `CalibrationResult` 含 11 个参数对象与几十条 trace，序列化后
+ * 约 30 KB；前端只需要「改了多少、改善多少」。
+ */
+export interface CalibrationResultSummary {
+  objectiveBefore: number;
+  objectiveAfter: number;
+  improvementPct: number;
+  fitted: string[];
+  fixed: string[];
+  converged: boolean;
+  /** 参数变化：标定前 → 标定后 */
+  changes: { param: string; before: number; after: number; changePct: number }[];
+}
 
 /**
  * AI vs 固定策略的双跑汇总。
@@ -226,7 +244,18 @@ export type ClientMessage =
    * 按需触发而不是每帧推送：一次分析要做 ~25 次 4 小时预测（实测 300+ ms），
    * 只在用户打开「分析」面板时算一次。
    */
-  | { type: 'analysis'; action: 'run'; requestId: string; horizonMin?: number };
+  | { type: 'analysis'; action: 'run'; requestId: string; horizonMin?: number }
+  /**
+   * 参数校准（CPU 密集，2–3 分钟，必须走后台任务）。
+   *
+   * 三种动作：
+   * - `identify` 只跑可辨识性分析（约 40 s），告诉用户哪些参数能被数据约束；
+   * - `start`    启动完整标定（可辨识性 + 坐标下降），进度通过 `calibration` 推送；
+   * - `cancel`   请求中止（下一个参数点结束后生效）。
+   */
+  | { type: 'calibration'; action: 'identify'; requestId: string }
+  | { type: 'calibration'; action: 'start'; requestId: string; maxIterations?: number }
+  | { type: 'calibration'; action: 'cancel'; requestId: string };
 
 /**
  * 增量快照：只包含每个 tick 都会变的字段。
@@ -358,4 +387,9 @@ export type ServerMessage =
   | { type: 'agentConfig'; action: 'error'; requestId?: string; error: string }
   | { type: 'watchdog'; report: WatchdogReport }
   | { type: 'analysis'; requestId: string; data: AnalysisSnapshot }
-  | { type: 'analysis'; action: 'error'; requestId: string; error: string };
+  | { type: 'analysis'; action: 'error'; requestId: string; error: string }
+  | { type: 'calibration'; action: 'progress'; requestId: string; progress: CalibrationProgress }
+  | { type: 'calibration'; action: 'identifiability'; requestId: string; rows: IdentifiabilityRow[] }
+  | { type: 'calibration'; action: 'done'; requestId: string; result: CalibrationResultSummary }
+  | { type: 'calibration'; action: 'cancelled'; requestId: string }
+  | { type: 'calibration'; action: 'error'; requestId: string; error: string };

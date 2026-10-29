@@ -154,6 +154,7 @@ export function requiredRoleFor(messageType: string): Role {
     case 'topology':
     case 'llmConfig':
     case 'agentConfig':
+    case 'calibration':
       return 'admin';
     default:
       return 'viewer';

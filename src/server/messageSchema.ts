@@ -135,6 +135,16 @@ export const ClientMessageSchema = v.variant('type', [
     requestId: v.string(),
     horizonMin: v.optional(FiniteNumber),
   }),
+  v.variant('action', [
+    v.object({ type: v.literal('calibration'), action: v.literal('identify'), requestId: v.string() }),
+    v.object({
+      type: v.literal('calibration'),
+      action: v.literal('start'),
+      requestId: v.string(),
+      maxIterations: v.optional(FiniteNumber),
+    }),
+    v.object({ type: v.literal('calibration'), action: v.literal('cancel'), requestId: v.string() }),
+  ]),
 ]);
 
 export type ParsedClientMessage = v.InferOutput<typeof ClientMessageSchema>;

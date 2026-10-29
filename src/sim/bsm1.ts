@@ -215,6 +215,15 @@ export interface Bsm1RunOptions {
   tolerance?: number;
   /** 初始化：官方稳态向量（默认，验证协议）或进水+接种（冷启动） */
   init?: 'official' | 'cold';
+  /**
+   * 参数覆盖（标定用）。
+   *
+   * 默认走官方 Henze-1987 参数集，保证基准对照可复现；
+   * 标定时由外界注入一组候选参数，其余流程完全不变——
+   * 这样「标定用的模型」与「验证用的模型」是同一份代码，不会出现
+   * 「标定一个模型、验证另一个模型」的漂移。
+   */
+  params?: Asm1Params;
 }
 
 export interface Bsm1SteadyResult {
@@ -258,7 +267,8 @@ export function runBsm1OpenLoopSteady(options: Bsm1RunOptions = {}): Bsm1SteadyR
   if (!(dtDays > 0) || !Number.isFinite(dtDays)) {
     throw new Error(`dtDays 必须为正有限值，收到 ${dtDays}`);
   }
-  const params = bsm1Asm1Params(options.anoxicNo3Exponent ?? 1);
+  // 注入的参数优先；未注入时用官方基准集（含指定的缺氧开关指数）
+  const params = options.params ?? bsm1Asm1Params(options.anoxicNo3Exponent ?? 1);
 
   const qThrough = plant.influentFlowM3d + plant.returnSludgeM3d + plant.internalRecycleM3d;
   const qToSettler = plant.influentFlowM3d + plant.returnSludgeM3d;

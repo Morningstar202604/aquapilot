@@ -37,6 +37,14 @@ import { createSnapshotService } from './snapshotView';
 import { createLlmChat, errorText } from './llmChat';
 import { createAgentConfigHandler } from './agentConfigHandler';
 import { parseClientMessage } from './messageSchema';
+import { createCalibrationService } from './calibrationService';
+import {
+  applyEstimate,
+  createEstimatorRuntime,
+  measureFromState,
+  stepEstimator,
+  type EstimatorRuntime,
+} from './estimatorRuntime';
 import {
   MAX_BUFFERED_BYTES,
   MAX_LLM_IN_FLIGHT,
@@ -106,6 +114,13 @@ interface Runtime {
    * 审计比较的是库存变化量，不是绝对库存。
    */
   baselineStoredCodKg: number;
+  /**
+   * 在线状态估计（默认关闭）。
+   *
+   * 关闭时行为与之前完全一致（不影响既有确定性测试）；
+   * 打开后用传感器测量校正模型状态，演示「模型会漂、测量能拉回」。
+   */
+  estimator: EstimatorRuntime;
 }
 
 const store = new Store();
@@ -167,6 +182,10 @@ const runtime: Runtime = {
   activePresetId: restoredFromDisk ? null : 'a2o-standard',
   shadow: createShadowPlant(boot.topology, 20261019, 0),
   baselineStoredCodKg: 0,
+  // 用真实初始状态播种（此时 boot.runtime.net 已就绪）
+  estimator: createEstimatorRuntime(measureFromState(boot.runtime.net), {
+    enabled: process.env.AQUAPILOT_ESTIMATOR === '1',
+  }),
 };
 runtime.baselineStoredCodKg = particulateCodKg(runtime.net);
 
@@ -287,6 +306,14 @@ function particulateCodKg(net: NetworkSimState): number {
   }
   return hasAsm1 ? total : net.biomassKg * 1.42;
 }
+
+/** 参数校准（CPU 密集，后台分批执行） */
+const calibration = createCalibrationService({
+  send: (ws, message) => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
+  },
+  isOpen: (ws) => ws.readyState === WebSocket.OPEN,
+});
 
 /** 对话增强（规则答案之后的模型补充） */
 const enhanceWithLlm = createLlmChat({
@@ -590,6 +617,19 @@ function advance(): void {
   for (let i = 0; i < steps; i++) {
     stepNetwork(s, runtime.topology, 1);
     runtime.tick += 1;
+    /**
+     * 在线状态估计（默认关闭）。
+     *
+     * 位置必须在 stepNetwork 之后：先让模型自己推进（预测步），
+     * 再用这一拍的测量校正。反过来的话校正会被下一步推进抵消。
+     */
+    if (runtime.estimator.estimator) {
+      const truth = measureFromState(s);
+      const { estimated } = stepEstimator(runtime.estimator, truth, s.seed);
+      if (estimated && runtime.estimator.config.applyCorrection) {
+        applyEstimate(s, estimated, truth);
+      }
+    }
     if (runtime.tick % TREND_EVERY_TICKS === 0) pushTrend(s, runtime.trend);
     try {
       stepShadow(runtime.shadow, s, 1, runtime.topology);
@@ -1261,6 +1301,19 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
     case 'watchdog': {
       const report = buildReport(watchdogInput());
       ws.send(JSON.stringify({ type: 'watchdog', report } satisfies ServerMessage));
+      break;
+    }
+    case 'calibration': {
+      // 标定是 admin 级操作：它会改模型参数，不是只读分析
+      if (msg.action === 'cancel') {
+        calibration.cancel(ws);
+        break;
+      }
+      if (msg.action === 'identify') {
+        void calibration.identify(ws, msg.requestId);
+        break;
+      }
+      void calibration.run(ws, msg.requestId, msg.maxIterations);
       break;
     }
     case 'analysis': {
