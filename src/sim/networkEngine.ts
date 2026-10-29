@@ -165,6 +165,14 @@ export interface NetworkSimState {
     energyKwh: number;
     wasteSludgeKg: number;
     /**
+     * 累计进水 COD 质量（kg）。
+     *
+     * 必须随水量一起积分，而不是用「当前瞬时进水浓度 × 累计水量」：
+     * 后者在启动初期会给出极小分母（累计水量接近 0 而池内已有几十吨库存），
+     * 质量平衡直接算出 -69712% 这种荒谬数字。积分值才是与库存可比的量。
+     */
+    influentCodKg: number;
+    /**
      * 累计被氧化的 COD 质量（kg）。
      *
      * 好氧系统里进水 COD 的最大去向不是出水也不是排泥，而是被氧化成 CO₂。
@@ -276,7 +284,7 @@ export function createNetworkState(
     alarmSeq: 0,
     cost: { energy: 0, chemical: 0, sludge: 0, total: 0 },
     costToday: { energy: 0, chemical: 0, sludge: 0, total: 0 },
-    totals: { inflowM3: 0, energyKwh: 0, wasteSludgeKg: 0, oxidizedCodKg: 0 },
+    totals: { inflowM3: 0, energyKwh: 0, wasteSludgeKg: 0, influentCodKg: 0, oxidizedCodKg: 0 },
     lastDay: 0,
     stormStorageM3: 0,
     volume: {
@@ -958,6 +966,7 @@ function solveEnergyAndCost(
 
   // 按步积分：这是「累计处理量 / 累计电耗 / 累计干泥」的唯一正确口径
   state.totals.inflowM3 += Q * dtH;
+  state.totals.influentCodKg += (Q * state.influent.cod * dtH) / 1000;
   state.totals.energyKwh += totalKw * dtH;
   state.totals.wasteSludgeKg += wasted;
   // 氧化掉的 COD 是质量平衡里最大的一笔去向，必须单独记账
@@ -1067,7 +1076,7 @@ export function spinUpNetwork(state: NetworkSimState, topo: ProcessTopology, day
   state.alarmSeq = 0;
   state.cost = { energy: 0, chemical: 0, sludge: 0, total: 0 };
   state.costToday = { energy: 0, chemical: 0, sludge: 0, total: 0 };
-  state.totals = { inflowM3: 0, energyKwh: 0, wasteSludgeKg: 0, oxidizedCodKg: 0 };
+  state.totals = { inflowM3: 0, energyKwh: 0, wasteSludgeKg: 0, influentCodKg: 0, oxidizedCodKg: 0 };
   state.lastDay = 0;
   state.timeMin = 0;
   return state;

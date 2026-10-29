@@ -99,6 +99,13 @@ interface Runtime {
   activePresetId: string | null;
   /** 影子双跑厂（固定策略） */
   shadow: ShadowPlant;
+  /**
+   * 累计记账起点的库存 COD（kg）。
+   *
+   * 与 totals 的零点是同一时刻：预热结束或 reset 时一并记录。
+   * 审计比较的是库存变化量，不是绝对库存。
+   */
+  baselineStoredCodKg: number;
 }
 
 const store = new Store();
@@ -159,7 +166,9 @@ const runtime: Runtime = {
   forecastCache: { key: null, value: null },
   activePresetId: restoredFromDisk ? null : 'a2o-standard',
   shadow: createShadowPlant(boot.topology, 20261019, 0),
+  baselineStoredCodKg: 0,
 };
+runtime.baselineStoredCodKg = particulateCodKg(runtime.net);
 
 /**
  * 快照服务。
@@ -958,6 +967,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         rotateRunId();
         runtime.net = createRuntime(runtime.topology, 20261019).net;
         runtime.shadow = createShadowPlant(runtime.topology, 20261019, 0);
+        runtime.baselineStoredCodKg = particulateCodKg(runtime.net);
         runtime.trend = [];
         runtime.recommendation = null;
         runtime.tick = 0;
@@ -1270,6 +1280,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
             totals: runtime.net.totals,
             effluent: runtime.net.effluent,
             storedParticulateCodKg: particulateCodKg(runtime.net),
+            baselineStoredCodKg: runtime.baselineStoredCodKg,
             influentCodAvg: runtime.net.influent.cod,
             // 两种引擎的取样口径都不构成严格守恒方程，统一按近似判定
             approximate: true,

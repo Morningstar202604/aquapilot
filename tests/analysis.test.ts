@@ -185,6 +185,30 @@ describe('质量平衡审计', () => {
     expect(r.note).toMatch(/超出近似口径/);
   });
 
+  it('库存必须按变化量计，否则启动瞬间会算出荒谬比例（回归）', () => {
+    // 开局已有 79 t 存量，但本期间只进了 0.2 t
+    const r = massBalanceAudit({
+      totals: { inflowM3: 1000, wasteSludgeKg: 80, oxidizedCodKg: 100, influentCodKg: 200 },
+      effluent,
+      storedParticulateCodKg: 79_000,
+      baselineStoredCodKg: 79_000,
+      influentCodAvg: 300,
+    });
+    // 库存没有变化 → 不应把 79 t 存量算成「未解释的负差额」
+    expect(r.storedCodKg).toBe(0);
+    expect(Math.abs(r.closurePct)).toBeLessThan(200);
+  });
+
+  it('优先使用累计进水 COD，而不是「水量 × 当前浓度」', () => {
+    const r = massBalanceAudit({
+      totals: { inflowM3: 1000, wasteSludgeKg: 40, oxidizedCodKg: 100, influentCodKg: 300 },
+      effluent,
+      storedParticulateCodKg: 40,
+      influentCodAvg: 9999, // 当前瞬时浓度被污染，不应影响审计
+    });
+    expect(r.influentCodKg).toBe(300);
+  });
+
   it('出水限值口径与主模型一致', () => {
     expect(LIMITS.cod).toBe(50);
     expect(LIMITS.nh).toBe(5);

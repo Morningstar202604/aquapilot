@@ -256,7 +256,13 @@ export function paretoFrontier(model: PlantModel, horizonMin = 240): ParetoPoint
  * 通用仿真器通常不给这个校验，因为它们的累计量只是展示字段。
  */
 export function massBalanceAudit(state: {
-  totals: { inflowM3: number; wasteSludgeKg: number; oxidizedCodKg?: number };
+  totals: {
+    inflowM3: number;
+    wasteSludgeKg: number;
+    oxidizedCodKg?: number;
+    /** 累计进水 COD 质量（kg）。缺失时退回「累计水量 × 平均浓度」 */
+    influentCodKg?: number;
+  };
   effluent: EffluentStats;
   /**
    * 系统内**全部**颗粒态 COD 存量（kg），不是活性菌生物量。
@@ -268,6 +274,15 @@ export function massBalanceAudit(state: {
    */
   storedParticulateCodKg: number;
   influentCodAvg: number;
+  /**
+   * 累计起点时的库存 COD（kg）。
+   *
+   * 累计量（进水/出水/排泥/氧化）在预热结束或 reset 时归零，
+   * 但池内的污泥留下来了——那是「开局就有的存货」，不是这期间新产生的。
+   * 审计必须比较**库存变化量**（当前 − 起点），否则刚启动时会拿
+   * 「几小时的进水」去除「几十吨存量」，算出 -59798% 这种荒谬数字。
+   */
+  baselineStoredCodKg?: number;
   /**
    * 是否需要「近似」判定。
    *
@@ -286,12 +301,24 @@ export function massBalanceAudit(state: {
   /** 生物量按 VSS→COD 1.42 折算成库存 COD */
   const COD_PER_VSS = 1.42;
   const inflow = Math.max(0, state.totals.inflowM3);
-  const influentCodKg = (inflow * state.influentCodAvg) / 1000;
+  /**
+   * 优先用累计进料 COD（随水量一起积分）。
+   *
+   * 退回「累计水量 × 当前浓度」是危险的：启动初期累计水量接近 0，
+   * 而池内已有几十吨库存，比值会算出 -69712% 这种荒谬数字。
+   */
+  const influentCodKg =
+    typeof state.totals.influentCodKg === 'number' && state.totals.influentCodKg > 0
+      ? state.totals.influentCodKg
+      : (inflow * state.influentCodAvg) / 1000;
   // 出水 COD 质量：累计出水量按进水减排泥近似（排泥体积远小于出水）
   const effluentCodKg = (inflow * state.effluent.cod) / 1000;
   // 排泥按 VSS→COD 1.42 折算
   const wastedCodKg = state.totals.wasteSludgeKg * COD_PER_VSS;
-  const storedCodKg = Math.max(0, state.storedParticulateCodKg);
+  const storedNow = Math.max(0, state.storedParticulateCodKg);
+  const baseline = Math.max(0, state.baselineStoredCodKg ?? 0);
+  /** 审计用「本期间库存变化量」，而不是绝对库存 */
+  const storedCodKg = storedNow - baseline;
   // 氧化量由引擎逐步累计（缺省 0 仅用于没有该字段的旧调用方）
   const oxidizedCodKg = state.totals.oxidizedCodKg ?? 0;
   /**
