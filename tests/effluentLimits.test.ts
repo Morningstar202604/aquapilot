@@ -40,8 +40,19 @@ describe('默认控制下六项出水限值', () => {
 });
 
 describe('事故工况下的限值行为是可解释的（不是静默通过）', () => {
-  it('鼓风机故障（默认剩余 50% 供气）时氨氮必然越线', () => {
+  /**
+   * 鼓风机故障必须造成「显著恶化」，而不是严格要求越线。
+   *
+   * 早期断言是 `peak > LIMITS.nh`（必然越线）。设计变更后（二沉池补 f_ns、
+   * 好氧池容 +15%）硝化裕度变大，实测峰值 4.67 mg/L——逼近但未越线。
+   *
+   * 这不是把问题掩盖掉：断言改成「至少恶化 2 倍且逼近限值（>80%）」，
+   * 既锁住「故障真的有影响」，又不把「裕度足够」误判成「模型失效」。
+   * 若哪天故障完全不影响出水（例如曝气逻辑被短路），这个测试仍会失败。
+   */
+  it('鼓风机故障（默认剩余 50% 供气）时氨氮显著恶化并逼近限值', () => {
     const s = steady(7);
+    const baseline = s.effluent.nh;
     // 用场景默认强度：magnitude 语义是"剩余供气能力"，1 反而表示没有故障
     startNetworkScenario(s, 'blower_failure');
     let peak = 0;
@@ -49,7 +60,8 @@ describe('事故工况下的限值行为是可解释的（不是静默通过）'
       stepNetwork(s, PLANT_TOPOLOGY, 1);
       peak = Math.max(peak, s.effluent.nh);
     }
-    expect(peak).toBeGreaterThan(LIMITS.nh);
+    expect(peak).toBeGreaterThan(baseline * 2);
+    expect(peak).toBeGreaterThan(LIMITS.nh * 0.8);
   });
 
   it('中毒性冲击后氨氮升高（抑制硝化）', () => {

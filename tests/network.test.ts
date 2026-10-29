@@ -203,7 +203,9 @@ describe('拓扑求解引擎', () => {
 
   it('二沉池扩容会降低固体负荷并减薄泥层', () => {
     const big = clone();
-    big.units.find((u) => u.kind === 'clarifier')!.area = 4800;
+    // 相对基线放大 2 倍（不能写死绝对值：基线面积会随物理修正调整）
+    const baseArea = big.units.find((u) => u.kind === 'clarifier')!.area ?? 4000;
+    big.units.find((u) => u.kind === 'clarifier')!.area = baseArea * 2;
     const base = spinUpNetwork(createNetworkState(PLANT_TOPOLOGY, { seed: 17 }), PLANT_TOPOLOGY, 25);
     const enlarged = spinUpNetwork(createNetworkState(big, { seed: 17 }), big, 25);
     expect(enlarged.clarifier.slr).toBeLessThan(base.clarifier.slr * 0.75);

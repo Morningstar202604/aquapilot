@@ -13,8 +13,7 @@ import type { TankState } from '../sim/plantTypes';
  * 因此同时输出 `mlssSource`，让界面能如实标注口径。
  */
 
-/** 1.42 g COD / g VSS（ASM1 生物量与悬浮固体的换算系数） */
-const COD_PER_VSS = 1.42;
+import { COD_PER_VSS } from '../sim/units';
 
 export interface TankStateWithSource extends TankState {
   /** plant-average = 简化模型的全厂均值；reactor = 该池真实颗粒浓度 */

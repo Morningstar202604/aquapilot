@@ -35,7 +35,7 @@ describe('UnitInspector', () => {
   it('好氧池显示容积、实时 DO/MLSS 与三个可调参数', () => {
     renderInspector('aerobic1');
     expect(screen.getByText('好氧池 A')).toBeTruthy();
-    expect(screen.getByText('5,000 m³')).toBeTruthy();
+    expect(screen.getByText('5,750 m³')).toBeTruthy();
     expect(document.getElementById('insp-doSetpoint')).toBeTruthy();
     expect(document.getElementById('insp-pacDose')).toBeTruthy();
     expect(document.getElementById('insp-alkDose')).toBeTruthy();

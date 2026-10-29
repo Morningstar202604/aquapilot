@@ -1,6 +1,7 @@
 import { ASM1_PARAMS, type Asm1Params } from './asm1';
 import { runBsm1OpenLoopSteady, BSM1_TABLE6_EFFLUENT } from './bsm1';
 import { toConventional } from './asm1Cstr';
+import { particulateToTss } from './units';
 
 /**
  * 参数校准与可辨识性分析。
@@ -306,7 +307,7 @@ export function bsm1SyntheticTarget(): CalibrationTarget {
   return {
     observed: {
       cod: t.S_I + t.S_S + t.X_I + t.X_S + t.X_B_H + t.X_B_A + t.X_P,
-      ss: (t.X_I + t.X_S + t.X_B_H + t.X_B_A + t.X_P) / 1.42,
+      ss: particulateToTss(t.X_I + t.X_S + t.X_B_H + t.X_B_A + t.X_P),
       nh: t.S_NH,
       tn: t.S_NH + t.S_NO + t.S_ND + t.X_ND,
     },

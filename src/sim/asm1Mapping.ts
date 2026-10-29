@@ -8,8 +8,7 @@ import { ASM1_PARAMS, emptyAsm1State, type Asm1State } from './asm1';
  * 简化模型的固有局限——ASM1 没有磷，TP 只能靠化学除磷兜底。
  */
 
-/** ASM1 生物量 COD 与 VSS 的换算系数（1.42 gCOD/gVSS） */
-const COD_PER_VSS = 1.42;
+import { COD_PER_VSS } from './units';
 
 /** 聚合量 → ASM1（用于从现有状态初始化 ASM1 反应器） */
 /**

@@ -31,7 +31,7 @@ describe('工艺拓扑模型', () => {
   });
 
   it('计算出正确的总池容与停留时间', () => {
-    expect(totalTrainVolume(PLANT_TOPOLOGY)).toBe(3000 + 4500 + 5000 * 3);
+    expect(totalTrainVolume(PLANT_TOPOLOGY)).toBe(3000 + 4500 + 5750 * 3);
     const hrt = hydraulicRetention(PLANT_TOPOLOGY, 2000);
     expect(hrt).toHaveLength(5);
     for (const row of hrt) expect(row.hrt).toBeGreaterThan(0);
@@ -327,19 +327,29 @@ describe('回归：拓扑几何必须真实影响物理', () => {
     expect(small.net.effluent.nh).toBeGreaterThan(base.net.effluent.nh);
   });
 
-  it('二沉池面积翻倍会降低表面固体负荷', () => {
+  /**
+   * 面积对比必须相对基线算，不能写死绝对值。
+   *
+   * 这两条测试原先硬编码 `area = 4800`（当时基线 3600，相当于 1.33 倍）。
+   * 基线后来因物理修正调到 4000，4800 只放大 1.2 倍，断言就不成立了。
+   * 改成「按基线 × 系数」才能跟随设计变更而保持测试意图不变。
+   */
+  function withClarifierScale(scale: number): ProcessTopology {
     const topo: ProcessTopology = JSON.parse(JSON.stringify(PLANT_TOPOLOGY));
-    topo.units.find((u) => u.kind === 'clarifier')!.area = 4800;
+    const clarifier = topo.units.find((u) => u.kind === 'clarifier')!;
+    clarifier.area = (clarifier.area ?? 4000) * scale;
+    return topo;
+  }
+
+  it('二沉池面积翻倍会降低表面固体负荷', () => {
     const base = createRuntime(PLANT_TOPOLOGY);
-    const big = createRuntime(topo);
+    const big = createRuntime(withClarifierScale(2));
     expect(big.net.clarifier.slr).toBeLessThan(base.net.clarifier.slr * 0.75);
   });
 
   it('二沉池面积翻倍会让泥层变薄', () => {
-    const topo: ProcessTopology = JSON.parse(JSON.stringify(PLANT_TOPOLOGY));
-    topo.units.find((u) => u.kind === 'clarifier')!.area = 4800;
     const base = createRuntime(PLANT_TOPOLOGY);
-    const big = createRuntime(topo);
+    const big = createRuntime(withClarifierScale(2));
     expect(big.net.clarifier.blanketM).toBeLessThan(base.net.clarifier.blanketM);
   });
 

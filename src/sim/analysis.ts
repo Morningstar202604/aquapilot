@@ -1,3 +1,4 @@
+import { COD_PER_VSS } from './units';
 import type { ControlSettings } from '../sim/config';
 import { CONTROL_BOUNDS, LIMITS } from '../sim/config';
 import type { PlantModel, ForecastOutcomeX, PlantSnapshotForAi } from '../sim/plantModel';
@@ -298,8 +299,6 @@ export function massBalanceAudit(state: {
    */
   approximate?: boolean;
 }): MassBalanceAudit {
-  /** 生物量按 VSS→COD 1.42 折算成库存 COD */
-  const COD_PER_VSS = 1.42;
   const inflow = Math.max(0, state.totals.inflowM3);
   /**
    * 优先用累计进料 COD（随水量一起积分）。

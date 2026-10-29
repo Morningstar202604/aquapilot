@@ -46,6 +46,27 @@ export interface SettlerConfig {
   v0: number;
   rh: number;
   rp: number;
+  /**
+   * 进料中不可沉降分数（f_ns）。
+   *
+   * BSM1 技术报告取 0.0022。它的作用是把「进料里本来就不会沉的那部分」
+   * 从驱动沉降的浓度里减掉：沉降速度应当由**可沉降**固体决定，
+   * 而不是全部悬浮固体。
+   *
+   * 漏掉这一项会高估沉降效率——尤其是在进水 SS 高、含大量细小颗粒时，
+   * 模型会算出比真实更低的出水 SS。这是与 IWA 参考实现
+   * （bsm2-python `settler1d_bsm2.py:96`）对齐的关键修正。
+   */
+  fNs: number;
+  /**
+   * 限制通量阈值 X_t（g/m³）。
+   *
+   * 澄清区某层浓度低于该阈值时，界面通量取上层通量而非两层的最小值。
+   * IWA 参考实现用 3000 g/m³（BSM1 settler 参数表）。
+   * 这个分支只影响稀薄层之间的界面，对出水 SS 影响小，
+   * 但它保证了低浓度区不会被人为地"卡住"。
+   */
+  xThreshold: number;
   /** 浓度上限，防止数值爆炸 */
   xMax: number;
 }
@@ -57,6 +78,9 @@ export const BSM1_SETTLER: Omit<SettlerConfig, 'area' | 'depth'> = {
   v0: 474,
   rh: 0.000576,
   rp: 0.00286,
+  // IWA BSM1 技术报告：f_ns = 0.0022、X_t = 3000 g/m³
+  fNs: 0.0022,
+  xThreshold: 3000,
   xMax: 20000,
 };
 
@@ -76,9 +100,28 @@ export interface SettlerResult {
 }
 
 /** 双指数沉降速度，m/d */
-export function settlingVelocity(x: number, cfg: Pick<SettlerConfig, 'v0' | 'v0Max' | 'rh' | 'rp'>): number {
+/**
+ * 双指数沉降速度。
+ *
+ * `fNs`（不可沉降分数）作用在**浓度**上而不是速度上：
+ *   v_s(X) = v0·(exp(−rh·(X − f_ns·X_feed)) − exp(−rp·(X − f_ns·X_feed)))
+ * 这与 IWA 参考实现一致（bsm2-python `settler1d_bsm2.py:96`）。
+ *
+ * 为什么必须减：进料里有一部分颗粒永远不会沉降（胶体、细小絮体），
+ * 它们不参与「浓度越高沉降越慢」的阻滞效应。不减掉会把整体浓度当成
+ * 可沉降浓度，在低浓度区高估沉降速度、在高浓度区低估。
+ *
+ * `xFeed` 省略时按 0 处理（等价于旧行为），保证既有调用方不受影响。
+ */
+export function settlingVelocity(
+  x: number,
+  cfg: Pick<SettlerConfig, 'v0' | 'v0Max' | 'rh' | 'rp'> & { fNs?: number },
+  xFeed = 0,
+): number {
   if (x <= 0) return 0;
-  const raw = cfg.v0 * (Math.exp(-cfg.rh * x) - Math.exp(-cfg.rp * x));
+  // 可沉降浓度 = 本层浓度 − 进料不可沉降部分
+  const effective = Math.max(0, x - (cfg.fNs ?? 0) * xFeed);
+  const raw = cfg.v0 * (Math.exp(-cfg.rh * effective) - Math.exp(-cfg.rp * effective));
   return Math.max(0, Math.min(cfg.v0Max, raw));
 }
 
@@ -166,7 +209,18 @@ export function stepSettler(
       const xUp = xs[j - 1];
       const xDn = xs[j];
       const xLim = Math.min(xUp, xDn);
-      const J = settlingVelocity(xLim, cfg) * xLim;
+      /**
+       * 限制通量：澄清区稀薄层（X < X_t）取上层通量，而非两层最小值。
+       *
+       * IWA 参考实现的判据（bsm2-python `settler1d_bsm2.py:115`）：
+       * 在进料层以上的稀薄区，若下层浓度未超过阈值，界面通量由上层决定。
+       * 这避免了「下层略稀就把上层通量拉低」的假阻滞。
+       */
+      const inClarification = j <= feedIdx;
+      const J =
+        inClarification && xDn <= cfg.xThreshold
+          ? settlingVelocity(xUp, cfg, feed.concentration) * xUp
+          : settlingVelocity(xLim, cfg, feed.concentration) * xLim;
       /**
        * 澄清区：自由沉降 + 上升主体流（向上为负）。
        * 浓缩区：限制性沉降通量 + 下降主体流。

@@ -80,8 +80,8 @@ describe('可运行性校验：全部分支', () => {
   it('派生指标反映拓扑', () => {
     const r = checkRunReadiness(PLANT_TOPOLOGY, 2000);
     expect(r.derived.trainUnits).toBe(5);
-    expect(r.derived.bioVolume).toBe(22500);
-    expect(r.derived.aerobicVolume).toBe(15000);
+    expect(r.derived.bioVolume).toBe(24750);
+    expect(r.derived.aerobicVolume).toBe(17250);
     expect(r.derived.hrtHours).toBeGreaterThan(10);
   });
 });

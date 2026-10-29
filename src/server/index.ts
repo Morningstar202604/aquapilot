@@ -39,6 +39,7 @@ import { createAgentConfigHandler } from './agentConfigHandler';
 import { parseClientMessage } from './messageSchema';
 import { createCalibrationService } from './calibrationService';
 import { parseInfluentCsv, seriesStats } from '../sim/influentSeries';
+import { drySolidsToCod } from '../sim/units';
 import { checkQuality } from '../sim/dataQuality';
 import {
   applyEstimate,
@@ -309,7 +310,7 @@ function particulateCodKg(net: NetworkSimState): number {
     const a = r.asm1;
     total += ((a.X_I + a.X_S + a.X_B_H + a.X_B_A + a.X_P) * r.volume) / 1000;
   }
-  return hasAsm1 ? total : net.biomassKg * 1.42;
+  return hasAsm1 ? total : drySolidsToCod(net.biomassKg);
 }
 
 /** 参数校准（CPU 密集，后台分批执行） */
