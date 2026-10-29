@@ -11,6 +11,8 @@ import type { WebSocket } from 'ws';
  */
 
 export interface ClientState {
+  /** 该连接的令牌角色；认证未启用时恒为 admin */
+  role: 'viewer' | 'operator' | 'admin';
   /** 心跳存活标记：上一轮 ping 之后是否收到过 pong */
   alive: boolean;
   /** 上次触发重算决策的时间，用于防止同步阻塞被滥用 */
@@ -41,6 +43,7 @@ export interface ClientState {
 
 export function freshClientState(): ClientState {
   return {
+    role: 'admin',
     alive: true,
     lastControlAt: 0,
     lastTopologyAt: 0,

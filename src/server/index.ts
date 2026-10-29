@@ -16,7 +16,7 @@ import { TopologyStore } from './topologyStore';
 import { PRESETS, buildPreset, presetById } from '../model/presets';
 import { applyTopology, checkRunReadiness, createRuntime } from './topologyRuntime';
 import { Store } from './store';
-import { authRequired, authorize } from './auth';
+import { authRequired, authorize, requiredRoleFor, roleAtLeast, type Role as ClientRole } from './auth';
 import { decodeWsTokenSubprotocol } from '../shared/wsToken';
 import { isApiPath, isPublicApiPath, isReadMethod, pathnameOf } from './httpRoutes';
 import { logger, metrics, metricsJson, recordHttp, recordTick, renderPrometheus } from './observability';
@@ -645,6 +645,27 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
     return;
   }
   const msg = gate.message as unknown as ClientMessage;
+
+  /**
+   * 角色校验：viewer 只能读，operator 可操作，admin 可配置。
+   *
+   * 单令牌时代所有人都是 admin；现在同一个服务可以给值班大屏发 viewer 令牌，
+   * 只读观察不会误触控制。认证未启用时角色恒为 admin，行为不变。
+   */
+  const senderRole: ClientRole = runtime.clientState.get(ws)?.role ?? 'admin';
+  const neededRole = requiredRoleFor(msg.type);
+  if (!roleAtLeast(senderRole, neededRole)) {
+    metrics.invalidMessages += 1;
+    logger.warn('ws message forbidden', { type: msg.type, role: senderRole, needed: neededRole });
+    ws.send(
+      JSON.stringify({
+        type: 'notice',
+        level: 'error',
+        text: `当前令牌为「${senderRole}」，无权限执行该操作（需要 ${neededRole}）`,
+      } satisfies ServerMessage),
+    );
+    return;
+  }
 
   switch (msg.type) {
     case 'hello': {
@@ -1414,7 +1435,8 @@ async function main(): Promise<void> {
     // 健康检查与"是否需要认证"必须免鉴权，否则前端无法得知该不该弹登录框（死锁）
     const isPublic = isPublicApiPath(pathname);
     if (isApi && !isPublic) {
-      const decision = authorize(req);
+      // 所有 GET API 都是只读：viewer 即可（写操作走 WS 且要求更高角色）
+      const decision = authorize(req, null, 'viewer');
       if (!decision.allowed) {
         metrics.authFailures += 1;
         logger.warn('auth rejected', {
@@ -1629,6 +1651,16 @@ async function main(): Promise<void> {
     });
   }
 
+  /**
+   * 握手阶段的角色缓存。
+   *
+   * ws v8 不会把 IncomingMessage 挂在 socket 上（`ws._req` 不存在），
+   * 因此角色必须在 verifyClient 里算好并按请求对象暂存，connection 时取回。
+   * 用 WeakMap 而不是给 req 挂字段：后者会随连接对象一起被长期持有。
+   */
+  const handshakeRoles = new WeakMap<IncomingMessage, ClientRole>();
+  const pendingRoles = new WeakMap<WebSocket, ClientRole>();
+
   const wss = new WebSocketServer({
     server,
     path: '/ws',
@@ -1647,7 +1679,8 @@ async function main(): Promise<void> {
       const protoToken = decodeWsTokenSubprotocol(
         typeof subprotocol === 'string' ? subprotocol : Array.isArray(subprotocol) ? subprotocol : undefined,
       );
-      const verdict = authorize(info.req, protoToken);
+      const verdict = authorize(info.req, protoToken, 'viewer');
+      if (verdict.allowed) handshakeRoles.set(info.req, verdict.role ?? 'admin');
       if (!verdict.allowed) {
         metrics.authFailures += 1;
         logger.warn('auth rejected', { scope: 'ws', reason: verdict.reason, ip: info.req.socket.remoteAddress });
@@ -1669,7 +1702,9 @@ async function main(): Promise<void> {
     },
   });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
+    const role = handshakeRoles.get(req) ?? 'admin';
+    pendingRoles.set(ws, role);
     /**
      * 连接数上限：限流状态是按连接维护的，不设上限的话
      * 开 N 条连接就能把每个限流额度放大 N 倍。
@@ -1681,7 +1716,16 @@ async function main(): Promise<void> {
     }
     metrics.wsActive += 1;
     metrics.wsAccepted += 1;
-    logger.info('ws connected', { clients: runtime.clients.size + 1 });
+    /**
+     * 连接级角色：握手时用同一套令牌确定，之后每条消息按需校验。
+     *
+     * 为什么不在握手时直接要求 admin：观察员需要能看实时数据。
+     * 真正的边界在「这条消息要不要写」，由 requiredRoleFor 决定。
+     */
+    const handshakeState = runtime.clientState.get(ws) ?? freshClientState();
+    handshakeState.role = pendingRoles.get(ws) ?? 'admin';
+    runtime.clientState.set(ws, handshakeState);
+    logger.info('ws connected', { clients: runtime.clients.size + 1, role: handshakeState.role });
     runtime.clients.add(ws);
     ws.on('message', (data) => {
       // 单条消息的处理绝不能冒泡到进程级

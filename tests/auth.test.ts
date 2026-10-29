@@ -1,7 +1,15 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Readable } from 'node:stream';
 import type { IncomingMessage } from 'node:http';
-import { accessControlEnabled, authorize, extractToken, tokenMatches } from '../src/server/auth';
+import {
+  accessControlEnabled,
+  authorize,
+  extractToken,
+  requiredRoleFor,
+  roleAtLeast,
+  roleForToken,
+  tokenMatches,
+} from '../src/server/auth';
 
 /**
  * 访问控制测试。
@@ -67,5 +75,65 @@ describe('访问控制', () => {
   it('extractToken 优先级：Bearer 头 > query', () => {
     const req = makeReq({ authorization: 'Bearer from-header' }, '/x?token=from-query');
     expect(extractToken(req)).toBe('from-header');
+  });
+});
+
+describe('角色模型（viewer / operator / admin）', () => {
+  const env = process.env;
+  afterEach(() => {
+    process.env = env;
+  });
+
+  function setTokens() {
+    process.env = {
+      ...env,
+      AQUAPILOT_TOKEN: 'admin-tok',
+      AQUAPILOT_OPERATOR_TOKEN: 'op-tok',
+      AQUAPILOT_VIEWER_TOKEN: 'view-tok',
+    };
+  }
+
+  it('三个令牌分别解析成对应角色', () => {
+    setTokens();
+    expect(roleForToken('admin-tok')).toBe('admin');
+    expect(roleForToken('op-tok')).toBe('operator');
+    expect(roleForToken('view-tok')).toBe('viewer');
+    expect(roleForToken('wrong')).toBeNull();
+    expect(roleForToken(null)).toBeNull();
+  });
+
+  it('未配置任何令牌时恒为 admin（本地开发零配置）', () => {
+    process.env = { ...env, AQUAPILOT_TOKEN: '', AQUAPILOT_OPERATOR_TOKEN: '', AQUAPILOT_VIEWER_TOKEN: '' };
+    expect(roleForToken(null)).toBe('admin');
+    expect(accessControlEnabled()).toBe(false);
+  });
+
+  it('角色等级比较', () => {
+    expect(roleAtLeast('admin', 'viewer')).toBe(true);
+    expect(roleAtLeast('admin', 'operator')).toBe(true);
+    expect(roleAtLeast('operator', 'operator')).toBe(true);
+    expect(roleAtLeast('operator', 'admin')).toBe(false);
+    expect(roleAtLeast('viewer', 'operator')).toBe(false);
+  });
+
+  it('authorize 按所需角色拒绝', () => {
+    setTokens();
+    const req = (token?: string) => ({ headers: token ? { authorization: `Bearer ${token}` } : {}, url: '/' }) as never;
+    expect(authorize(req('view-tok'), null, 'viewer').allowed).toBe(true);
+    expect(authorize(req('view-tok'), null, 'operator').allowed).toBe(false);
+    expect(authorize(req('view-tok'), null, 'operator').reason).toMatch(/权限不足/);
+    expect(authorize(req('op-tok'), null, 'operator').allowed).toBe(true);
+    expect(authorize(req('op-tok'), null, 'admin').allowed).toBe(false);
+    expect(authorize(req('admin-tok'), null, 'admin').allowed).toBe(true);
+  });
+
+  it('消息类型映射到最低角色', () => {
+    expect(requiredRoleFor('control')).toBe('operator');
+    expect(requiredRoleFor('topology')).toBe('admin');
+    expect(requiredRoleFor('llmConfig')).toBe('admin');
+    expect(requiredRoleFor('agentConfig')).toBe('admin');
+    expect(requiredRoleFor('hello')).toBe('viewer');
+    expect(requiredRoleFor('chat')).toBe('viewer');
+    expect(requiredRoleFor('analysis')).toBe('viewer');
   });
 });
