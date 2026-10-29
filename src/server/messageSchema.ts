@@ -136,6 +136,18 @@ export const ClientMessageSchema = v.variant('type', [
     horizonMin: v.optional(FiniteNumber),
   }),
   v.variant('action', [
+    v.object({ type: v.literal('influent'), action: v.literal('get'), requestId: v.string() }),
+    v.object({
+      type: v.literal('influent'),
+      action: v.literal('load'),
+      requestId: v.string(),
+      name: BoundedText(80),
+      csv: v.pipe(v.string(), v.maxLength(2 * 1024 * 1024)),
+    }),
+    v.object({ type: v.literal('influent'), action: v.literal('apply'), requestId: v.string() }),
+    v.object({ type: v.literal('influent'), action: v.literal('clear'), requestId: v.string() }),
+  ]),
+  v.variant('action', [
     v.object({ type: v.literal('calibration'), action: v.literal('identify'), requestId: v.string() }),
     v.object({
       type: v.literal('calibration'),

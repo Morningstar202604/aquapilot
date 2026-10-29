@@ -12,6 +12,14 @@ import type { AnalysisSnapshot } from '../../sim/analysis';
 import type { CalibrationResultSummary } from '../../shared/protocol';
 import type { CalibrationProgress, IdentifiabilityRow } from '../../sim/calibration';
 
+/** 进水序列 UI 状态 */
+export interface InfluentUiState {
+  loading: boolean;
+  applying: boolean;
+  report: Extract<ServerMessage, { type: 'influent'; action: 'report' }> | null;
+  error: string | null;
+}
+
 /** 校准 UI 状态 */
 export interface CalibrationUiState {
   running: boolean;
@@ -165,6 +173,13 @@ export function useSimulation() {
     error: null,
   });
   const calibrationId = useRef(0);
+  const [influent, setInfluent] = useState<InfluentUiState>({
+    loading: false,
+    applying: false,
+    report: null,
+    error: null,
+  });
+  const influentId = useRef(0);
 
   useEffect(() => {
     let closed = false;
@@ -352,6 +367,18 @@ export function useSimulation() {
           case 'watchdog':
             setWatchdog(msg.report);
             break;
+          case 'influent': {
+            setInfluent((prev) => {
+              if ('action' in msg && msg.action === 'report') {
+                return { ...prev, loading: false, applying: false, report: msg, error: null };
+              }
+              if ('action' in msg && msg.action === 'error') {
+                return { ...prev, loading: false, applying: false, error: msg.error };
+              }
+              return prev;
+            });
+            break;
+          }
           case 'calibration': {
             setCalibration((prev) => {
               if ('action' in msg && msg.action === 'progress') {
@@ -602,6 +629,19 @@ export function useSimulation() {
     analysisLoading,
     analysisError,
     calibration,
+    influent,
+    loadInfluent: (name: string, csv: string) => {
+      influentId.current += 1;
+      setInfluent((prev) => ({ ...prev, loading: true, error: null }));
+      send({ type: 'influent', action: 'load', requestId: `inf-${influentId.current}`, name, csv });
+    },
+    applyInfluent: () => {
+      setInfluent((prev) => ({ ...prev, applying: true, error: null }));
+      send({ type: 'influent', action: 'apply', requestId: `inf-${influentId.current}` });
+    },
+    clearInfluent: () => {
+      send({ type: 'influent', action: 'clear', requestId: `inf-${influentId.current}` });
+    },
     identifyCalibration: () => {
       calibrationId.current += 1;
       setCalibration((prev) => ({ ...prev, running: true, phase: 'identifiability', error: null, progress: null }));

@@ -18,6 +18,21 @@ import type { AgentConfig, AgentSummary } from './agentConfig';
 import type { AnalysisSnapshot } from '../sim/analysis';
 import type { CalibrationProgress, IdentifiabilityRow } from '../sim/calibration';
 
+/** 数据质量报告（结构镜像 sim/dataQuality 的 QualityReport，避免循环依赖） */
+export interface QualityReportPayload {
+  score: number;
+  usable: boolean;
+  issues: {
+    severity: 'error' | 'warning' | 'info';
+    code: string;
+    metric?: string;
+    index?: number;
+    message: string;
+    action: string;
+  }[];
+  perMetric: Record<string, { min: number; max: number; mean: number; missing: number }>;
+}
+
 /**
  * 标定结果摘要（去掉 trace 的完整参数对象，只保留可展示的部分）。
  *
@@ -255,7 +270,18 @@ export type ClientMessage =
    */
   | { type: 'calibration'; action: 'identify'; requestId: string }
   | { type: 'calibration'; action: 'start'; requestId: string; maxIterations?: number }
-  | { type: 'calibration'; action: 'cancel'; requestId: string };
+  | { type: 'calibration'; action: 'cancel'; requestId: string }
+  /**
+   * 进水序列：加载/清除真实历史剖面。
+   *
+   * `load` 携带 CSV 文本（限制 2 MB，约 10 年逐小时数据）；
+   * 服务端解析 + 质量校验 + 报告，不自动应用——
+   * 用户看到质量报告后点 `apply` 才真正切换。
+   */
+  | { type: 'influent'; action: 'load'; requestId: string; name: string; csv: string }
+  | { type: 'influent'; action: 'apply'; requestId: string }
+  | { type: 'influent'; action: 'clear'; requestId: string }
+  | { type: 'influent'; action: 'get'; requestId: string };
 
 /**
  * 增量快照：只包含每个 tick 都会变的字段。
@@ -392,4 +418,23 @@ export type ServerMessage =
   | { type: 'calibration'; action: 'identifiability'; requestId: string; rows: IdentifiabilityRow[] }
   | { type: 'calibration'; action: 'done'; requestId: string; result: CalibrationResultSummary }
   | { type: 'calibration'; action: 'cancelled'; requestId: string }
-  | { type: 'calibration'; action: 'error'; requestId: string; error: string };
+  | { type: 'calibration'; action: 'error'; requestId: string; error: string }
+  | {
+      type: 'influent';
+      action: 'report';
+      requestId: string;
+      /** 已解析但尚未应用的序列摘要 */
+      summary: null | {
+        name: string;
+        points: number;
+        days: number;
+        flowMean: number;
+        flowPeak: number;
+        codMean: number;
+        codPeak: number;
+        temperatureRange: [number, number];
+      };
+      quality: QualityReportPayload;
+      applied: boolean;
+    }
+  | { type: 'influent'; action: 'error'; requestId: string; error: string };

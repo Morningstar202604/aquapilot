@@ -41,11 +41,22 @@ import { UnitInspector } from './components/UnitInspector';
 import { TopbarMenu } from './components/TopbarMenu';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { CalibrationPanel } from './components/CalibrationPanel';
+import { InfluentPanel } from './components/InfluentPanel';
 import { Collapsible } from './components/Collapsible';
 import { PLANT } from '../sim/config';
 import { formatClockLong } from '../shared/time';
 
-type Tab = 'chat' | 'decision' | 'control' | 'alarms' | 'insights' | 'analysis' | 'calibration' | 'replay' | 'health';
+type Tab =
+  | 'chat'
+  | 'decision'
+  | 'control'
+  | 'alarms'
+  | 'insights'
+  | 'analysis'
+  | 'calibration'
+  | 'influent'
+  | 'replay'
+  | 'health';
 type View = 'plant' | 'editor';
 
 export default function App() {
@@ -497,6 +508,15 @@ export default function App() {
               <button
                 className="side-tab"
                 role="tab"
+                aria-selected={tab === 'influent'}
+                data-active={tab === 'influent'}
+                onClick={() => setTab('influent')}
+              >
+                进水
+              </button>
+              <button
+                className="side-tab"
+                role="tab"
                 aria-selected={tab === 'replay'}
                 data-active={tab === 'replay'}
                 onClick={() => setTab('replay')}
@@ -568,6 +588,16 @@ export default function App() {
                   onIdentify={sim.identifyCalibration}
                   onStart={() => sim.startCalibration(2)}
                   onCancel={sim.cancelCalibration}
+                />
+              </ErrorBoundary>
+            )}
+            {tab === 'influent' && (
+              <ErrorBoundary compact label="进水数据面板">
+                <InfluentPanel
+                  state={sim.influent}
+                  onLoad={sim.loadInfluent}
+                  onApply={sim.applyInfluent}
+                  onClear={sim.clearInfluent}
                 />
               </ErrorBoundary>
             )}

@@ -38,6 +38,8 @@ import { createLlmChat, errorText } from './llmChat';
 import { createAgentConfigHandler } from './agentConfigHandler';
 import { parseClientMessage } from './messageSchema';
 import { createCalibrationService } from './calibrationService';
+import { parseInfluentCsv, seriesStats } from '../sim/influentSeries';
+import { checkQuality } from '../sim/dataQuality';
 import {
   applyEstimate,
   createEstimatorRuntime,
@@ -121,6 +123,8 @@ interface Runtime {
    * 打开后用传感器测量校正模型状态，演示「模型会漂、测量能拉回」。
    */
   estimator: EstimatorRuntime;
+  /** 已解析但尚未应用的进水序列（用户看过质量报告后才会 apply） */
+  pendingInfluent: { series: ReturnType<typeof parseInfluentCsv> } | null;
 }
 
 const store = new Store();
@@ -186,6 +190,7 @@ const runtime: Runtime = {
   estimator: createEstimatorRuntime(measureFromState(boot.runtime.net), {
     enabled: process.env.AQUAPILOT_ESTIMATOR === '1',
   }),
+  pendingInfluent: null,
 };
 runtime.baselineStoredCodKg = particulateCodKg(runtime.net);
 
@@ -1301,6 +1306,103 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
     case 'watchdog': {
       const report = buildReport(watchdogInput());
       ws.send(JSON.stringify({ type: 'watchdog', report } satisfies ServerMessage));
+      break;
+    }
+    case 'influent': {
+      const requestId = msg.requestId;
+      const reply = (payload: ServerMessage) => {
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+      };
+      const reportOf = (series: ReturnType<typeof parseInfluentCsv> | null, applied: boolean): ServerMessage => {
+        const stats = series ? seriesStats(series) : null;
+        return {
+          type: 'influent',
+          action: 'report',
+          requestId,
+          summary: stats
+            ? {
+                name: series!.name,
+                points: stats.points,
+                days: stats.days,
+                flowMean: stats.flowMean,
+                flowPeak: stats.flowPeak,
+                codMean: stats.codMean,
+                codPeak: stats.codPeak,
+                temperatureRange: stats.temperatureRange,
+              }
+            : null,
+          quality: series ? checkQuality(series) : { score: 0, usable: false, issues: [], perMetric: {} },
+          applied,
+        };
+      };
+
+      if (msg.action === 'get') {
+        reply(
+          reportOf(
+            runtime.net.influentSeries ?? null,
+            runtime.net.influentSeries !== null && runtime.net.influentSeries !== undefined,
+          ),
+        );
+        break;
+      }
+      if (msg.action === 'clear') {
+        runtime.net.influentSeries = null;
+        runtime.pendingInfluent = null;
+        reply(reportOf(null, false));
+        broadcast({ type: 'notice', level: 'info', text: '已恢复合成进水模型（昼夜节律 + 噪声）。' });
+        break;
+      }
+      if (msg.action === 'apply') {
+        const pending = runtime.pendingInfluent;
+        if (!pending) {
+          reply({ type: 'influent', action: 'error', requestId, error: '没有待应用的进水序列' });
+          break;
+        }
+        /**
+         * 有 error 级质量问题时拒绝应用。
+         *
+         * 越界读数（如 COD 999999）被引擎夹紧后不会崩，但会让仿真结果
+         * 完全失真——用户看到的是「模型算出来就这样」，而真正的原因
+         * 是数据错了。这种情况下拒绝比放行更负责任。
+         */
+        const quality = checkQuality(pending.series);
+        if (!quality.usable) {
+          reply({
+            type: 'influent',
+            action: 'error',
+            requestId,
+            error: `数据质量不通过（${quality.issues.filter((i) => i.severity === 'error').length} 项错误），请先修正`,
+          });
+          break;
+        }
+        runtime.net.influentSeries = pending.series;
+        runtime.pendingInfluent = null;
+        reply(reportOf(pending.series, true));
+        broadcast({
+          type: 'notice',
+          level: 'info',
+          text: `已应用进水序列「${pending.series.name}」（${pending.series.samples.length} 点）。`,
+        });
+        break;
+      }
+      // load
+      const MAX_CSV = 2 * 1024 * 1024;
+      if (typeof msg.csv !== 'string' || msg.csv.length > MAX_CSV) {
+        reply({ type: 'influent', action: 'error', requestId, error: 'CSV 超过 2 MB 上限' });
+        break;
+      }
+      const series = parseInfluentCsv(msg.csv, typeof msg.name === 'string' ? msg.name.slice(0, 80) : '自定义进水');
+      if (series.samples.length === 0) {
+        reply({
+          type: 'influent',
+          action: 'error',
+          requestId,
+          error: series.warnings[0] ?? 'CSV 中没有可用数据',
+        });
+        break;
+      }
+      runtime.pendingInfluent = { series };
+      reply(reportOf(series, false));
       break;
     }
     case 'calibration': {

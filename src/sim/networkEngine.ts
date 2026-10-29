@@ -1,5 +1,6 @@
 import { ControlSettings, DEFAULT_CONTROLS, INFLUENT_DESIGN, LIMITS, PLANT } from './config';
 import { mulberry32 } from './rng';
+import { sampleAt, type InfluentSeries } from './influentSeries';
 import { ScenarioSpec, SCENARIOS } from './scenarios';
 import { CompiledNetwork, compileNetwork, resolveFlows } from './network';
 import { networkSnapshot, PlantModel } from './plantModel';
@@ -160,6 +161,14 @@ export interface NetworkSimState {
    * 累计物料量：必须按每步流量/功率积分，不能用「当前值 × 已运行时间」外推。
    * 进水流量、负荷与能耗都是时变量，外推在日内会系统性偏差。
    */
+  /**
+   * 可选的真实进水序列。
+   *
+   * 设置后，进水由该序列驱动，而不是「昼夜节律 + 噪声」的合成模型。
+   * 这是与 bsm2-python 的 `dyninfluent` 对齐的能力：用历史剖面回答
+   * 「拿上周真实进水跑一遍会怎样」。
+   */
+  influentSeries?: InfluentSeries | null;
   totals: {
     inflowM3: number;
     energyKwh: number;
@@ -307,13 +316,43 @@ function deriveInfluent(state: NetworkSimState): NetworkSimState['influent'] {
   const env = state.scenario ? scenarioEnvelope(state.scenario, state.timeMin) : 0;
   const mag = state.scenario?.magnitude ?? 0;
 
-  let flow = INFLUENT_DESIGN.flow * d * noise(0.012);
-  let cod = INFLUENT_DESIGN.cod * (0.92 + 0.18 * (d - 0.78)) * noise(0.035);
-  let nh = INFLUENT_DESIGN.nh * (0.94 + 0.14 * (d - 0.78)) * noise(0.03);
-  let tp = INFLUENT_DESIGN.tp * noise(0.04);
-  let ss = INFLUENT_DESIGN.ss * noise(0.05);
-  let temperature = seasonalTemperature(state.timeMin) + rng.normal() * 0.15;
-  let alkalinity = INFLUENT_DESIGN.alkalinity * noise(0.02);
+  /**
+   * 有真实序列时用序列值，否则回到合成模型。
+   *
+   * 序列值仍然要叠加场景包络（暴雨/冲击/毒性）：序列描述的是「常态进水」，
+   * 场景是「在此之上的事件」。若不叠加，加载序列后场景注入会完全失效——
+   * 那是比"没有序列支持"更隐蔽的缺陷（界面显示场景已注入，数值不变）。
+   */
+  const series = state.influentSeries;
+  let flow: number;
+  let cod: number;
+  let nh: number;
+  let tp: number;
+  let ss: number;
+  let temperature: number;
+  let alkalinity: number;
+
+  if (series && series.samples.length > 0) {
+    const sample = sampleAt(series, state.timeMin);
+    flow = sample.flow;
+    cod = sample.cod;
+    nh = sample.nh;
+    tp = sample.tp;
+    ss = sample.ss;
+    temperature = sample.temperature;
+    alkalinity = sample.alkalinity ?? INFLUENT_DESIGN.alkalinity;
+    // 序列模式下仍加一点测量噪声，避免完全确定的输入掩盖数值问题
+    flow *= noise(0.004);
+    cod *= noise(0.008);
+  } else {
+    flow = INFLUENT_DESIGN.flow * d * noise(0.012);
+    cod = INFLUENT_DESIGN.cod * (0.92 + 0.18 * (d - 0.78)) * noise(0.035);
+    nh = INFLUENT_DESIGN.nh * (0.94 + 0.14 * (d - 0.78)) * noise(0.03);
+    tp = INFLUENT_DESIGN.tp * noise(0.04);
+    ss = INFLUENT_DESIGN.ss * noise(0.05);
+    temperature = seasonalTemperature(state.timeMin) + rng.normal() * 0.15;
+    alkalinity = INFLUENT_DESIGN.alkalinity * noise(0.02);
+  }
 
   const type = state.scenario?.type;
   if (type === 'storm') {

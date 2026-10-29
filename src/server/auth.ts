@@ -155,6 +155,7 @@ export function requiredRoleFor(messageType: string): Role {
     case 'llmConfig':
     case 'agentConfig':
     case 'calibration':
+    case 'influent':
       return 'admin';
     default:
       return 'viewer';
