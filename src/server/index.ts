@@ -1,24 +1,14 @@
 import { createServer, IncomingMessage } from 'node:http';
-import { readFile, stat } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
-import { gzipSync } from 'node:zlib';
-import { existsSync } from 'node:fs';
-import { extname, join, normalize, resolve, sep } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { answer, decide, Recommendation } from '../ai/agent';
-import { askLlm, readLlmConfig, type GroundingContext } from '../ai/llm';
+
+import { readLlmConfig } from '../ai/llm';
 import { CONTROL_BOUNDS, LIMITS, PLANT } from '../sim/config';
 import { SCENARIOS, ScenarioType } from '../sim/scenarios';
 import { NetworkSimState, networkModel, qualityScoreOf, stepNetwork } from '../sim/networkEngine';
-import { BSM1_SETTLER } from '../sim/takacs';
-import { evaluateAlarms } from '../sim/alarmRules';
-import { buildTankStates, buildTankPatch } from './tankStates';
 import { aiCycleDue } from './aiCadence';
-import { formatClockLong } from '../shared/time';
 import type { ForecastOutcomeX } from '../sim/plantModel';
 import { CompiledNetwork } from '../sim/network';
-import { estimateMargin } from '../sim/metrics';
-import { attributeAlarm, plantHealth, trendSlopes, type AlarmAttribution } from '../sim/alarmAttribution';
 import type { ClientMessage, PlantSnapshot, ServerMessage, SnapshotPatch, TrendPoint } from '../shared/protocol';
 import { PLANT_TOPOLOGY, ProcessTopology, validateTopology } from '../model/topology';
 import { sanitizeTopologyInput } from '../model/topologyInput';
@@ -28,26 +18,31 @@ import { applyTopology, checkRunReadiness, createRuntime } from './topologyRunti
 import { Store } from './store';
 import { authRequired, authorize } from './auth';
 import { decodeWsTokenSubprotocol } from '../shared/wsToken';
-import { isApiPath, isPublicApiPath, isReadMethod, pathnameOf, shouldFallbackToIndex } from './httpRoutes';
+import { isApiPath, isPublicApiPath, isReadMethod, pathnameOf } from './httpRoutes';
 import { logger, metrics, metricsJson, recordHttp, recordTick, renderPrometheus } from './observability';
 import { buildOperationsReport, decisionsCsv, snapshotsCsv } from './export';
-import { takeNewPoints, syncCursorToBuffer } from './trendCursor';
+import { syncCursorToBuffer } from './trendCursor';
 import { createShadowPlant, stepShadow, summarizeBenchmark, type ShadowPlant } from './benchmark';
 import { llmConfigStore, sanitizeDraft } from './llmConfig';
-import { assertPublicFetchUrl, discoverModels, testConnection } from '../ai/providers';
+import { discoverModels, testConnection } from '../ai/providers';
 import { agentConfigStore } from './agentConfig';
 import { HookRuntime } from './hooks';
 import { parseAgentCommand } from './agentConfigCommands';
-import { composeSystemPrompt } from '../ai/promptComposer';
 import { buildReport, type CheckInput } from './watchdog';
+import { CONTROL_KEYS, checkAllowedControls, clampControlMoves } from '../shared/agentConfig';
+import { serveStatic, queryOf } from './staticFiles';
+import { boundedWindow, MAX_SNAPSHOT_POINTS } from './queryBounds';
+import { createSnapshotService } from './snapshotView';
+import { createLlmChat, errorText } from './llmChat';
+import { createAgentConfigHandler } from './agentConfigHandler';
 import {
-  CORE_PROTECTED,
-  CONTROL_KEYS,
-  checkAllowedControls,
-  clampControlMoves,
-  normalizeAgentConfig,
-  type AgentConfig,
-} from '../shared/agentConfig';
+  MAX_BUFFERED_BYTES,
+  MAX_LLM_IN_FLIGHT,
+  MAX_WS_CLIENTS,
+  createRateLimiter,
+  freshClientState,
+  type ClientState,
+} from './rateLimit';
 import {
   SCENARIO_MAGNITUDE_RANGE,
   VALID_SCENARIOS,
@@ -78,55 +73,6 @@ const SIM_MINUTES_PER_TICK = envNumber('SIM_MINUTES_PER_TICK', 2, 0.1, 60);
 /** 人工调整后的 AI 静默期（仿真分钟） */
 const MANUAL_OVERRIDE_MIN = 30;
 const TREND_EVERY_TICKS = 10;
-
-interface ClientState {
-  /** 心跳存活标记：上一轮 ping 之后是否收到过 pong */
-  alive: boolean;
-  /** 上次触发重算决策的时间，用于防止同步阻塞被滥用 */
-  lastControlAt: number;
-  lastTopologyAt: number;
-  /**
-   * 已推送的最后一个趋势点时刻（仿真分钟）。
-   *
-   * 不能用「已收到的点数量」当游标：趋势是 720 点的环形缓冲，
-   * 一旦写满，`slice(count)` 永远为空，客户端从此收不到新点。
-   * 用时间戳做游标，缓冲滚动后仍然只发新增点。
-   */
-  lastTrendT: number;
-  /** 上次模型发现/连接测试的时间，防止界面连续点击打爆第三方端点 */
-  lastLlmAt: number;
-  /** 上次手动重新推演的时间：推演是 ~200 ms 同步阻塞，必须限频 */
-  lastDecisionAt: number;
-  /** 上次 LLM 增强对话的时间：单条消息最多发起 4 次长超时出站请求 */
-  lastChatAt: number;
-  /** 已发送过全量快照：hello 每连接只允许一次 */
-  helloSent: boolean;
-  /** 上次触发全量快照广播的时间：小消息放大成 N×240 KB 的放大器 */
-  lastSnapshotAt: number;
-  /** 该连接在途的 LLM 请求数：限制并发避免一条连接打满出站配额 */
-  llmInFlight: number;
-}
-
-/**
- * 每个 WS 连接一份的运行态。
- *
- * 之前 5 处各写一遍对象字面量，新增字段时漏掉一处就会变成 undefined，
- * 比较运算 `now - undefined` 恒为 NaN 而静默放行——限流形同虚设。
- */
-function freshClientState(): ClientState {
-  return {
-    alive: true,
-    lastControlAt: 0,
-    lastTopologyAt: 0,
-    lastTrendT: 0,
-    lastLlmAt: 0,
-    lastDecisionAt: 0,
-    lastChatAt: 0,
-    helloSent: false,
-    lastSnapshotAt: 0,
-    llmInFlight: 0,
-  };
-}
 
 interface Runtime {
   topology: ProcessTopology;
@@ -214,6 +160,40 @@ const runtime: Runtime = {
   shadow: createShadowPlant(boot.topology, 20261019, 0),
 };
 
+/**
+ * 快照服务。
+ *
+ * 派生量（告警/裕度/健康度/归因）按帧缓存：旧实现对每个连接各算一遍，
+ * N 个客户端就是 N 倍重复；现在一帧内所有连接共用一份。
+ * 预测缓存也收在这里：同一 (timeMin, controls) 只算一次。
+ */
+const snapshots = createSnapshotService({
+  source: () => ({
+    topology: runtime.topology,
+    net: runtime.net,
+    trend: runtime.trend,
+    speed: runtime.speed,
+    paused: runtime.paused,
+    recommendation: runtime.recommendation,
+    forecastCache: runtime.forecastCache,
+    shadow: runtime.shadow,
+  }),
+  forecastFor: (net, topology) => {
+    if (!runtime.recommendation) return null;
+    const key = `${net.timeMin}|${JSON.stringify(net.controls)}`;
+    if (runtime.forecastCache.key === key && runtime.forecastCache.value) return runtime.forecastCache.value;
+    const model = networkModel(topology, net);
+    runtime.forecastCache.value = model.predict(net.controls, 240, 30);
+    runtime.forecastCache.key = key;
+    return runtime.forecastCache.value;
+  },
+  summarizeBenchmark,
+});
+
+const buildSnapshot = (): PlantSnapshot => snapshots.buildSnapshot();
+const buildPatch = (client: ClientState): SnapshotPatch => snapshots.buildPatch(client);
+const currentAlarms = (s: NetworkSimState) => snapshots.currentAlarms(s);
+
 function pushTrend(state: NetworkSimState, trend: TrendPoint[]): void {
   const last = state.reactors[state.reactors.length - 1];
   const mlss = (state.biomassKg * 1000) / Math.max(1, state.volume.bio);
@@ -236,136 +216,34 @@ function pushTrend(state: NetworkSimState, trend: TrendPoint[]): void {
 }
 
 /**
- * 快照附带的 4h 预测：同一仿真时刻 + 同一控制量下只算一次。
+ * 构造增量快照。
  *
- * buildSnapshot 在每次控制变更、客户端接入、AI 周期结束都会触发；
- * 而预测只随 (timeMin, controls) 变化，tick 之间频繁重算同一结果是纯浪费。
- * 缓存命中即复用，控制量或时刻变化自动失效。
- * 缓存挂在 runtime 上而非模块级，避免任何跨运行实例共享可变状态。
+ * 只包含每个 tick 必然变化的字段；趋势只给新增点（通常 0 或 1 个）。
+ * 与完整快照相比，稳态帧大小从约 240 KB 降到约 2 KB。
  */
-function forecastForSnapshot(): ForecastOutcomeX | null {
-  const s = runtime.net;
-  if (!runtime.recommendation) return null;
-  const key = `${s.timeMin}|${JSON.stringify(s.controls)}`;
-  if (runtime.forecastCache.key === key && runtime.forecastCache.value) return runtime.forecastCache.value;
-  const model = networkModel(runtime.topology, s);
-  runtime.forecastCache.value = model.predict(s.controls, 240, 30);
-  runtime.forecastCache.key = key;
-  return runtime.forecastCache.value;
+/**
+ * 背压保护：发送队列堆积说明对端不读数据。
+ *
+ * 入站有 maxPayload 限制，出站此前完全没有：一个连上就暂停读取的客户端
+ * 会让每帧增量在服务端内存里无限排队。超过阈值直接断开，
+ * 客户端重连后自然会重新对齐（趋势游标按时间戳，重连安全）。
+ */
+/** 限流器：状态存 runtime.clientState，拒绝时累计指标 */
+const limiter = createRateLimiter({
+  stateFor: (ws) => runtime.clientState.get(ws) ?? freshClientState(),
+  saveState: (ws, state) => runtime.clientState.set(ws, state),
+  onLimited: () => {
+    metrics.rateLimited += 1;
+  },
+});
+
+function rateLimited(ws: WebSocket, kind: 'control' | 'topology' | 'decision' | 'chat' | 'snapshot'): boolean {
+  return limiter.limited(ws, kind);
 }
 
-function buildSnapshot(): PlantSnapshot {
-  const s = runtime.net;
-  const fc = forecastForSnapshot();
-
-  // 分池状态与增量帧同源（server/tankStates）；MLSS 口径如实标注
-  const tanks = buildTankStates(s);
-
-  const effluent = {
-    ...s.effluent,
-  };
-
-  // 全量快照同样是「每客户端一次」：派生量先算一遍，别在对象字面量里重复调用
-  const activeAlarms = currentAlarms(s);
-  const margins = estimateMargin(effluent);
-  const health = plantHealth({
-    margins,
-    lastDo: s.reactors[s.reactors.length - 1]?.doLevel ?? 0,
-    doSetpoint: s.controls.doSetpoint,
-    srtDays: s.srtDays,
-    blanketM: s.clarifier.blanketM,
-    depth: s.clarifier.depth,
-    activeAlarms: activeAlarms.length,
-  });
-  const attribution = buildAttribution(s, activeAlarms);
-
-  return {
-    timeMin: s.timeMin,
-    simulatedAt: new Date().toISOString(),
-    speed: runtime.speed,
-    paused: runtime.paused,
-    modelMode: s.modelMode,
-    influent: { ...s.influent, bod: s.influent.cod * 0.44, ph: 7.2 },
-    effluent,
-    tanks,
-    clarifier: {
-      blanketM: s.clarifier.blanketM,
-      sludgeMassKg: s.clarifier.sludgeMassKg,
-      xRas: s.clarifier.xRas,
-      xEff: s.clarifier.xEff,
-      slr: s.clarifier.slr,
-      underflowM3h: s.influent.flow * s.controls.rasRatio,
-      area: s.clarifier.area,
-      depth: s.clarifier.depth,
-      // 十层剖面：只读诊断量，给「泥在哪一层」一个可看的答案
-      profile: s.clarifier.settler.x.map((v) => Number(v.toFixed(1))),
-      feedLayer: BSM1_SETTLER.feedLayer,
-    },
-    controls: s.controls,
-    scenario: s.scenario,
-    energy: { ...s.energy, specificKwhM3: s.energy.totalKw / Math.max(1, s.influent.flow) },
-    cost: {
-      energyToday: s.costToday.energy,
-      chemicalToday: s.costToday.chemical,
-      sludgeToday: s.costToday.sludge,
-      totalToday: s.costToday.total,
-      total: s.cost.total,
-    },
-    srtDays: s.srtDays,
-    fmRatio: s.fmRatio,
-    score: qualityScoreOf(effluent),
-    margins,
-    alarms: s.alarms
-      .slice(-20)
-      .reverse()
-      .map((a) => ({ ...a })),
-    activeAlarms,
-    alarmAttribution: attribution,
-    health,
-    trends: runtime.trend,
-    forecast: fc
-      ? {
-          points: fc.points.map((pt) => ({
-            minute: pt.minute,
-            cod: pt.effluent.cod,
-            nh: pt.effluent.nh,
-            tn: pt.effluent.tn,
-            tp: pt.effluent.tp,
-            ss: pt.effluent.ss,
-            doLevel: pt.doLevel,
-            score: pt.score,
-          })),
-          violations: fc.violations.slice(0, 12),
-        }
-      : null,
-    recommendation: runtime.recommendation,
-    forecastBand: runtime.recommendation?.ensemble ?? null,
-    benchmark: summarizeBenchmark(runtime.shadow.benchmark),
-    limits: LIMITS,
-    totals: {
-      inflowM3: s.totals.inflowM3,
-      energyKwh: s.totals.energyKwh,
-      cost: s.cost.total,
-      wasteSludgeKg: s.totals.wasteSludgeKg,
-      elapsedMin: s.timeMin,
-      energyCost: s.cost.energy,
-      chemicalCost: s.cost.chemical,
-      sludgeCost: s.cost.sludge,
-    },
-    stormStorageM3: s.stormStorageM3,
-    reactorCount: s.reactors.length,
-  };
-}
-
-function currentAlarms(s: NetworkSimState) {
-  const last = s.reactors[s.reactors.length - 1];
-  return evaluateAlarms({
-    effluent: s.effluent,
-    lastDo: last?.doLevel ?? 0,
-    srtDays: s.srtDays,
-    blanketM: s.clarifier.blanketM,
-    depth: s.clarifier.depth,
-    atMin: s.timeMin,
+function throttledNotice(ws: WebSocket, kind: string, text: string): void {
+  limiter.notice(ws, kind, text, (payload) => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(payload);
   });
 }
 
@@ -383,129 +261,25 @@ function topologyMessage(): {
   };
 }
 
-/**
- * 构造增量快照。
- *
- * 只包含每个 tick 必然变化的字段；趋势只给新增点（通常 0 或 1 个）。
- * 与完整快照相比，稳态帧大小从约 240 KB 降到约 2 KB。
- */
-function buildPatch(client: ClientState): SnapshotPatch | null {
-  const s = runtime.net;
-  // 缓冲可能已滚动：按时间戳取新增点，而不是按数量切片
-  const trendsAppend = takeNewPoints(runtime.trend, client);
-  /**
-   * 每帧都会发出去的派生量只算一次。
-   *
-   * 旧实现里 currentAlarms 在同一个函数内被调用两次、estimateMargin 三次：
-   * 每个客户端每秒多算几遍相同的规则表与排序。它们都是纯函数，
-   * 一次算完再复用即可（多客户端时省的是 N 倍）。
-   */
-  const activeAlarms = currentAlarms(s);
-  const margins = estimateMargin(s.effluent);
-  const health = plantHealth({
-    margins,
-    lastDo: s.reactors[s.reactors.length - 1]?.doLevel ?? 0,
-    doSetpoint: s.controls.doSetpoint,
-    srtDays: s.srtDays,
-    blanketM: s.clarifier.blanketM,
-    depth: s.clarifier.depth,
-    activeAlarms: activeAlarms.length,
+/** 对话增强（规则答案之后的模型补充） */
+const enhanceWithLlm = createLlmChat({
+  snapshot: () => ({ net: runtime.net, recommendation: runtime.recommendation }),
+  isOpen: (ws) => ws.readyState === WebSocket.OPEN,
+  send: (ws, message) => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
+  },
+});
+
+/** Agent 配置（界面驱动的 request/response）；hooks 运行时在下方定义，故延迟到首次调用 */
+let handleAgentConfigRef: ReturnType<typeof createAgentConfigHandler> | null = null;
+function handleAgentConfig(ws: WebSocket, msg: Extract<ClientMessage, { type: 'agentConfig' }>): Promise<void> {
+  handleAgentConfigRef ??= createAgentConfigHandler({
+    broadcast: (message) => broadcast(message),
+    hooks: hooksRuntime,
   });
-  const attribution = buildAttribution(s, activeAlarms);
-
-  return {
-    timeMin: s.timeMin,
-    influentFlow: s.influent.flow,
-    influent: { ...s.influent, bod: s.influent.cod * 0.44, ph: 7.2 },
-    effluent: { ...s.effluent },
-    tanks: buildTankPatch(s),
-    clarifier: {
-      blanketM: s.clarifier.blanketM,
-      xRas: s.clarifier.xRas,
-      xEff: s.clarifier.xEff,
-      slr: s.clarifier.slr,
-      profile: s.clarifier.settler.x.map((v) => Number(v.toFixed(1))),
-    },
-    energy: { ...s.energy, specificKwhM3: s.energy.totalKw / Math.max(1, s.influent.flow) },
-    // 当日口径必须用 costToday：用累计值会让「今日运行成本」随仿真天数线性上涨
-    cost: { totalToday: s.costToday.total, total: s.cost.total },
-    srtDays: s.srtDays,
-    fmRatio: s.fmRatio,
-    // AI 会自动改写控制量：必须随增量下发，否则界面滑块停在用户上次拖的位置
-    controls: s.controls,
-    scenario: s.scenario,
-    totals: {
-      inflowM3: s.totals.inflowM3,
-      energyKwh: s.totals.energyKwh,
-      cost: s.cost.total,
-      wasteSludgeKg: s.totals.wasteSludgeKg,
-      elapsedMin: s.timeMin,
-      energyCost: s.cost.energy,
-      chemicalCost: s.cost.chemical,
-      sludgeCost: s.cost.sludge,
-    },
-    score: qualityScoreOf(s.effluent),
-    margins,
-    trendsAppend,
-    alarms: s.alarms
-      .slice(-20)
-      .reverse()
-      .map((a) => ({ ...a })),
-    activeAlarms,
-    alarmAttribution: attribution,
-    health,
-    stormStorageM3: s.stormStorageM3,
-    reactorCount: s.reactors.length,
-    /**
-     * 预测扇区与双跑摘要也要随增量下发。
-     *
-     * 只在全量快照里带的话，客户端连接后趋势图的预测区与收益面板的
-     * 「AI vs 固定策略」会永久冻结在连接那一刻——界面上看不出来，
-     * 但那是假数据。两者都很小（几 KB），随帧发不会抵消增量收益。
-     */
-    forecastBand: runtime.recommendation?.ensemble ?? null,
-    benchmark: summarizeBenchmark(runtime.shadow.benchmark),
-  };
+  return handleAgentConfigRef(ws, msg);
 }
 
-/**
- * 把当前活跃告警逐条归因。
- *
- * 只在服务端算一次：前端拿到的是"原因 + 动作 + 后果"，不需要重复实现工艺规则；
- * 归因函数本身是纯函数，测试可以脱离服务端跑。
- */
-function buildAttribution(
-  s: NetworkSimState,
-  alarms: ReturnType<typeof currentAlarms> = currentAlarms(s),
-): Record<string, AlarmAttribution> {
-  const slopes = trendSlopes(runtime.trend, s.effluent.bod);
-  const last = s.reactors[s.reactors.length - 1];
-  const out: Record<string, AlarmAttribution> = {};
-  for (const alarm of alarms) {
-    const attribution = attributeAlarm({
-      code: alarm.code,
-      effluent: s.effluent,
-      srtDays: s.srtDays,
-      lastDo: last?.doLevel ?? 0,
-      doSetpoint: s.controls.doSetpoint,
-      blanketM: s.clarifier.blanketM,
-      depth: s.clarifier.depth,
-      temperature: s.influent.temperature,
-      inhibition: s.inhibition,
-      slopes,
-    });
-    if (attribution) out[alarm.code] = attribution;
-  }
-  return out;
-}
-
-/**
- * 背压保护：发送队列堆积说明对端不读数据。
- *
- * 入站有 maxPayload 限制，出站此前完全没有：一个连上就暂停读取的客户端
- * 会让每帧增量在服务端内存里无限排队。超过阈值直接断开，
- * 客户端重连后自然会重新对齐（趋势游标按时间戳，重连安全）。
- */
 function sendGuarded(ws: WebSocket, payload: string): void {
   if (ws.readyState !== WebSocket.OPEN) return;
   if (ws.bufferedAmount > MAX_BUFFERED_BYTES) {
@@ -828,262 +602,6 @@ function advance(): void {
  * 为什么需要：control 会同步跑一次完整决策（实测 ~135ms），
  * topology apply 会同步重建并预热（实测 ~415ms）。
  * 这些都在事件循环上，任何客户端连续发送就能把服务打停。
- */
-const RATE_LIMIT = {
-  controlMs: 500,
-  topologyMs: 5000,
-  /** 一次推演 ≈200 ms 同步阻塞：2 s 一次足够操作员连点，又不会把 tick 挤掉 */
-  decisionMs: 2000,
-  /** 聊天会触发最多 4 次长超时出站请求（含推理模型 60 s） */
-  chatMs: 1500,
-  /** 全量快照约 240 KB：同一连接 1 s 内只允许触发一次广播 */
-  snapshotMs: 1000,
-};
-
-/** 单连接同时允许的在途 LLM 请求数 */
-const MAX_LLM_IN_FLIGHT = 2;
-
-/** 同时在线连接上限：限流状态按连接维护，必须限制连接数才能封住放大效应 */
-const MAX_WS_CLIENTS = 50;
-
-/** 慢客户端阈值：发送队列超过该字节数说明对端不读，继续排队只会吃满内存 */
-const MAX_BUFFERED_BYTES = 1024 * 1024;
-
-function rateLimited(ws: WebSocket, kind: 'control' | 'topology' | 'decision' | 'chat' | 'snapshot'): boolean {
-  const state = runtime.clientState.get(ws) ?? freshClientState();
-  const now = Date.now();
-  if (kind === 'control') {
-    if (now - state.lastControlAt < RATE_LIMIT.controlMs) {
-      metrics.rateLimited += 1;
-      return true;
-    }
-    state.lastControlAt = now;
-  } else if (kind === 'decision') {
-    if (now - state.lastDecisionAt < RATE_LIMIT.decisionMs) {
-      metrics.rateLimited += 1;
-      return true;
-    }
-    state.lastDecisionAt = now;
-  } else if (kind === 'chat') {
-    if (now - state.lastChatAt < RATE_LIMIT.chatMs) {
-      metrics.rateLimited += 1;
-      return true;
-    }
-    state.lastChatAt = now;
-  } else if (kind === 'snapshot') {
-    if (now - state.lastSnapshotAt < RATE_LIMIT.snapshotMs) {
-      metrics.rateLimited += 1;
-      return true;
-    }
-    state.lastSnapshotAt = now;
-  } else {
-    if (now - state.lastTopologyAt < RATE_LIMIT.topologyMs) {
-      metrics.rateLimited += 1;
-      return true;
-    }
-    state.lastTopologyAt = now;
-  }
-  runtime.clientState.set(ws, state);
-  return false;
-}
-
-/**
- * 限流提示的抑制窗口。
- *
- * 被限流的消息若逐条回一条 notice，就形成了反向放大：
- * 客户端拖一次滑块发 40 条，服务端回 40 条提示，把「保护」变成新的噪音源。
- * 同一连接同一类提示在 2 秒内只回一次。
- */
-const NOTICE_COOLDOWN_MS = 2000;
-
-function throttledNotice(ws: WebSocket, kind: string, text: string): void {
-  const state = runtime.clientState.get(ws) ?? freshClientState();
-  const now = Date.now();
-  const key = `notice:${kind}`;
-  const seen = (state as unknown as Record<string, number>)[key] ?? 0;
-  if (now - seen < NOTICE_COOLDOWN_MS) return;
-  (state as unknown as Record<string, number>)[key] = now;
-  runtime.clientState.set(ws, state);
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'notice', level: 'warn', text } satisfies ServerMessage));
-  }
-}
-
-/**
- * 把当前状态压成 LLM 可引用的最小事实集。
- *
- * 只放已经有数值的量，不放控制器写权限、不放日志、不放环境变量。
- */
-function buildLlmGrounding(question: string): GroundingContext {
-  const s = runtime.net;
-  const margins = estimateMargin(s.effluent);
-  const rec = runtime.recommendation;
-  const facts: GroundingContext['facts'] = [
-    { label: '进水流量', value: s.influent.flow.toFixed(0), unit: 'm³/h' },
-    { label: '进水 COD', value: s.influent.cod.toFixed(0), unit: 'mg/L' },
-    { label: '进水氨氮', value: s.influent.nh.toFixed(1), unit: 'mg/L' },
-    { label: '出水 COD', value: s.effluent.cod.toFixed(1), unit: 'mg/L（限值 50）' },
-    { label: '出水氨氮', value: s.effluent.nh.toFixed(2), unit: 'mg/L（限值 5）' },
-    { label: '出水总氮', value: s.effluent.tn.toFixed(2), unit: 'mg/L（限值 15）' },
-    { label: '出水总磷', value: s.effluent.tp.toFixed(3), unit: 'mg/L（限值 0.5）' },
-    { label: '出水 SS', value: s.effluent.ss.toFixed(1), unit: 'mg/L（限值 10）' },
-    { label: '最紧指标', value: margins[0]?.metric ?? '—', unit: `占限值 ${(margins[0]?.ratio ?? 0) * 100}%` },
-    { label: '溶解氧设定', value: s.controls.doSetpoint.toFixed(1), unit: 'mg/L' },
-    { label: '内回流比', value: s.controls.internalRecirc.toFixed(1), unit: '×Q' },
-    { label: '污泥回流比', value: s.controls.rasRatio.toFixed(2), unit: '×Q' },
-    { label: '污泥龄', value: s.srtDays.toFixed(1), unit: 'd' },
-    { label: 'MLSS', value: ((s.biomassKg * 1000) / Math.max(1, s.volume.bio)).toFixed(0), unit: 'mg/L' },
-    { label: '二沉池泥位', value: s.clarifier.blanketM.toFixed(2), unit: 'm' },
-    { label: '吨水电耗', value: (s.energy.totalKw / Math.max(1, s.influent.flow)).toFixed(3), unit: 'kWh/m³' },
-    { label: '活动场景', value: s.scenario ? s.scenario.type : '无' },
-    { label: '活动告警数', value: s.alarms.filter((a) => s.timeMin - a.at < 60).length },
-  ];
-  void question;
-  return {
-    plant: `${PLANT.name} · ${PLANT.code}`,
-    simClock: formatClockLong(s.timeMin),
-    facts,
-    recommendation: rec ? rec.summary : null,
-    risks: rec ? rec.risks : [],
-  };
-}
-
-async function enhanceWithLlm(ws: WebSocket, question: string, ruleAnswer: ReturnType<typeof answer>): Promise<void> {
-  const started = Date.now();
-  const grounding = buildLlmGrounding(question);
-  const agentCfg = agentConfigStore.get();
-  // 角色、提示词、约束、技能在这里真正拼进 system prompt；
-  // 运行数据仍由 grounding 单独提供，两者职责不混。
-  const composed = composeSystemPrompt({ config: agentCfg, question });
-  /**
-   * 请求预算必须按「回答长度」算，而不是用模型的 maxOutput。
-   *
-   * 曾用 maxOutput=131072 直接当 max_tokens：推理模型会把整段预算烧在
-   * reasoning 上，一次回答跑满 12 秒超时——表现就是「模型补充」永远不出现。
-   * 中文约 1.5–2 字/token，留 2 倍余量再加推理开销即可。
-   */
-  const runtime = llmConfigStore.getRuntime();
-  const reasoningModel = llmConfigStore.getPublic()?.capabilities.reasoning ?? false;
-  const thinkingOn = !runtime || runtime.reasoningEffort === 'auto' || runtime.reasoningEffort === 'low';
-  const outputBudget =
-    reasoningModel && thinkingOn
-      ? 4096
-      : Math.min(4096, Math.max(512, Math.round(agentCfg.constraints.maxAnswerChars * 3 + 600)));
-  /**
-   * 推理模型实测：u2-flash 在 840/2048 token 预算下会把预算全部烧在
-   * reasoning 上、content 仍为空（耗时 17s/39s），4096 才稳定输出正文（约 48s）。
-   * 因此推理链路必须给足预算与超时，否则「配好了却永远没有补充」。
-   */
-  const llmTimeoutMs = reasoningModel && thinkingOn ? 60000 : 25000;
-  // 界面保存的配置优先；没有才落回环境变量，保持既有部署方式可用
-  const saved = llmConfigStore.getRuntime();
-  const result = await askLlm(
-    question,
-    grounding,
-    saved
-      ? {
-          baseUrl: saved.baseUrl,
-          apiKey: saved.apiKey,
-          model: saved.model,
-          timeoutMs: llmTimeoutMs,
-          protocol: saved.protocol,
-          maxOutput: outputBudget,
-          reasoningEffort: saved.reasoningEffort,
-        }
-      : readLlmConfig(),
-    composed.prompt,
-  );
-  metrics.llmCalls += 1;
-  if (!result.ok) {
-    metrics.llmFallbacks += 1;
-    logger.debug('llm fallback', { reason: result.reason, ms: Date.now() - started });
-    /**
-     * 数字白名单没通过时做一次「零数字」重试。
-     *
-     * 推理模型很容易写出「4 小时内」「87%」这类派生数字，被 fail-closed 拦下后
-     * 用户看到的就是「没有模型补充」，却不知道原因。第二次明确要求不写任何
-     * 未提供数字，绝大多数情况能拿到可用文本。
-     */
-    if (result.reason === 'ungrounded-numbers') {
-      const strict = `${composed.prompt}
-
-【最后一次机会】只允许使用数据中已出现的数字；不要写时长、百分比、温度、倍数等任何新增数值。宁可不写数字，也不要推算。`;
-      const retry = await askLlm(
-        question,
-        grounding,
-        saved
-          ? {
-              baseUrl: saved.baseUrl,
-              apiKey: saved.apiKey,
-              model: saved.model,
-              timeoutMs: llmTimeoutMs,
-              protocol: saved.protocol,
-              maxOutput: outputBudget,
-              reasoningEffort: saved.reasoningEffort,
-            }
-          : readLlmConfig(),
-        strict,
-      );
-      metrics.llmCalls += 1;
-      if (!retry.ok) {
-        metrics.llmFallbacks += 1;
-        // 失败必须可见：否则「配置好了却没补充」无法自查
-        ws.send(
-          JSON.stringify({
-            type: 'notice',
-            level: 'warn',
-            text: `模型补充未生成（${reasonText(result.reason)}），已保留规则答案。可在「自检」页查看链路状态。`,
-          } satisfies ServerMessage),
-        );
-        return;
-      }
-      if (ws.readyState !== WebSocket.OPEN) return;
-      ws.send(
-        JSON.stringify({
-          type: 'chat',
-          question,
-          answer: {
-            ...ruleAnswer,
-            title: `${ruleAnswer.title} · 模型补充`,
-            body: retry.text,
-            bullets: [],
-            source: 'llm',
-            persona: agentCfg.persona.name,
-            matchedSkills: composed.matchedSkills,
-          },
-        } satisfies ServerMessage),
-      );
-      return;
-    }
-    ws.send(
-      JSON.stringify({
-        type: 'notice',
-        level: 'warn',
-        text: `模型补充未生成（${reasonText(result.reason)}），已保留规则答案。`,
-      } satisfies ServerMessage),
-    );
-    return;
-  }
-  if (ws.readyState !== WebSocket.OPEN) return;
-  ws.send(
-    JSON.stringify({
-      type: 'chat',
-      question,
-      answer: {
-        ...ruleAnswer,
-        title: `${ruleAnswer.title} · 模型补充`,
-        body: result.text,
-        bullets: [],
-        source: 'llm',
-        persona: agentCfg.persona.name,
-        matchedSkills: composed.matchedSkills,
-      },
-    } satisfies ServerMessage),
-  );
-}
-
-/**
- * 处理一条客户端消息。所有网络输入在这里完成校验，异常不得冒泡到进程。
  */
 function handleClientMessage(ws: WebSocket, raw: string): void {
   let parsed: unknown;
@@ -1781,349 +1299,6 @@ async function handleLlmConfig(ws: WebSocket, msg: Extract<ClientMessage, { type
   }
 
   send({ type: 'llmConfig', action: 'error', requestId, error: '未知的配置动作' });
-}
-
-function errorText(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return '请求失败';
-}
-
-/** LLM 降级原因 → 界面可读文案（不暴露内部实现细节） */
-function reasonText(reason: string | null): string {
-  switch (reason) {
-    case 'not-configured':
-      return '尚未配置模型';
-    case 'timeout':
-      return '模型响应超时，可换更快的模型或在模型设置里降低输出上限';
-    case 'network-error':
-      return '无法连接模型端点';
-    case 'empty-response':
-      return '模型没有返回内容';
-    case 'ungrounded-numbers':
-      return '回答包含未经数据支持的数字，已被事实校验拦下';
-    default:
-      return reason?.startsWith('http-') ? `模型端点返回 ${reason.slice(5)}` : '调用失败';
-  }
-}
-
-/**
- * Agent 配置（界面驱动）。
- *
- * 与 llmConfig 同一套 request/response 模式；写入统一走 agentConfigStore.save，
- * 权限与核心保护在存储层实现，因此界面、对话命令、CLI 三条路径行为一致。
- */
-function agentStateMessage(requestId?: string, previewQuestion?: string, previewConfig?: AgentConfig): ServerMessage {
-  const status = agentConfigStore.status();
-  const cfg = previewConfig ?? status.config;
-  return {
-    type: 'agentConfig',
-    action: 'state',
-    requestId,
-    config: status.config,
-    summary: status.summary,
-    warnings: status.warnings,
-    coreProtected: [...CORE_PROTECTED],
-    promptPreview:
-      previewQuestion === undefined
-        ? undefined
-        : composeSystemPrompt({ config: cfg, question: previewQuestion }).prompt,
-  };
-}
-
-function broadcastAgentState(): void {
-  broadcast(agentStateMessage());
-}
-
-async function handleAgentConfig(ws: WebSocket, msg: Extract<ClientMessage, { type: 'agentConfig' }>): Promise<void> {
-  const requestId = 'requestId' in msg ? msg.requestId : undefined;
-  const send = (payload: ServerMessage) => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
-  };
-  try {
-    if (msg.action === 'get') {
-      send(agentStateMessage(requestId));
-      return;
-    }
-    if (msg.action === 'previewPrompt') {
-      const question = typeof msg.question === 'string' ? msg.question.slice(0, 200) : '现在运行怎么样';
-      let previewConfig: AgentConfig | undefined;
-      if (msg.config) {
-        try {
-          previewConfig = normalizeAgentConfig(msg.config).config;
-        } catch {
-          previewConfig = undefined;
-        }
-      }
-      send(agentStateMessage(msg.requestId, question, previewConfig));
-      return;
-    }
-    if (msg.action === 'reset') {
-      const outcome = agentConfigStore.reset({ writer: 'ui' });
-      send({
-        type: 'agentConfig',
-        action: 'saved',
-        requestId: msg.requestId,
-        ok: outcome.ok,
-        config: outcome.config,
-        summary: outcome.summary,
-        warnings: outcome.warnings,
-        error: outcome.error,
-      });
-      if (outcome.ok) {
-        broadcastAgentState();
-        void hooksRuntime.fire(agentConfigStore.get(), { event: 'config', detail: 'reset', key: 'reset' });
-      }
-      return;
-    }
-    if (msg.action === 'importSkill') {
-      const status = agentConfigStore.status();
-      const cfg = JSON.parse(JSON.stringify(status.config)) as typeof status.config;
-      if (cfg.skills.length >= 30) {
-        send({ type: 'agentConfig', action: 'error', requestId, error: '技能最多 30 个' });
-        return;
-      }
-      const incoming = msg.skill;
-      const name = typeof incoming?.name === 'string' ? incoming.name.trim().slice(0, 80) : '';
-      let content = typeof incoming?.content === 'string' ? incoming.content.trim().slice(0, 12000) : '';
-      let fetchedSkillTitle = '';
-      /**
-       * URL 导入：这里做的是服务端抓取，不是浏览器跳转。
-       * 只允许 http(s)，走 SSRF 守卫，10 秒超时，抓回来的正文当作技能内容；
-       * 抓取失败不静默——直接把可读原因回给界面。
-       */
-      if (!content && typeof incoming?.url === 'string' && incoming.url.trim()) {
-        try {
-          /**
-           * 抓取用严格公网守卫，而不是模型端点的宽松守卫：
-           * 抓回的正文会写进技能、并在 agentConfig/get 里原样回传，
-           * 允许私网就等于给任意客户端一个可读的内网探测器。
-           */
-          const url = assertPublicFetchUrl(incoming.url.trim());
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 10000);
-          try {
-            const res = await fetch(url.toString(), { signal: controller.signal, redirect: 'manual' });
-            if (!res.ok) {
-              send({ type: 'agentConfig', action: 'error', requestId, error: `导入失败：HTTP ${res.status}` });
-              return;
-            }
-            const text = (await res.text()).trim();
-            if (!text) {
-              send({ type: 'agentConfig', action: 'error', requestId, error: '导入失败：目标返回空内容' });
-              return;
-            }
-            fetchedSkillTitle = text.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? '';
-            content = text.slice(0, 12000);
-          } finally {
-            clearTimeout(timer);
-          }
-        } catch (err) {
-          send({ type: 'agentConfig', action: 'error', requestId, error: `导入失败：${errorText(err)}` });
-          return;
-        }
-      }
-      if (!name && !content) {
-        send({ type: 'agentConfig', action: 'error', requestId, error: '导入技能需要名称与正文（或可抓取的 URL）' });
-        return;
-      }
-      const finalName = (name || fetchedSkillTitle || '导入技能').slice(0, 80);
-      const triggers = Array.isArray(incoming.triggers)
-        ? incoming.triggers
-            .filter((t): t is string => typeof t === 'string')
-            .map((t) => t.trim().slice(0, 24))
-            .filter(Boolean)
-            .slice(0, 12)
-        : [];
-      cfg.skills.push({
-        id: `s-import-${Date.now().toString(36)}`,
-        name: finalName,
-        description: typeof incoming.description === 'string' ? incoming.description.slice(0, 200) : '',
-        triggers: triggers.length > 0 ? triggers : [finalName],
-        content,
-        enabled: true,
-        source: 'remote',
-        url: typeof incoming.url === 'string' ? incoming.url.slice(0, 500) : undefined,
-      });
-      const outcome = agentConfigStore.save(cfg, { writer: 'ui' });
-      send({
-        type: 'agentConfig',
-        action: 'saved',
-        requestId: msg.requestId,
-        ok: outcome.ok,
-        config: outcome.config,
-        summary: outcome.summary,
-        warnings: outcome.warnings,
-        error: outcome.error,
-      });
-      if (outcome.ok) broadcastAgentState();
-      return;
-    }
-    if (msg.action === 'save' || msg.action === 'patch') {
-      const payload = msg.action === 'save' ? msg.config : msg.patch;
-      const outcome =
-        msg.action === 'save'
-          ? agentConfigStore.save(payload, { writer: 'ui' })
-          : agentConfigStore.patch(payload, { writer: 'ui' });
-      send({
-        type: 'agentConfig',
-        action: 'saved',
-        requestId: msg.requestId,
-        ok: outcome.ok,
-        config: outcome.config,
-        summary: outcome.summary,
-        warnings: outcome.warnings,
-        error: outcome.error,
-      });
-      if (outcome.ok) {
-        broadcastAgentState();
-        void hooksRuntime.fire(agentConfigStore.get(), { event: 'config', detail: msg.action, key: msg.action });
-      }
-      return;
-    }
-    send({ type: 'agentConfig', action: 'error', requestId, error: '未知的配置动作' });
-  } catch (err) {
-    send({ type: 'agentConfig', action: 'error', requestId, error: errorText(err) });
-  }
-}
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.woff2': 'font/woff2',
-  '.ico': 'image/x-icon',
-};
-
-/**
- * 解析请求的查询串。
- *
- * 不能用 `new URL(req.url, `http://${req.headers.host}`)` 构造基址：
- * Host 头由客户端完全控制，含空格等非法字符时 `new URL` 抛 TypeError，
- * 而请求处理函数没有 try/catch，这个异常会冒泡到进程级并让服务退出。
- * 查询串只与 path 有关，基址写死即可。
- */
-function queryOf(req: IncomingMessage): URLSearchParams {
-  const raw = req.url ?? '/';
-  const q = raw.indexOf('?');
-  if (q < 0) return new URLSearchParams();
-  try {
-    return new URLSearchParams(raw.slice(q + 1));
-  } catch {
-    return new URLSearchParams();
-  }
-}
-
-async function serveStatic(req: IncomingMessage, res: import('node:http').ServerResponse): Promise<void> {
-  const clientDir = resolve(process.cwd(), 'dist/client');
-
-  let urlPath: string;
-  try {
-    urlPath = decodeURIComponent((req.url ?? '/').split('?')[0]);
-  } catch {
-    // 畸形百分号编码（如 /%E0%A4%A）会让 decodeURIComponent 抛 URIError
-    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('bad request');
-    return;
-  }
-
-  // 拒绝空字节与路径穿越片段
-  if (urlPath.includes('\u0000')) {
-    res.writeHead(400);
-    res.end('bad request');
-    return;
-  }
-
-  let filePath = normalize(join(clientDir, urlPath === '/' ? 'index.html' : urlPath));
-
-  // 前缀校验必须带分隔符，否则 dist/clientX 会通过 startsWith('dist/client')
-  const withSep = clientDir.endsWith(sep) ? clientDir : clientDir + sep;
-  if (filePath !== clientDir && !filePath.startsWith(withSep)) {
-    res.writeHead(403);
-    res.end('forbidden');
-    return;
-  }
-  if (!existsSync(filePath)) {
-    // 只有前端路由才回落首页；缺资源必须 404，否则浏览器把 HTML 当 JS 执行
-    if (!shouldFallbackToIndex(urlPath)) {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('not found');
-      return;
-    }
-    filePath = join(clientDir, 'index.html');
-  }
-  try {
-    const info = await stat(filePath);
-    if (!info.isFile()) throw new Error('not a file');
-    const raw = await readFile(filePath);
-    /**
-     * 静态资源的缓存与压缩。
-     *
-     * 之前每次导航都重新下载 900 kB 的 JS（无 Content-Encoding、无 Cache-Control），
-     * 局域网与移动网络下首屏明显发白。规则：
-     * - `assets/` 下是 Vite 的哈希文件名 → 内容寻址，可以 immutable 长缓存；
-     * - `index.html` 必须 no-cache，否则升级后仍引用旧 chunk；
-     * - 文本类按 Accept-Encoding 现场 gzip（构建产物只有几十 KB～1 MB，压缩是毫秒级）。
-     * 不做压缩缓存：内容随版本变，多一层缓存只会变成新的失效源。
-     */
-    const ext = extname(filePath);
-    const compressible = ['.js', '.css', '.html', '.json', '.svg'].includes(ext);
-    const acceptsGzip = /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''));
-    // Vite 产物名形如 index-CSCN34Vd.js / index-Ce2X6dJr.css：带内容哈希才允许长缓存
-    const hashedAsset = urlPath.startsWith('/assets/') && /-[A-Za-z0-9_-]{6,}\.[a-z0-9]+$/.test(urlPath);
-    const etag = `"${createHash('sha1').update(raw).digest('base64url').slice(0, 20)}"`;
-    // 条件请求：内容没变就 304，浏览器复用本地副本，省掉一次完整下载
-    if (String(req.headers['if-none-match'] ?? '') === etag) {
-      res.writeHead(304, {
-        ETag: etag,
-        'Cache-Control': hashedAsset ? 'public, max-age=31536000, immutable' : 'no-cache',
-      });
-      res.end();
-      return;
-    }
-    const headers: Record<string, string> = {
-      'Content-Type': MIME[ext] ?? 'application/octet-stream',
-      'Cache-Control': hashedAsset ? 'public, max-age=31536000, immutable' : 'no-cache',
-      ETag: etag,
-      'Last-Modified': info.mtime.toUTCString(),
-    };
-    let body: Buffer = raw;
-    if (compressible && acceptsGzip && raw.length > 1024) {
-      body = gzipSync(raw, { level: 6 });
-      headers['Content-Encoding'] = 'gzip';
-      headers.Vary = 'Accept-Encoding';
-    }
-    headers['Content-Length'] = String(body.length);
-    res.writeHead(200, headers);
-    res.end(body);
-  } catch {
-    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('客户端尚未构建，请先运行 npm run build');
-  }
-}
-
-/**
- * 时间窗口参数的边界。
- *
- * 快照表没有保留策略时，`to` 缺省为 MAX_SAFE_INTEGER 会让一次请求
- * 把整张表读进内存并在主线程 JSON/CSV 拼接——长跑后这就是 OOM。
- * 这里强制单次窗口有上限，并要求两个端点都是有限数。
- */
-const MAX_SNAPSHOT_WINDOW_MIN = 7 * 24 * 60;
-const MAX_SNAPSHOT_POINTS = 20_000;
-
-function boundedWindow(url: URLSearchParams): { ok: true; from: number; to: number } | { ok: false; error: string } {
-  const from = Number(url.get('from') ?? 0);
-  const rawTo = url.get('to');
-  const to = rawTo === null ? from + MAX_SNAPSHOT_WINDOW_MIN : Number(rawTo);
-  if (!Number.isFinite(from) || !Number.isFinite(to)) return { ok: false, error: 'from/to 必须是有限数值' };
-  if (to < from) return { ok: false, error: 'to 必须大于等于 from' };
-  if (to - from > MAX_SNAPSHOT_WINDOW_MIN) {
-    return { ok: false, error: `单次最多查询 ${MAX_SNAPSHOT_WINDOW_MIN} 仿真分钟` };
-  }
-  return { ok: true, from, to };
 }
 
 async function main(): Promise<void> {
