@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { agentStateMessage, createAgentConfigHandler } from '../src/server/agentConfigHandler';
-import { AgentConfigStore } from '../src/server/agentConfig';
 import { HookRuntime } from '../src/server/hooks';
 import { defaultAgentConfig } from '../src/shared/agentConfig';
 import { agentConfigStore } from '../src/server/agentConfig';
