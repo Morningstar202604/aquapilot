@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { useSimulation } from './hooks/useSimulation';
 import {
   canRedoHistory,
@@ -15,15 +15,27 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProcessEditor } from './components/ProcessEditor';
 import { PLANT_TOPOLOGY, ProcessTopology, findUnit } from '../model/topology';
 import { deleteUnits, nudgeUnit } from '../model/topologyEdit';
-import { Trends } from './components/Trends';
+
 import { ChatPanel } from './components/ChatPanel';
 import { DecisionPanel } from './components/DecisionPanel';
 import { ControlPanel } from './components/ControlPanel';
 import { AlarmsPanel } from './components/AlarmsPanel';
 import { InsightsPanel } from './components/InsightsPanel';
-import { ReplayPanel } from './components/ReplayPanel';
-import { ModelSettingsPanel } from './components/ModelSettingsPanel';
-import { AgentSettingsPanel } from './components/AgentSettingsPanel';
+/**
+ * 图表与编辑器按需加载。
+ *
+ * ECharts 约 515 kB（gzip 174 kB）、工艺编辑器约 1000 行交互逻辑，
+ * 首屏都不需要：趋势图要滚动才出现，回放/设置是用户主动打开的。
+ * 懒加载后首屏只下载「画布 + 指标」，其余在首次进入对应视图时拉取。
+ */
+const Trends = lazy(() => import('./components/Trends').then((m) => ({ default: m.Trends })));
+const ReplayPanel = lazy(() => import('./components/ReplayPanel').then((m) => ({ default: m.ReplayPanel })));
+const ModelSettingsPanel = lazy(() =>
+  import('./components/ModelSettingsPanel').then((m) => ({ default: m.ModelSettingsPanel })),
+);
+const AgentSettingsPanel = lazy(() =>
+  import('./components/AgentSettingsPanel').then((m) => ({ default: m.AgentSettingsPanel })),
+);
 import { WatchdogPanel } from './components/WatchdogPanel';
 import { UnitInspector } from './components/UnitInspector';
 import { TopbarMenu } from './components/TopbarMenu';
@@ -380,7 +392,9 @@ export default function App() {
                 className="trend-section"
               >
                 <ErrorBoundary compact label="趋势图">
-                  <Trends snap={snap} />
+                  <Suspense fallback={<div className="trend-loading">趋势图加载中…</div>}>
+                    <Trends snap={snap} />
+                  </Suspense>
                 </ErrorBoundary>
               </Collapsible>
             </>
@@ -519,14 +533,26 @@ export default function App() {
                 <InsightsPanel snap={snap} aiEnabled={aiEnabled} />
               </ErrorBoundary>
             )}
-            {tab === 'replay' && <ReplayPanel />}
+            {tab === 'replay' && (
+              <Suspense fallback={<div className="empty-note">加载回放面板…</div>}>
+                <ReplayPanel />
+              </Suspense>
+            )}
             {tab === 'health' && <WatchdogPanel report={sim.watchdog} />}
           </aside>
         )}
       </div>
 
-      <ModelSettingsPanel llm={sim.llm} open={modelPanelOpen} onClose={() => setModelPanelOpen(false)} />
-      <AgentSettingsPanel agent={sim.agent} open={agentPanelOpen} onClose={() => setAgentPanelOpen(false)} />
+      {modelPanelOpen && (
+        <Suspense fallback={null}>
+          <ModelSettingsPanel llm={sim.llm} open onClose={() => setModelPanelOpen(false)} />
+        </Suspense>
+      )}
+      {agentPanelOpen && (
+        <Suspense fallback={null}>
+          <AgentSettingsPanel agent={sim.agent} open onClose={() => setAgentPanelOpen(false)} />
+        </Suspense>
+      )}
 
       <div className="notice-stack" aria-live="polite">
         {sim.notices.map((n) => (

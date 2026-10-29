@@ -617,6 +617,17 @@ button {
   cursor: pointer;
 }
 
+.trend-loading {
+  /* 与 .trends 同高，避免懒加载完成时把页面下方内容顶下去（CLS） */
+  display: grid;
+  place-items: center;
+  min-height: 196px;
+  border-top: 1px solid var(--line);
+  background: var(--rail);
+  color: var(--text-3);
+  font-size: 11px;
+}
+
 .trends {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
