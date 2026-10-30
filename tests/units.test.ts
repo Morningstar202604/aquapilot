@@ -72,3 +72,22 @@ describe('与模型内部口径一致', () => {
     expect(conv.ss).toBeCloseTo(particulateToTss(particulate), 6);
   });
 });
+
+describe('工艺模板 API 完整性', async () => {
+  const { PRESETS, buildPreset, presetById } = await import('../src/model/presets');
+
+  it('presetById 命中与未命中', () => {
+    expect(presetById(PRESETS[0].id)).toBeDefined();
+    expect(presetById('no-such-preset')).toBeUndefined();
+  });
+
+  it('每个模板都能编译成合法拓扑（覆盖全部模板分支）', () => {
+    expect(PRESETS.length).toBeGreaterThanOrEqual(2);
+    for (const p of PRESETS) {
+      const topo = buildPreset(p);
+      expect(topo.units.length).toBeGreaterThan(0);
+      expect(topo.train.length).toBeGreaterThan(0);
+      expect(topo.connections.length).toBeGreaterThan(0);
+    }
+  });
+});

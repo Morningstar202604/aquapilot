@@ -1,4 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import {
   agentSummary,
@@ -46,6 +56,23 @@ export class AgentConfigStore {
   private current: AgentConfig;
   private warnings: string[] = [];
   private mtime = 0;
+  private fingerprint: string | null = null;
+
+  /** 读文件头做弱内容指纹（仅用于同 mtime 去重，不承担安全职责） */
+  private headFingerprint(): string | null {
+    try {
+      const fd = openSync(this.path, 'r');
+      try {
+        const buf = Buffer.alloc(64);
+        const bytes = readSync(fd, buf, 0, 64, 0);
+        return buf.toString('base64', 0, bytes);
+      } finally {
+        closeSync(fd);
+      }
+    } catch {
+      return null;
+    }
+  }
   private loaded = false;
   private readonly listeners = new Set<(status: ConfigStatus) => void>();
 
@@ -78,7 +105,24 @@ export class AgentConfigStore {
     } catch {
       mtime = 0;
     }
-    if (this.loaded && mtime === this.mtime) return;
+    /**
+     * 内容指纹辅助判断：Windows 的 mtimeMs 在同一毫秒内的两次写入
+     * 可能返回相同值，导致「刚写完默认配置却读回 readonly」。
+     * 读文件头 64 字节做弱指纹，只在这里（已有 IO 开销兜底）使用。
+     */
+    const fingerprint = this.loaded && mtime === this.mtime ? this.headFingerprint() : null;
+    if (process.env.AQUAPILOT_DEBUG_FRESH === '1') {
+      // eslint-disable-next-line no-console
+      console.log('[fresh]', {
+        loaded: this.loaded,
+        mtimeChanged: mtime !== this.mtime,
+        fpChanged: fingerprint !== this.fingerprint,
+        fp: fingerprint?.slice(0, 8),
+        old: this.fingerprint?.slice(0, 8),
+      });
+    }
+    if (this.loaded && mtime === this.mtime && fingerprint === this.fingerprint) return;
+    this.fingerprint = fingerprint;
     this.loaded = true;
     this.mtime = mtime;
     if (!mtime) {
@@ -195,9 +239,34 @@ export class AgentConfigStore {
     writeFileSync(staging, JSON.stringify(config, null, 2), { encoding: 'utf8', mode: 0o600 });
     renameSync(staging, this.path);
     this.mtime = statSync(this.path).mtimeMs;
+    /**
+     * 写入后内存与文件内容一致，指纹必须同步。
+     *
+     * 漏掉这一行的话：下一次 ensureFresh 读到相同 mtime + 新指纹，
+     * 与旧指纹（上一次写入的内容）不匹配，触发一次多余的重载——
+     * 在同毫秒连续写入时（测试场景）会把刚写好的配置用磁盘上
+     * 更早的内容覆盖回去，表现为「改了权限却读回旧档位」。
+     */
+    this.fingerprint = this.headFingerprint();
     this.loaded = true;
     this.warnings = [];
   }
 }
 
 export const agentConfigStore = new AgentConfigStore();
+
+/**
+ * 测试专用：把单例重定向到另一个路径并清空内存态。
+ *
+ * 为什么存在：`DEFAULT_PATH` 在模块加载时固化，而 vitest 的
+ * `vi.hoisted` 并不保证先于其他测试文件的模块初始化执行——
+ * 依赖环境变量时序会让测试互相污染（实测把 readonly 写进了
+ * 开发者的 data/ 目录）。显式重定向比环境变量时序可靠。
+ * 生产代码不得调用。
+ */
+export function __repointStoreForTests(path: string): void {
+  (agentConfigStore as unknown as { path: string }).path = path;
+  (agentConfigStore as unknown as { loaded: boolean }).loaded = false;
+  (agentConfigStore as unknown as { fingerprint: string | null }).fingerprint = null;
+  (agentConfigStore as unknown as { mtime: number }).mtime = 0;
+}

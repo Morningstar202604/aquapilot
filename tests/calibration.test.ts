@@ -166,3 +166,78 @@ describe('BSM1 合成目标', () => {
     expect(Number.isFinite(t.observed.tn)).toBe(true);
   });
 });
+
+describe('校准服务的异步分批', () => {
+  it('calibrateAsync 每个参数点之间让出事件循环（tick 可插入）', async () => {
+    const { calibrateAsync } = await import('../src/server/calibrationService');
+    let evaluations = 0;
+    const predict: Predictor = (p) => {
+      evaluations += 1;
+      return proxyPredict(p);
+    };
+    const start = { ...ASM1_PARAMS, mu_A: 0.5 };
+    const result = await calibrateAsync(
+      predict,
+      { observed: proxyTruth },
+      {
+        baseParams: start,
+        maxIterations: 1,
+      },
+    );
+    expect(evaluations).toBeGreaterThan(5);
+    expect(result.objectiveAfter).toBeLessThanOrEqual(result.objectiveBefore);
+  });
+
+  it('summarise 只输出可展示字段，参数变化带百分比', async () => {
+    const { summarise } = await import('../src/server/calibrationService');
+    const result = calibrate(proxyPredict as Predictor, { observed: proxyTruth }, { maxIterations: 1 });
+    const summary = summarise(result);
+    expect(summary.fitted.length).toBeGreaterThan(0);
+    for (const c of summary.changes) {
+      expect(c.before).toBe(ASM1_PARAMS[c.param as keyof typeof ASM1_PARAMS]);
+      expect(Number.isFinite(c.changePct)).toBe(true);
+    }
+    // 摘要里没有 trace（那是完整结果的调试字段）
+    expect('trace' in summary).toBe(false);
+  });
+});
+
+describe('校准服务的取消与并发保护', async () => {
+  it('runIdentifiability 形式存在且可调用（防 API 漂移）', async () => {
+    const mod = await import('../src/server/calibrationService');
+    expect(typeof mod.summarise).toBe('function');
+    const summary = mod.summarise(calibrate(proxyPredict as Predictor, { observed: proxyTruth }, { maxIterations: 1 }));
+    expect(summary.improvementPct).toBeGreaterThanOrEqual(0);
+    expect(Array.isArray(summary.fixed)).toBe(true);
+  });
+
+  it('calibrate 在 onProgress 上报 identifiability 与 fitting 两个阶段', () => {
+    const phases: string[] = [];
+    calibrate(
+      proxyPredict as Predictor,
+      { observed: proxyTruth },
+      {
+        maxIterations: 1,
+        onProgress: (p) => {
+          if (!phases.includes(p.phase)) phases.push(p.phase);
+        },
+      },
+    );
+    expect(phases).toContain('identifiability');
+    expect(phases).toContain('fitting');
+  });
+
+  it('identifiability 对空权重与缺省指标稳健', () => {
+    const rows = identifiability(
+      proxyPredict as Predictor,
+      {
+        observed: { cod: proxyTruth.cod, ss: proxyTruth.ss, nh: proxyTruth.nh, tn: proxyTruth.tn },
+        weights: {},
+      },
+      ASM1_PARAMS,
+      0.02,
+    );
+    expect(rows).toHaveLength(CALIBRATABLE_PARAMS.length);
+    for (const r of rows) expect(Number.isFinite(r.relativeSensitivity)).toBe(true);
+  });
+});

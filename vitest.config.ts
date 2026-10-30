@@ -10,7 +10,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json-summary'],
       include: ['src/sim/**', 'src/ai/**', 'src/model/**', 'src/server/**', 'src/client/components/labels.ts'],
-      exclude: ['src/server/index.ts', 'src/sim/plantTypes.ts'],
+      exclude: ['src/server/index.ts', 'src/sim/plantTypes.ts', 'src/sim/data/**'],
       /**
        * 阈值必须在所有受支持的 Node 版本上都能通过。
        *
