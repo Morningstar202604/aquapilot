@@ -5,8 +5,8 @@
 > AI 值守的再生水厂仿真台。  
 > 厂是图，图就是模型，AI 值班员来跑。
 
-[![tests](https://img.shields.io/badge/tests-946%20passing-brightgreen)](tests)
-[![coverage](https://img.shields.io/badge/line%20coverage-93.7%25-brightgreen)](vitest.config.ts)
+[![tests](https://img.shields.io/badge/tests-1033%20passing-brightgreen)](tests)
+[![coverage](https://img.shields.io/badge/line%20coverage-93.4%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![release](https://img.shields.io/badge/release-v0.4.0-blue)](https://github.com/Morningstar202604/aquapilot/releases/tag/v0.4.0)
@@ -43,6 +43,7 @@
 | **构造即可解释** | 每条建议都带预测出水、候选排名、逐项理由与分离度（明确不是概率）。 |
 | **影子双跑** | 第二座厂用同 seed 同进水跑固定策略，收益面板比较的是**策略**，不是初始条件。 |
 | **运行期分析** | 参数灵敏度（中心差分）、达标 vs 成本的 Pareto 前沿、全厂 COD 质量平衡审计——都用控制器同一份模型。 |
+| **标定与状态估计** | 可辨识性分析 + 有界坐标下降（基准验证过）；六维 EKF 把模型拉回测量附近。真实进水 CSV 可驱动仿真，数据质量校验会拒绝应用坏数据。 |
 | **角色而非单令牌** | `viewer` / `operator` / `admin`，值班大屏改不了设定值。 |
 
 ## 它解决什么
@@ -122,7 +123,7 @@ npm run dev        # 前端 5174，服务端 5173
 ```bash
 npm run typecheck  # TypeScript 严格模式
 npm run lint       # ESLint 9
-npm run test       # 946 项测试
+npm run test       # 1033 项测试
 npm run build      # 客户端 + 服务端
 npm run verify     # 上述四项按顺序跑
 npm run ci         # 完整门禁：依赖、类型、测试、构建、冒烟、审计、卫生
@@ -250,7 +251,7 @@ src/
     index.ts        WebSocket 仿真循环、REST、静态托管
   client/           控制室界面（React + ECharts + SVG 工艺图）
   shared/           前后端消息契约、物流/单元元数据、仿真时钟格式
-tests/              946 项测试：物理性质、守恒、AI 护栏、拓扑、双跑、输入校验、崩溃边界
+tests/              1033 项测试：物理性质、守恒、AI 护栏、拓扑、双跑、输入校验、崩溃边界
 ```
 
 ### 三层契约
@@ -320,7 +321,7 @@ PAC 40 mg/L、多点进水 0.3×Q），两条链都从同样的 30 天预热开�
 | 生产引擎决策（名义）                  | 105 ms                | 同上                        |
 | 生产引擎决策（鲁棒，3 候选 × 3 样本） | 135 ms                | 同上                        |
 | 30 天预热                             | 390 ms                | 同上                        |
-| 测试                                  | 946 通过              | `npm test`                  |
+| 测试                                  | 1033 通过              | `npm test`                  |
 | 覆盖率                                | 92.9% 行 / 82.4% 分支 | `npx vitest run --coverage` |
 
 ## AI 怎么决策
