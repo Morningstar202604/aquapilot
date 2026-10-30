@@ -55,8 +55,10 @@ describe('ADM1 process behavior', () => {
     let state = emptyState({ ...feed });
     let last = stepAdm1(state, feed, ADM1_PARAMS, { volume: 1000, flow: 100, dtHours: 0.1 });
     state = last.state;
-    for (let i = 0; i < 500; i++)
-      ((last = stepAdm1(state, feed, ADM1_PARAMS, { volume: 1000, flow: 100, dtHours: 0.1 })), (state = last.state));
+    for (let i = 0; i < 500; i++) {
+      last = stepAdm1(state, feed, ADM1_PARAMS, { volume: 1000, flow: 100, dtHours: 0.1 });
+      state = last.state;
+    }
     expect(last.methaneRate).toBeGreaterThanOrEqual(0);
     expect(last.state.G_ch4).toBeGreaterThanOrEqual(0);
     expect(last.state.X_ac + last.state.X_h2).toBeGreaterThan(0);
