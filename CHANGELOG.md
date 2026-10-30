@@ -50,7 +50,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   and `/api/history/alarms` were folded into `__unmatched__`, so their traffic was
   invisible in Prometheus.
 
-### Added
+### Fixed — model accuracy
+
+- **Secondary clarifier was over-estimating settling efficiency by 31%.** The Takács
+  velocity law was missing the non-settling fraction `f_ns`: the reference implementation
+  computes `v0·(exp(−rh·(X − f_ns·X_feed)) − exp(−rp·(X − f_ns·X_feed)))`, we used
+  `v0·(exp(−rh·X) − exp(−rp·X))`. BSM1 steady-state TSS went from 8.14 mg/L to
+  12.33 mg/L against the IWA reference of 11.73 — the deviation dropped from −31% to +5.1%.
+  The limiting-flux threshold `X_t` was added at the same time.
+  **This was invisible because the BSM1 benchmark only checked soluble components**
+  (`S_S`, `S_NO`, `S_NH`) and never TSS — the one quantity `f_ns` affects. A TSS
+  assertion was added.
+- Knock-on design corrections (physics, not tuning): clarifier area 3600 → 4000 m²
+  (surface load 0.56 → 0.50 m³/(m²·h), matching BSM1's 0.51), aerobic volume
+  5000 → 5750 m³ per tank (+15% HRT).
+- Three test assertions were rewritten from absolute thresholds to relative criteria
+  (blower failure: "≥2× worsening and >80% of limit" instead of "must exceed"; denitrification:
+  "anoxic NO₃ < 60% of aerobic end" instead of "< 4"; clarifier scaling: relative to baseline).
+  Absolute thresholds drift with plant sizing; the relative relations are the real evidence.
 
 - **Run-time analysis surface** (`analysis/run` over WebSocket, new 「分析」 tab).
   Three capabilities no peer project in the domain offers in one place:
@@ -73,6 +90,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   (`bsm2-python`, QSDsan, PooPyLab, PyADM1ODE, Junction-2025, wwtw-digital-twin,
   wwtmodels/Activated-Sludge-Models), including an explicit list of what
   AquaPilot does *not* do.
+
+### Added
+
+- **Parameter calibration** (`calibration/identify|start|cancel` over WebSocket, 「校准」 tab).
+  Identifiability by central differences, then bounded coordinate descent over the
+  physics-constrained parameter ranges. Measured: 10 of 11 ASM1 kinetic parameters are
+  identifiable from effluent data (`mu_A` 22.2, `b_A` 10.6, `K_O_A` 6.2 are the most
+  sensitive); a full run improves the objective by 71.1%.
+- **State estimation** (diagonal EKF, `AQUAPILOT_ESTIMATOR=1`). Six-state estimator with
+  observability reporting; converges from ±30–100% initial error to RMSE below sensor noise.
+  Both peer projects that have this (PyADM1ODE) use UKF/ensembles — diagonal EKF is the
+  right size for six states, and the reasoning is recorded in the module.
+- **Real influent series** (`influent/load|apply|clear`). CSV with linear interpolation and
+  wrapping, so a 24-hour profile can drive any duration. Parsing keeps raw values; clamping
+  happens at sampling time so the quality report can still see bad inputs.
+- **Influent data-quality checks** (range / spike / stuck-sensor / gap). Error-level issues
+  block application rather than letting the engine silently clamp 99999 m³/h into 5200.
+- **Unified unit conversions** (`src/sim/units.ts`). `1.42` was hardcoded in five places;
+  a single change would have split the COD accounting silently.
+- `docs/COMPETITIVE-SOURCE-ANALYSIS.md`: source-level comparison (file trees read, key
+  source files decoded) against seven peer projects.
 
 ### Changed
 
