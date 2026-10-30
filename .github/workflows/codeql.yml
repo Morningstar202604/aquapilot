@@ -1,0 +1,46 @@
+name: CodeQL
+
+# 安全扫描：与 ci.yml 的依赖审计互补。
+# ci.yml 的 npm audit 只看依赖漏洞；CodeQL 看的是**我们自己的代码**里的
+# 注入、路径穿越、SSRF 这类模式。这类问题人工审查会漏（本项目历史上
+# 真实出现过 Host 头注入与 LIMIT 类型注入），机器扫描是必要兜底。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # 每周一 06:00 UTC 跑一次：新规则集要及时应用
+    - cron: '0 6 * * 1'
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      security-events: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          # 只扫业务代码；依赖审计由 ci.yml 的 npm audit 负责，不必重复
+          queries: security-extended
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:javascript-typescript'

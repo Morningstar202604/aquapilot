@@ -201,8 +201,8 @@ e2e/operator-smoke.spec.ts
 | 可解释性 | ❌ | ❌ | ❌ | ❌ | ✅ 部分 | ❌ | **✅ 独有** |
 | 灵敏度/Pareto/质量平衡 | ❌ | ❌ | ❌ | ✅ 灵敏度 | ❌ | ❌ | **✅ 独有（三项齐备）** |
 | 测试规模 | 未核实 | 22 目录 | 未核实 | 有 | 8 测试文件 | 48 项 | **1010 项** |
-| 运行手册/onboarding | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
-| CodeQL | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| 运行手册/onboarding | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | **✅ 已补** |
+| CodeQL | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | **✅ 已补** |
 
 ---
 
@@ -228,8 +228,8 @@ e2e/operator-smoke.spec.ts
 | **ADM1（厌氧消化）** | bsm2-python `adm1_bsm2.py`、PyADM1ODE | 超出产品边界（我们只做水线）。 |
 | **OPC UA / MQTT** | wwtw `ingest/adapters/{opcua,mqtt}.ts` | 需工业协议栈 + 现场安全评估，是独立项目。 |
 | **COD 元素电子平衡** | QSDsan `utils/cod.py`（457 行） | 需每个组分的分子式数据库。我们用理论系数 1.42，精度差距已记录。 |
-| **运行手册 / onboarding** | wwtw `docs/RUNBOOK.md` | 待补（低成本，但优先级低于功能）。 |
-| **CodeQL** | PyADM1ODE `.github/workflows/codeql.yml` | 待补（改 CI 一行）。 |
+| ~~运行手册 / onboarding~~ | wwtw `docs/RUNBOOK.md` | **已补齐**。 |
+| ~~CodeQL~~ | PyADM1ODE `.github/workflows/codeql.yml` | **已补齐**（security-extended 规则集，与 ci.yml 的依赖审计互补：那个看依赖、这个看自己的代码）。 |
 | ~~Takács 的 `f_ns` 与 `X_t`~~ | bsm2-python `settler1d_bsm2.py:96,115` | **已补齐**（见下节）|
 
 ---

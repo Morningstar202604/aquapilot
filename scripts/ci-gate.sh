@@ -97,6 +97,7 @@ step "9/9 工程卫生"
 [ -f .env.example ] || fail "缺少 .env.example"
 [ -f Dockerfile ] || fail "缺少 Dockerfile"
 [ -f docs/API.md ] || fail "缺少 docs/API.md"
+[ -f docs/RUNBOOK.md ] || fail "缺少 docs/RUNBOOK.md"
 pass "必要文件齐全"
 
 printf '\n\033[1;42m  CI GATE: ALL GREEN  \033[0m\n'
