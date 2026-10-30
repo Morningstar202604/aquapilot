@@ -23,6 +23,23 @@ export function InfluentPanel({
   const [csv, setCsv] = useState('');
   const [showSample, setShowSample] = useState(false);
 
+  /**
+   * 前端前置校验：能在本地说清楚的错误就不要等服务器回。
+   *
+   * 2 MB 上限与「必须像 CSV」都可以在输入时立即判断；只靠服务端报错的话，
+   * 用户要等一次网络往返才知道格式错了，而提示还隔着一条 notice。
+   */
+  const MAX_CSV = 2 * 1024 * 1024;
+  const csvTooLarge = csv.length > MAX_CSV;
+  const firstLine = csv.trim().split('\n')[0]?.trim() ?? '';
+  const csvLooksWrong = csv.trim().length > 0 && !/^[#\d]/.test(firstLine);
+  const canSubmit = csv.trim().length > 0 && !csvTooLarge && !csvLooksWrong && !state.loading;
+  const submitHint = csvTooLarge
+    ? '内容超过 2 MB 上限，请拆分或精简'
+    : csvLooksWrong
+      ? '首行看起来既不是数字也不是表头，请检查是否粘贴了错误内容'
+      : null;
+
   const sample = [
     'minute,flow,cod,nh,tp,ss,temperature',
     '0,2000,350,34.0,4.8,180,20.0',
@@ -65,9 +82,14 @@ export function InfluentPanel({
               {showSample ? '隐藏说明' : '格式说明'}
             </button>
           </div>
+          {submitHint && (
+            <div className="analysis-note" data-warn="true">
+              {submitHint}
+            </div>
+          )}
           <button
             className="btn btn-primary"
-            disabled={csv.trim().length === 0 || state.loading}
+            disabled={!canSubmit}
             onClick={() => onLoad(name.trim() || '自定义进水', csv)}
             style={{ justifySelf: 'start' }}
           >

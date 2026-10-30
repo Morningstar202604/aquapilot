@@ -72,6 +72,10 @@ export function AnalysisPanel({
         </button>
       </div>
 
+      <div className="analysis-note">
+        结果基于生成时刻的工况快照。调整控制量或注入场景后，建议重新分析—— 灵敏度排序会随工况变化。
+      </div>
+
       <section className="analysis-block">
         <div className="analysis-title">参数灵敏度</div>
         <div className="analysis-sub">每 10% 量程变化对「最差出水指标占限值比例」的影响，按有效性排序</div>

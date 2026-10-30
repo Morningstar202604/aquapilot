@@ -57,7 +57,13 @@ export function CalibrationPanel({
             <button className="btn" onClick={onIdentify}>
               {identifiability ? '重新分析可辨识性' : '分析可辨识性'}
             </button>
-            <button className="btn btn-primary" onClick={onStart} disabled={!identifiability}>
+            <button
+              className="btn btn-primary"
+              onClick={onStart}
+              disabled={!identifiability}
+              /* 禁用必须带原因：只把按钮置灰，用户不知道要先做什么 */
+              title={identifiability ? '先跑可辨识性，再对可辨识的参数做拟合' : '请先完成「分析可辨识性」'}
+            >
               开始标定
             </button>
           </div>

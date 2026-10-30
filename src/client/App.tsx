@@ -42,6 +42,7 @@ import { TopbarMenu } from './components/TopbarMenu';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { CalibrationPanel } from './components/CalibrationPanel';
 import { InfluentPanel } from './components/InfluentPanel';
+import { Onboarding, HelpButton, hasSeenOnboarding, markOnboarded } from './components/Onboarding';
 import { Collapsible } from './components/Collapsible';
 import { PLANT } from '../sim/config';
 import { formatClockLong } from '../shared/time';
@@ -62,6 +63,8 @@ type View = 'plant' | 'editor';
 export default function App() {
   const sim = useSimulation();
   const [tab, setTab] = useState<Tab>('chat');
+  /** 首次访问引导；「?」按钮可随时重开 */
+  const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
   const [view, setView] = useState<View>('plant');
   const [selectedTank, setSelectedTank] = useState<string | null>(null);
   const [modelPanelOpen, setModelPanelOpen] = useState(false);
@@ -206,6 +209,14 @@ export default function App() {
   const kpis = buildKpis(snap);
   return (
     <div className="app">
+      {showOnboarding && (
+        <Onboarding
+          onClose={() => {
+            markOnboarded();
+            setShowOnboarding(false);
+          }}
+        />
+      )}
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark">AQUAPILOT</span>
@@ -280,6 +291,11 @@ export default function App() {
           <button className="pill" onClick={sim.reset}>
             重置
           </button>
+          <HelpButton
+            onClick={() => {
+              setShowOnboarding(true);
+            }}
+          />
           {/**
            * 两个配置入口收进一个「设置」菜单。
            *
