@@ -5,8 +5,8 @@
 > AI 值守的再生水厂仿真台。  
 > 厂是图，图就是模型，AI 值班员来跑。
 
-[![tests](https://img.shields.io/badge/tests-1033%20passing-brightgreen)](tests)
-[![coverage](https://img.shields.io/badge/line%20coverage-93.4%25-brightgreen)](vitest.config.ts)
+[![tests](https://img.shields.io/badge/tests-1084%20passing-brightgreen)](tests)
+[![coverage](https://img.shields.io/badge/line%20coverage-94.0%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![release](https://img.shields.io/badge/release-v0.4.0-blue)](https://github.com/Morningstar202604/aquapilot/releases/tag/v0.4.0)
@@ -124,7 +124,7 @@ npm run dev        # 前端 5174，服务端 5173
 ```bash
 npm run typecheck  # TypeScript 严格模式
 npm run lint       # ESLint 9
-npm run test       # 1033 项测试
+npm run test       # 1084 项测试
 npm run build      # 客户端 + 服务端
 npm run verify     # 上述四项按顺序跑
 npm run ci         # 完整门禁：依赖、类型、测试、构建、冒烟、审计、卫生
@@ -252,7 +252,7 @@ src/
     index.ts        WebSocket 仿真循环、REST、静态托管
   client/           控制室界面（React + ECharts + SVG 工艺图）
   shared/           前后端消息契约、物流/单元元数据、仿真时钟格式
-tests/              1033 项测试：物理性质、守恒、AI 护栏、拓扑、双跑、输入校验、崩溃边界
+tests/              1084 项测试：物理性质、守恒、AI 护栏、拓扑、双跑、输入校验、崩溃边界
 ```
 
 ### 三层契约
@@ -322,7 +322,7 @@ PAC 40 mg/L、多点进水 0.3×Q），两条链都从同样的 30 天预热开�
 | 生产引擎决策（名义）                  | 105 ms                | 同上                        |
 | 生产引擎决策（鲁棒，3 候选 × 3 样本） | 135 ms                | 同上                        |
 | 30 天预热                             | 390 ms                | 同上                        |
-| 测试                                  | 1033 通过              | `npm test`                  |
+| 测试                                  | 1084 通过              | `npm test`                  |
 | 覆盖率                                | 92.9% 行 / 82.4% 分支 | `npx vitest run --coverage` |
 
 ## AI 怎么决策
@@ -356,8 +356,10 @@ AquaPilot 不替代设计级仿真器。它要成为的是"AI 操作员 + 真实
 
 这是**仿真原型**，不是可接管真实水厂的系统：
 
-- 二沉池十层模型在浓缩区梯度不足，回流浓度低于实际；出水 TSS 低于 BSM1 参考值。
-- ASM1 不含磷，总磷依赖化学沉淀。
+- 二沉池十层模型在浓缩区梯度仍偏平（计划改用 1D 对流–扩散格式）；补上不可沉降
+  分数与限制通量阈值后，出水 TSS 与 BSM1 参考值的偏差已收敛到 5% 以内。
+- 运行水线用 ASM1（不含生物除磷），总磷依赖化学沉淀；ASM2d（含生物除磷与
+  反硝化除磷）作为独立单元提供并有独立测试，尚未接入水线。
 - BSM1 的 S_NH 偏差 −19.6%（0.34 gN/m³，不足氮通量 1%），以 ±25% 锁定；
   彻底收敛需要重写二沉池数值格式。
 - 单用户；仿真状态在内存，历史写入 SQLite（Node 22+）供回放与导出。
@@ -370,9 +372,9 @@ AquaPilot 不替代设计级仿真器。它要成为的是"AI 操作员 + 真实
 - [基准与实测](docs/BENCHMARKS.md)
 - [同类项目对比](docs/COMPARISON.md)
 - [部署](docs/DEPLOYMENT.md)
-- [质量路线](docs/QUALITY-ROADMAP.md)
+- [后续路线](docs/QUALITY-ROADMAP.md)
 - [SLO](docs/SLO.md)
-- [审计报告](docs/AUDIT-REPORT.md)
+- [模型覆盖与边界](docs/COMPETITIVE-SOURCE-ANALYSIS.md)
 - [脚本说明](scripts/README.md)
 
 ## 许可证

@@ -5,8 +5,8 @@
 > An AI-operated wastewater treatment plant simulator.  
 > The plant is a graph, the graph is the model, and an AI operator runs it.
 
-[![tests](https://img.shields.io/badge/tests-1033%20passing-brightgreen)](tests)
-[![coverage](https://img.shields.io/badge/line%20coverage-93.4%25-brightgreen)](vitest.config.ts)
+[![tests](https://img.shields.io/badge/tests-1084%20passing-brightgreen)](tests)
+[![coverage](https://img.shields.io/badge/line%20coverage-94.0%25-brightgreen)](vitest.config.ts)
 [![typescript](https://img.shields.io/badge/TypeScript-strict%20%2B%20noUnused-blue)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520.19-339933)](package.json)
@@ -441,17 +441,21 @@ Verified in this repository by `npm run ci` plus `npm run e2e`:
 
 - TypeScript strict (0 errors, including unused-code checks), ESLint 9 and
   Prettier 3 clean.
-- 1033 tests passing; 93.4 % line / 81.3 % branch coverage.
+- 1084 tests passing; 94.0 % line / 81.6 % branch coverage / 95.9 % functions.
 - Client + server production build; browser smoke asserts 7 KPI tiles, the health
   pill with 5 sub-scores, 17 nodes, 3 charts, 6 panels, no console errors, no
   connection crossing a unit body and no horizontal overflow on mobile.
 
 Known gaps (tracked in [docs/QUALITY-ROADMAP.md](docs/QUALITY-ROADMAP.md)):
 
-- The ten-layer settler does not build a strong concentration gradient in the
-  thickening zone, so underflow concentration is lower than reality; effluent TSS
-  sits below the BSM1 reference.
-- ASM1 has no phosphorus; TP relies on chemical precipitation.
+- The ten-layer settler still flattens the concentration gradient inside the thickening
+  zone (a 1D convection–diffusion reformulation is planned); effluent TSS now tracks the
+  BSM1 reference within 5 %, after adding the non-settling fraction and limiting-flux
+  threshold.
+- The running water train uses ASM1 (no biological phosphorus removal); TP relies on
+  chemical precipitation. ASM2d — with biological and anoxic P removal — ships as a
+  standalone, separately tested unit (`src/sim/asm2d.ts`) and is not wired into the
+  water train yet.
 - The BSM1 S_NH deviation is −19.6 % (0.34 gN/m³ absolute, under 1 % of the
   nitrogen flux) and locked at ±25 %; closing it requires the settler rewrite above.
 - Single user; simulation state is in memory, history is persisted to SQLite
@@ -464,11 +468,11 @@ Known gaps (tracked in [docs/QUALITY-ROADMAP.md](docs/QUALITY-ROADMAP.md)):
 - [HTTP API and WebSocket protocol](docs/API.md) — every endpoint, status code and frame
 - [UI architecture](docs/UI-ARCHITECTURE.md) — how a flowsheet becomes a running model
 - [Benchmarks](docs/BENCHMARKS.md) — measured numbers and how to reproduce them
-- [Comparison](docs/COMPARISON.md) — open-source landscape and what was borrowed
+- [Model landscape](docs/COMPARISON.md) — how AquaPilot relates to other open simulators
 - [Deployment](docs/DEPLOYMENT.md) — Docker, reverse proxy, mirrors, platforms
-- [Quality roadmap](docs/QUALITY-ROADMAP.md) — measured gaps and priorities
+- [Roadmap](docs/QUALITY-ROADMAP.md) — what is planned next and why
 - [SLOs](docs/SLO.md) — service level objectives and suggested alerts
-- [Audit report](docs/AUDIT-REPORT.md) — independent reviews and their closure
+- [Model coverage](docs/COMPETITIVE-SOURCE-ANALYSIS.md) — ASM1 / ASM2d / ADM1 scope and boundaries
 - [Scripts](scripts/README.md) — what each helper answers
 - [中文说明](README.zh-CN.md)
 
