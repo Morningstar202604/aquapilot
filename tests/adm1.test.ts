@@ -97,3 +97,38 @@ describe('ADM1 process behavior', () => {
     expect(JSON.stringify(ADM1_PARAMS)).toBe(paramsBefore);
   });
 });
+
+describe('ADM1 辅助分支', () => {
+  it('emptyState 对未知覆盖键保持默认 0', () => {
+    const s = emptyState();
+    expect(s.G_ch4).toBe(0);
+    expect(s.X_c).toBe(0);
+  });
+
+  it('零进水时状态不炸（全零向量的退化输入）', () => {
+    const zero = emptyState();
+    const out = stepAdm1(zero, zero, ADM1_PARAMS, { volume: 1000, flow: 100, dtHours: 0.1 });
+    expect(Number.isFinite(out.pH)).toBe(true);
+    expect(out.methaneRate).toBe(0);
+  });
+
+  it('极大流量下稀释主导，状态被进水拉走', () => {
+    const feed = emptyState({ S_ac: 10, X_ac: 1, S_IC: 10 });
+    const out = stepAdm1(emptyState({ S_ac: 100 }), feed, ADM1_PARAMS, {
+      volume: 1,
+      flow: 100000,
+      dtHours: 1,
+    });
+    expect(out.state.S_ac).toBeGreaterThan(0);
+    expect(Number.isFinite(out.state.S_ac)).toBe(true);
+  });
+
+  it('气液转移把溶解态甲烷计入气相', () => {
+    const feed = emptyState({ S_ac: 20, X_ac: 5, X_su: 5, S_IC: 20 });
+    let state = feed;
+    for (let i = 0; i < 300; i++) {
+      state = stepAdm1(state, feed, ADM1_PARAMS, { volume: 1000, flow: 50, dtHours: 0.1 }).state;
+    }
+    expect(state.G_ch4).toBeGreaterThan(0);
+  });
+});

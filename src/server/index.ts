@@ -30,6 +30,8 @@ import { HookRuntime } from './hooks';
 import { parseAgentCommand } from './agentConfigCommands';
 import { buildReport, type CheckInput } from './watchdog';
 import { runAnalysis } from '../sim/analysis';
+import { listModelDescriptors } from '../sim/modelRegistry';
+import { ADAPTER_CAPABILITIES } from '../sim/dataSources';
 import { CONTROL_KEYS, checkAllowedControls, clampControlMoves } from '../shared/agentConfig';
 import { serveStatic, queryOf } from './staticFiles';
 import { boundedWindow, MAX_SNAPSHOT_POINTS } from './queryBounds';
@@ -1697,6 +1699,39 @@ async function main(): Promise<void> {
       }
       res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
       res.end(renderPrometheus());
+      return;
+    }
+    /**
+     * 模型能力清单。
+     *
+     * 让界面/运维能直接问「这个部署支持哪些模型、各自状态如何」，
+     * 而不是靠读 README 猜。返回注册表里的真实描述符，
+     * 未接入运行的模型标注 `active: false`——避免把「已实现」误读成「已启用」。
+     */
+    if (pathname === '/api/models') {
+      const list = listModelDescriptors().map((d) => ({
+        id: d.id,
+        name: d.name,
+        components: d.components.length,
+        processes: d.processes.length,
+        /**
+         * 当前主仿真是否直接用该模型。
+         *
+         * 默认的 `simple` 模式是 ASM1 的简化变体（同一份守恒校验），
+         * 因此也只有 asm1 会标 true；显式切换到 asm1 时同样为 true。
+         */
+        active: d.id === 'asm1' && (runtime.net.modelMode === 'asm1' || runtime.net.modelMode === 'simple'),
+        /**
+         * 是否已接入主求解器。
+         *
+         * 目前只有 ASM1 在运行链路里（simple 模式是它的简化变体）；
+         * ASM2d / ADM1 是独立单元，可被 API 查询与单测调用，但不驱动主界面。
+         * 明确区分「已实现」与「已启用」，避免读者误判部署能力。
+         */
+        inRuntime: d.id === 'asm1',
+      }));
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ models: list, influentSources: ADAPTER_CAPABILITIES }));
       return;
     }
     if (pathname === '/api/limits') {

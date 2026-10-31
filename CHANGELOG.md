@@ -93,6 +93,31 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Added
 
+- **Model registry with per-process conservation checking** (`src/sim/modelRegistry.ts`).
+  ASM1, ASM2d and ADM1 are described as data (components / processes / stoichiometry /
+  conservation weights), so adding a model no longer means copying a solver and a
+  conservation test. The checker returns residuals per process rather than a boolean, and
+  keeps an explicit `exempt` list for rows that physically must not close (nitrification COD
+  comes from inorganic carbon; denitrification nitrogen leaves as N₂; ammonification moves
+  nitrogen only). Deliberately faking those closed would hide real coefficient errors.
+- **ASM2d** (`src/sim/asm2d.ts`): 19 components / 19 processes including biological and
+  anoxic phosphorus removal. The conservation checker found and fixed nine real coefficient
+  errors during construction (PAO growth consumed 1 g PHA instead of 1/Y_PAO; autotroph COD
+  origin; hydrolysis nitrogen split; lysis nitrogen release). Behaviour is verified by
+  direction: anaerobic storage raises S_PO4, subsequent aerobic operation lowers it relative
+  to the anaerobic state; 240 steps stay non-negative and finite.
+- **ADM1** (`src/sim/adm1.ts`): 27 components / 15 processes (disintegration, three
+  hydrolysis steps, seven uptake/methanogenesis steps, decay, gas transfer). Explicit Euler
+  with hydraulic mixing, pH and inhibition diagnostics; 2000 steps stay non-negative and
+  finite. It is a standalone unit — not wired into the water train, because it has not been
+  validated against the full BSM2 flowsheet.
+- **Data-source adapters** (`src/sim/dataSources.ts`): one contract (`read` / `status` /
+  `close`) with simulator and CSV replay implemented, and MQTT / OPC UA declaring themselves
+  unavailable instead of returning fabricated values. A chain degrades simulator ← CSV ←
+  live and records which source is actually driving the screen.
+- `GET /api/models`: the registry plus data-source capabilities, with `active` / `inRuntime`
+  separated so "implemented" is never mistaken for "enabled".
+
 - **Parameter calibration** (`calibration/identify|start|cancel` over WebSocket, 「校准」 tab).
   Identifiability by central differences, then bounded coordinate descent over the
   physics-constrained parameter ranges. Measured: 10 of 11 ASM1 kinetic parameters are

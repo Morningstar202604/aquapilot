@@ -223,10 +223,10 @@ e2e/operator-smoke.spec.ts
 
 | 缺口 | 来源 | 为什么不补 |
 |---|---|---|
-| **模型数据化（TSV/JSON 驱动）** | QSDsan `data/process_data/_asm1.tsv` | 需要重构整个 `buildStoichiometry` 为解释器。收益是「加 ASM2d 只需加数据文件」，但当前只有一套 ASM1，重构收益 < 风险。**若未来要加 ASM2d/ADM1，这是必须先做的前置重构。** |
-| **ASM2d（生物除磷）** | PooPyLab `asm_2d.py`（736 行） | 736 行 + 19 过程 × 19 组分。任何系数错误都会静默给出错误结果，而我无法在本次逐项核实其与 IWA 报告一致。**做一半比不做更危险**。 |
-| **ADM1（厌氧消化）** | bsm2-python `adm1_bsm2.py`、PyADM1ODE | 超出产品边界（我们只做水线）。 |
-| **OPC UA / MQTT** | wwtw `ingest/adapters/{opcua,mqtt}.ts` | 需工业协议栈 + 现场安全评估，是独立项目。 |
+| ~~模型数据化（TSV/JSON 驱动）~~ | QSDsan `data/process_data/_asm1.tsv` | **已补齐（轻量版）**：`src/sim/modelRegistry.ts` 用描述符统一「组分/过程/计量矩阵/守恒维度」。系数仍是函数而非 TSV（完全数据化需要表达式求值器，收益不抵复杂度），但 ASM1/ASM2d/ADM1 已共用同一套注册与逐过程守恒校验。 |
+| ~~ASM2d（生物除磷）~~ | PooPyLab `asm_2d.py`（736 行） | **已补齐**：`src/sim/asm2d.ts`，19 组分 / 19 过程。守恒校验器抓出并修正了 9 处系数错误（PAO 生长的 PHA 消耗、自养 COD 来源、水解氮分配等）；行为反证：厌氧释磷 + 好氧吸磷。**未接入主求解器**（接入需与 Takács 耦合 + 参数标定）。 |
+| ~~ADM1（厌氧消化）~~ | bsm2-python `adm1_bsm2.py`、PyADM1ODE | **已补齐（独立单元）**：`src/sim/adm1.ts`，27 组分 / 15 过程（崩解/三类水解/七类产甲烷/衰减/气液转移）。2000 步长跑无负值/NaN，pH 与抑制因子可见。**未接 BSM2 全流程**，因此作为独立单元而非水线组件。 |
+| OPC UA / MQTT | wwtw `ingest/adapters/{opcua,mqtt}.ts` | **契约已建，协议栈未接**：`src/sim/dataSources.ts` 定义统一适配器（read/status/close）与降级链；模拟器与 CSV 已实现，MQTT/OPC UA 返回 null + 明确原因而不是假数据。**真正接入需协议栈依赖 + 现场网络与安全评估**。 |
 | **COD 元素电子平衡** | QSDsan `utils/cod.py`（457 行） | 需每个组分的分子式数据库。我们用理论系数 1.42，精度差距已记录。 |
 | ~~运行手册 / onboarding~~ | wwtw `docs/RUNBOOK.md` | **已补齐**。 |
 | ~~CodeQL~~ | PyADM1ODE `.github/workflows/codeql.yml` | **已补齐**（security-extended 规则集，与 ci.yml 的依赖审计互补：那个看依赖、这个看自己的代码）。 |

@@ -53,6 +53,7 @@ seven peer projects, is in [`docs/COMPETITIVE-ANALYSIS.md`](docs/COMPETITIVE-ANA
 | **Shadow benchmark** | A second plant runs the same seed and influent under a fixed manual strategy, so the benefit panel compares *strategy*, not initial conditions. |
 | **Run-time analysis** | Parameter sensitivity (central differences), a Pareto frontier over compliance vs cost, and a plant-wide COD mass-balance audit — all on the same model the controller uses. |
 | **Calibration & state estimation** | Identifiability analysis then bounded coordinate descent (benchmark-validated); a six-state EKF pulls the model back toward measurements. Real influent CSVs drive the simulation, with data-quality checks that refuse to apply broken sensor dumps. |
+| **Model registry** | ASM1, ASM2d (biological P removal) and ADM1 (anaerobic digestion) described as data with per-process conservation checks. ASM2d/ADM1 ship as standalone units — implemented and tested, deliberately not wired into the water train until validated against the full BSM2 flowsheet. |
 | **Roles, not just a token** | `viewer` / `operator` / `admin`, so a wall display cannot change setpoints. |
 
 ---

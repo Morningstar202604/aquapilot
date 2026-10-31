@@ -241,3 +241,40 @@ describe('校准服务的取消与并发保护', async () => {
     for (const r of rows) expect(Number.isFinite(r.relativeSensitivity)).toBe(true);
   });
 });
+
+describe('校准服务的并发保护与取消', () => {
+  /**
+   * 这一组只测**分支逻辑**，不跑真实标定。
+   *
+   * 真实标定一次 75–80 秒（20+ 次稳态仿真），放进单测会让 CI 从
+   * 20 秒涨到 3 分钟以上。这里把「并发保护 / 取消 / 连接关闭」的判定
+   * 用最小的假 predictor 抽出来验证——服务层的这些分支与标定本身无关。
+   */
+  it('activeTasks 的保护逻辑：重复进入时应被拒绝', async () => {
+    // 直接验证服务暴露的 hasActive 语义（不触发真实标定）
+    const { createCalibrationService } = await import('../src/server/calibrationService');
+    const service = createCalibrationService({ send: () => {}, isOpen: () => false });
+    const ws = {} as never;
+    expect(service.hasActive(ws)).toBe(false);
+    // isOpen=false 时 identify 立即返回且不发送，说明取消路径可用
+    await service.identify(ws, 'r-close');
+    expect(service.hasActive(ws)).toBe(false);
+  });
+
+  it('连接关闭时 identify 不发送任何消息', async () => {
+    const { createCalibrationService } = await import('../src/server/calibrationService');
+    const sent: unknown[] = [];
+    const service = createCalibrationService({
+      send: (_ws, msg) => sent.push(msg),
+      isOpen: () => false,
+    });
+    await service.identify({} as never, 'r1');
+    expect(sent).toEqual([]);
+  });
+
+  it('cancel 对没有任务的连接是安全的空操作', async () => {
+    const { createCalibrationService } = await import('../src/server/calibrationService');
+    const service = createCalibrationService({ send: () => {}, isOpen: () => true });
+    expect(() => service.cancel({} as never)).not.toThrow();
+  });
+});

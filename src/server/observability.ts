@@ -156,6 +156,7 @@ const KNOWN_API_ROUTES = new Set([
   '/api/history/alarms',
   '/api/history/stats',
   '/api/presets',
+  '/api/models',
   '/api/export/snapshots.csv',
   '/api/export/decisions.csv',
   '/api/export/report.md',
