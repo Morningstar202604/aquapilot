@@ -67,6 +67,12 @@ try {
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(3500);
 
+  const onboarding = page.getByRole('dialog', { name: '使用引导' });
+  if (await onboarding.isVisible().catch(() => false)) {
+    await onboarding.getByRole('button', { name: '跳过' }).click();
+    await onboarding.waitFor({ state: 'hidden' });
+  }
+
   const kpis = await page.locator('.kpi').count();
   if (kpis < 7) fail(`expected >=7 KPI tiles, got ${kpis}`);
 

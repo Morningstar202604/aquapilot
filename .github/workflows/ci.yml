@@ -10,8 +10,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions: {}
+
 jobs:
   verify:
+    permissions:
+      contents: read
     name: Verify (typecheck + test + build)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -23,10 +27,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node ${{ matrix.node }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -54,8 +58,9 @@ jobs:
           if OUT=$(npm audit --audit-level=high 2>&1); then
             echo "0 high/critical vulnerabilities"
           elif printf '%s' "$OUT" | grep -qiE 'ENOTFOUND|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|SSL|TLS|dh key too small|audit endpoint returned an error'; then
-            echo "::warning::Dependency audit could not reach the advisory service; result unverified"
             echo "$OUT" | tail -5
+            echo "::error::Dependency audit could not reach the advisory service; refusing a green result"
+            exit 1
           else
             echo "$OUT" | tail -20
             echo "::error::Vulnerable dependencies found"
@@ -86,6 +91,8 @@ jobs:
           kill $SERVER_PID
 
   e2e:
+    permissions:
+      contents: read
     name: Browser smoke (Playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -99,7 +106,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        run: npx playwright-core install --with-deps chromium
       - name: Run browser smoke
         run: npx tsx scripts/e2e-ci.ts
       - name: Upload screenshots
@@ -111,16 +118,18 @@ jobs:
           retention-days: 7
 
   quality-gate:
+    permissions:
+      contents: read
     name: Quality gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: verify
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -132,14 +141,14 @@ jobs:
         run: |
           set -e
           # 令牌/密钥模式扫描（只扫受版本控制的源码与文档）
-          if git grep -nIE '(ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})' -- . \
-               ':(exclude)package-lock.json'; then
-            echo "::error::发现疑似 GitHub 令牌，禁止提交"
+          pattern='(gh[pousr]_[A-Za-z0-9_\-]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|https?://[^/[:space:]@]+:[^@[:space:]]+@)'
+          if matches=$(git grep -lIE "$pattern" -- . 2>/dev/null); then
+            printf '%s\n' "$matches" | sed 's#^#疑似敏感文件：#'
+            echo "::error::发现疑似凭据，禁止提交"
             exit 1
-          fi
-          if git grep -nIE '(AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----)' -- .; then
-            echo "::error::发现疑似私钥/云密钥"
-            exit 1
+          else
+            status=$?
+            [ "$status" -eq 1 ] || { echo "::error::密钥扫描工具失败（退出码 $status）"; exit 1; }
           fi
           echo "密钥扫描通过"
 
@@ -147,7 +156,11 @@ jobs:
         run: |
           set -e
           for p in dist out node_modules; do
-            if git ls-files --error-unmatch "$p" > /dev/null 2>&1 || [ -n "$(git ls-files "$p" | head -1)" ]; then
+            if ! tracked=$(git ls-files "$p"); then
+              echo "::error::无法扫描 $p 的 Git 跟踪状态"
+              exit 1
+            fi
+            if [ -n "$tracked" ]; then
               echo "::error::$p 不应被提交"
               exit 1
             fi
@@ -166,15 +179,22 @@ jobs:
       - name: Test count floor
         run: |
           set -e
-          npx vitest run --reporter=json --outputFile=test-results.json > /dev/null 2>&1 || true
-          COUNT=$(node -e "const r=require('./test-results.json'); console.log(r.numTotalTests)")
-          PASSED=$(node -e "const r=require('./test-results.json'); console.log(r.numPassedTests)")
-          echo "测试数量: $COUNT（通过 $PASSED）"
-          if [ "$COUNT" -lt 300 ]; then
-            echo "::error::测试数量低于下限 300（当前 $COUNT），可能有测试被删除"
-            exit 1
-          fi
-          if [ "$PASSED" -ne "$COUNT" ]; then
-            echo "::error::有测试未通过：$PASSED/$COUNT"
-            exit 1
-          fi
+          npx vitest run --reporter=json --outputFile=test-results.json > /dev/null 2>&1
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync('test-results.json', 'utf8'));
+          const count = report.numTotalTests ?? 0;
+          const passed = report.numPassedTests ?? 0;
+          const failed = report.numFailedTests ?? 0;
+          const skipped = report.numPendingTests ?? 0;
+          const todo = report.numTodoTests ?? 0;
+          console.log(`测试数量: ${count}（通过 ${passed}，失败 ${failed}，跳过 ${skipped}，todo ${todo}）`);
+          if (count < 300) {
+            console.error(`::error::测试数量低于下限 300（当前 ${count}），可能有测试被删除`);
+            process.exit(1);
+          }
+          if (passed !== count || failed !== 0 || skipped !== 0 || todo !== 0) {
+            console.error('::error::测试报告存在失败、跳过或 todo 用例');
+            process.exit(1);
+          }
+          NODE

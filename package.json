@@ -2,8 +2,11 @@
   "name": "aquapilot",
   "version": "0.4.0",
   "private": true,
+  "allowScripts": {
+    "esbuild": true
+  },
   "type": "module",
-  "description": "AI-operated wastewater treatment plant simulator with topology-driven solvers",
+  "description": "Topology-driven wastewater simulation prototype with an AI operator, ASM1 water train, and auditable control guardrails",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:server": "tsx watch src/server/index.ts",

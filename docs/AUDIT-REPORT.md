@@ -1,6 +1,8 @@
 # 项目全维度审查与对标报告
 
-**审查对象**：AquaPilot（`C:\Users\X1882\Desktop\workspace\zcode\agent\huanjing`）
+> 历史审查快照：本文记录早期基线，不是当前缺陷清单。当前能力与验证结果以源码、测试、README 和 `docs/BENCHMARKS.md` 为准。
+
+**审查对象**：AquaPilot（早期工作区路径，历史记录）
 **审查日期**：2026-10-21
 **审查基线**：git 提交 `19225d8`，211 项测试通过
 

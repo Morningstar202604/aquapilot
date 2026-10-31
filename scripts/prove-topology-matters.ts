@@ -18,12 +18,18 @@ const halved = clone();
 for (const u of halved.units) if (u.kind === 'aerobic') u.volume = Math.round((u.volume ?? 0) / 2);
 const small = summarize('好氧池 ÷2', createRuntime(halved));
 
+const baseClarifierArea = base.clarifier.area;
 const bigClar = clone();
-bigClar.units.find((u: { kind: string }) => u.kind === 'clarifier')!.area = 4800;
-const clar = summarize('二沉池 2400→4800', createRuntime(bigClar));
+bigClar.units.find((u: { kind: string }) => u.kind === 'clarifier')!.area = baseClarifierArea * 2;
+const clar = summarize(`二沉池 ${baseClarifierArea}→${baseClarifierArea * 2}`, createRuntime(bigClar));
+
+const conclusions = [
+  ['池容变化 → 影响出水氨氮', Math.abs(small.effluent.nh - base.effluent.nh) > 0.01],
+  ['好氧池扩容 → 氨氮下降', big.effluent.nh <= base.effluent.nh + 0.02],
+  ['二沉池扩容 → 固体负荷下降', clar.clarifier.slr < base.clarifier.slr * 0.75],
+  ['二沉池扩容 → 泥位变薄', clar.clarifier.blanketM < base.clarifier.blanketM],
+] as const;
 
 console.log('\n=== 结论 ===');
-console.log(`池容变化 → 影响出水氨氮: ${Math.abs(small.effluent.nh - base.effluent.nh) > 0.01}`);
-console.log(`好氧池扩容 → 氨氮下降: ${big.effluent.nh <= base.effluent.nh + 0.02}`);
-console.log(`二沉池扩容 → 固体负荷下降: ${clar.clarifier.slr < base.clarifier.slr * 0.75}`);
-console.log(`二沉池扩容 → 泥位变薄: ${clar.clarifier.blanketM < base.clarifier.blanketM}`);
+for (const [label, ok] of conclusions) console.log(`${label}: ${ok}`);
+if (conclusions.some(([, ok]) => !ok)) process.exitCode = 1;

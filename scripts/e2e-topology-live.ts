@@ -21,6 +21,10 @@ ws.on('message', (data) => {
 async function main() {
   await wait(2500);
   const before = snapshots[snapshots.length - 1];
+  if (!before) {
+    ws.close();
+    throw new Error('应用前未收到快照');
+  }
   console.log(`应用前：反应器 ${before.reactorCount} | 池容 ${before.tanks.map((t: any) => t.volume).join('/')} | 出水 NH₄ ${before.effluent.nh.toFixed(3)} | 评分 ${before.score}`);
 
   // 构造 6 池拓扑：在好氧池 C 之后加一个好氧池 D
@@ -51,9 +55,8 @@ async function main() {
 
   const after = snapshots[snapshots.length - 1];
   if (!after) {
-    console.log('未收到快照，应用可能失败。通知：', noticeText);
     ws.close();
-    return;
+    throw new Error(`未收到快照，应用可能失败。通知：${noticeText.join(' | ')}`);
   }
   console.log(`应用后：反应器 ${after.reactorCount} | 池容 ${after.tanks.map((t: any) => t.volume).join('/')} | 出水 NH₄ ${after.effluent.nh.toFixed(3)} | 评分 ${after.score}`);
   console.log(`反应器名称：${after.tanks.map((t: any) => t.name).join(' / ')}`);
@@ -61,13 +64,21 @@ async function main() {
 
   const ok = after.reactorCount === 6 && after.tanks.some((t: any) => t.id === 'aerobic4');
   console.log(`\n结论：界面/协议层新增的池子被引擎真实求解 — ${ok ? '是' : '否'}`);
+  if (!ok) {
+    ws.close();
+    throw new Error('新增拓扑未被引擎真实求解');
+  }
 
   // 还原
   snapshots = [];
   ws.send(JSON.stringify({ type: 'topology', action: 'apply', topology: PLANT_TOPOLOGY }));
   await wait(5000);
   const restored = snapshots[snapshots.length - 1];
-  console.log(`还原后：反应器 ${restored?.reactorCount} | 出水 NH₄ ${restored?.effluent.nh.toFixed(3)}`);
+  if (!restored || restored.reactorCount !== PLANT_TOPOLOGY.train.length) {
+    ws.close();
+    throw new Error(`还原后拓扑异常：${restored?.reactorCount ?? '无快照'}`);
+  }
+  console.log(`还原后：反应器 ${restored.reactorCount} | 出水 NH₄ ${restored.effluent.nh.toFixed(3)}`);
   ws.close();
 }
 

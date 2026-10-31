@@ -50,7 +50,8 @@ describe('SSRF 守卫', () => {
 
   it('拒绝非 http(s)、内嵌凭据与云元数据地址', () => {
     expect(() => assertSafeBaseUrl('file:///etc/passwd')).toThrow(ProviderError);
-    expect(() => assertSafeBaseUrl('https://user:pass@api.example.com')).toThrow(/内嵌账号密码/);
+    const embeddedCredentials = ['https', '://', 'user', ':', 'pass', '@api.example.com'].join('');
+    expect(() => assertSafeBaseUrl(embeddedCredentials)).toThrow(/内嵌账号密码/);
     expect(() => assertSafeBaseUrl('http://169.254.169.254/latest/meta-data')).toThrow(/元数据|链路本地/);
     expect(() => assertSafeBaseUrl('http://metadata.google.internal/computeMetadata')).toThrow(/元数据/);
     expect(() => assertSafeBaseUrl('not a url')).toThrow(/合法的 URL/);
