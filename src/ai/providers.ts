@@ -57,30 +57,64 @@ function canonicalHost(hostname: string): string {
  * `URL.hostname` 会把 IPv4-mapped 地址归一成 `[::ffff:a9fe:a9fe]` 这种形式，
  * 正则匹配 `169.254.` 永远命中不了——必须按 IPv6 段单独判定，
  * 否则 `http://[::ffff:169.254.169.254]/` 可直达云元数据。
+ *
+ * 同一台机器上 IPv4 还能以 IPv4-compatible（`::a.b.c.d`）、NAT64（`64:ff9b::/96`）
+ * 和 6to4（`2002:AABB:CCDD::/48`）三种形式嵌进 IPv6。只认 `::ffff:` 会让
+ * `http://[::a9fe:a9fe]/` 一类写法绕过字面量黑名单，所以统一解析后按八段判定。
  */
 function isDangerousIpv6(host: string): boolean {
   if (!host.includes(':')) return false;
-  const lower = host.toLowerCase();
-  // IPv4-mapped（::ffff:a.b.c.d）与 IPv4-compatible：把末两段解成 IPv4 再判一次
-  const mapped = matchingIpv4(lower);
-  if (mapped) return isDangerousIpv4(mapped);
-  // 链路本地 fe80::/10、唯一本地 fc00::/7、AWS IMDS IPv6 fd00:ec2::254 落在 ULA 内
-  if (/^fe[89ab][0-9a-f]?:/.test(lower)) return true;
-  if (/^f[cd][0-9a-f]{2}:/.test(lower)) return true;
-  // ::1 回环与未指定地址
-  if (lower === '::') return true;
+  const parts = parseIpv6(host);
+  if (!parts) return true;
+  const embedded = embeddedIpv4(parts);
+  if (embedded && isDangerousIpv4(embedded)) return true;
+  // 链路本地 fe80::/10、唯一本地 fc00::/7（AWS IMDS IPv6 fd00:ec2::254 落在 ULA 内）
+  if ((parts[0] & 0xffc0) === 0xfe80) return true;
+  if ((parts[0] & 0xfe00) === 0xfc00) return true;
+  // 未指定地址；回环 ::1 由调用方的严格公网策略单独处理
+  if (parts.every((part) => part === 0)) return true;
   return false;
 }
 
-/** 从 IPv4-mapped IPv6 主机名里取出内嵌 IPv4（形如 ::ffff:a9fe:a9fe） */
-function matchingIpv4(host: string): string | null {
-  const dotted = /^::ffff:((?:\d{1,3}\.){3}\d{1,3})$/.exec(host);
-  if (dotted && dotted[1].split('.').every((part) => Number(part) >= 0 && Number(part) <= 255)) return dotted[1];
-  const m = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
-  if (!m) return null;
-  const hi = parseInt(m[1], 16);
-  const lo = parseInt(m[2], 16);
-  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+/** 把 IPv6 文本解析成 8 个 16 位段；无法解析返回 null（调用方按危险处理） */
+function parseIpv6(host: string): number[] | null {
+  const lower = canonicalHost(host);
+  if (!lower.includes(':') || lower.includes('%')) return null;
+  const halves = lower.split('::');
+  if (halves.length > 2) return null;
+  const toParts = (text: string): number[] | null => {
+    const out: number[] = [];
+    for (const piece of text.split(':').filter((p) => p !== '')) {
+      if (piece.includes('.')) {
+        const octets = piece.split('.').map(Number);
+        if (octets.length !== 4 || octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+        out.push((octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]);
+        continue;
+      }
+      if (!/^[0-9a-f]{1,4}$/.test(piece)) return null;
+      out.push(parseInt(piece, 16));
+    }
+    return out;
+  };
+  const head = toParts(halves[0] ?? '');
+  const tail = halves.length === 2 ? toParts(halves[1] ?? '') : [];
+  if (!head || !tail) return null;
+  if (halves.length === 2) {
+    const fill = 8 - head.length - tail.length;
+    if (fill < 0) return null;
+    return [...head, ...Array<number>(fill).fill(0), ...tail];
+  }
+  return head.length === 8 ? head : null;
+}
+
+/** 取出 IPv6 里内嵌的 IPv4（IPv4-mapped / compatible / NAT64 / 6to4） */
+function embeddedIpv4(parts: number[]): string | null {
+  const octets = (hi: number, lo: number): string => `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+  const firstFiveZero = parts.slice(0, 5).every((part) => part === 0);
+  if (firstFiveZero && (parts[5] === 0 || parts[5] === 0xffff)) return octets(parts[6], parts[7]);
+  if (parts[0] === 0x64 && parts[1] === 0xff9b) return octets(parts[6], parts[7]);
+  if (parts[0] === 0x2002) return octets(parts[1], parts[2]);
+  return null;
 }
 
 function isDangerousIpv4(host: string): boolean {
@@ -160,11 +194,12 @@ const PRIVATE_HOST_PATTERNS = [
 ];
 
 function isPrivateFetchHost(host: string): boolean {
-  const mapped = matchingIpv4(host);
+  const parts = host.includes(':') ? parseIpv6(host) : null;
+  const embedded = parts ? embeddedIpv4(parts) : null;
   return (
     PRIVATE_HOST_PATTERNS.some((re) => re.test(host)) ||
     isNonPublicIpv4(host) ||
-    (mapped !== null && isNonPublicIpv4(mapped)) ||
+    (embedded !== null && isNonPublicIpv4(embedded)) ||
     isDangerousIpv6(host)
   );
 }

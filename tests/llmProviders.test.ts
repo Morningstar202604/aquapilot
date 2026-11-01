@@ -568,6 +568,38 @@ describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
     }
   });
 
+  it('拒绝 IPv4-compatible / NAT64 / 6to4 内嵌的私网与链路本地地址', () => {
+    for (const u of [
+      'http://[::7f00:1]/',
+      'http://[::127.0.0.1]/',
+      'http://[::a9fe:a9fe]/',
+      'http://[64:ff9b::7f00:1]/',
+      'http://[64:ff9b::a9fe:a9fe]/',
+      'http://[2002:7f00:1::1]/',
+      'http://[2002:a9fe:a9fe::1]/',
+    ]) {
+      expect(() => assertPublicFetchUrl(u)).toThrow();
+    }
+  });
+
+  it('内嵌私网地址的 IPv6 在模型端点同样被拒，公网 IPv6 仍放行', () => {
+    for (const u of ['http://[::a9fe:a9fe]/', 'http://[64:ff9b::a9fe:a9fe]/', 'http://[2002:a9fe:a9fe::1]/']) {
+      expect(() => assertSafeBaseUrl(u)).toThrow(/元数据|链路本地/);
+    }
+    expect(assertSafeBaseUrl('http://[2001:4860:4860::8888]/').hostname).toBe('[2001:4860:4860::8888]');
+  });
+
+  it('DNS 返回内嵌私网的 IPv6 地址时拒绝整个目标', async () => {
+    await expect(
+      resolvePublicFetchAddress(
+        'http://model-alias.example/v1',
+        async () => [{ address: '64:ff9b::a9fe:a9fe', family: 6 }],
+        undefined,
+        false,
+      ),
+    ).rejects.toThrow(/内网|元数据|链路本地/);
+  });
+
   it('放行真正的公网地址', () => {
     expect(assertPublicFetchUrl('https://example.com/doc.md').hostname).toBe('example.com');
     expect(assertPublicFetchUrl('https://docs.example.org/a/b').hostname).toBe('docs.example.org');
