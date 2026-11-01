@@ -64,7 +64,7 @@ npm run lint
 npm run test
 npm run verify            # typecheck + lint + test + build
 npm run ci                # local quality gate, audit, smoke, backup, and hygiene checks
-npm run e2e               # Playwright browser smoke; requires a Chromium executable
+npm run e2e               # Playwright browser smoke; uses managed Chromium or AQUAPILOT_BROWSER_PATH
 ```
 
 Docker:
@@ -93,7 +93,7 @@ When authentication is enabled, read operations require `viewer`, control/scenar
 
 The single source for current measured numbers is [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). It records the command, Node version, seed, strategy, and known model limits for each result.
 
-The latest local gate baseline is 88 test files and 1084 passing tests. The reported coverage is **domain coverage** for the configured model/AI/server sources, not coverage of every React component; the current line, branch, and function figures are maintained in `docs/BENCHMARKS.md`.
+The latest local gate baseline is 89 test files and 1094 passing tests. The reported coverage is **domain coverage** for the configured model/AI/server sources, not coverage of every React component; the current line, branch, and function figures are maintained in `docs/BENCHMARKS.md`.
 
 ## Limitations and safety
 

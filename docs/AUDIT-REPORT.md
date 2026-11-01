@@ -529,3 +529,32 @@ S_NH 残差分析：绝对差 0.34 gN/m³，折合氮通量的不足 1%——两
 | Gitee / GitCode 流水线实跑 | 需在各自控制台启用；仓库内配置已按平台规范提供，GitHub 侧已实跑成功 |
 | 30 天 SLO 窗口 | 单进程计数器重启即清零，需要外部 Prometheus 抓取 |
 | S_NH 进入 ±10% | 与二沉池浓缩区梯度限制同源，先以 ±25% 锁定 |
+
+---
+
+## 十四、当前工作区复核（2026-11-01）
+
+本节只记录本次接手后的当前文件和真实命令结果，不覆盖前文历史快照。
+
+| 项 | 修复前证据 | 当前处置与验证 |
+|---|---|---|
+| 项目门禁 | `npm run ci` 基线真实通过：1084/1084，覆盖率 92.47/81.58/95.94/94.01 | 保留现有 fail-closed 门禁；待本轮变更后重跑全量门禁 |
+| 浏览器冒烟 | 本机 `npm run e2e` 因 Playwright Chromium 缺失退出 1 | 增加 Edge/Chromium 路径选择和 finally 清理；系统 Edge 下真实 E2E 已通过：7 KPI、17 节点、3 图表、6 面板、0 console error |
+| SSRF 地址 | IPv4-mapped 私网 URL 在改前可放行 | 增加映射地址、私网 DNS 结果拒绝和解析地址固定请求；聚焦测试覆盖 |
+| HTTP 令牌 | 非 WebSocket URL 的 `?token=` 在改前可认证 | 仅 `/ws` 接受 legacy query token；API 必须用 Authorization header，并补认证回归 |
+
+### Deep 安全复核
+
+- 入口覆盖 HTTP API、WebSocket、技能 URL 导入、Webhook、LLM 模型发现/连接测试；消息 schema、角色等级、速率限制、响应头和日志脱敏均有源码或测试证据。
+- 已确认并修复：IPv4-mapped IPv6 绕过严格公网守卫；主机名解析到私网时拒绝；出站技能/Webhook 请求固定到已检查地址、拒绝重定向并限制响应体；非 WS query token 被拒绝。
+- 模型端点仍允许私网，这是支持本地 Ollama/vLLM 的产品边界；技能导入和 Webhook 仍使用严格公网路径。
+- 未发现凭据写入代码、日志或受管文件；扫描结果不回显敏感值。
+
+### 未执行
+
+| 项 | 原因 |
+|---|---|
+| Playwright managed Chromium 下载 | 本机缓存缺少可执行文件；使用已安装 Edge 验证相同断言，CI 保留 managed Chromium 安装步骤 |
+| Docker 实跑 | 本轮未启动 Docker daemon |
+| 外部平台后台状态 | 当前本地 origin 是 GitCode；无法从本地安全确认其他平台后台结果 |
+| 凭据撤销/轮换 | 本轮未读取、回显或使用令牌值；撤销需平台侧执行 |

@@ -3,7 +3,7 @@ import type { ClientMessage, ServerMessage } from '../shared/protocol';
 import { CORE_PROTECTED, normalizeAgentConfig, type AgentConfig } from '../shared/agentConfig';
 import { agentConfigStore } from './agentConfig';
 import { composeSystemPrompt } from '../ai/promptComposer';
-import { assertPublicFetchUrl } from '../ai/providers';
+import { fetchPublicUrl } from '../ai/providers';
 import { errorText } from './llmChat';
 import type { HookRuntime } from './hooks';
 
@@ -155,25 +155,18 @@ export function createAgentConfigHandler(deps: AgentConfigHandlerDeps) {
      */
     if (!content && typeof incoming?.url === 'string' && incoming.url.trim()) {
       try {
-        const url = assertPublicFetchUrl(incoming.url.trim());
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 10000);
-        try {
-          const res = await fetch(url.toString(), { signal: controller.signal, redirect: 'manual' });
-          if (!res.ok) {
-            send({ type: 'agentConfig', action: 'error', requestId, error: `导入失败：HTTP ${res.status}` });
-            return;
-          }
-          const text = (await res.text()).trim();
-          if (!text) {
-            send({ type: 'agentConfig', action: 'error', requestId, error: '导入失败：目标返回空内容' });
-            return;
-          }
-          fetchedSkillTitle = text.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? '';
-          content = text.slice(0, 12000);
-        } finally {
-          clearTimeout(timer);
+        const res = await fetchPublicUrl(incoming.url.trim(), { timeoutMs: 10000, maxBytes: 1_000_000 });
+        if (!res.ok) {
+          send({ type: 'agentConfig', action: 'error', requestId, error: `导入失败：HTTP ${res.status}` });
+          return;
         }
+        const text = (await res.text()).trim();
+        if (!text) {
+          send({ type: 'agentConfig', action: 'error', requestId, error: '导入失败：目标返回空内容' });
+          return;
+        }
+        fetchedSkillTitle = text.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? '';
+        content = text.slice(0, 12000);
       } catch (err) {
         send({ type: 'agentConfig', action: 'error', requestId, error: `导入失败：${errorText(err)}` });
         return;

@@ -8,7 +8,7 @@ server bundle in `dist/server` is self-contained.
 | `npm run dev` → `dev.mjs` | Start server + Vite with hot reload | — |
 | `npm run build` → `build-server.mjs` | Bundle the server with esbuild | — |
 | `npm run ci` → `ci-gate.sh` | Full local gate: deps, types, tests, build, smoke, secret scan | — |
-| `npm run e2e` → `e2e-ci.ts` | Playwright smoke: renders, tabs, no console errors, no edges crossing units | spawns its own |
+| `npm run e2e` → `e2e-ci.ts` | Playwright smoke: renders, tabs, no console errors, no edges crossing units; uses managed browser or `AQUAPILOT_BROWSER_PATH` | spawns its own |
 | `npm run media` → `media.ts` | Regenerate README screenshots and the demo recording from the production build | spawns its own |
 | `npm run benchmark:prove` → `prove-benchmark.ts` | AI vs fixed-strategy shadow run: compliance, energy, cost, score | — |
 | `backup.ts` | Consistent `VACUUM INTO` backup, verified restore, list | — |

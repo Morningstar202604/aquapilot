@@ -8,6 +8,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Fixed
 
+- **Local browser smoke no longer depends on a managed Playwright download.** `npm run e2e` uses an existing Edge/Chromium executable when `AQUAPILOT_BROWSER_PATH` is set (or when a standard system path is found), while CI still installs and uses the managed Chromium binary by default. Browser resources are closed during cleanup.
+- **Public fetches now pin DNS validation to the selected address.** Skill imports and webhook targets reject private DNS answers, IPv4-mapped private addresses, redirects, and oversized response bodies before the result is stored or returned.
+- **HTTP query tokens are no longer accepted outside `/ws`.** API clients must use the `Authorization` header; WebSocket clients should use the subprotocol.
 - **Connections ended nowhere.** 8 of 23 flowsheet edges stopped at a node's
   horizontal/vertical centre or at the top edge instead of the port dot the user
   sees (cross-layer sludge, aeration, chemical and storm-bypass lines). In the

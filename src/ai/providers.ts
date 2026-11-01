@@ -1,3 +1,7 @@
+import { promises as dns } from 'node:dns';
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { isIP } from 'node:net';
 import type { DiscoveredModel, LlmDiscoverInput, LlmProtocol, LlmTestInput, LlmTestResult } from '../shared/llm';
 import { isChatModel } from '../shared/llm';
 
@@ -59,7 +63,7 @@ function isDangerousIpv6(host: string): boolean {
   const lower = host.toLowerCase();
   // IPv4-mapped（::ffff:a.b.c.d）与 IPv4-compatible：把末两段解成 IPv4 再判一次
   const mapped = matchingIpv4(lower);
-  if (mapped) return isDangerousIpv4(mapped);
+  if (mapped) return isNonPublicIpv4(mapped) || isDangerousIpv4(mapped);
   // 链路本地 fe80::/10、唯一本地 fc00::/7、AWS IMDS IPv6 fd00:ec2::254 落在 ULA 内
   if (/^fe[89ab][0-9a-f]?:/.test(lower)) return true;
   if (/^f[cd][0-9a-f]{2}:/.test(lower)) return true;
@@ -70,6 +74,8 @@ function isDangerousIpv6(host: string): boolean {
 
 /** 从 IPv4-mapped IPv6 主机名里取出内嵌 IPv4（形如 ::ffff:a9fe:a9fe） */
 function matchingIpv4(host: string): string | null {
+  const dotted = /^::ffff:((?:\d{1,3}\.){3}\d{1,3})$/.exec(host);
+  if (dotted && dotted[1].split('.').every((part) => Number(part) >= 0 && Number(part) <= 255)) return dotted[1];
   const m = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
   if (!m) return null;
   const hi = parseInt(m[1], 16);
@@ -79,11 +85,28 @@ function matchingIpv4(host: string): string | null {
 
 function isDangerousIpv4(host: string): boolean {
   if (BLOCKED_HOSTS.has(host)) return true;
-  // 链路本地 169.254.0.0/16
   if (/^169\\.254\\./.test(host)) return true;
-  // 云元数据常用别名 IP（阿里云 / 腾讯云）
   if (host === '100.100.100.200') return true;
   return false;
+}
+
+function isNonPublicIpv4(host: string): boolean {
+  const octets = host.split('.').map(Number);
+  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b] = octets;
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 0) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && b >= 18 && b <= 19) ||
+    a === 224 ||
+    a >= 225
+  );
 }
 
 /**
@@ -136,16 +159,118 @@ const PRIVATE_HOST_PATTERNS = [
   /\.internal$/,
 ];
 
+function isPrivateFetchHost(host: string): boolean {
+  return PRIVATE_HOST_PATTERNS.some((re) => re.test(host)) || isNonPublicIpv4(host) || isDangerousIpv6(host);
+}
+
 export function assertPublicFetchUrl(raw: string): URL {
   const url = assertSafeBaseUrl(raw);
   const host = canonicalHost(url.hostname);
-  if (PRIVATE_HOST_PATTERNS.some((re) => re.test(host))) {
-    throw new ProviderError('该地址属于内网或回环地址，服务端不允许抓取');
-  }
-  if (isDangerousIpv6(host)) {
+  if (isPrivateFetchHost(host)) {
     throw new ProviderError('该地址属于内网或回环地址，服务端不允许抓取');
   }
   return url;
+}
+
+type PublicAddress = { address: string; family: 4 | 6 };
+type PublicAddressLookup = (hostname: string) => Promise<PublicAddress[]>;
+
+const lookupPublicAddresses: PublicAddressLookup = async (hostname) =>
+  (await dns.lookup(hostname, { all: true, verbatim: true })).map((entry) => ({
+    address: entry.address,
+    family: entry.family as 4 | 6,
+  }));
+
+export async function resolvePublicFetchAddress(
+  raw: string,
+  lookup: PublicAddressLookup = lookupPublicAddresses,
+): Promise<{ url: URL; address: string }> {
+  const url = assertPublicFetchUrl(raw);
+  const host = canonicalHost(url.hostname);
+  if (isIP(host)) return { url, address: host };
+  let addresses: PublicAddress[];
+  try {
+    addresses = await lookup(host);
+  } catch {
+    throw new ProviderError('无法解析公网地址');
+  }
+  if (addresses.length === 0 || addresses.some((entry) => isPrivateFetchHost(canonicalHost(entry.address)))) {
+    throw new ProviderError('该地址解析到了内网或回环地址，服务端不允许抓取');
+  }
+  return { url, address: addresses[0].address };
+}
+
+interface PublicFetchOptions {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string | Uint8Array;
+  timeoutMs?: number;
+  maxBytes?: number;
+  lookup?: PublicAddressLookup;
+  requestImpl?: typeof httpRequest;
+}
+
+export async function fetchPublicUrl(raw: string, options: PublicFetchOptions = {}): Promise<Response> {
+  const { url, address } = await resolvePublicFetchAddress(raw, options.lookup);
+  const method = options.method ?? 'GET';
+  const timeoutMs = options.timeoutMs ?? 10_000;
+  const maxBytes = options.maxBytes ?? 1_000_000;
+  const transport = options.requestImpl ?? (url.protocol === 'https:' ? httpsRequest : httpRequest);
+  const headers: Record<string, string> = { ...(options.headers ?? {}) };
+  headers.Host = url.host;
+  return new Promise<Response>((resolve, reject) => {
+    let settled = false;
+    const fail = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    const request = transport(
+      {
+        protocol: url.protocol,
+        hostname: address,
+        port: url.port || undefined,
+        path: `${url.pathname}${url.search}`,
+        method,
+        headers,
+        timeout: timeoutMs,
+        ...(url.protocol === 'https:' ? { servername: canonicalHost(url.hostname) } : {}),
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        response.on('data', (chunk: Buffer | string) => {
+          const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          size += data.length;
+          if (size > maxBytes) {
+            const error = new ProviderError('响应体过大，已拒绝读取');
+            fail(error);
+            response.destroy(error);
+            request.destroy(error);
+            return;
+          }
+          chunks.push(data);
+        });
+        response.on('error', (error) => fail(error));
+        response.on('end', () => {
+          if (settled) return;
+          settled = true;
+          const responseHeaders = new Headers();
+          for (const [key, value] of Object.entries(response.headers)) {
+            if (Array.isArray(value)) responseHeaders.set(key, value.join(', '));
+            else if (value !== undefined) responseHeaders.set(key, value);
+          }
+          resolve(
+            new Response(Buffer.concat(chunks), { status: response.statusCode ?? 502, headers: responseHeaders }),
+          );
+        });
+      },
+    );
+    request.on('timeout', () => request.destroy(new ProviderError('请求超时，端点没有响应')));
+    request.on('error', (error) => fail(error));
+    if (options.body !== undefined) request.write(options.body);
+    request.end();
+  });
 }
 
 function joinUrl(base: string, path: string): string {

@@ -2,6 +2,7 @@ import { chromium } from 'playwright-core';
 import { mkdir, rename, rm } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { resolveBrowserExecutable } from './e2eBrowser';
 
 /**
  * 对外展示素材生成器：README 截图 + 演示视频。
@@ -76,10 +77,13 @@ async function snap(page: import('playwright-core').Page, name: string) {
   console.log(`  shot ${name}`);
 }
 
+let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+let context: import('playwright-core').BrowserContext | undefined;
 try {
   await waitForServer();
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
+  const browserPath = resolveBrowserExecutable();
+  browser = await chromium.launch({ headless: true, ...(browserPath ? { executablePath: browserPath } : {}) });
+  context = await browser.newContext({
     viewport: { width: 1600, height: 950 },
     recordVideo: { dir: VIDEO_DIR, size: { width: 1600, height: 950 } },
   });
@@ -166,12 +170,16 @@ try {
   const video = page.video();
   await context.close();
   await browser.close();
+  context = undefined;
+  browser = undefined;
   if (video) {
     const raw = await video.path();
     if (existsSync(raw)) await rename(raw, 'docs/media/demo.webm');
   }
   console.log('MEDIA PASS: 10 screenshots + demo.webm');
 } finally {
+  await context?.close().catch(() => undefined);
+  await browser?.close().catch(() => undefined);
   server.kill();
   await new Promise((r) => setTimeout(r, 500));
   for (const suffix of ['', '-wal', '-shm']) {

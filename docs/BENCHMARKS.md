@@ -114,11 +114,11 @@ npx vitest run --coverage
 
 | Item | Value |
 |---|---|
-| Test files | 88 |
-| Tests | 1084 |
-| Line coverage | 94.01 % |
-| Branch coverage | 81.58 % |
-| Function coverage | 95.94 % |
+| Test files | 89 |
+| Tests | 1094 |
+| Line coverage | 94.08 % |
+| Branch coverage | 81.48 % |
+| Function coverage | 95.66 % |
 
 Coverage is measured with `vitest.config.ts` over the model, AI, simulation, and
 server sources plus the shared label helper. It is a domain-coverage gate, not a

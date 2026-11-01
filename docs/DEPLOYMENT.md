@@ -36,6 +36,10 @@ Notes that matter:
   says so in the UI replay panel and `/api/health?deep=1`.
 - The healthcheck hits `/api/health`, which is public even when
   `AQUAPILOT_TOKEN` is set.
+- For local browser smoke testing, `npm run e2e` uses Playwright's managed browser
+  when available. Set `AQUAPILOT_BROWSER_PATH` to an existing Edge or Chromium
+  executable when the managed browser is not installed; the same behavioral
+  assertions run unchanged.
 
 Compose example:
 

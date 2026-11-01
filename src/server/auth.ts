@@ -94,7 +94,8 @@ export function extractToken(req: IncomingMessage, fallback?: string | null): st
 
   const url = req.url ?? '';
   const q = url.indexOf('?');
-  if (q >= 0) {
+  const pathname = q >= 0 ? url.slice(0, q) : url;
+  if (pathname === '/ws' && q >= 0) {
     const params = new URLSearchParams(url.slice(q + 1));
     const t = params.get('token');
     if (t) return t;

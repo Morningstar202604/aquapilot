@@ -1,11 +1,14 @@
+import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ProviderError,
   assertPublicFetchUrl,
   assertSafeBaseUrl,
+  resolvePublicFetchAddress,
   chatComplete,
   describeHttpFailure,
   discoverModels,
+  fetchPublicUrl,
   normalizeBaseUrl,
   parseChatReply,
   parseModelList,
@@ -41,6 +44,44 @@ function mockFetch(handler: (url: string, init: RequestInit) => Response): {
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+function fakeRequest(responseBody: string, statusCode = 200): typeof import('node:http').request {
+  return ((
+    options: unknown,
+    callback: (response: EventEmitter & { statusCode?: number; headers: Record<string, string> }) => void,
+  ) => {
+    void options;
+    const request = new EventEmitter() as EventEmitter & {
+      write: (body: string | Uint8Array) => void;
+      end: () => void;
+      destroy: (error?: Error) => void;
+      setTimeout: (ms: number, cb?: () => void) => void;
+    };
+    request.write = () => undefined;
+    request.setTimeout = (_ms, cb) => cb?.();
+    request.destroy = (error) => {
+      if (error) queueMicrotask(() => request.emit('error', error));
+    };
+    request.end = () => {
+      const response = new EventEmitter() as EventEmitter & {
+        statusCode: number;
+        headers: Record<string, string>;
+        destroy: (error?: Error) => void;
+      };
+      response.statusCode = statusCode;
+      response.headers = { 'content-type': 'text/plain' };
+      response.destroy = (error) => {
+        if (error) queueMicrotask(() => response.emit('error', error));
+      };
+      callback(response);
+      queueMicrotask(() => {
+        response.emit('data', Buffer.from(responseBody));
+        response.emit('end');
+      });
+    };
+    return request as unknown as ReturnType<typeof import('node:http').request>;
+  }) as typeof import('node:http').request;
 }
 
 describe('SSRF 守卫', () => {
@@ -380,8 +421,62 @@ describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
     }
   });
 
+  it('拒绝 IPv4-mapped IPv6 形式的私网与回环地址', () => {
+    for (const u of [
+      'http://[::ffff:10.0.0.1]/',
+      'http://[::ffff:127.0.0.1]/',
+      'http://[::ffff:192.168.1.1]/',
+      'http://[::ffff:172.16.0.1]/',
+    ]) {
+      expect(() => assertPublicFetchUrl(u)).toThrow();
+    }
+  });
+
   it('放行真正的公网地址', () => {
     expect(assertPublicFetchUrl('https://example.com/doc.md').hostname).toBe('example.com');
     expect(assertPublicFetchUrl('https://docs.example.org/a/b').hostname).toBe('docs.example.org');
+  });
+
+  it('DNS 解析结果含私网地址时拒绝整个目标', async () => {
+    await expect(
+      resolvePublicFetchAddress('https://public.example.com/doc.md', async () => [
+        { address: '203.0.113.10', family: 4 },
+        { address: '192.168.1.10', family: 4 },
+      ]),
+    ).rejects.toThrow(/解析到了内网/);
+  });
+
+  it('出站抓取在公网守卫拒绝时不发起请求', async () => {
+    await expect(fetchPublicUrl('http://127.0.0.1/')).rejects.toThrow(/内网|回环/);
+  });
+
+  it('出站抓取连接固定地址并读取响应', async () => {
+    const result = await fetchPublicUrl('http://public.example.com/doc.md', {
+      method: 'POST',
+      body: 'payload',
+      lookup: async () => [{ address: '203.0.113.10', family: 4 }],
+      requestImpl: fakeRequest('ok'),
+    });
+    await expect(result.text()).resolves.toBe('ok');
+    expect(result.status).toBe(200);
+  });
+
+  it('出站抓取拒绝超大响应体', async () => {
+    await expect(
+      fetchPublicUrl('http://public.example.com/doc.md', {
+        maxBytes: 1,
+        lookup: async () => [{ address: '203.0.113.10', family: 4 }],
+        requestImpl: fakeRequest('too large'),
+      }),
+    ).rejects.toThrow(/响应体过大/);
+  });
+
+  it('DNS 解析通过后返回固定的公网地址', async () => {
+    await expect(
+      resolvePublicFetchAddress('https://public.example.com/doc.md', async (host) => {
+        expect(host).toBe('public.example.com');
+        return [{ address: '203.0.113.10', family: 4 }];
+      }),
+    ).resolves.toMatchObject({ address: '203.0.113.10' });
   });
 });

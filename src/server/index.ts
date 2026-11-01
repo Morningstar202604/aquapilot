@@ -24,7 +24,7 @@ import { buildOperationsReport, decisionsCsv, snapshotsCsv } from './export';
 import { syncCursorToBuffer } from './trendCursor';
 import { createShadowPlant, stepShadow, summarizeBenchmark, type ShadowPlant } from './benchmark';
 import { llmConfigStore, sanitizeDraft } from './llmConfig';
-import { discoverModels, testConnection } from '../ai/providers';
+import { discoverModels, fetchPublicUrl, testConnection } from '../ai/providers';
 import { agentConfigStore } from './agentConfig';
 import { HookRuntime } from './hooks';
 import { parseAgentCommand } from './agentConfigCommands';
@@ -417,8 +417,6 @@ const hooksRuntime = new HookRuntime({
     broadcast({ type: 'notice', level: 'info', text: `[钩子] 已命中技能 ${skillId}，下一轮回答会引用其步骤` }),
   logLine: (text, level, hook) => logger[level](text, { hook: hook.name, event: hook.event }),
   webhook: async (url, body, hook) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
     try {
       /**
        * 不跟随重定向。
@@ -427,12 +425,12 @@ const hooksRuntime = new HookRuntime({
        * 若默认 follow，一个公网地址 302 到 `http://169.254.169.254/…`
        * 就能把请求打进云元数据。`manual` 下 3xx 直接按失败处理。
        */
-      const res = await fetch(url, {
+      const res = await fetchPublicUrl(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Aquapilot-Hook': hook.id },
         body: JSON.stringify(body),
-        signal: controller.signal,
-        redirect: 'manual',
+        timeoutMs: 5000,
+        maxBytes: 256 * 1024,
       });
       if (res.status >= 300 && res.status < 400) {
         hookFailures += 1;
@@ -448,8 +446,6 @@ const hooksRuntime = new HookRuntime({
       hookFailures += 1;
       logger.warn('hook webhook failed', { hook: hook.name, error: String(err) });
       return false;
-    } finally {
-      clearTimeout(timer);
     }
   },
 });

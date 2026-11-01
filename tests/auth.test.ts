@@ -55,10 +55,11 @@ describe('访问控制', () => {
     expect(authorize(makeReq({ authorization: 'Bearer secret-abc' })).allowed).toBe(true);
   });
 
-  it('支持 query 参数传令牌（WebSocket 场景）', () => {
+  it('仅允许 WebSocket 路径使用 query 参数传令牌', () => {
     process.env.AQUAPILOT_TOKEN = 'secret-abc';
     expect(authorize(makeReq({}, '/ws?token=secret-abc')).allowed).toBe(true);
     expect(authorize(makeReq({}, '/ws?token=bad')).allowed).toBe(false);
+    expect(authorize(makeReq({}, '/api/snapshot?token=secret-abc')).allowed).toBe(false);
   });
 
   it('支持子协议传令牌（浏览器 WebSocket 无法设 header）', () => {

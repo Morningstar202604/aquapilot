@@ -23,56 +23,27 @@ stages:
       name: verify
       displayName: Verify
       steps:
-        - step: setup
-          name: setup
-          displayName: Setup Node
+        - step: gate
+          name: gate
+          displayName: Local CI gate
           script: |
             set -e
             node --version
-            npm ci
+            npm run ci
 
-        - step: typecheck
-          name: typecheck
-          displayName: Type check
+        - step: browser-install
+          name: browser-install
+          displayName: Install Chromium
           script: |
             set -e
-            npm run typecheck
+            npx --no-install playwright-core install --with-deps chromium
 
-        - step: test
-          name: test
-          displayName: Unit tests
+        - step: browser-smoke
+          name: browser-smoke
+          displayName: Browser smoke
           script: |
             set -e
-            npx vitest run --reporter=json --outputFile=test-results.json
-            node -e "const r=require('./test-results.json');if(r.numFailedTests>0){console.error('failed:'+r.numFailedTests);process.exit(1)}if(r.numTotalTests<300){console.error('too few tests (<300):'+r.numTotalTests);process.exit(1)}console.log('tests '+r.numPassedTests+'/'+r.numTotalTests)"
-            rm -f test-results.json
-
-        - step: build
-          name: build
-          displayName: Build
-          script: |
-            set -e
-            npm run build
-            test -f dist/client/index.html
-            test -f dist/server/index.mjs
-
-        - step: smoke
-          name: smoke
-          displayName: Smoke test
-          script: |
-            set -e
-            PORT=5181 node dist/server/index.mjs &
-            PID=$!
-            ok=0
-            for i in $(seq 1 30); do
-              if curl -sf http://127.0.0.1:5181/api/snapshot > /dev/null; then ok=1; break; fi
-              sleep 1
-            done
-            if [ "$ok" -ne 1 ]; then echo "server not ready"; kill $PID 2>/dev/null || true; exit 1; fi
-            curl -sf http://127.0.0.1:5181/api/snapshot | grep -q '"effluent"'
-            curl -sf http://127.0.0.1:5181/api/topology | grep -q '"topology"'
-            kill $PID 2>/dev/null || true
-            echo "smoke ok"
+            npm run e2e
 
   - stage:
       name: quality

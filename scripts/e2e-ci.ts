@@ -1,11 +1,12 @@
 import { chromium } from 'playwright-core';
 import { mkdir, rm } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
+import { resolveBrowserExecutable } from './e2eBrowser';
 
 /**
  * CI 用的浏览器冒烟测试。
  *
- * 与人工审查脚本的区别：断言明确、失败即退出码非零、不依赖本机 Chrome 路径。
+ * 与人工审查脚本的区别：断言明确、失败即退出码非零，默认使用托管浏览器。
  * 覆盖三条最关键的路径：页面能加载、五个面板可切换、WebSocket 有数据。
  */
 
@@ -53,10 +54,12 @@ const waitForServer = async (): Promise<void> => {
   fail('server did not become healthy in 20s');
 };
 
+let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 try {
   await waitForServer();
 
-  const browser = await chromium.launch({ headless: true });
+  const browserPath = resolveBrowserExecutable();
+  browser = await chromium.launch({ headless: true, ...(browserPath ? { executablePath: browserPath } : {}) });
   const page = await browser.newPage({ viewport: { width: 1600, height: 950 } });
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -147,7 +150,9 @@ try {
       const len = el.getTotalLength();
       for (let i = 0; i <= 300; i++) {
         const pt = el.getPointAtLength((len * i) / 300);
-        const hit = nodes.findIndex((n) => pt.x > n.x + 3 && pt.x < n.x + n.w - 3 && pt.y > n.y + 3 && pt.y < n.y + n.h - 3);
+        const hit = nodes.findIndex(
+          (n) => pt.x > n.x + 3 && pt.x < n.x + n.w - 3 && pt.y > n.y + 3 && pt.y < n.y + n.h - 3,
+        );
         if (hit >= 0) {
           const label = el.parentElement?.querySelector('text')?.textContent ?? '?';
           bad.push(`${label}@node${hit}`);
@@ -215,5 +220,6 @@ try {
     'E2E PASS: 7 KPIs, health pill, 5 health parts, 17 nodes, 3 charts, 6 panels, train profile, port layers, version history, topbar 6 widths, 0 console errors',
   );
 } finally {
+  await browser?.close().catch(() => undefined);
   server.kill();
 }

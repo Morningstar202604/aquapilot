@@ -174,6 +174,8 @@ Connect to `/ws`. When `AQUAPILOT_TOKEN` is set, browsers cannot send an
 new WebSocket('ws://127.0.0.1:5173/ws', [`token.${token}`]);
 ```
 
+A legacy `/ws?token=...` query parameter is accepted only on the WebSocket path. Do not put tokens in HTTP API URLs: URLs can be copied into access logs, browser history, or proxy traces.
+
 Frames are JSON objects with a `type`. Client → server:
 
 | `type`                | Purpose                                                                         |

@@ -64,7 +64,7 @@ npm run lint
 npm run test
 npm run verify            # 类型检查 + lint + 测试 + 构建
 npm run ci                # 本地质量门禁、审计、冒烟、备份和卫生检查
-npm run e2e               # Playwright 浏览器冒烟，需要 Chromium 可执行文件
+npm run e2e               # Playwright 浏览器冒烟，使用托管 Chromium 或 AQUAPILOT_BROWSER_PATH
 ```
 
 Docker：
@@ -93,7 +93,7 @@ AQUAPILOT_LLM_API_KEY=...
 
 当前数字的唯一维护入口是 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)，其中记录命令、Node 版本、seed、策略和已知模型限制。
 
-最近一次本地门禁基线为 88 个测试文件、1084 项测试通过。覆盖率是已配置模型/AI/服务端源码的**领域覆盖率**，不代表所有 React 组件都被统计；当前行、分支和函数数字只在 `docs/BENCHMARKS.md` 维护。
+最近一次本地门禁基线为 89 个测试文件、1094 项测试通过。覆盖率是已配置模型/AI/服务端源码的**领域覆盖率**，不代表所有 React 组件都被统计；当前行、分支和函数数字只在 `docs/BENCHMARKS.md` 维护。
 
 ## 限制与安全声明
 
