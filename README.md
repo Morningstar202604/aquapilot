@@ -29,16 +29,16 @@ It is **not** a design-grade simulator, a real-plant control system, a complianc
 
 ## Implementation status
 
-| Capability | Status | Boundary |
-| --- | --- | --- |
-| ASM1 + Takács water train | Running runtime | The main train uses ASM1; BSM1 comparison remains within documented tolerances. |
-| ASM2d and ADM1 | Implemented, standalone | Unit tests and registry metadata exist; no BSM2 end-to-end integration. |
-| Parameter calibration | Experimental | Synthetic BSM1 observations; results do not automatically change runtime parameters. |
-| State estimation | Experimental, off by default | Simulated state plus deterministic noise; no field sensor stream. |
-| CSV influent replay | Implemented | Validated by size/format/data-quality checks before application. |
-| MQTT / OPC UA | Not implemented | The adapter contract reports an explicit unavailable status; no protocol client is shipped. |
-| Persistent history | Environment-dependent | Node 22+ can use built-in `node:sqlite`; Node 20 may fall back to in-memory history. Check `/api/health?deep=1`. |
-| Access control | Implemented, shared-token model | Three access levels, not named users or a complete RBAC system. |
+| Capability                | Status                          | Boundary                                                                                                         |
+| ------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| ASM1 + Takács water train | Running runtime                 | The main train uses ASM1; BSM1 comparison remains within documented tolerances.                                  |
+| ASM2d and ADM1            | Implemented, standalone         | Unit tests and registry metadata exist; no BSM2 end-to-end integration.                                          |
+| Parameter calibration     | Experimental                    | Synthetic BSM1 observations; results do not automatically change runtime parameters.                             |
+| State estimation          | Experimental, off by default    | Simulated state plus deterministic noise; no field sensor stream.                                                |
+| CSV influent replay       | Implemented                     | Validated by size/format/data-quality checks before application.                                                 |
+| MQTT / OPC UA             | Not implemented                 | The adapter contract reports an explicit unavailable status; no protocol client is shipped.                      |
+| Persistent history        | Environment-dependent           | Node 22+ can use built-in `node:sqlite`; Node 20 may fall back to in-memory history. Check `/api/health?deep=1`. |
+| Access control            | Implemented, shared-token model | Three access levels, not named users or a complete RBAC system.                                                  |
 
 ## Quick start
 
@@ -71,7 +71,9 @@ Docker:
 
 ```bash
 docker build -t aquapilot:local .
-docker run --rm -p 5173:5173 -v aquapilot-data:/app/data aquapilot:local
+docker run --rm -p 5173:5173 \
+  -e AQUAPILOT_TOKEN="$AQUAPILOT_TOKEN" \
+  -v aquapilot-data:/app/data aquapilot:local
 ```
 
 ## Configuration
@@ -79,6 +81,7 @@ docker run --rm -p 5173:5173 -v aquapilot-data:/app/data aquapilot:local
 The UI can save LLM settings. Environment variables are available for deployment and local automation; use placeholders, never commit real values.
 
 ```text
+HOST=127.0.0.1                 # non-loopback values require an access token
 AQUAPILOT_TOKEN=...            # optional admin token for API and WebSocket access
 AQUAPILOT_OPERATOR_TOKEN=...   # optional operator token
 AQUAPILOT_VIEWER_TOKEN=...     # optional read-only token
@@ -93,7 +96,7 @@ When authentication is enabled, read operations require `viewer`, control/scenar
 
 The single source for current measured numbers is [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). It records the command, Node version, seed, strategy, and known model limits for each result.
 
-The latest local gate baseline is 89 test files and 1094 passing tests. The reported coverage is **domain coverage** for the configured model/AI/server sources, not coverage of every React component; the current line, branch, and function figures are maintained in `docs/BENCHMARKS.md`.
+The latest local gate baseline is 91 test files and 1121 passing tests. The reported coverage is **domain coverage** for the configured model/AI/server sources, not coverage of every React component; the current line, branch, and function figures are maintained in `docs/BENCHMARKS.md`.
 
 ## Limitations and safety
 

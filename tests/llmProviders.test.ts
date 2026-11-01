@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { createServer } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ProviderError,
@@ -44,6 +45,44 @@ function mockFetch(handler: (url: string, init: RequestInit) => Response): {
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+function dripRequest(): typeof import('node:http').request {
+  return ((
+    options: unknown,
+    callback: (response: EventEmitter & { statusCode?: number; headers: Record<string, string> }) => void,
+  ) => {
+    void options;
+    const request = new EventEmitter() as EventEmitter & {
+      write: () => void;
+      end: () => void;
+      destroy: (error?: Error) => void;
+      setTimeout: () => void;
+    };
+    let timer: ReturnType<typeof setInterval> | undefined;
+    request.write = () => undefined;
+    request.setTimeout = () => undefined;
+    request.destroy = (error) => {
+      if (timer) clearInterval(timer);
+      if (error) queueMicrotask(() => request.emit('error', error));
+    };
+    request.end = () => {
+      const response = new EventEmitter() as EventEmitter & {
+        statusCode: number;
+        headers: Record<string, string>;
+        destroy: (error?: Error) => void;
+      };
+      response.statusCode = 200;
+      response.headers = { 'content-type': 'text/plain' };
+      response.destroy = (error) => {
+        if (timer) clearInterval(timer);
+        if (error) queueMicrotask(() => response.emit('error', error));
+      };
+      callback(response);
+      timer = setInterval(() => response.emit('data', Buffer.from('x')), 5);
+    };
+    return request as unknown as ReturnType<typeof import('node:http').request>;
+  }) as typeof import('node:http').request;
 }
 
 function fakeRequest(responseBody: string, statusCode = 200): typeof import('node:http').request {
@@ -114,6 +153,13 @@ describe('SSRF 守卫', () => {
     ).rejects.toThrow(/重定向/);
   });
 
+  it('响应体超过上限时拒绝读取', async () => {
+    mockFetch(() => new Response('x'.repeat(1_000_001), { status: 200 }));
+    await expect(discoverModels({ protocol: 'openai', baseUrl: 'https://api.example.com/v1' })).rejects.toThrow(
+      /响应体过大/,
+    );
+  });
+
   it('响应体读取也受超时约束（端点头返回后挂住 body）', async () => {
     vi.useFakeTimers();
     try {
@@ -143,9 +189,54 @@ describe('SSRF 守卫', () => {
     }
   }, 10000);
 
+  it('拒绝整个 169.254.0.0/16 链路本地网段作为模型端点', () => {
+    for (const host of ['169.254.0.1', '169.254.169.253', '169.254.170.2', '169.254.255.254']) {
+      expect(() => assertSafeBaseUrl(`http://${host}/v1`)).toThrow(/元数据|链路本地/);
+    }
+  });
+
   it('允许本地与私网端点（自建 Ollama/vLLM）', () => {
     expect(assertSafeBaseUrl('http://127.0.0.1:11434/v1').hostname).toBe('127.0.0.1');
     expect(assertSafeBaseUrl('http://192.168.1.9:8000/v1').hostname).toBe('192.168.1.9');
+  });
+});
+
+describe('真实本机模型端点', () => {
+  it('localhost 和 127.0.0.1 均可访问仅监听 IPv4 的模型服务', async () => {
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'local-chat' }] }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('missing port');
+      for (const host of ['127.0.0.1', 'localhost']) {
+        const result = await discoverModels({ protocol: 'openai', baseUrl: `http://${host}:${address.port}/v1` });
+        expect(result[0].id).toBe('local-chat');
+      }
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+  });
+
+  it('::1 可访问 IPv6 loopback 模型服务', async () => {
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'local-chat' }] }));
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '::1', resolve);
+    });
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('missing port');
+      const result = await discoverModels({ protocol: 'openai', baseUrl: `http://[::1]:${address.port}/v1` });
+      expect(result[0].id).toBe('local-chat');
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
   });
 });
 
@@ -240,14 +331,15 @@ describe('模型发现请求', () => {
     expect(headers['anthropic-version']).toBeTruthy();
   });
 
-  it('Google 把 key 放查询参数', async () => {
+  it('Google 把 key 放在 x-goog-api-key 请求头而不是 URL', async () => {
     const { calls } = mockFetch(() => json({ models: [{ name: 'models/gemini-3-pro' }] }));
     await discoverModels({
       protocol: 'google',
       baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
       apiKey: 'k',
     });
-    expect(calls[0].url).toBe('https://generativelanguage.googleapis.com/v1beta/models?key=k');
+    expect(calls[0].url).toBe('https://generativelanguage.googleapis.com/v1beta/models');
+    expect((calls[0].init.headers as Record<string, string>)['x-goog-api-key']).toBe('k');
   });
 
   it('401 给出可读的鉴权失败原因', async () => {
@@ -316,15 +408,17 @@ describe('连接测试', () => {
     expect(result.error).toMatch(/无法连接端点/);
   });
 
-  it('非法地址在发起请求前被拦下', async () => {
+  it('整个 link-local 网段都在发起请求前被拦下', async () => {
     let called = false;
     global.fetch = (async () => {
       called = true;
       return json({});
     }) as unknown as typeof fetch;
-    const result = await testConnection({ protocol: 'openai', baseUrl: 'http://169.254.169.254', model: 'm' });
+    for (const host of ['169.254.0.1', '169.254.169.253', '169.254.170.2', '169.254.255.254']) {
+      const result = await testConnection({ protocol: 'openai', baseUrl: `http://${host}`, model: 'm' });
+      expect(result.ok).toBe(false);
+    }
     expect(called).toBe(false);
-    expect(result.ok).toBe(false);
   });
 });
 
@@ -363,6 +457,48 @@ describe('聊天链路复用', () => {
     const body = JSON.parse(String(calls[0].init.body)) as { system: string; messages: unknown[] };
     expect(body.system).toBe('SYS');
     expect(body.messages).toHaveLength(1);
+  });
+
+  it('Google 聊天使用 header key 与 Gemini body', async () => {
+    const { calls } = mockFetch(() => json({ candidates: [{ content: { parts: [{ text: '正常' }] } }] }));
+    const out = await chatComplete(
+      {
+        protocol: 'google',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+        apiKey: 'k',
+        model: 'm',
+        maxOutput: 500,
+      },
+      'SYS',
+      'USER',
+      2000,
+    );
+    expect(out).toEqual({ ok: true, text: '正常' });
+    expect(calls[0].url).not.toContain('key=');
+    expect((calls[0].init.headers as Record<string, string>)['x-goog-api-key']).toBe('k');
+  });
+
+  it('非法聊天端点在构造请求前安全失败', async () => {
+    const out = await chatComplete(
+      { protocol: 'openai', baseUrl: 'http://169.254.170.2/v1', apiKey: 'k', model: 'm', maxOutput: 500 },
+      'SYS',
+      'USER',
+      2000,
+    );
+    expect(out).toEqual({ ok: false, reason: 'invalid-base-url' });
+  });
+
+  it('聊天网络异常返回 network-error', async () => {
+    global.fetch = (async () => {
+      throw new Error('network');
+    }) as unknown as typeof fetch;
+    const out = await chatComplete(
+      { protocol: 'openai', baseUrl: 'https://api.example.com/v1', apiKey: '', model: 'm', maxOutput: 500 },
+      'S',
+      'U',
+      2000,
+    );
+    expect(out).toEqual({ ok: false, reason: 'network-error' });
   });
 
   it('HTTP 失败返回 reason 供降级', async () => {
@@ -437,6 +573,17 @@ describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
     expect(assertPublicFetchUrl('https://docs.example.org/a/b').hostname).toBe('docs.example.org');
   });
 
+  it('模型端点 DNS alias 解析到 link-local 时也拒绝', async () => {
+    await expect(
+      resolvePublicFetchAddress(
+        'http://model-alias.example/v1',
+        async () => [{ address: '169.254.170.2', family: 4 }],
+        undefined,
+        true,
+      ),
+    ).rejects.toThrow(/元数据|链路本地/);
+  });
+
   it('DNS 解析结果含私网地址时拒绝整个目标', async () => {
     await expect(
       resolvePublicFetchAddress('https://public.example.com/doc.md', async () => [
@@ -448,6 +595,17 @@ describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
 
   it('出站抓取在公网守卫拒绝时不发起请求', async () => {
     await expect(fetchPublicUrl('http://127.0.0.1/')).rejects.toThrow(/内网|回环/);
+  });
+
+  it('204/205/304 响应不构造非法 body', async () => {
+    for (const status of [204, 205, 304]) {
+      const response = await fetchPublicUrl('http://public.example.com/no-body', {
+        lookup: async () => [{ address: '203.0.113.10', family: 4 }],
+        requestImpl: fakeRequest('', status),
+      });
+      expect(response.status).toBe(status);
+      await expect(response.text()).resolves.toBe('');
+    }
   });
 
   it('出站抓取连接固定地址并读取响应', async () => {
@@ -469,6 +627,60 @@ describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
         requestImpl: fakeRequest('too large'),
       }),
     ).rejects.toThrow(/响应体过大/);
+  });
+
+  it('持续 drip 响应也受总 wall-clock deadline 限制', async () => {
+    const started = Date.now();
+    await expect(
+      fetchPublicUrl('http://public.example.com/drip', {
+        timeoutMs: 40,
+        lookup: async () => [{ address: '203.0.113.10', family: 4 }],
+        requestImpl: dripRequest(),
+      }),
+    ).rejects.toThrow(/超时/);
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+
+  it('DNS lookup 受同一 deadline 取消', async () => {
+    await expect(
+      fetchPublicUrl('http://public.example.com/dns', {
+        timeoutMs: 20,
+        lookup: () => new Promise(() => undefined),
+        requestImpl: fakeRequest('never'),
+      }),
+    ).rejects.toThrow(/超时/);
+  });
+
+  it('DNS 解析失败和空结果都 fail-closed', async () => {
+    await expect(
+      resolvePublicFetchAddress('https://public.example.com/fail', async () => Promise.reject(new Error('dns'))),
+    ).rejects.toThrow(/无法解析公网地址/);
+    await expect(resolvePublicFetchAddress('https://public.example.com/empty', async () => [])).rejects.toThrow(
+      /解析到了内网/,
+    );
+  });
+
+  it('直接公网 IP 不需要 DNS lookup', async () => {
+    await expect(resolvePublicFetchAddress('https://203.0.113.10/doc.md', async () => [])).resolves.toMatchObject({
+      address: '203.0.113.10',
+    });
+  });
+
+  it('已取消的 DNS deadline 不会启动出站请求', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      resolvePublicFetchAddress(
+        'https://public.example.com/cancelled',
+        async () => [{ address: '203.0.113.10', family: 4 }],
+        controller.signal,
+      ),
+    ).rejects.toThrow(/超时/);
+  });
+
+  it('默认 DNS resolver 能解析公网域名', async () => {
+    const result = await resolvePublicFetchAddress('https://example.com/');
+    expect(result.address).toMatch(/^[0-9a-f:.]+$/i);
   });
 
   it('DNS 解析通过后返回固定的公网地址', async () => {

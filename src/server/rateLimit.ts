@@ -43,7 +43,7 @@ export interface ClientState {
 
 export function freshClientState(): ClientState {
   return {
-    role: 'admin',
+    role: 'viewer',
     alive: true,
     lastControlAt: 0,
     lastTopologyAt: 0,

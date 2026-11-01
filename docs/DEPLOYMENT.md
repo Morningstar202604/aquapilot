@@ -8,7 +8,7 @@ npm run build
 npm start
 ```
 
-The server serves both the API and the built client from `dist/client` on `PORT`.
+The server serves both the API and the built client from `dist/client` on `HOST:PORT`. By default it binds only to `127.0.0.1`. Set `HOST` explicitly for LAN/public exposure and configure at least one access token; non-loopback binding without a token fails closed at startup.
 Runtime state lives under `data/`:
 
 - `data/aquapilot.db` — decisions, alarms and replay snapshots (SQLite, Node 22+)
@@ -23,7 +23,9 @@ replay history, and the two topology files hold the operator's authored flowshee
 
 ```bash
 docker build -t aquapilot:local .
-docker run --rm -p 5173:5173 -v aquapilot-data:/app/data aquapilot:local
+docker run --rm -p 5173:5173 \
+  -e AQUAPILOT_TOKEN="$AQUAPILOT_TOKEN" \
+  -v aquapilot-data:/app/data aquapilot:local
 ```
 
 Notes that matter:
@@ -49,9 +51,11 @@ services:
     image: aquapilot:local
     ports: ['5173:5173']
     environment:
+      HOST: '0.0.0.0'
       PORT: '5173'
       LOG_LEVEL: info
-      # AQUAPILOT_TOKEN: change-me
+      # Non-loopback HOST requires a token.
+      AQUAPILOT_TOKEN: change-me
       # AQUAPILOT_LLM_BASE_URL: https://api.example.com/v1
       # AQUAPILOT_LLM_MODEL: model-name
     volumes:
@@ -96,13 +100,13 @@ If you deploy publicly without a token, that is the wrong configuration.
 
 ## Observability
 
-| Need | Endpoint |
-|---|---|
-| Liveness | `GET /api/health` |
-| Readiness | `GET /api/health?deep=1` (503 when the tick loop is paused because it threw) |
-| Prometheus | `GET /api/metrics` |
-| Human-readable metrics | `GET /api/metrics?format=json` |
-| Logs | stdout, one JSON object per line, filter with `LOG_LEVEL` |
+| Need                   | Endpoint                                                                     |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| Liveness               | `GET /api/health`                                                            |
+| Readiness              | `GET /api/health?deep=1` (503 when the tick loop is paused because it threw) |
+| Prometheus             | `GET /api/metrics`                                                           |
+| Human-readable metrics | `GET /api/metrics?format=json`                                               |
+| Logs                   | stdout, one JSON object per line, filter with `LOG_LEVEL`                    |
 
 Suggested alerts are in [SLO.md](SLO.md).
 
@@ -122,13 +126,13 @@ anything, and is a two-step operation by design.
 
 The project is published as **five repositories on three services**:
 
-| Repository | Service | CI definition |
-|---|---|---|
-| `Morningstar202604/aquapilot` (canonical) | GitHub | `.github/workflows/ci.yml` + `release.yml` |
-| `badhope/aquapilot` | GitHub | same workflow (the repo carries the same tree) |
-| `X33834/aquapilot` | GitHub | same workflow |
-| `badhope/aquapilot` | Gitee | `.workflow/aquapilot-ci.yml` |
-| `badhope/aquapilot` | GitCode | `.gitcode/pipeline.yml` |
+| Repository                                | Service | CI definition                                  |
+| ----------------------------------------- | ------- | ---------------------------------------------- |
+| `Morningstar202604/aquapilot` (canonical) | GitHub  | `.github/workflows/ci.yml` + `release.yml`     |
+| `badhope/aquapilot`                       | GitHub  | same workflow (the repo carries the same tree) |
+| `X33834/aquapilot`                        | GitHub  | same workflow                                  |
+| `badhope/aquapilot`                       | Gitee   | `.workflow/aquapilot-ci.yml`                   |
+| `badhope/aquapilot`                       | GitCode | `.gitcode/pipeline.yml`                        |
 
 AtomGit is the same service as GitCode (same hosts, same API, same repository id),
 so it is not a separate target and there is no separate AtomGit remote.

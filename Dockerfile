@@ -31,6 +31,7 @@ RUN mkdir -p /app/data && chown -R node:node /app/data
 VOLUME ["/app/data"]
 
 USER node
+ENV HOST=0.0.0.0
 ENV PORT=5173
 EXPOSE 5173
 

@@ -16,7 +16,14 @@ import { TopologyStore } from './topologyStore';
 import { PRESETS, buildPreset, presetById } from '../model/presets';
 import { applyTopology, checkRunReadiness, createRuntime } from './topologyRuntime';
 import { Store } from './store';
-import { authRequired, authorize, requiredRoleFor, roleAtLeast, type Role as ClientRole } from './auth';
+import {
+  authRequired,
+  authorize,
+  canEditAgentConfig,
+  requiredRoleFor,
+  roleAtLeast,
+  type Role as ClientRole,
+} from './auth';
 import { decodeWsTokenSubprotocol } from '../shared/wsToken';
 import { isApiPath, isPublicApiPath, isReadMethod, pathnameOf } from './httpRoutes';
 import { logger, metrics, metricsJson, recordHttp, recordTick, renderPrometheus } from './observability';
@@ -43,6 +50,7 @@ import { createCalibrationService } from './calibrationService';
 import { parseInfluentCsv, seriesStats } from '../sim/influentSeries';
 import { drySolidsToCod } from '../sim/units';
 import { checkQuality } from '../sim/dataQuality';
+import { resolveListenConfig } from './listenConfig';
 import {
   applyEstimate,
   createEstimatorRuntime,
@@ -81,7 +89,9 @@ function envNumber(name: string, fallback: number, min: number, max: number): nu
   return raw;
 }
 
-const PORT = envNumber('PORT', 5173, 1, 65535);
+const LISTEN = resolveListenConfig();
+const PORT = LISTEN.port;
+const HOST = LISTEN.host;
 const TICK_MS = envNumber('TICK_MS', 1000, 50, 60_000);
 const SIM_MINUTES_PER_TICK = envNumber('SIM_MINUTES_PER_TICK', 2, 0.1, 60);
 /** 人工调整后的 AI 静默期（仿真分钟） */
@@ -338,6 +348,7 @@ function handleAgentConfig(ws: WebSocket, msg: Extract<ClientMessage, { type: 'a
   handleAgentConfigRef ??= createAgentConfigHandler({
     broadcast: (message) => broadcast(message),
     hooks: hooksRuntime,
+    roleFor: (client) => runtime.clientState.get(client)?.role ?? 'viewer',
   });
   return handleAgentConfigRef(ws, msg);
 }
@@ -417,6 +428,12 @@ const hooksRuntime = new HookRuntime({
     broadcast({ type: 'notice', level: 'info', text: `[钩子] 已命中技能 ${skillId}，下一轮回答会引用其步骤` }),
   logLine: (text, level, hook) => logger[level](text, { hook: hook.name, event: hook.event }),
   webhook: async (url, body, hook) => {
+    if (activeWebhooks >= MAX_ACTIVE_WEBHOOKS) {
+      hookFailures += 1;
+      logger.warn('hook webhook rejected', { hook: hook.name, reason: 'too-many-active-webhooks' });
+      return false;
+    }
+    activeWebhooks += 1;
     try {
       /**
        * 不跟随重定向。
@@ -446,6 +463,8 @@ const hooksRuntime = new HookRuntime({
       hookFailures += 1;
       logger.warn('hook webhook failed', { hook: hook.name, error: String(err) });
       return false;
+    } finally {
+      activeWebhooks = Math.max(0, activeWebhooks - 1);
     }
   },
 });
@@ -492,6 +511,8 @@ let lastWatchdogAt = 0;
 let lastWatchdogSnapshot = '';
 let lastSimMinutes = 0;
 let hookFailures = 0;
+let activeWebhooks = 0;
+const MAX_ACTIVE_WEBHOOKS = 8;
 
 function watchdogInput(): CheckInput {
   const status = agentConfigStore.status();
@@ -723,7 +744,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
    * 单令牌时代所有人都是 admin；现在同一个服务可以给值班大屏发 viewer 令牌，
    * 只读观察不会误触控制。认证未启用时角色恒为 admin，行为不变。
    */
-  const senderRole: ClientRole = runtime.clientState.get(ws)?.role ?? 'admin';
+  const senderRole: ClientRole = runtime.clientState.get(ws)?.role ?? 'viewer';
   const neededRole = requiredRoleFor(msg.type);
   if (!roleAtLeast(senderRole, neededRole)) {
     metrics.invalidMessages += 1;
@@ -804,6 +825,23 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       const agentCfgForChat = agentConfigStore.get();
       const cmd = parseAgentCommand(text, agentCfgForChat);
       if (cmd.handled) {
+        if (cmd.next && !canEditAgentConfig(senderRole)) {
+          ws.send(
+            JSON.stringify({
+              type: 'chat',
+              question: text,
+              answer: {
+                title: '配置未生效',
+                body: '当前令牌无权修改 Agent 配置，需要 admin 权限。',
+                bullets: [],
+                confidence: 0.95,
+                kind: 'editor',
+                source: 'rule',
+              },
+            } satisfies ServerMessage),
+          );
+          break;
+        }
         if (cmd.next) {
           const outcome = agentConfigStore.save(cmd.next, { writer: 'chat' });
           if (!outcome.ok) {
@@ -965,6 +1003,10 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       break;
     }
     case 'scenario': {
+      if (msg.kind === 'start' && rateLimited(ws, 'decision')) {
+        throttledNotice(ws, 'scenario', '场景启动过于频繁，请稍后再试');
+        break;
+      }
       if (msg.kind === 'clear') {
         runtime.net.scenario = null;
         runtime.net.controls = { ...runtime.net.controls, stormStore: 0 };
@@ -1898,7 +1940,7 @@ async function main(): Promise<void> {
         typeof subprotocol === 'string' ? subprotocol : Array.isArray(subprotocol) ? subprotocol : undefined,
       );
       const verdict = authorize(info.req, protoToken, 'viewer');
-      if (verdict.allowed) handshakeRoles.set(info.req, verdict.role ?? 'admin');
+      if (verdict.allowed) handshakeRoles.set(info.req, verdict.role ?? 'viewer');
       if (!verdict.allowed) {
         metrics.authFailures += 1;
         logger.warn('auth rejected', { scope: 'ws', reason: verdict.reason, ip: info.req.socket.remoteAddress });
@@ -1921,7 +1963,7 @@ async function main(): Promise<void> {
   });
 
   wss.on('connection', (ws, req) => {
-    const role = handshakeRoles.get(req) ?? 'admin';
+    const role = handshakeRoles.get(req) ?? 'viewer';
     pendingRoles.set(ws, role);
     /**
      * 连接数上限：限流状态是按连接维护的，不设上限的话
@@ -1941,7 +1983,7 @@ async function main(): Promise<void> {
      * 真正的边界在「这条消息要不要写」，由 requiredRoleFor 决定。
      */
     const handshakeState = runtime.clientState.get(ws) ?? freshClientState();
-    handshakeState.role = pendingRoles.get(ws) ?? 'admin';
+    handshakeState.role = pendingRoles.get(ws) ?? 'viewer';
     runtime.clientState.set(ws, handshakeState);
     logger.info('ws connected', { clients: runtime.clients.size + 1, role: handshakeState.role });
     runtime.clients.add(ws);
@@ -2021,10 +2063,10 @@ async function main(): Promise<void> {
   runAiCycle();
   runtime.net.controls.aiEnabled = true;
 
-  server.listen(PORT, () => {
+  server.listen(PORT, HOST, () => {
     logger.info('aquapilot listening', {
-      url: `http://127.0.0.1:${PORT}`,
-      ws: `ws://127.0.0.1:${PORT}/ws`,
+      url: `http://${HOST}:${PORT}`,
+      ws: `ws://${HOST}:${PORT}/ws`,
       speed: runtime.speed,
       simMinutesPerTick: SIM_MINUTES_PER_TICK,
       persistence: store.enabled,

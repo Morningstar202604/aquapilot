@@ -73,6 +73,7 @@ function makeHandler() {
   const handler = createAgentConfigHandler({
     broadcast: (m) => broadcasts.push(m),
     hooks,
+    roleFor: () => 'admin',
   });
   return { handler, broadcasts };
 }
@@ -106,6 +107,21 @@ describe('agentStateMessage', () => {
 });
 
 describe('配置读写', () => {
+  it('viewer 只能读取，所有配置写操作都被拒绝', async () => {
+    const viewerHandler = createAgentConfigHandler({
+      broadcast: () => {},
+      hooks: new HookRuntime({ webhook: async () => true }),
+      roleFor: () => 'viewer',
+    });
+    const ws = fakeWs();
+    await viewerHandler(ws as never, {
+      type: 'agentConfig',
+      action: 'save',
+      requestId: 'viewer-save',
+      config: defaultAgentConfig(),
+    });
+    expect((ws.sent.at(-1) as { error?: string }).error).toMatch(/需要 admin/);
+  });
   it('get 直接回状态', async () => {
     const { handler } = makeHandler();
     const ws = fakeWs();

@@ -1,4 +1,4 @@
-import { promises as dns } from 'node:dns';
+import { Resolver } from 'node:dns';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
@@ -63,12 +63,12 @@ function isDangerousIpv6(host: string): boolean {
   const lower = host.toLowerCase();
   // IPv4-mapped（::ffff:a.b.c.d）与 IPv4-compatible：把末两段解成 IPv4 再判一次
   const mapped = matchingIpv4(lower);
-  if (mapped) return isNonPublicIpv4(mapped) || isDangerousIpv4(mapped);
+  if (mapped) return isDangerousIpv4(mapped);
   // 链路本地 fe80::/10、唯一本地 fc00::/7、AWS IMDS IPv6 fd00:ec2::254 落在 ULA 内
   if (/^fe[89ab][0-9a-f]?:/.test(lower)) return true;
   if (/^f[cd][0-9a-f]{2}:/.test(lower)) return true;
   // ::1 回环与未指定地址
-  if (lower === '::1' || lower === '::') return true;
+  if (lower === '::') return true;
   return false;
 }
 
@@ -85,7 +85,7 @@ function matchingIpv4(host: string): string | null {
 
 function isDangerousIpv4(host: string): boolean {
   if (BLOCKED_HOSTS.has(host)) return true;
-  if (/^169\\.254\\./.test(host)) return true;
+  if (/^169\.254\./.test(host)) return true;
   if (host === '100.100.100.200') return true;
   return false;
 }
@@ -160,7 +160,17 @@ const PRIVATE_HOST_PATTERNS = [
 ];
 
 function isPrivateFetchHost(host: string): boolean {
-  return PRIVATE_HOST_PATTERNS.some((re) => re.test(host)) || isNonPublicIpv4(host) || isDangerousIpv6(host);
+  const mapped = matchingIpv4(host);
+  return (
+    PRIVATE_HOST_PATTERNS.some((re) => re.test(host)) ||
+    isNonPublicIpv4(host) ||
+    (mapped !== null && isNonPublicIpv4(mapped)) ||
+    isDangerousIpv6(host)
+  );
+}
+
+function isForbiddenResolvedHost(host: string): boolean {
+  return isDangerousIpv4(host) || isDangerousIpv6(host);
 }
 
 export function assertPublicFetchUrl(raw: string): URL {
@@ -173,31 +183,107 @@ export function assertPublicFetchUrl(raw: string): URL {
 }
 
 type PublicAddress = { address: string; family: 4 | 6 };
-type PublicAddressLookup = (hostname: string) => Promise<PublicAddress[]>;
+type PublicAddressLookup = (hostname: string, signal?: AbortSignal) => Promise<PublicAddress[]>;
 
-const lookupPublicAddresses: PublicAddressLookup = async (hostname) =>
-  (await dns.lookup(hostname, { all: true, verbatim: true })).map((entry) => ({
-    address: entry.address,
-    family: entry.family as 4 | 6,
-  }));
+function deadlineError(): ProviderError {
+  return new ProviderError('请求超时，端点没有响应');
+}
+
+function awaitWithSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(deadlineError());
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(deadlineError());
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', abort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', abort);
+        reject(error);
+      },
+    );
+  });
+}
+
+const lookupPublicAddresses: PublicAddressLookup = async (hostname, signal) => {
+  if (hostname === 'localhost')
+    return [
+      { address: '::1', family: 6 },
+      { address: '127.0.0.1', family: 4 },
+    ];
+  const resolver = new Resolver();
+  if (signal?.aborted) throw deadlineError();
+  return new Promise<PublicAddress[]>((resolve, reject) => {
+    let settled = false;
+    let pending = 2;
+    let lastError: Error | null = null;
+    const addresses: PublicAddress[] = [];
+    const cleanup = () => signal?.removeEventListener('abort', abort);
+    const finish = () => {
+      if (settled || pending > 0) return;
+      settled = true;
+      cleanup();
+      if (addresses.length > 0) resolve(addresses);
+      else reject(lastError ?? new Error('DNS lookup returned no address'));
+    };
+    const abort = () => {
+      if (settled) return;
+      settled = true;
+      resolver.cancel();
+      cleanup();
+      reject(deadlineError());
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+    const done = (family: 4 | 6, error: NodeJS.ErrnoException | null, values: string[]) => {
+      if (settled) return;
+      if (error) lastError = error;
+      else addresses.push(...values.map((address) => ({ address, family })));
+      pending -= 1;
+      finish();
+    };
+    resolver.resolve4(hostname, (error, values) => done(4, error, values ?? []));
+    resolver.resolve6(hostname, (error, values) => done(6, error, values ?? []));
+  });
+};
 
 export async function resolvePublicFetchAddress(
   raw: string,
   lookup: PublicAddressLookup = lookupPublicAddresses,
-): Promise<{ url: URL; address: string }> {
-  const url = assertPublicFetchUrl(raw);
+  signal?: AbortSignal,
+  allowPrivate = false,
+): Promise<{ url: URL; address: string; addresses: string[] }> {
+  const url = allowPrivate ? assertSafeBaseUrl(raw) : assertPublicFetchUrl(raw);
   const host = canonicalHost(url.hostname);
-  if (isIP(host)) return { url, address: host };
+  if (isIP(host)) {
+    if (isForbiddenResolvedHost(host)) throw new ProviderError('该地址属于云元数据或链路本地服务，禁止访问');
+    if (!allowPrivate && isPrivateFetchHost(host))
+      throw new ProviderError('该地址属于内网或回环地址，服务端不允许抓取');
+    return { url, address: host, addresses: [host] };
+  }
   let addresses: PublicAddress[];
   try {
-    addresses = await lookup(host);
-  } catch {
+    addresses = await awaitWithSignal(lookup(host, signal), signal);
+  } catch (error) {
+    if (error instanceof ProviderError) throw error;
     throw new ProviderError('无法解析公网地址');
   }
-  if (addresses.length === 0 || addresses.some((entry) => isPrivateFetchHost(canonicalHost(entry.address)))) {
-    throw new ProviderError('该地址解析到了内网或回环地址，服务端不允许抓取');
+  if (
+    addresses.length === 0 ||
+    addresses.some((entry) => {
+      const host = canonicalHost(entry.address);
+      return isForbiddenResolvedHost(host) || (!allowPrivate && isPrivateFetchHost(host));
+    })
+  ) {
+    throw new ProviderError(
+      allowPrivate
+        ? '该地址解析到了云元数据或链路本地服务，禁止访问'
+        : '该地址解析到了内网或回环地址，服务端不允许抓取',
+    );
   }
-  return { url, address: addresses[0].address };
+  return { url, address: addresses[0].address, addresses: addresses.map((entry) => entry.address) };
 }
 
 interface PublicFetchOptions {
@@ -208,69 +294,103 @@ interface PublicFetchOptions {
   maxBytes?: number;
   lookup?: PublicAddressLookup;
   requestImpl?: typeof httpRequest;
+  allowPrivate?: boolean;
+  signal?: AbortSignal;
 }
 
 export async function fetchPublicUrl(raw: string, options: PublicFetchOptions = {}): Promise<Response> {
-  const { url, address } = await resolvePublicFetchAddress(raw, options.lookup);
-  const method = options.method ?? 'GET';
   const timeoutMs = options.timeoutMs ?? 10_000;
-  const maxBytes = options.maxBytes ?? 1_000_000;
-  const transport = options.requestImpl ?? (url.protocol === 'https:' ? httpsRequest : httpRequest);
-  const headers: Record<string, string> = { ...(options.headers ?? {}) };
-  headers.Host = url.host;
-  return new Promise<Response>((resolve, reject) => {
-    let settled = false;
-    const fail = (error: Error): void => {
-      if (settled) return;
-      settled = true;
-      reject(error);
-    };
-    const request = transport(
-      {
-        protocol: url.protocol,
-        hostname: address,
-        port: url.port || undefined,
-        path: `${url.pathname}${url.search}`,
-        method,
-        headers,
-        timeout: timeoutMs,
-        ...(url.protocol === 'https:' ? { servername: canonicalHost(url.hostname) } : {}),
-      },
-      (response) => {
-        const chunks: Buffer[] = [];
-        let size = 0;
-        response.on('data', (chunk: Buffer | string) => {
-          const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-          size += data.length;
-          if (size > maxBytes) {
-            const error = new ProviderError('响应体过大，已拒绝读取');
-            fail(error);
-            response.destroy(error);
-            request.destroy(error);
-            return;
-          }
-          chunks.push(data);
-        });
-        response.on('error', (error) => fail(error));
-        response.on('end', () => {
-          if (settled) return;
-          settled = true;
-          const responseHeaders = new Headers();
-          for (const [key, value] of Object.entries(response.headers)) {
-            if (Array.isArray(value)) responseHeaders.set(key, value.join(', '));
-            else if (value !== undefined) responseHeaders.set(key, value);
-          }
-          resolve(
-            new Response(Buffer.concat(chunks), { status: response.statusCode ?? 502, headers: responseHeaders }),
-          );
-        });
-      },
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const { url, address } = await resolvePublicFetchAddress(
+      raw,
+      options.lookup,
+      controller.signal,
+      options.allowPrivate ?? false,
     );
-    request.on('timeout', () => request.destroy(new ProviderError('请求超时，端点没有响应')));
-    request.on('error', (error) => fail(error));
-    if (options.body !== undefined) request.write(options.body);
-    request.end();
-  });
+    const method = options.method ?? 'GET';
+    const maxBytes = options.maxBytes ?? 1_000_000;
+    const transport = options.requestImpl ?? (url.protocol === 'https:' ? httpsRequest : httpRequest);
+    const headers: Record<string, string> = { ...(options.headers ?? {}) };
+    headers.Host = url.host;
+    return await new Promise<Response>((resolve, reject) => {
+      let settled = false;
+      const requestHolder: { current?: ReturnType<typeof httpRequest> } = {};
+      const cleanup = () => {
+        clearTimeout(timer);
+        controller.signal.removeEventListener('abort', abort);
+      };
+      const fail = (error: Error): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      };
+      const abort = () => {
+        const error = deadlineError();
+        requestHolder.current?.destroy(error);
+        fail(error);
+      };
+      controller.signal.addEventListener('abort', abort, { once: true });
+      if (controller.signal.aborted) {
+        abort();
+        return;
+      }
+      requestHolder.current = transport(
+        {
+          protocol: url.protocol,
+          hostname: address,
+          port: url.port || undefined,
+          path: `${url.pathname}${url.search}`,
+          method,
+          headers,
+          timeout: timeoutMs,
+          ...(url.protocol === 'https:' ? { servername: canonicalHost(url.hostname) } : {}),
+        },
+        (response) => {
+          const chunks: Buffer[] = [];
+          let size = 0;
+          response.on('data', (chunk: Buffer | string) => {
+            const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            size += data.length;
+            if (size > maxBytes) {
+              const error = new ProviderError('响应体过大，已拒绝读取');
+              response.destroy(error);
+              requestHolder.current?.destroy(error);
+              fail(error);
+              return;
+            }
+            chunks.push(data);
+          });
+          response.on('error', (error) => fail(error));
+          response.on('end', () => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            const responseHeaders = new Headers();
+            for (const [key, value] of Object.entries(response.headers)) {
+              if (Array.isArray(value)) responseHeaders.set(key, value.join(', '));
+              else if (value !== undefined) responseHeaders.set(key, value);
+            }
+            const status = response.statusCode ?? 502;
+            const responseBody = status === 204 || status === 205 || status === 304 ? null : Buffer.concat(chunks);
+            try {
+              resolve(new Response(responseBody, { status, headers: responseHeaders }));
+            } catch (error) {
+              reject(error instanceof Error ? error : new Error('response construction failed'));
+            }
+          });
+        },
+      );
+      requestHolder.current.on('timeout', abort);
+      requestHolder.current.on('error', (error) => fail(error));
+      if (options.body !== undefined) requestHolder.current.write(options.body);
+      requestHolder.current.end();
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function joinUrl(base: string, path: string): string {
@@ -334,8 +454,39 @@ export function describeHttpFailure(status: number): string {
   return `请求失败（HTTP ${status}）`;
 }
 
-async function readJson(res: Response): Promise<Record<string, unknown>> {
-  const text = await res.text();
+const MAX_PROVIDER_RESPONSE_BYTES = 1_000_000;
+const nativeFetch = globalThis.fetch;
+
+async function readResponseText(res: Response, signal: AbortSignal, maxBytes: number): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) {
+    const text = await awaitWithSignal(res.text(), signal);
+    if (Buffer.byteLength(text, 'utf8') > maxBytes) throw new ProviderError('响应体过大，已拒绝读取');
+    return text;
+  }
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const next = await awaitWithSignal(reader.read(), signal);
+      if (next.done) return chunks.join('') + decoder.decode();
+      const value = next.value;
+      total += value.byteLength;
+      if (total > maxBytes) throw new ProviderError('响应体过大，已拒绝读取');
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+  } finally {
+    void reader.cancel().catch(() => undefined);
+  }
+}
+
+async function readJson(
+  res: Response,
+  signal: AbortSignal,
+  maxBytes = MAX_PROVIDER_RESPONSE_BYTES,
+): Promise<Record<string, unknown>> {
+  const text = await readResponseText(res, signal, maxBytes);
   try {
     const parsed = JSON.parse(text) as unknown;
     return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
@@ -373,13 +524,48 @@ async function requestJson(
   timeoutMs: number,
 ): Promise<{ res: Response; json: Record<string, unknown> }> {
   const controller = new AbortController();
+  const deadline = Date.now() + timeoutMs;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { ...init, signal: controller.signal, redirect: 'manual' });
+    const activeFetch = globalThis.fetch;
+    let res: Response;
+    if (activeFetch === nativeFetch) {
+      const resolved = await resolvePublicFetchAddress(url, undefined, controller.signal, true);
+      const headers = Object.fromEntries(new Headers(init.headers).entries());
+      const body = typeof init.body === 'string' ? init.body : undefined;
+      let response: Response | undefined;
+      for (const [index, address] of resolved.addresses.entries()) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0 || controller.signal.aborted) throw deadlineError();
+        try {
+          response = await fetchPublicUrl(url, {
+            method: init.method,
+            headers,
+            body,
+            timeoutMs: remaining,
+            maxBytes: MAX_PROVIDER_RESPONSE_BYTES,
+            allowPrivate: true,
+            lookup: async () => [{ address, family: isIP(address) === 6 ? 6 : 4 }],
+          });
+          break;
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException)?.code;
+          if (
+            index === resolved.addresses.length - 1 ||
+            !['ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH'].includes(code ?? '')
+          )
+            throw error;
+        }
+      }
+      if (!response) throw new ProviderError('无法连接端点');
+      res = response;
+    } else {
+      res = await activeFetch(url, { ...init, signal: controller.signal, redirect: 'manual' });
+    }
     if (res.status >= 300 && res.status < 400) {
       throw new ProviderError(`端点返回重定向（HTTP ${res.status}），已拒绝跟随`, res.status);
     }
-    const json = await readJson(res);
+    const json = await readJson(res, controller.signal, MAX_PROVIDER_RESPONSE_BYTES);
     return { res, json };
   } catch (err) {
     if (err instanceof ProviderError) throw err;
@@ -404,9 +590,13 @@ function buildDiscoverRequest(input: LlmDiscoverInput): { url: string; init: Req
       init: { method: 'GET', headers: headersFor('anthropic', apiKey) },
     };
   }
-  const url = new URL(joinUrl(googleBase(base), '/models'));
-  if (apiKey) url.searchParams.set('key', apiKey);
-  return { url: url.toString(), init: { method: 'GET', headers: { 'Content-Type': 'application/json' } } };
+  return {
+    url: joinUrl(googleBase(base), '/models'),
+    init: {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json', ...(apiKey ? { 'x-goog-api-key': apiKey } : {}) },
+    },
+  };
 }
 
 /** 解析各协议的模型列表响应 */
@@ -503,13 +693,11 @@ function buildChatRequest(input: LlmTestInput, maxOutput: number): { url: string
       },
     };
   }
-  const url = new URL(joinUrl(googleBase(base), `/models/${encodeURIComponent(input.model)}:generateContent`));
-  if (apiKey) url.searchParams.set('key', apiKey);
   return {
-    url: url.toString(),
+    url: joinUrl(googleBase(base), `/models/${encodeURIComponent(input.model)}:generateContent`),
     init: {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(apiKey ? { 'x-goog-api-key': apiKey } : {}) },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0, maxOutputTokens: Math.max(maxOutput, 16) },

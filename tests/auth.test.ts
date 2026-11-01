@@ -4,6 +4,7 @@ import type { IncomingMessage } from 'node:http';
 import {
   accessControlEnabled,
   authorize,
+  canEditAgentConfig,
   extractToken,
   requiredRoleFor,
   roleAtLeast,
@@ -126,6 +127,12 @@ describe('角色模型（viewer / operator / admin）', () => {
     expect(authorize(req('op-tok'), null, 'operator').allowed).toBe(true);
     expect(authorize(req('op-tok'), null, 'admin').allowed).toBe(false);
     expect(authorize(req('admin-tok'), null, 'admin').allowed).toBe(true);
+  });
+
+  it('只有 admin 可以编辑 Agent 配置', () => {
+    expect(canEditAgentConfig('viewer')).toBe(false);
+    expect(canEditAgentConfig('operator')).toBe(false);
+    expect(canEditAgentConfig('admin')).toBe(true);
   });
 
   it('消息类型映射到最低角色', () => {

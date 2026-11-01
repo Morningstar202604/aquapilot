@@ -43,6 +43,7 @@ interface TaskHandle {
 }
 
 const activeTasks = new Map<WebSocket, TaskHandle>();
+export const MAX_ACTIVE_CALIBRATION_TASKS = 2;
 
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -237,6 +238,10 @@ export function createCalibrationService(deps: CalibrationTaskDeps) {
       deps.send(ws, { type: 'calibration', action: 'error', requestId, error: '已有标定任务在运行' });
       return;
     }
+    if (activeTasks.size >= MAX_ACTIVE_CALIBRATION_TASKS) {
+      deps.send(ws, { type: 'calibration', action: 'error', requestId, error: '标定任务过多，请稍后再试' });
+      return;
+    }
     const handle: TaskHandle = { cancelled: false };
     activeTasks.set(ws, handle);
     const started = Date.now();
@@ -293,11 +298,21 @@ export function createCalibrationService(deps: CalibrationTaskDeps) {
 
   /** 可辨识性分析：只跑 22 次仿真，约 40 s，同样分批让出事件循环 */
   async function identify(ws: WebSocket, requestId: string): Promise<void> {
+    if (activeTasks.has(ws)) {
+      deps.send(ws, { type: 'calibration', action: 'error', requestId, error: '已有标定任务在运行' });
+      return;
+    }
+    if (activeTasks.size >= MAX_ACTIVE_CALIBRATION_TASKS) {
+      deps.send(ws, { type: 'calibration', action: 'error', requestId, error: '标定任务过多，请稍后再试' });
+      return;
+    }
+    const handle: TaskHandle = { cancelled: false };
+    activeTasks.set(ws, handle);
     try {
       const predict = bsm1Predictor();
       const target = bsm1SyntheticTarget();
       const rows = await identifiabilityAsync(predict, target, ASM1_PARAMS, {
-        shouldCancel: () => !deps.isOpen(ws),
+        shouldCancel: () => handle.cancelled || !deps.isOpen(ws),
       });
       if (deps.isOpen(ws)) {
         deps.send(ws, { type: 'calibration', action: 'identifiability', requestId, rows });
@@ -311,6 +326,8 @@ export function createCalibrationService(deps: CalibrationTaskDeps) {
           error: err instanceof Error ? err.message : '可辨识性分析失败',
         });
       }
+    } finally {
+      activeTasks.delete(ws);
     }
   }
 

@@ -558,3 +558,19 @@ S_NH 残差分析：绝对差 0.34 gN/m³，折合氮通量的不足 1%——两
 | Docker 实跑 | 本轮未启动 Docker daemon |
 | 外部平台后台状态 | 当前本地 origin 是 GitCode；无法从本地安全确认其他平台后台结果 |
 | 凭据撤销/轮换 | 本轮未读取、回显或使用令牌值；撤销需平台侧执行 |
+
+## 十五、独立复核阻断修复（2026-11-01）
+
+本节记录第二次独立复核发现的问题及本地修复证据；当前切片尚未提交。
+
+当前门禁基线：91 个测试文件、1121 项测试；`npm run ci` 已全绿，真实 WS 权限回归 4/4 通过，`npm run e2e` 通过。
+
+| 问题 | 改前证据 | 处置 |
+|---|---|---|
+| 169.254.0.0/16 模型端点放行 | `tests/llmProviders.test.ts` RED：4 个 link-local 地址可进入 `fetch` | `src/ai/providers.ts` 统一拒绝整个 `169.254.*` 网段，保留普通私网模型端点；新增 `testConnection` 级回归 |
+| 出站 drip 绕过超时 | socket inactivity timeout 会被持续小块响应重置 | DNS、连接、响应体共用 AbortController wall-clock deadline；响应体有 maxBytes；新增 drip/DNS timeout 测试 |
+| viewer/operator 聊天配置越权 | 真实 WS 复现 viewer 可修改 permission/webhook | Agent 配置 save/patch/reset/importSkill 由真实连接角色授权，仅 admin；真实 WS viewer/operator/admin 4 项通过 |
+| 默认匿名公网监听 | 默认 `listen(PORT)`，无 token 时可监听任意接口 | 默认 `HOST=127.0.0.1`；显式非 loopback 且无任一 token 启动 fail-closed；Docker 显式 `HOST=0.0.0.0` 需 token |
+| Google key URL 泄露 | 发现请求将 key 放入 `?key=` | 改用 `x-goog-api-key` header，测试确认 URL 不含 key |
+| 高成本并发 | import/webhook/identify 缺少全局 admission；scenario start 无额外冷却 | import 4、webhook 8、calibration 2 全局上限；scenario start 使用 decision 冷却 |
+| 本机模型兼容性 | 真实本地 HTTP 测试中 `localhost` 与 IPv6 `::1` 在改前被误拒 | 模型端点允许 IPv4/IPv6 回环；严格公网抓取仍拒绝回环；已验证 IPv6 首地址拒绝连接时回退至 IPv4，真实 loopback 测试通过 |

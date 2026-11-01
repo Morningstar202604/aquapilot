@@ -141,6 +141,10 @@ export function authRequired(): boolean {
  * 会改变运行状态的消息需要 operator；
  * 改拓扑与配置需要 admin。
  */
+export function canEditAgentConfig(role: Role): boolean {
+  return role === 'admin';
+}
+
 export function requiredRoleFor(messageType: string): Role {
   switch (messageType) {
     case 'control':

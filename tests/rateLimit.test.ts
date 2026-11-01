@@ -114,9 +114,9 @@ describe('常量约束', () => {
     for (const v of Object.values(RATE_LIMIT)) expect(v).toBeGreaterThan(0);
   });
 
-  it('新建连接的状态是 admin（认证关闭时）且各时间戳为 0', () => {
+  it('新建连接的状态默认是 viewer 且各时间戳为 0', () => {
     const s = freshClientState();
-    expect(s.role).toBe('admin');
+    expect(s.role).toBe('viewer');
     expect(s.lastControlAt).toBe(0);
     expect(s.helloSent).toBe(false);
     expect(s.noticeAt).toEqual({});

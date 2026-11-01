@@ -265,7 +265,7 @@ Protocol endpoints used:
 | ----------- | --------------------------------- | --------------------------------------------------------- |
 | `openai`    | `GET {base}/models`               | `POST {base}/chat/completions`                            |
 | `anthropic` | `GET {base}/v1/models?limit=1000` | `POST {base}/v1/messages`                                 |
-| `google`    | `GET {base}/v1beta/models?key=…`  | `POST {base}/v1beta/models/{model}:generateContent?key=…` |
+| `google`    | `GET {base}/v1beta/models` with `x-goog-api-key` | `POST {base}/v1beta/models/{model}:generateContent` with `x-goog-api-key` |
 
 ### Agent configuration (`agentConfig`)
 

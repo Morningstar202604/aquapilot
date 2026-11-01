@@ -6,12 +6,13 @@ import { composeSystemPrompt } from '../ai/promptComposer';
 import { fetchPublicUrl } from '../ai/providers';
 import { errorText } from './llmChat';
 import type { HookRuntime } from './hooks';
+import type { Role } from './auth';
 
 /**
  * Agent 配置（界面驱动）。
  *
  * 与 llmConfig 同一套 request/response 模式；写入统一走 agentConfigStore.save，
- * 权限与核心保护在存储层实现，因此界面、对话命令、CLI 三条路径行为一致。
+ * 连接角色在入口校验，核心保护在存储层实现，因此界面、对话命令、CLI 三条路径行为一致。
  *
  * 从 server/index.ts 抽出的原因：这里有一组独立的信任边界决策
  * （URL 导入的公网守卫、技能数量上限、权限交由存储层判定），
@@ -21,6 +22,7 @@ import type { HookRuntime } from './hooks';
 export interface AgentConfigHandlerDeps {
   broadcast: (message: ServerMessage) => void;
   hooks: HookRuntime;
+  roleFor?: (ws: WebSocket) => Role;
 }
 
 export function agentStateMessage(
@@ -45,6 +47,9 @@ export function agentStateMessage(
   };
 }
 
+const MAX_ACTIVE_IMPORTS = 4;
+let activeImports = 0;
+
 export function createAgentConfigHandler(deps: AgentConfigHandlerDeps) {
   const broadcastAgentState = (): void => deps.broadcast(agentStateMessage());
 
@@ -53,6 +58,7 @@ export function createAgentConfigHandler(deps: AgentConfigHandlerDeps) {
     msg: Extract<ClientMessage, { type: 'agentConfig' }>,
   ): Promise<void> {
     const requestId = 'requestId' in msg ? msg.requestId : undefined;
+    const role = deps.roleFor?.(ws) ?? 'viewer';
     const send = (payload: ServerMessage) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
     };
@@ -75,6 +81,10 @@ export function createAgentConfigHandler(deps: AgentConfigHandlerDeps) {
         return;
       }
       if (msg.action === 'reset') {
+        if (role !== 'admin') {
+          send({ type: 'agentConfig', action: 'error', requestId, error: '需要 admin 权限修改 Agent 配置' });
+          return;
+        }
         const outcome = agentConfigStore.reset({ writer: 'ui' });
         send({
           type: 'agentConfig',
@@ -93,10 +103,18 @@ export function createAgentConfigHandler(deps: AgentConfigHandlerDeps) {
         return;
       }
       if (msg.action === 'importSkill') {
+        if (role !== 'admin') {
+          send({ type: 'agentConfig', action: 'error', requestId, error: '需要 admin 权限修改 Agent 配置' });
+          return;
+        }
         await handleImportSkill(msg, requestId, send, broadcastAgentState);
         return;
       }
       if (msg.action === 'save' || msg.action === 'patch') {
+        if (role !== 'admin') {
+          send({ type: 'agentConfig', action: 'error', requestId, error: '需要 admin 权限修改 Agent 配置' });
+          return;
+        }
         const payload = msg.action === 'save' ? msg.config : msg.patch;
         const outcome =
           msg.action === 'save'
@@ -154,6 +172,11 @@ export function createAgentConfigHandler(deps: AgentConfigHandlerDeps) {
      * 可读的内网探测器。同时不跟随重定向（避免 302 到元数据地址）。
      */
     if (!content && typeof incoming?.url === 'string' && incoming.url.trim()) {
+      if (activeImports >= MAX_ACTIVE_IMPORTS) {
+        send({ type: 'agentConfig', action: 'error', requestId, error: '导入任务过多，请稍后再试' });
+        return;
+      }
+      activeImports += 1;
       try {
         const res = await fetchPublicUrl(incoming.url.trim(), { timeoutMs: 10000, maxBytes: 1_000_000 });
         if (!res.ok) {
@@ -170,6 +193,8 @@ export function createAgentConfigHandler(deps: AgentConfigHandlerDeps) {
       } catch (err) {
         send({ type: 'agentConfig', action: 'error', requestId, error: `导入失败：${errorText(err)}` });
         return;
+      } finally {
+        activeImports = Math.max(0, activeImports - 1);
       }
     }
     /**
