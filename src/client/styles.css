@@ -1583,6 +1583,31 @@ button {
   .brand-sub {
     display: none;
   }
+  /**
+   * 让「求解结构」成为唯一的弹性项。
+   *
+   * 上面的间距收敛是**像素预算**式修补：每遇到一个新字体度量就再调一次。
+   * 实测 Linux + Noto CJK 下 1440px 仍溢出 3px（Windows 雅黑刚好放得下），
+   * 说明靠固定间距凑宽度这条路走不通——字体不同，可用宽度就不同。
+   * 这里把会随拓扑名变长的那一项设为可收缩 + 省略号，
+   * 溢出量由它吸收，其余控件不再被挤出屏幕。
+   */
+  .topbar-meta {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .topbar-meta .meta-item {
+    min-width: 0;
+  }
+  .topbar-meta .meta-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* 「厂站」名最容易被拓扑名撑长，优先让它收缩 */
+  .topbar-meta .meta-item:first-child {
+    flex: 0 1 auto;
+    min-width: 90px;
+  }
   .topbar {
     gap: 14px;
     padding: 0 12px;
