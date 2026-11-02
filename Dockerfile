@@ -18,6 +18,11 @@ FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 
+# 中文字体：界面与截图全是中文，alpine 默认没有任何 CJK 字形，
+# 不装的话浏览器会把每个汉字渲染成 tofu 方块，且回退字体的度量更宽，
+# 顶栏与侧栏页签的布局断言会跟着失败（CI 的 Browser smoke 就是这么挂的）。
+RUN apk add --no-cache font-noto-cjk
+
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 

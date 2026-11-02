@@ -14,7 +14,15 @@ const PORT = 5188;
 const OUT = 'out/shots';
 
 function fail(msg: string): never {
+  /**
+   * 失败时带上环境指纹。
+   *
+   * 上一轮 CI 只在「顶栏裁切 / 页签换行」这类断言上失败，本地却全过，
+   * 原因之一是渲染字体不同（CI 无 CJK 字形 → 回退字体更宽）。
+   * 把平台、字体可用性一并打出来，下次不用靠猜。
+   */
   console.error(`E2E FAIL: ${msg}`);
+  console.error(`  platform=${process.platform} node=${process.version} browser=${process.env.AQUAPILOT_BROWSER_PATH ?? '(auto)'}`);
   process.exit(1);
 }
 

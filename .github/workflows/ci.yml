@@ -109,10 +109,26 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Install CJK fonts
+        # UI 全中文；ubuntu-latest 不带任何 CJK 字形，回退字体度量更宽，
+        # 顶栏裁切与页签换行断言会假失败（本地 Windows 有雅黑所以看不出来）。
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          fc-cache -f
       - name: Install Chromium
         run: npx playwright-core install --with-deps chromium
       - name: Run browser smoke
         run: npx tsx scripts/e2e-ci.ts
+      - name: Collect diagnostics on failure
+        if: failure()
+        run: |
+          echo "--- chromium present? ---"
+          npx playwright-core install --list 2>&1 | head -20 || true
+          echo "--- e2e temp data ---"
+          ls -la out/e2e-data 2>&1 | head -20 || true
+          echo "--- server log ---"
+          ls -la out/ 2>&1 | head -20 || true
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
