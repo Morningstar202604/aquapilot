@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { Onboarding, hasSeenOnboarding, markOnboarded } from '../src/client/components/Onboarding';
+import { Onboarding, hasSeenOnboarding, markOnboarded, ONBOARDING_STEPS } from '../src/client/components/Onboarding';
 
 /**
  * 首次访问引导。
@@ -83,13 +85,34 @@ describe('引导流程', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('包含全部 5 个页签的路标（每步只显示当前组，遍历全部步骤核对）', () => {
+  it('包含全部 5 步路标，且指向界面里真实存在的入口', () => {
     render(<Onboarding onClose={() => {}} />);
     const seen: string[] = [];
     for (let i = 0; i < 5; i++) {
       seen.push(document.querySelector('.onboarding-tab')!.textContent ?? '');
       if (i < 4) fireEvent.click(screen.getByText('下一步'));
     }
-    expect(seen).toEqual(['AI 对话', '决策解释', '控制与工况', '分析 · 校准 · 进水', '回放 · 自检']);
+    expect(seen).toEqual([
+      '运行监视 · 顶部',
+      'AI 对话 / 决策解释',
+      '控制与工况 / 告警 / 效益',
+      '分析 / 校准 / 进水',
+      '回放 / 自检 · 工艺编排',
+    ]);
+  });
+
+  it('引导提到的每个页签都必须在 App.tsx 里真实存在', async () => {
+    // 引导写错名字比不写更糟：用户会去找一个不存在的入口。
+    // 反向核对——把界面应有的页签名拿到 App.tsx 里找，找不到即说明文案漂移。
+    const appSource = readFileSync(join(import.meta.dirname, '..', 'src', 'client', 'App.tsx'), 'utf8');
+    const tabNames = ['AI 对话', '决策解释', '控制与工况', '告警', '效益', '分析', '校准', '进水', '回放', '自检'];
+    for (const name of tabNames) {
+      expect(appSource).toContain(name);
+    }
+    // 引导文案必须覆盖全部页签，不能漏讲
+    const stepText = ONBOARDING_STEPS.map((s) => `${s.tab} ${s.title} ${s.body}`).join(' / ');
+    for (const name of tabNames) {
+      expect(stepText).toContain(name);
+    }
   });
 });

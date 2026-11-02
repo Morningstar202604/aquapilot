@@ -142,7 +142,7 @@ export function AnalysisPanel({
 
       <section className="analysis-block">
         <div className="analysis-title">全厂质量平衡审计</div>
-        <div className="analysis-sub">进水 COD 应等于出水 + 排泥 + 系统内累积</div>
+        <div className="analysis-sub">进水 COD 应等于出水 + 排泥 + 曝气氧化 + 系统内库存变化</div>
         <dl className="analysis-kv">
           <dt>进水累计 COD</dt>
           <dd>{(mb.influentCodKg / 1000).toFixed(1)} t</dd>
@@ -152,8 +152,11 @@ export function AnalysisPanel({
           <dd>−{(mb.wastedCodKg / 1000).toFixed(1)} t</dd>
           <dt>曝气氧化</dt>
           <dd>−{(mb.oxidizedCodKg / 1000).toFixed(1)} t</dd>
-          <dt>系统内库存</dt>
-          <dd>{(mb.storedCodKg / 1000).toFixed(1)} t</dd>
+          <dt>系统内库存变化</dt>
+          <dd data-warn={mb.storedCodKg < 0}>
+            {mb.storedCodKg >= 0 ? '+' : '−'}
+            {Math.abs(mb.storedCodKg / 1000).toFixed(1)} t
+          </dd>
           <dt>未解释差额</dt>
           <dd data-warn={!mb.selfConsistent}>{mb.closurePct.toFixed(1)}%</dd>
         </dl>

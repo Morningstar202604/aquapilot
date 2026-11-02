@@ -5,7 +5,7 @@ await build({
   outfile: 'dist/server/index.mjs',
   bundle: true,
   platform: 'node',
-  target: 'node20',
+  target: 'node22',
   format: 'esm',
   packages: 'external',
   sourcemap: true,

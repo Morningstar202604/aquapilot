@@ -76,10 +76,10 @@ export function InsightsPanel({ snap, aiEnabled }: Props) {
             better="lower"
           />
           <Metric
-            label="日运行成本"
-            actual={hasSample ? (costPerDay / 1000).toFixed(1) : '数据不足'}
-            unit={hasSample ? '千元' : ''}
-            baseline={(baselineCostPerDay / 1000).toFixed(1)}
+            label="折算日成本"
+            actual={hasSample ? (costPerDay / 1000).toFixed(2) : '数据不足'}
+            unit={hasSample ? '千元/日' : ''}
+            baseline={(baselineCostPerDay / 1000).toFixed(2)}
             delta={hasSample ? costDelta : 0}
             better="lower"
           />
@@ -87,6 +87,10 @@ export function InsightsPanel({ snap, aiEnabled }: Props) {
         <div className="control-hint" style={{ marginTop: 8 }}>
           基准值为人工经验控制下的同规模水厂典型运行区间，用于对照，不代表同一时段的实测。
           {!hasSample && ' 当前累计样本不足（复位或刚应用拓扑），电耗与成本暂不评估。'}
+          {/* 两个口径必须说清：顶栏「今日运行成本」是当日累计（跨日清零），
+              这里是「累计 ÷ 已运行时长 × 24」的折算值，用于与基准横向比较。
+              名字都叫「日运行成本」时并排出现会自相矛盾。 */}
+          「折算日成本」= 本次运行累计成本 ÷ 已运行时长 × 24；与顶栏「今日运行成本」（当日累计、跨日清零）不是同一口径。
         </div>
       </div>
 
@@ -103,15 +107,21 @@ export function InsightsPanel({ snap, aiEnabled }: Props) {
             />
             <BenchRow
               label="吨水电耗"
-              ai={bm.ai.specificKwhM3.toFixed(3)}
-              manual={bm.manual.specificKwhM3.toFixed(3)}
-              delta={`${bm.specificEnergyDelta >= 0 ? '+' : ''}${bm.specificEnergyDelta.toFixed(3)}`}
+              ai={bm.ai.specificKwhM3.toFixed(4)}
+              manual={bm.manual.specificKwhM3.toFixed(4)}
+              /* 能耗差异常在 1e-3 量级：3 位小数会把两条链显示成完全一样，
+                 读者会误以为影子对照没跑。差异用 4 位小数 + 百分比同时给出。 */
+              delta={`${bm.specificEnergyDelta >= 0 ? '+' : ''}${bm.specificEnergyDelta.toFixed(4)}（${
+                bm.manual.specificKwhM3 > 0
+                  ? ((bm.specificEnergyDelta / bm.manual.specificKwhM3) * 100).toFixed(1)
+                  : '0.0'
+              }%）`}
               good={bm.specificEnergyDelta <= 0}
             />
             <BenchRow
               label="运行成本（按吨水）"
-              ai={`¥${(bm.ai.cost / Math.max(1, bm.ai.inflowM3)).toFixed(4)}`}
-              manual={`¥${(bm.manual.cost / Math.max(1, bm.manual.inflowM3)).toFixed(4)}`}
+              ai={`¥${(bm.ai.cost / Math.max(1, bm.ai.inflowM3)).toFixed(5)}`}
+              manual={`¥${(bm.manual.cost / Math.max(1, bm.manual.inflowM3)).toFixed(5)}`}
               delta={`${bm.costDeltaPct >= 0 ? '+' : ''}${bm.costDeltaPct.toFixed(1)}%`}
               good={bm.costDeltaPct <= 0}
             />

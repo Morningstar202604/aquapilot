@@ -1141,8 +1141,35 @@ button {
   margin-top: 11px;
 }
 
+/* 决策按钮组：两个按钮等分一行（.btn 本身不再 flex:1，见下方说明） */
+.decision-actions > .btn {
+  flex: 1 1 0%;
+  min-width: 0;
+}
+
+/* 校准页的两个按钮同理 */
+.calibration-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.calibration-actions > .btn {
+  flex: 1 1 0%;
+  min-width: 0;
+}
+
 .btn {
-  flex: 1;
+  /**
+   * 只让按钮在**横向**容器里等分，绝不沿纵向拉伸。
+   *
+   * 旧写法是 `flex: 1`（= 1 1 0%），在 `flex-direction: column` 的侧栏里
+   * 主轴是纵向，按钮会被拉成几百像素高的竖条——「分析」页的
+   * 「开始分析」按钮实测被拉成 48×729 px，文字挤在顶部。
+   * `flex: 0 0 auto` 让按钮保持自身高度，宽度由容器决定；
+   * 需要等分的横向按钮组改用 `.btn-row`（见下）。
+   */
+  flex: 0 0 auto;
   height: 31px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -1154,6 +1181,17 @@ button {
     color 0.16s,
     background 0.16s,
     box-shadow 0.16s;
+}
+
+/** 横向按钮组：组内按钮等分宽度（这才是 `flex: 1` 该出现的地方）。 */
+.btn-row {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-row > .btn {
+  flex: 1 1 0%;
+  min-width: 0;
 }
 
 .btn:hover {

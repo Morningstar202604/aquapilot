@@ -37,7 +37,23 @@ export function AlarmsPanel({ snap }: Props) {
       <div>
         <div className="section-label">当前活跃（{active.length}）</div>
         {active.length === 0 ? (
-          <div className="empty-note">全部受控指标在限值内。</div>
+          /**
+           * 「无告警」不等于「一切正常」。
+           *
+           * 告警是阈值越限才触发的事件；健康度是连续评分，裕度不足
+           * （例如 SS 占限值 93%）会拉低分数但不发告警。这里只写
+           * 「无告警」而让用户自行对照旁边 69 分，两句并排会像自相矛盾。
+           */
+          <div className="empty-note">
+            当前没有触发告警的指标（告警只在越过排放限值时产生）。
+            {snap.health.grade !== 'good' && (
+              <>
+                <br />
+                但健康度为 {snap.health.score}（{snap.health.grade === 'watch' ? '需要关注' : '存在风险'}）：
+                部分指标裕度不足或运行参数偏离，请查看上方各项评分与趋势。
+              </>
+            )}
+          </div>
         ) : (
           active.map((a) => {
             const why = snap.alarmAttribution[a.code];

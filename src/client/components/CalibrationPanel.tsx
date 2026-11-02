@@ -53,7 +53,7 @@ export function CalibrationPanel({
         )}
 
         {!running && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <div className="calibration-actions">
             <button className="btn" onClick={onIdentify}>
               {identifiability ? '重新分析可辨识性' : '分析可辨识性'}
             </button>

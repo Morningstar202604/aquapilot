@@ -229,8 +229,24 @@ describe('InsightsPanel 双跑', () => {
 describe('AlarmsPanel', () => {
   it('无告警时两个分区都给出明确说明', () => {
     render(<AlarmsPanel snap={makeSnapshot()} />);
-    expect(screen.getByText(/全部受控指标在限值内/)).toBeTruthy();
+    expect(screen.getByText(/当前没有触发告警的指标/)).toBeTruthy();
     expect(screen.getByText(/尚未触发告警/)).toBeTruthy();
+  });
+
+  it('无告警但健康度不佳时，不能只说「一切正常」', () => {
+    // 告警是越限事件，健康度是连续评分：裕度不足会拉低分数却不发告警。
+    // 只写「无告警」会让旁边 69 分看起来自相矛盾。
+    render(
+      <AlarmsPanel
+        snap={makeSnapshot({
+          health: { ...makeSnapshot().health, score: 69, grade: 'watch' },
+        })}
+      />,
+    );
+    expect(screen.getByText(/当前没有触发告警的指标/)).toBeTruthy();
+    expect(screen.getByText(/但健康度为 69/)).toBeTruthy();
+    // 「需要关注」同时出现在健康度标签与告警说明里，用 getAllByText 断言至少两处
+    expect(screen.getAllByText(/需要关注/).length).toBeGreaterThanOrEqual(2);
   });
 
   it('活跃告警按严重程度渲染', () => {

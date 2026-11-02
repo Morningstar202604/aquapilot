@@ -39,7 +39,8 @@ import { buildReport, type CheckInput } from './watchdog';
 import { runAnalysis } from '../sim/analysis';
 import { listModelDescriptors } from '../sim/modelRegistry';
 import { ADAPTER_CAPABILITIES } from '../sim/dataSources';
-import { CONTROL_KEYS, checkAllowedControls, clampControlMoves } from '../shared/agentConfig';
+import { checkAllowedControls } from '../shared/agentConfig';
+import { applyGuards } from './aiGuard';
 import { serveStatic, queryOf } from './staticFiles';
 import { boundedWindow, MAX_SNAPSHOT_POINTS } from './queryBounds';
 import { createSnapshotService } from './snapshotView';
@@ -568,23 +569,13 @@ function runAiCycle(force = false): Recommendation {
     logger.error('ai cycle failed', { error: String(err) });
     throw err;
   }
-  // 约束生效：AI 的第 4 道护栏。allowedControls 之外的控制量保持原值，
+  // 约束生效：AI 的第 4 道护栏。allowedControls 之外保持原值，
   // 单步幅度按配置限幅，人工确认模式下不自动执行。
+  // 全部规则收敛在 aiGuard.applyGuards，见该文件对「空动作降级」的说明。
   const agentCfg = agentConfigStore.get();
-  const constrained: Recommendation = { ...rec, chosens: { ...rec.chosens, controls: { ...rec.chosens.controls } } };
-  for (const key of CONTROL_KEYS) {
-    if (!agentCfg.constraints.allowedControls.includes(key)) {
-      constrained.chosens.controls[key] = runtime.net.controls[key] as never;
-    }
-  }
-  constrained.chosens.controls = clampControlMoves(
-    runtime.net.controls,
-    constrained.chosens.controls,
-    agentCfg.constraints.maxStepPct,
-  );
-  constrained.chosens.controls.aiEnabled = runtime.net.controls.aiEnabled;
-  runtime.recommendation = constrained;
-  rec = constrained;
+  const guarded = applyGuards(rec, runtime.net.controls, agentCfg.constraints);
+  rec = guarded.recommendation;
+  runtime.recommendation = rec;
   void hooksRuntime.fire(agentCfg, {
     event: 'decision',
     detail: `${rec.action} ${rec.summary}`,

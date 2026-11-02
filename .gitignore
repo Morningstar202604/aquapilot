@@ -1,43 +1,40 @@
-# dependencies
+# Dependencies
 node_modules/
 
-# build output
-dist/
-out/
+# Build output
+/dist/
+/out/
 
-# test and tooling artifacts
+# Test and tooling artifacts
 test-results.json
-coverage/
+/coverage/
 *.tsbuildinfo
+.stryker-tmp/
 
-# environment and secrets — never commit these
+# Environment and secrets — never commit these
 .env
 .env.*
 !.env.example
 
-# local AQG state
+# Local AQG working state (the tracked ledgers under .aqg/code-construction/ stay in the repo)
 .aqg/current_ledger.md
-.aqg/**/current_ledger.md
 
-# scratch dirs and one-off probe output
-.tmpcheck/
+# Scratch dirs and one-off probe output
+.tmp/
+.tmp_*
 .tmp-*
 
-# runtime data
-data/
-backups/
+# Runtime state written by the server (SQLite DB, topology history, agent/LLM config).
+# Anchored to the repository root: `src/sim/data/` holds tracked reference data and must not be caught here.
+/data/
+/backups/
 .ci-*.db
 .ci-*
 
-# logs and OS noise
+# Logs and OS noise
 *.log
 .DS_Store
 Thumbs.db
 .v2c/
-.stryker-tmp/
 reports/
 .workbuddy/
-
-# audit probe scratch (must never be committed)
-.tmp/
-.tmp_*

@@ -23,7 +23,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22]
+        # Vitest 5 declares `engines: ^22.12.0 || ^24.0.0 || >=26.0.0`, so Node 20
+        # cannot run this suite. Testing the declared floor (22.12) and the current
+        # LTS line (24) covers "oldest supported" and "what most users run" without
+        # adding a matrix leg that is guaranteed to fail.
+        node: [22, 24]
 
     steps:
       - name: Checkout

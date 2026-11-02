@@ -23,6 +23,8 @@
  */
 
 import { INFLUENT_DESIGN } from './config';
+import { BSM2_CONST_INFLUENT_CSV } from './data/bsm2ConstInfluent';
+import { parseBsm2InfluentCsv, toConventional } from './data/bsm2Reference';
 
 export interface InfluentSample {
   minute: number;
@@ -263,29 +265,36 @@ export function seriesStats(series: InfluentSeries): {
 }
 
 /**
- * 内置：BSM2 官方恒定进水（单点序列）。
+ * 内置：IWA BSM2 官方恒定进水。
  *
- * 用它是为了给「真实数据驱动」提供一个可核对的基准：值来自
- * IWA BSM2 技术报告，与本项目 ASM1 的默认设计值同量级但组分口径不同
- * （BSM2 用 22 列 ASM1 组分，这里只取常规指标）。
+ * 数值全部来自上游 `fau-evt/bsm2-python` 的 `constinfluent_bsm2.csv`
+ * （22 列 ASM1 组分向量），经 `bsm2Reference.ts` 换算成常规指标。
+ * 不再手写近似值：早期版本写着 COD 300 / NH 31.6 / SS 171 并称
+ * 「按 ASM1 组分折算」，但官方向量算出来是 592.5 / 23.86 / 380.3，
+ * 流量也误用了 BSM1 的 18446 m³/d（BSM2 是 20648 m³/d）。
+ *
+ * 磷是唯一无法从 ASM1 得到的指标（ASM1 没有磷状态变量），
+ * 因此显式取本项目的设计值并在 provenance 里标成 `substituted`，
+ * 而不是假装它来自官方数据。
  */
 export function bsm2ConstantSeries(): InfluentSeries {
+  const [row] = parseBsm2InfluentCsv(BSM2_CONST_INFLUENT_CSV);
+  const c = toConventional(row, INFLUENT_DESIGN.tp);
   return {
     name: 'BSM2 官方恒定进水',
     samples: [
       {
         minute: 0,
-        // BSM2 技术报告：Q=18446 m³/d → 768.6 m³/h；COD、NH 为 ASM1 组分折算
-        flow: 768.6,
-        cod: 300,
-        nh: 31.6,
-        tp: 5.2,
-        ss: 171,
-        temperature: 15,
-        alkalinity: 320,
+        flow: c.flow,
+        cod: c.cod,
+        nh: c.nh,
+        tp: c.tp,
+        ss: c.ss,
+        temperature: c.temperature,
+        alkalinity: c.alkalinity,
       },
     ],
     durationMin: 0,
-    warnings: [],
+    warnings: [`除总磷外均取自 IWA BSM2 官方进水向量；总磷为替代值（ASM1 无磷组分）`],
   };
 }

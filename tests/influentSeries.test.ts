@@ -159,11 +159,13 @@ describe('统计摘要', () => {
 });
 
 describe('内置 BSM2 恒定进水', () => {
-  it('数值来自技术报告量级', () => {
+  it('数值与 IWA 官方向量一致（不是手写近似值）', () => {
     const s = bsm2ConstantSeries();
     expect(s.samples).toHaveLength(1);
-    expect(s.samples[0].flow).toBeCloseTo(768.6, 1);
-    expect(s.samples[0].temperature).toBe(15);
+    // 官方 constinfluent_bsm2.csv: Q=20648 m³/d → 860.35 m³/h
+    expect(s.samples[0].flow).toBeCloseTo(860.35, 2);
+    // TEMP=14.858 °C，不是凑整的 15
+    expect(s.samples[0].temperature).toBeCloseTo(14.858, 3);
   });
 });
 
