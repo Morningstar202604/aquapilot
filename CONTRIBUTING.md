@@ -7,10 +7,21 @@ npm ci
 npm run ci        # must be green before any commit
 ```
 
-`npm run ci` runs the same nine gates as CI: dependency install, type check,
-unused-code check, tests with coverage thresholds, build, production smoke test,
-secret scan, dependency audit, and repository hygiene (LICENSE, README,
-CODE_OF_CONDUCT, `.env.example`, Dockerfile, API docs).
+`npm run ci` runs the same eleven gates as CI: dependency install, version
+consistency (package.json ↔ CITATION.cff ↔ CHANGELOG), type check, unused-code
+check, tests with coverage thresholds, build, production smoke test, secret scan,
+backup round-trip, dependency audit, and repository hygiene (LICENSE, README,
+CODE_OF_CONDUCT, `.env.example`, Dockerfile, API docs). The GitHub Actions
+workflow, the GitCode pipeline and the Gitee pipeline all invoke the same script,
+so a green local gate predicts a green remote run.
+
+## Branches and commits
+
+- Branch from `main`; the remote keeps a single `main` branch.
+- Conventional commits, imperative mood (see below). One logical change per commit.
+- Bump `package.json` + `CITATION.cff` + CHANGELOG together — `npm run check:version`
+  fails otherwise. Cut a release with an annotated tag `vX.Y.Z`; the release
+  workflow verifies tag/package agreement before publishing.
 
 ## Ground rules
 
@@ -63,3 +74,5 @@ docs: record why ASM1 integration failed on the first attempt
 
 Include the command you ran, the output, and what you expected. For simulation
 issues, include the seed and the topology you used so the result is reproducible.
+Use the issue templates (bug report / feature request); security issues go to
+[SECURITY.md](SECURITY.md), not the public tracker.

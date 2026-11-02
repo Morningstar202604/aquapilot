@@ -89,10 +89,13 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+      - name: Extract the current version's changelog section
+        run: node scripts/release-notes.mjs > .release-notes.md
       - name: Create or update the GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
+          # 自动生成 PR 感谢列表，正文只放本版本的小节（整份 CHANGELOG 曾被整段塞进正文）
           generate_release_notes: true
-          body_path: CHANGELOG.md
+          body_path: .release-notes.md
           fail_on_unmatched_files: false
           allow_updates: true

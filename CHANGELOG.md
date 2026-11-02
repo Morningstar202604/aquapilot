@@ -4,10 +4,117 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] — 2026-11-02
+
+This release turns the prototype into an auditable operations tool: the model can be
+calibrated against measurements, the state can be estimated from noisy signals, the
+plant can be edited as a flowsheet, and every AI action is now bounded by guards that
+report honestly when they block a move.
+
+### Added
+
+- **Model registry with per-process conservation checking** (`src/sim/modelRegistry.ts`).
+  ASM1, ASM2d and ADM1 are described as data (components / processes / stoichiometry /
+  conservation weights), so adding a model no longer means copying a solver and a
+  conservation test. The checker returns residuals per process rather than a boolean, and
+  keeps an explicit `exempt` list for rows that physically must not close (nitrification COD
+  comes from inorganic carbon; denitrification nitrogen leaves as N₂; ammonification moves
+  nitrogen only). Deliberately faking those closed would hide real coefficient errors.
+- **ASM2d** (`src/sim/asm2d.ts`): 19 components / 19 processes including biological and
+  anoxic phosphorus removal. The conservation checker found and fixed nine real coefficient
+  errors during construction (PAO growth consumed 1 g PHA instead of 1/Y_PAO; autotroph COD
+  origin; hydrolysis nitrogen split; lysis nitrogen release). Behaviour is verified by
+  direction: anaerobic storage raises S_PO4, subsequent aerobic operation lowers it relative
+  to the anaerobic state; 240 steps stay non-negative and finite.
+- **ADM1** (`src/sim/adm1.ts`): 27 components / 15 processes (disintegration, three
+  hydrolysis steps, seven uptake/methanogenesis steps, decay, gas transfer). Explicit Euler
+  with hydraulic mixing, pH and inhibition diagnostics; 2000 steps stay non-negative and
+  finite. It is a standalone unit — not wired into the water train, because it has not been
+  validated against the full BSM2 flowsheet.
+- **Data-source adapters** (`src/sim/dataSources.ts`): one contract (`read` / `status` /
+  `close`) with simulator and CSV replay implemented, and MQTT / OPC UA declaring themselves
+  unavailable instead of returning fabricated values. A chain degrades simulator ← CSV ←
+  live and records which source is actually driving the screen.
+- `GET /api/models`: the registry plus data-source capabilities, with `active` / `inRuntime`
+  separated so "implemented" is never mistaken for "enabled".
+
+- **Parameter calibration** (`calibration/identify|start|cancel` over WebSocket, 「校准」 tab).
+  Identifiability by central differences, then bounded coordinate descent over the
+  physics-constrained parameter ranges. Measured: 10 of 11 ASM1 kinetic parameters are
+  identifiable from effluent data (`mu_A` 22.2, `b_A` 10.6, `K_O_A` 6.2 are the most
+  sensitive); a full run improves the objective by 71.1%.
+- **State estimation** (diagonal EKF, `AQUAPILOT_ESTIMATOR=1`). Six-state estimator with
+  observability reporting; converges from ±30–100% initial error to RMSE below sensor noise.
+  Both peer projects that have this (PyADM1ODE) use UKF/ensembles — diagonal EKF is the
+  right size for six states, and the reasoning is recorded in the module.
+- **Real influent series** (`influent/load|apply|clear`). CSV with linear interpolation and
+  wrapping, so a 24-hour profile can drive any duration. Parsing keeps raw values; clamping
+  happens at sampling time so the quality report can still see bad inputs.
+- **Influent data-quality checks** (range / spike / stuck-sensor / gap). Error-level issues
+  block application rather than letting the engine silently clamp 99999 m³/h into 5200.
+- **Unified unit conversions** (`src/sim/units.ts`). `1.42` was hardcoded in five places;
+  a single change would have split the COD accounting silently.
+- `docs/COMPETITIVE-SOURCE-ANALYSIS.md`: source-level comparison (file trees read, key
+  source files decoded) against seven peer projects.
+
+### Changed
+
+- `src/server/index.ts` split from 2556 into 1731 lines across six single-purpose
+  modules: `staticFiles`, `queryBounds`, `snapshotView`, `llmChat`,
+  `agentConfigHandler`, `rateLimit`.
+- WebSocket message validation moved from hand-written checks to a `valibot`
+  schema. Three real gaps closed: `scenario.kind`, `sim.action` and
+  `llmConfig.protocol` previously accepted any value.
 
 ### Fixed
 
+- **Guard-blocked AI moves were logged as executed.** When the step limiter or the
+  allowed-controls whitelist clamped every target back to the current value, the
+  recommendation kept `action: emergency` and the original summary. The server then
+  broadcast 「AI 已执行：预测到 出水超标风险，立即执行应急调节：」 — with an empty
+  payload after the colon — every 65 seconds, while the controls never changed. An
+  operator reading that log would conclude the risk had been handled. The guard
+  pipeline now lives in `src/server/aiGuard.ts` and degrades the action to `hold`
+  with a summary that names what blocked it. `severity` is deliberately preserved,
+  so the risk stays visible in alarms and scoring.
+- **Runtime state directories were shadowing tracked reference data.** The
+  `.gitignore` rule `data/` (intended for the server's SQLite directory) also matched
+  `src/sim/data/`, so the IWA BSM2 reference CSVs were never committed even though
+  `docs/COMPETITIVE-SOURCE-ANALYSIS.md` said they were "on disk". Rules are now
+  anchored to the repository root (`/data/`, `/dist/`, `/out/`, `/coverage/`).
+- **The built-in BSM2 influent was invented, not measured.** `bsm2ConstantSeries()`
+  returned COD 300 / NH 31.6 / SS 171 / T 15 °C and described them as "converted from
+  ASM1 components". The official 22-column vector gives COD 592.53 / NH 23.86 /
+  TSS 380.34 / T 14.858 °C, and the flow used BSM1's 18 446 m³/d rather than BSM2's
+  20 648 m³/d (860.35 m³/h). The series is now parsed from the upstream file, with a
+  test asserting the inlined constant is byte-identical to the CSV on disk.
+- **Buttons were stretched to full panel height.** `.btn` carried `flex: 1`
+  (`1 1 0%`), which is fine in a horizontal row but grows vertically inside a
+  `flex-direction: column` side panel. The 「开始分析」 button measured 48 × 729 px
+  with its label pinned to the top. `.btn` is now `flex: 0 0 auto`; horizontal groups
+  that genuinely need equal widths declare it explicitly.
+- **"No alarms" was presented as "all clear".** The alarms panel printed
+  「全部受控指标在限值内」 whenever no alarm had fired, while the health score directly
+  above read 69 / 需要关注 — alarms only fire on limit breaches, whereas health is a
+  continuous score that also drops on thin margins. The empty state now says what it
+  actually means and names the health score when it is not good.
+- **Two different numbers were both called "daily cost".** The top bar shows
+  day-to-date cost (`costToday`, reset at midnight); the insights panel showed
+  `cumulative cost ÷ elapsed hours × 24`. Side by side they read as a contradiction
+  (809 元 vs 9.2 千元). The extrapolated figure is now 「折算日成本」 and the panel
+  states the difference.
+- **AI-vs-baseline deltas were rounded away.** Per-m³ energy was shown to three
+  decimals, so a real difference between the two chains (0.1638 vs 0.1610 kWh/m³)
+  rendered as `0.170 / 0.170 / +0.0` — indistinguishable from "the shadow run never
+  started". Precision raised to four decimals with the relative change alongside.
+- **The mass-balance audit labelled a delta as a stock.** 「系统内库存」 displayed
+  `−0.4 t` when biomass decreased over the period, which reads as negative inventory.
+  The row is now 「系统内库存变化」 with an explicit sign.
+- **The onboarding tour pointed at tabs that do not exist.** It named 趋势分析,
+  工艺编辑, 模型设置 and Agent 设置 (none are side tabs) and omitted 告警, 效益, 校准,
+  进水 and 自检 (all are). Steps were rewritten against the real 10-tab layout,
+  exported as `ONBOARDING_STEPS`, and a test cross-checks every tab name against
+  `App.tsx` so the two lists cannot drift again.
 - **Local browser smoke no longer depends on a managed Playwright download.** `npm run e2e` uses an existing Edge/Chromium executable when `AQUAPILOT_BROWSER_PATH` is set (or when a standard system path is found), while CI still installs and uses the managed Chromium binary by default. Browser resources are closed during cleanup.
 - **Public fetches now pin DNS validation to the selected address.** Skill imports and webhook targets reject private DNS answers, IPv4-mapped private addresses, redirects, and oversized response bodies before the result is stored or returned.
 - **HTTP query tokens are no longer accepted outside `/ws`.** API clients must use the `Authorization` header; WebSocket clients should use the subprotocol.
@@ -94,61 +201,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   wwtmodels/Activated-Sludge-Models), including an explicit list of what
   AquaPilot does *not* do.
 
-### Added
-
-- **Model registry with per-process conservation checking** (`src/sim/modelRegistry.ts`).
-  ASM1, ASM2d and ADM1 are described as data (components / processes / stoichiometry /
-  conservation weights), so adding a model no longer means copying a solver and a
-  conservation test. The checker returns residuals per process rather than a boolean, and
-  keeps an explicit `exempt` list for rows that physically must not close (nitrification COD
-  comes from inorganic carbon; denitrification nitrogen leaves as N₂; ammonification moves
-  nitrogen only). Deliberately faking those closed would hide real coefficient errors.
-- **ASM2d** (`src/sim/asm2d.ts`): 19 components / 19 processes including biological and
-  anoxic phosphorus removal. The conservation checker found and fixed nine real coefficient
-  errors during construction (PAO growth consumed 1 g PHA instead of 1/Y_PAO; autotroph COD
-  origin; hydrolysis nitrogen split; lysis nitrogen release). Behaviour is verified by
-  direction: anaerobic storage raises S_PO4, subsequent aerobic operation lowers it relative
-  to the anaerobic state; 240 steps stay non-negative and finite.
-- **ADM1** (`src/sim/adm1.ts`): 27 components / 15 processes (disintegration, three
-  hydrolysis steps, seven uptake/methanogenesis steps, decay, gas transfer). Explicit Euler
-  with hydraulic mixing, pH and inhibition diagnostics; 2000 steps stay non-negative and
-  finite. It is a standalone unit — not wired into the water train, because it has not been
-  validated against the full BSM2 flowsheet.
-- **Data-source adapters** (`src/sim/dataSources.ts`): one contract (`read` / `status` /
-  `close`) with simulator and CSV replay implemented, and MQTT / OPC UA declaring themselves
-  unavailable instead of returning fabricated values. A chain degrades simulator ← CSV ←
-  live and records which source is actually driving the screen.
-- `GET /api/models`: the registry plus data-source capabilities, with `active` / `inRuntime`
-  separated so "implemented" is never mistaken for "enabled".
-
-- **Parameter calibration** (`calibration/identify|start|cancel` over WebSocket, 「校准」 tab).
-  Identifiability by central differences, then bounded coordinate descent over the
-  physics-constrained parameter ranges. Measured: 10 of 11 ASM1 kinetic parameters are
-  identifiable from effluent data (`mu_A` 22.2, `b_A` 10.6, `K_O_A` 6.2 are the most
-  sensitive); a full run improves the objective by 71.1%.
-- **State estimation** (diagonal EKF, `AQUAPILOT_ESTIMATOR=1`). Six-state estimator with
-  observability reporting; converges from ±30–100% initial error to RMSE below sensor noise.
-  Both peer projects that have this (PyADM1ODE) use UKF/ensembles — diagonal EKF is the
-  right size for six states, and the reasoning is recorded in the module.
-- **Real influent series** (`influent/load|apply|clear`). CSV with linear interpolation and
-  wrapping, so a 24-hour profile can drive any duration. Parsing keeps raw values; clamping
-  happens at sampling time so the quality report can still see bad inputs.
-- **Influent data-quality checks** (range / spike / stuck-sensor / gap). Error-level issues
-  block application rather than letting the engine silently clamp 99999 m³/h into 5200.
-- **Unified unit conversions** (`src/sim/units.ts`). `1.42` was hardcoded in five places;
-  a single change would have split the COD accounting silently.
-- `docs/COMPETITIVE-SOURCE-ANALYSIS.md`: source-level comparison (file trees read, key
-  source files decoded) against seven peer projects.
-
-### Changed
-
-- `src/server/index.ts` split from 2556 into 1731 lines across six single-purpose
-  modules: `staticFiles`, `queryBounds`, `snapshotView`, `llmChat`,
-  `agentConfigHandler`, `rateLimit`.
-- WebSocket message validation moved from hand-written checks to a `valibot`
-  schema. Three real gaps closed: `scenario.kind`, `sim.action` and
-  `llmConfig.protocol` previously accepted any value.
-
 ### Performance
 
 - Client bundle split by vendor + lazy-loaded chart/settings panels: first-load JS
@@ -224,12 +276,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   topology editor's `dirty` flag no longer stays true forever.
 - Log redaction covers `apiKey`/`accessToken`/`privateKey`; the watchdog no longer
   broadcasts an absolute config path.
-
-### Changed
-
-- Brand in the top bar follows the applied topology name instead of the hard-coded
-  standard plant.
-- Unit icons are hidden in the all-in-view mode; titles carry the reading line.
 
 ## [0.4.0] — 2026-10-27
 
@@ -712,9 +758,7 @@ length`, 17–39 s). The chat path now uses a reasoning-aware budget/timeout,
 
 - Unused `TARIFF` / `SETPOINT_LIMITS` exports from `src/sim/config.ts`.
 
-## [0.3.0] — release notes addendum
-
-The full entry for 0.3.0 is above. Two implementation notes worth recording:
+### Implementation notes
 
 - The secondary-clarifier area change (2 400 → 3 600 m²) is a **model correction**,
   not a tuning trick: at the old area the steady state violated the plant's own

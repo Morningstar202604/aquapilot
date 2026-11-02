@@ -114,11 +114,16 @@ npx vitest run --coverage
 
 | Item | Value |
 |---|---|
-| Test files | 91 |
-| Tests | 1121 |
-| Line coverage | 93.97 % |
-| Branch coverage | 81.63 % |
-| Function coverage | 96.01 % |
+| Test files | 93 |
+| Tests | 1159 |
+| Statement coverage | 92.26 % |
+| Branch coverage | 81.70 % |
+| Function coverage | 95.97 % |
+| Line coverage | 94.00 % |
+
+Measured 2026-11-02 on Node 24.20.0, working tree at v0.5.0. Numbers move with the
+tree; the table above is the reference point for the current release, and the
+thresholds in `vitest.config.ts` are what CI actually enforces.
 
 Coverage is measured with `vitest.config.ts` over the model, AI, simulation, and
 server sources plus the shared label helper. It is a domain-coverage gate, not a

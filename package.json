@@ -1,6 +1,6 @@
 {
   "name": "aquapilot",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "allowScripts": {
     "esbuild": true
@@ -25,6 +25,7 @@
     "format:write": "prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\"",
     "backup": "tsx scripts/backup.ts",
     "mutation": "stryker run",
+    "check:version": "node scripts/check-version.mjs",
     "docker:build": "docker build -t aquapilot:local .",
     "docker:run": "docker run --rm -p 5173:5173 -e HOST=0.0.0.0 -e AQUAPILOT_TOKEN -v aquapilot-data:/app/data aquapilot:local",
     "media": "tsx scripts/media.ts",

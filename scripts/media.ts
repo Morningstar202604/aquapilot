@@ -88,6 +88,14 @@ try {
     recordVideo: { dir: VIDEO_DIR, size: { width: 1600, height: 950 } },
   });
   const page = await context.newPage();
+  /**
+   * 截图要拍的是**产品界面**，不是首访引导。
+   *
+   * 引导上线后本脚本第一次跑就超时了：模态遮罩拦截了所有 click。
+   * 预置 sessionStorage 让「已读过引导」成立；引导本身有独立的
+   * e2e 覆盖（tests/onboarding.test.tsx），这里不重复验证它。
+   */
+  await page.addInitScript(() => window.sessionStorage.setItem('aquapilot_onboarded', '1'));
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => {
@@ -120,6 +128,12 @@ try {
   // 控制与工况：注入暴雨
   await page.locator('.side-tab', { hasText: '控制与工况' }).click();
   await page.waitForTimeout(900);
+  // 场景按钮在 Collapsible 里，折叠状态下点不到：先展开「工况注入」
+  const scenarioSection = page.locator('.collapsible', { hasText: '工况注入' }).first();
+  if (!(await scenarioSection.locator('.scenario-btn').first().isVisible())) {
+    await scenarioSection.locator('summary, .collapsible-title, .collapsible-head').first().click();
+    await page.waitForTimeout(400);
+  }
   await page.locator('.scenario-btn', { hasText: '暴雨冲击' }).click();
   await page.waitForTimeout(3000);
   await snap(page, '04-control');

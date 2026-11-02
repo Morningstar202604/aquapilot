@@ -150,8 +150,8 @@ GitHub Container Registry example:
 
 ```bash
 echo "$GH_TOKEN" | docker login ghcr.io -u <user> --password-stdin
-docker build -t ghcr.io/<user>/aquapilot:0.4.0 -t ghcr.io/<user>/aquapilot:latest .
-docker push ghcr.io/<user>/aquapilot:0.4.0
+docker build -t ghcr.io/<user>/aquapilot:0.5.0 -t ghcr.io/<user>/aquapilot:latest .
+docker push ghcr.io/<user>/aquapilot:0.5.0
 docker push ghcr.io/<user>/aquapilot:latest
 ```
 

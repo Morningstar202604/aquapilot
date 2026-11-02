@@ -1,70 +1,60 @@
 # AquaPilot
 
-Topology-driven wastewater process simulation with an AI operator.
+**AI-operated wastewater process simulation.** Edit the flowsheet, watch the plant run, and let an auditable AI operator hold the controls — every forecast, decision and guardrail is inspectable in the browser.
 
-[中文说明](README.zh-CN.md)
+[中文说明](README.zh-CN.md) · [API](docs/API.md) · [Benchmarks](docs/BENCHMARKS.md) · [Deployment](docs/DEPLOYMENT.md)
 
-[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A520.19-339933)](package.json) [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![CI](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12-339933)](package.json)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![tests](https://img.shields.io/badge/tests-1159%20passing-2ea44f)](docs/BENCHMARKS.md)
 
 ![AquaPilot overview](docs/screenshots/01-overview.jpg)
 
-## What it is
+## What you get
 
-AquaPilot is a runnable operations-side simulation prototype. A process flowsheet is stored as a graph, compiled into a network of reactors, solved in topology order, and rendered in a control-room UI. The AI operator forecasts, ranks control moves, applies hard guardrails, and explains the result so a human can inspect or override it.
+- **A plant you can edit, not a fixed diagram.** The flowsheet is a graph: add a tank, rewire a recycle, load a preset — the solver recompiles the network from the topology and the canvas follows. 17 units, 23 connections in the default A²/O plant, every edge terminating on its declared port anchor.
+- **ASM1 + Takács clarifier, benchmarked.** The water train is checked against the IWA BSM1 Table 6 reference in CI; the worst deviation (TSS, the quantity affected by the Takács non-settling fraction `f_ns`) sits at **+5.1%** against the official value. ASM2d and ADM1 ship as standalone, conservation-checked modules.
+- **An AI operator that shows its work.** A rolling 4-hour forecast ranks candidate control moves on compliance, cost and stability, applies them inside hard bounds, and explains every action — including the moves it *declined* and why. A guard-blocked move is reported as blocked; nothing is logged as "executed" unless a setpoint actually moved.
+- **Analysis built in.** Parameter sensitivity (central differences), a compliance-vs-cost Pareto frontier, and a plant-wide COD mass-balance audit that accounts for all four destinations — effluent, waste sludge, aeration oxidation and in-system inventory.
+- **Evidence, not marketing.** AI-vs-fixed-strategy shadow runs share seed, influent and initial state; the insights panel shows the real deltas. Parameter calibration and a six-state EKF ship as experimental, clearly-labelled tools.
+- **Operations-grade hygiene.** Three-tier token access (`viewer`/`operator`/`admin`), SSRF-guarded outbound fetches, SQLite history with backup/restore, Prometheus metrics, CSV replay with data-quality rejection, and an 11-step local CI gate mirrored on GitHub Actions, GitCode and Gitee.
 
-It is **not** a design-grade simulator, a real-plant control system, a compliance guarantee, or a field digital twin. Results are for simulation, testing, and engineering discussion only.
+**What it is not:** a design-grade simulator, a field control system, or a compliance guarantee. Simulation output is for testing and engineering discussion; the precise boundaries are listed in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
-## Verified capabilities
+## Screenshots
 
-- **Topology-driven solving:** unit count, volumes, ports, streams, recycles, and routes come from the editable topology; changing the graph changes the solved network.
-- **Running water train:** ASM1 plus a ten-layer Takács secondary clarifier, with a BSM1 Table 6 comparison test.
-- **AI operation:** four-hour forecasts, candidate control moves, compliance/cost/stability scoring, hard bounds, manual override, and critical-alarm handling.
-- **Robust analysis:** fixed-perturbation stress bands, parameter sensitivity, a compliance-versus-cost Pareto frontier, and a plant-wide COD balance audit.
-- **Shadow comparison:** AI and a fixed strategy run with the same seed, influent, and initial state; the comparison is controlled simulation evidence, not a field A/B test.
-- **Operations workflow:** scenarios, alarms with attribution, plant health, replay/export, backups, CSV influent replay, and data-quality rejection for invalid uploads.
-- **Experimental calibration and estimation:** bounded calibration against a synthetic BSM1 target and a default-off six-state EKF using simulated measurements. This is not field calibration or sensor-based soft measurement.
-- **Model registry:** ASM1 is the active runtime model. ASM2d and ADM1 are implemented and tested as standalone units, but are not connected to the main water train and are not a complete BSM2 flow.
-- **Model providers:** OpenAI-compatible, Anthropic Messages, and Google Gemini transports can be configured through the UI; the LLM layer is optional and falls back to deterministic rules.
-- **Access levels:** `viewer`, `operator`, and `admin` are mapped from shared environment tokens. This is not user-account management or full multi-user RBAC.
+| Control room | AI decision trail |
+| --- | --- |
+| ![](docs/screenshots/01-overview.jpg) | ![](docs/screenshots/03-decision.jpg) |
+| **Flowsheet editor** | **Mobile** |
+| ![](docs/screenshots/07-editor.jpg) | ![](docs/screenshots/09-mobile.jpg) |
 
-## Implementation status
-
-| Capability                | Status                          | Boundary                                                                                                         |
-| ------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| ASM1 + Takács water train | Running runtime                 | The main train uses ASM1; BSM1 comparison remains within documented tolerances.                                  |
-| ASM2d and ADM1            | Implemented, standalone         | Unit tests and registry metadata exist; no BSM2 end-to-end integration.                                          |
-| Parameter calibration     | Experimental                    | Synthetic BSM1 observations; results do not automatically change runtime parameters.                             |
-| State estimation          | Experimental, off by default    | Simulated state plus deterministic noise; no field sensor stream.                                                |
-| CSV influent replay       | Implemented                     | Validated by size/format/data-quality checks before application.                                                 |
-| MQTT / OPC UA             | Not implemented                 | The adapter contract reports an explicit unavailable status; no protocol client is shipped.                      |
-| Persistent history        | Environment-dependent           | Node 22+ can use built-in `node:sqlite`; Node 20 may fall back to in-memory history. Check `/api/health?deep=1`. |
-| Access control            | Implemented, shared-token model | Three access levels, not named users or a complete RBAC system.                                                  |
+More views: [AI chat](docs/screenshots/02-chat.jpg) · [scenario injection](docs/screenshots/04-control.jpg) · [alarms](docs/screenshots/10-alarms.jpg) · [replay](docs/screenshots/06-replay.jpg) · [insights](docs/screenshots/05-insights.jpg) · [laptop layout](docs/screenshots/08-laptop.jpg) — or watch `docs/media/demo.mp4` / `demo.gif`.
 
 ## Quick start
 
-Requirements: Node.js 20.19 or newer. Node 22+ is recommended when replay/history persistence is needed.
+Requires **Node.js 22.12+** (24 recommended). No external database or services — history uses the SQLite module built into Node.
 
 ```bash
 npm ci
 npm run build
-npm start                 # http://127.0.0.1:5173
+npm start                 # → http://127.0.0.1:5173
 ```
 
-Development mode:
+Development mode with hot reload:
 
 ```bash
-npm run dev               # Vite client + development server
+npm run dev               # Vite client on :5174, proxying API/WS to :5173
 ```
 
-Verification commands:
+Verification (what CI runs):
 
 ```bash
-npm run typecheck
-npm run lint
-npm run test
-npm run verify            # typecheck + lint + test + build
-npm run ci                # local quality gate, audit, smoke, backup, and hygiene checks
-npm run e2e               # Playwright browser smoke; uses managed Chromium or AQUAPILOT_BROWSER_PATH
+npm run verify            # typecheck + lint + 1159 tests + build
+npm run ci                # full 11-step gate: coverage, smoke, secrets, backup, audit
+npm run e2e               # Playwright browser smoke (uses a system Edge/Chromium when present)
 ```
 
 Docker:
@@ -78,48 +68,35 @@ docker run --rm -p 5173:5173 \
 
 ## Configuration
 
-The UI can save LLM settings. Environment variables are available for deployment and local automation; use placeholders, never commit real values.
+Everything works with zero configuration — no tokens means a local, unauthenticated sandbox. Tokens turn on access control:
 
 ```text
-HOST=127.0.0.1                 # non-loopback values require an access token
-AQUAPILOT_TOKEN=...            # optional admin token for API and WebSocket access
-AQUAPILOT_OPERATOR_TOKEN=...   # optional operator token
-AQUAPILOT_VIEWER_TOKEN=...     # optional read-only token
-AQUAPILOT_LLM_BASE_URL=...
-AQUAPILOT_LLM_MODEL=...
-AQUAPILOT_LLM_API_KEY=...
+HOST=127.0.0.1                 # non-loopback values require a token (fail-closed)
+AQUAPILOT_TOKEN=...            # admin — models, agent, topology, calibration
+AQUAPILOT_OPERATOR_TOKEN=...   # operator — scenarios, control adjustments
+AQUAPILOT_VIEWER_TOKEN=...     # viewer — read-only wall display
+AQUAPILOT_DB=data/aquapilot.db # history location (node:sqlite, WAL)
 ```
 
-When authentication is enabled, read operations require `viewer`, control/scenario operations require `operator`, and topology/model/agent configuration requires `admin`. Use TLS and a reverse proxy before exposing the server beyond localhost. LLM configuration is stored with restricted file permissions and keys are masked before being sent to the browser.
-
-## Reproducible evidence
-
-[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) records the benchmark baseline, including the command, Node version, seed, strategy, and known model limits for each result.
-
-The historical local gate baseline is 91 test files and 1121 passing tests. On the current local working tree, `npm test -- --reporter=dot` passed 91 files and 1133 tests on Node 24.20.0; this is not a release or a full quality-gate result. The reported coverage is **domain coverage** for the configured model/AI/server sources, not coverage of every React component; the historical line, branch, and function figures are maintained in `docs/BENCHMARKS.md`.
-
-## Limitations and safety
-
-- Do not use simulation output as a design calculation, regulatory submission, operating instruction, or automatic control authorization.
-- The running water train is ASM1 + Takács. ASM2d and ADM1 are standalone implementations and have not been validated as a complete BSM2 flowsheet.
-- Calibration is synthetic-data validation. EKF is disabled by default and does not consume field sensors.
-- P10/P50/P90 bands and exceedance ratios are fixed perturbation stress tests, not statistical confidence intervals or field risk probabilities.
-- MQTT and OPC UA are not implemented. CSV replay is the available external-data path.
-- Runtime state is shared by connected clients. Access levels are shared-token mappings, not named accounts.
-- Node 20 can run without SQLite persistence; verify persistence state in the health endpoint and replay panel.
-- BSM1 S_NH and the clarifier concentration profile still have documented deviations. See the benchmark table before interpreting numbers.
+LLM providers (OpenAI-compatible, Anthropic Messages, Google Gemini) are configured in the UI and stored with restricted file permissions; the AI layer is optional and degrades to a deterministic rule engine without one. Full variable list: [.env.example](.env.example) · deployment details: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Documentation
 
-- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — reproducible model, strategy, performance, and coverage measurements
-- [`docs/API.md`](docs/API.md) — HTTP and WebSocket contracts
-- [`docs/RUNBOOK.md`](docs/RUNBOOK.md) — operations, backup, recovery, and troubleshooting
-- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — Docker, persistence, proxy, and deployment boundaries
-- [`docs/QUALITY-ROADMAP.md`](docs/QUALITY-ROADMAP.md) — historical roadmap and remaining model work
-- [`docs/COMPETITIVE-SOURCE-ANALYSIS.md`](docs/COMPETITIVE-SOURCE-ANALYSIS.md) — model scope and source evidence
-- [`scripts/README.md`](scripts/README.md) — verification and development scripts
-- [`README.zh-CN.md`](README.zh-CN.md) — Chinese documentation
+| Doc | Contents |
+| --- | --- |
+| [docs/API.md](docs/API.md) | HTTP + WebSocket contracts, message schemas |
+| [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | Every measured claim, with the command that reproduces it |
+| [docs/RUNBOOK.md](docs/RUNBOOK.md) | Operations, backup/restore, troubleshooting |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Docker, persistence, reverse proxy, mirror layout |
+| [docs/UI-ARCHITECTURE.md](docs/UI-ARCHITECTURE.md) | Frontend module map and data flow |
+| [docs/QUALITY-ROADMAP.md](docs/QUALITY-ROADMAP.md) | Known model limitations and the plan for them |
+| [docs/COMPETITIVE-ANALYSIS.md](docs/COMPETITIVE-ANALYSIS.md) | Verified comparison against seven peer projects |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Branches, commit style, the local gate, release steps |
+
+## Contributing
+
+PRs welcome. `npm run ci` is the contract: it runs the same 11 steps locally that CI runs remotely, so a green local gate is a green remote gate. See [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, commit style and the release checklist.
 
 ## License
 
-MIT
+[MIT](LICENSE)

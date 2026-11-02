@@ -22,7 +22,7 @@ step() { printf '\n\033[1;36m▶ %s\033[0m\n' "$1"; }
 pass() { printf '\033[1;32m  PASS\033[0m %s\n' "$1"; }
 fail() { printf '\033[1;31m  FAIL\033[0m %s\n' "$1"; exit 1; }
 
-step "1/10 依赖一致性 (package-lock)"
+step "1/11 依赖一致性 (package-lock)"
 [ -f package-lock.json ] || fail "缺少 package-lock.json"
 CI_OUT=$(npm ci --prefer-offline --no-audit --no-fund 2>&1) && pass "依赖安装成功" || {
   printf '%s
@@ -37,14 +37,17 @@ CI_OUT=$(npm ci --prefer-offline --no-audit --no-fund 2>&1) && pass "依赖安�
   fail "npm ci 失败（见上方输出）"
 }
 
-step "2/10 TypeScript 严格检查"
+step "2/11 版本一致性（package.json / CITATION.cff / CHANGELOG）"
+node scripts/check-version.mjs && pass "三处版本号一致" || fail "版本号不一致——发版时三处必须同步改"
+
+step "3/11 TypeScript 严格检查"
 npm run typecheck > /dev/null 2>&1 && pass "0 错误" || fail "类型检查失败"
 
-step "3/10 严格未使用检查 + 格式"
+step "4/11 严格未使用检查 + 格式"
 npx tsc --noEmit --noUnusedLocals --noUnusedParameters > /dev/null 2>&1 && pass "无未使用代码" || fail "存在未使用变量/导入"
 npm run format > /dev/null 2>&1 && pass "格式检查通过" || fail "格式检查失败"
 
-step "4/10 单元测试 + 覆盖率"
+step "5/11 单元测试 + 覆盖率"
 npx vitest run --coverage --reporter=json --outputFile="$GATE_TMP/test-results.json" > "$GATE_TMP/coverage.log" 2>&1 || {
   tail -20 "$GATE_TMP/coverage.log"
   fail "测试或覆盖率未达标"
@@ -68,13 +71,13 @@ TOTAL=${TEST_COUNTS%% *}
 PASSED=${TEST_COUNTS##* }
 pass "$PASSED/$TOTAL 通过，0 失败/跳过/todo"
 
-step "5/10 构建"
+step "6/11 构建"
 npm run build > /dev/null 2>&1 && pass "客户端与服务端构建成功" || fail "构建失败"
 [ -f dist/client/index.html ] || fail "缺少客户端产物"
 [ -f dist/server/index.mjs ] || fail "缺少服务端产物"
 pass "产物齐全"
 
-step "6/10 生产服务器冒烟测试"
+step "7/11 生产服务器冒烟测试"
 PORT=5180 node dist/server/index.mjs > "$GATE_TMP/ci-smoke.log" 2>&1 &
 SMOKE_PID=$!
 OK=0
@@ -90,7 +93,7 @@ kill "$SMOKE_PID" 2>/dev/null || true
 unset SMOKE_PID
 pass "三个端点均正常"
 
-step "7/10 密钥与产物扫描"
+step "8/11 密钥与产物扫描"
 # 只抑制规则自身的文本，命中时绝不回显匹配行，避免把泄露值写入 CI 日志。
 SECRET_PATTERN='(gh[pousr]_[A-Za-z0-9_\-]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|https?://[^/[:space:]@]+:[^@[:space:]]+@)'
 if SECRET_SCAN=$(git grep -lIE "$SECRET_PATTERN" -- . 2>/dev/null); then
@@ -114,14 +117,14 @@ if [ -n "$TRACKED" ]; then
 fi
 pass "构建产物未入库"
 
-step "8/10 备份往返"
+step "9/11 备份往返"
 npx tsx scripts/backup-seed.ts "$GATE_TMP/seed.db"
 npx tsx scripts/backup.ts create --db "$GATE_TMP/seed.db" --out "$GATE_TMP/snapshot.db" > /dev/null
 npx tsx scripts/backup.ts restore --from "$GATE_TMP/snapshot.db" --db "$GATE_TMP/restored.db" --yes > /dev/null
 npx tsx scripts/backup-seed.ts "$GATE_TMP/restored.db" --verify 5
 pass "备份/恢复往返通过"
 
-step "9/10 依赖安全审计"
+step "10/11 依赖安全审计"
 # 镜像源（npmmirror）不实现 audit 接口，会返回 NOT_IMPLEMENTED。
 # 这里显式指定官方源；若网络不可达，则明确标记"未审计"而不是假装通过。
 if AUDIT_OUT=$(npm audit --registry=https://registry.npmjs.org --audit-level=high 2>&1); then
@@ -136,7 +139,7 @@ else
   fail "存在高危依赖漏洞"
 fi
 
-step "10/10 工程卫生"
+step "11/11 工程卫生"
 [ -f LICENSE ] || fail "缺少 LICENSE"
 [ -f README.md ] || fail "缺少 README.md"
 [ -f README.zh-CN.md ] || fail "缺少中文 README"
