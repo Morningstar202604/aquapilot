@@ -94,9 +94,9 @@ AQUAPILOT_LLM_API_KEY=...
 
 ## 可复现实测
 
-当前数字的唯一维护入口是 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)，其中记录命令、Node 版本、seed、策略和已知模型限制。
+[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) 记录基准数据及其命令、Node 版本、seed、策略和已知模型限制。
 
-最近一次本地门禁基线为 91 个测试文件、1121 项测试通过。覆盖率是已配置模型/AI/服务端源码的**领域覆盖率**，不代表所有 React 组件都被统计；当前行、分支和函数数字只在 `docs/BENCHMARKS.md` 维护。
+历史本地门禁基线为 91 个测试文件、1121 项测试通过。当前本地工作区在 Node 24.20.0 下执行 `npm test -- --reporter=dot`，91 个文件、1133 项测试通过；这不是发布结果，也不是完整质量门禁结果。覆盖率是已配置模型/AI/服务端源码的**领域覆盖率**，不代表所有 React 组件都被统计；历史行、分支和函数数字在 `docs/BENCHMARKS.md` 维护。
 
 ## 限制与安全声明
 

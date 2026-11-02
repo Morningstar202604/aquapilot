@@ -2,6 +2,8 @@ import { Resolver } from 'node:dns';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
+import { createGunzip, createInflate, createBrotliDecompress } from 'node:zlib';
+import type { Transform } from 'node:stream';
 import type { DiscoveredModel, LlmDiscoverInput, LlmProtocol, LlmTestInput, LlmTestResult } from '../shared/llm';
 import { isChatModel } from '../shared/llm';
 
@@ -66,6 +68,7 @@ function isDangerousIpv6(host: string): boolean {
   if (!host.includes(':')) return false;
   const parts = parseIpv6(host);
   if (!parts) return true;
+  if (parts[0] === 0x64 && parts[1] === 0xff9b && parts[2] === 1) return true;
   const embedded = embeddedIpv4(parts);
   if (embedded && isDangerousIpv4(embedded)) return true;
   // 链路本地 fe80::/10、唯一本地 fc00::/7（AWS IMDS IPv6 fd00:ec2::254 落在 ULA 内）
@@ -107,11 +110,24 @@ function parseIpv6(host: string): number[] | null {
   return head.length === 8 ? head : null;
 }
 
-/** 取出 IPv6 里内嵌的 IPv4（IPv4-mapped / compatible / NAT64 / 6to4） */
+/**
+ * 取出 IPv6 里内嵌的 IPv4。
+ *
+ * 覆盖四种把 IPv4 塞进 IPv6 的写法，任何一种漏判都能绕过链路本地检查：
+ * - IPv4-mapped `::ffff:a.b.c.d`（`::ffff:0:0/96`）
+ * - IPv4-compatible `::a.b.c.d`（`::/96`，已废弃但部分栈仍接受）
+ * - IPv4-translated `::ffff:0:a.b.c.d`（`::ffff:0:0/96`，SIIT）
+ * - NAT64：RFC 6052 的 `64:ff9b::/96`
+ * - 6to4 `2002:AABB:CCDD::/48`
+ */
 function embeddedIpv4(parts: number[]): string | null {
   const octets = (hi: number, lo: number): string => `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
-  const firstFiveZero = parts.slice(0, 5).every((part) => part === 0);
+  const firstFourZero = parts.slice(0, 4).every((part) => part === 0);
+  const firstFiveZero = firstFourZero && parts[4] === 0;
+  // IPv4-compatible `::a.b.c.d` 与 IPv4-mapped `::ffff:a.b.c.d`
   if (firstFiveZero && (parts[5] === 0 || parts[5] === 0xffff)) return octets(parts[6], parts[7]);
+  // IPv4-translated `::ffff:0:a.b.c.d`（SIIT）：0:0:0:0:ffff:0:hi:lo
+  if (firstFourZero && parts[4] === 0xffff && parts[5] === 0) return octets(parts[6], parts[7]);
   if (parts[0] === 0x64 && parts[1] === 0xff9b) return octets(parts[6], parts[7]);
   if (parts[0] === 0x2002) return octets(parts[1], parts[2]);
   return null;
@@ -337,6 +353,9 @@ export async function fetchPublicUrl(raw: string, options: PublicFetchOptions = 
   const timeoutMs = options.timeoutMs ?? 10_000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const cancel = () => controller.abort();
+  options.signal?.addEventListener('abort', cancel, { once: true });
+  if (options.signal?.aborted) controller.abort();
   try {
     const { url, address } = await resolvePublicFetchAddress(
       raw,
@@ -349,8 +368,20 @@ export async function fetchPublicUrl(raw: string, options: PublicFetchOptions = 
     const transport = options.requestImpl ?? (url.protocol === 'https:' ? httpsRequest : httpRequest);
     const headers: Record<string, string> = { ...(options.headers ?? {}) };
     headers.Host = url.host;
+    /**
+     * 显式要 identity。
+     *
+     * 这一层用 `node:http` 直接拿原始字节，没有 `fetch` 那层自动解压；
+     * 反代或 CDN 强制 gzip 时，正文会变成无法解析的二进制，报错还会
+     * 误导成「模型列表为空」。不要压缩，语义最清晰。
+     */
+    if (!Object.keys(headers).some((key) => key.toLowerCase() === 'accept-encoding')) {
+      headers['Accept-Encoding'] = 'identity';
+    }
     return await new Promise<Response>((resolve, reject) => {
       let settled = false;
+      let decoder: Transform | undefined;
+      let incoming: import('node:http').IncomingMessage | undefined;
       const requestHolder: { current?: ReturnType<typeof httpRequest> } = {};
       const cleanup = () => {
         clearTimeout(timer);
@@ -364,8 +395,10 @@ export async function fetchPublicUrl(raw: string, options: PublicFetchOptions = 
       };
       const abort = () => {
         const error = deadlineError();
-        requestHolder.current?.destroy(error);
         fail(error);
+        decoder?.destroy();
+        incoming?.destroy();
+        requestHolder.current?.destroy();
       };
       controller.signal.addEventListener('abort', abort, { once: true });
       if (controller.signal.aborted) {
@@ -384,36 +417,74 @@ export async function fetchPublicUrl(raw: string, options: PublicFetchOptions = 
           ...(url.protocol === 'https:' ? { servername: canonicalHost(url.hostname) } : {}),
         },
         (response) => {
+          incoming = response;
           const chunks: Buffer[] = [];
-          let size = 0;
-          response.on('data', (chunk: Buffer | string) => {
+          let compressedSize = 0;
+          let decodedSize = 0;
+          const status = response.statusCode ?? 502;
+          const emptyBody = method.toUpperCase() === 'HEAD' || status === 204 || status === 205 || status === 304;
+          const encoding = String(response.headers['content-encoding'] ?? '')
+            .trim()
+            .toLowerCase();
+          const stop = (error: Error) => {
+            fail(error);
+            decoder?.destroy();
+            response.destroy();
+            requestHolder.current?.destroy();
+          };
+          if (!emptyBody && encoding && encoding !== 'identity') {
+            if (encoding === 'gzip' || encoding === 'x-gzip') decoder = createGunzip();
+            else if (encoding === 'deflate') decoder = createInflate();
+            else if (encoding === 'br') decoder = createBrotliDecompress();
+            else {
+              stop(new ProviderError('不支持的响应内容编码'));
+              return;
+            }
+          }
+          const append = (chunk: Buffer | string) => {
             const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-            size += data.length;
-            if (size > maxBytes) {
-              const error = new ProviderError('响应体过大，已拒绝读取');
-              response.destroy(error);
-              requestHolder.current?.destroy(error);
-              fail(error);
+            decodedSize += data.length;
+            if (decodedSize > maxBytes) {
+              stop(new ProviderError('响应体过大，已拒绝读取'));
               return;
             }
             chunks.push(data);
-          });
-          response.on('error', (error) => fail(error));
-          response.on('end', () => {
-            if (settled) return;
-            settled = true;
-            cleanup();
-            const responseHeaders = new Headers();
-            for (const [key, value] of Object.entries(response.headers)) {
-              if (Array.isArray(value)) responseHeaders.set(key, value.join(', '));
-              else if (value !== undefined) responseHeaders.set(key, value);
+          };
+          response.on('error', (error) => stop(error));
+          response.on('data', (chunk: Buffer | string) => {
+            const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            compressedSize += data.length;
+            if (compressedSize > maxBytes) {
+              stop(new ProviderError('响应体过大，已拒绝读取'));
+              return;
             }
-            const status = response.statusCode ?? 502;
-            const responseBody = status === 204 || status === 205 || status === 304 ? null : Buffer.concat(chunks);
+            if (!decoder && !emptyBody) append(data);
+          });
+          if (decoder) {
+            decoder.on('data', append);
+            decoder.on('error', () => stop(new ProviderError('响应体解压失败')));
+            response.pipe(decoder);
+          }
+          const output = decoder ?? response;
+          output.on('end', () => {
+            if (settled) return;
             try {
-              resolve(new Response(responseBody, { status, headers: responseHeaders }));
-            } catch (error) {
-              reject(error instanceof Error ? error : new Error('response construction failed'));
+              const responseHeaders = new Headers();
+              for (const [key, value] of Object.entries(response.headers)) {
+                if (Array.isArray(value)) responseHeaders.set(key, value.join(', '));
+                else if (value !== undefined) responseHeaders.set(key, value);
+              }
+              if (decoder) {
+                responseHeaders.delete('content-encoding');
+                responseHeaders.delete('content-length');
+              }
+              const body = emptyBody ? null : new Uint8Array(Buffer.concat(chunks));
+              const result = new Response(body, { status, headers: responseHeaders });
+              settled = true;
+              cleanup();
+              resolve(result);
+            } catch {
+              fail(new ProviderError('响应构造失败'));
             }
           });
         },
@@ -425,6 +496,7 @@ export async function fetchPublicUrl(raw: string, options: PublicFetchOptions = 
     });
   } finally {
     clearTimeout(timer);
+    options.signal?.removeEventListener('abort', cancel);
   }
 }
 
@@ -580,6 +652,7 @@ async function requestJson(
             timeoutMs: remaining,
             maxBytes: MAX_PROVIDER_RESPONSE_BYTES,
             allowPrivate: true,
+            signal: controller.signal,
             lookup: async () => [{ address, family: isIP(address) === 6 ? 6 : 4 }],
           });
           break;

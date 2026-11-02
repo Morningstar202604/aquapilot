@@ -3,14 +3,18 @@
 Every endpoint below is **read-only** and answers `GET` (and `HEAD`).
 Write operations go through the WebSocket protocol, see [Protocol](#websocket-protocol).
 
+This describes the current local working tree, including uncommitted changes; it
+is not a statement of what has been published.
+
 Base URL: `http://127.0.0.1:5173` by default (`PORT` overrides it).
 
 ## Authentication
 
-Access control is **off by default**. Set `AQUAPILOT_TOKEN` to require a bearer
-token on every `/api/*` route except `/api/health` and `/api/auth-required`
-(those two must stay public, otherwise the browser cannot tell whether to show
-the token prompt).
+Access control is **off by default**. Setting any of the three role tokens enables
+it for every `/api/*` route except `/api/health` (including `?deep=1`) and
+`/api/auth-required`. Static assets remain public so the browser can load the
+application and show its token prompt. Non-loopback binding requires at least
+one configured token.
 
 ### Roles
 
@@ -167,12 +171,11 @@ the token is never placed in a URL.
 
 ## WebSocket protocol
 
-Connect to `/ws`. When `AQUAPILOT_TOKEN` is set, browsers cannot send an
-`Authorization` header on the handshake, so the token travels as a subprotocol:
-
-```js
-new WebSocket('ws://127.0.0.1:5173/ws', [`token.${token}`]);
-```
+Connect to `/ws`. When any role token is set, browsers cannot send an
+`Authorization` header on the handshake, so the UI sends a UTF-8, unpadded
+base64url-encoded token as the `token.b64.<encoded-token>` subprotocol. The
+legacy `token.<token>` subprotocol is also accepted, but only for tokens whose
+characters are valid in a WebSocket subprotocol.
 
 A legacy `/ws?token=...` query parameter is accepted only on the WebSocket path. Do not put tokens in HTTP API URLs: URLs can be copied into access logs, browser history, or proxy traces.
 
@@ -251,13 +254,27 @@ Failure of any action returns `{action:"error", requestId?, error}` with a
 readable Chinese cause (bad key, wrong path, rate limit, timeout, SSRF refusal).
 
 `LlmPublicConfig` never contains the plaintext key: it exposes `hasKey` and
-`apiKeyMasked` (`sk-••••1234`). An empty `apiKey` on save keeps the stored one.
+`apiKeyMasked` (`sk-••••1234`). An empty `apiKey` on save, discover or test
+reuses the stored key only when the target has the same origin (scheme, host and
+port) as the saved URL. A different origin requires a key to be supplied again;
+changing only the path does not change the origin. Discovery and connection
+tests can run without a key when no key is stored; saving a configuration
+requires a key.
 
 `baseUrl` is trust-boundary input. It must be `http(s)`, must not embed
 credentials, and must not point at cloud metadata hosts
-(`169.254.169.254`, `metadata.google.internal`, `100.100.100.200`) or any
-`169.254.0.0/16` address. Localhost and private ranges are allowed because
-self-hosted Ollama/vLLM live there.
+(`169.254.169.254`, `metadata.google.internal`, `100.100.100.200`), IPv4
+link-local addresses, IPv6 link-local or unique-local addresses, or the local-use
+NAT64 prefix `64:ff9b:1::/48`. The latter is rejected even when it embeds a
+public IPv4 address. Localhost and IPv4 private ranges are allowed because
+self-hosted Ollama/vLLM live there. DNS answers are checked before connecting;
+redirects are not followed. Custom NAT64 prefixes cannot be identified by this
+address-based guard and require network-level restrictions.
+
+Outbound requests ask for `identity` encoding by default. Forced `gzip`,
+`x-gzip`, `deflate` and `br` response bodies are decoded; unsupported or stacked
+encodings on responses with a body are rejected. Model response bodies are limited
+to 1,000,000 bytes both before and after decompression.
 
 Protocol endpoints used:
 

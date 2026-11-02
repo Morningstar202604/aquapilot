@@ -212,7 +212,15 @@ export class LlmConfigStore {
 
   save(draft: LlmDraft): SaveResult {
     this.ensureLoaded();
-    const apiKey = this.resolveKey(draft.apiKey);
+    /**
+     * 密钥回落必须绑定目标 origin。
+     *
+     * 这里曾漏传 draft.baseUrl，`resolveKey` 在 baseUrl 为 undefined 时
+     * 直接返回已存密钥——于是 admin 只要把 baseUrl 改到自己的服务器再保存，
+     * 就能把第三方密钥写进新配置，随后 test/discover 会把 Bearer 发过去。
+     * 调用方另有一层同源检查，但不能把唯一防线放在调用方。
+     */
+    const apiKey = this.resolveKey(draft.apiKey, draft.baseUrl);
     if (!apiKey) return { ok: false, error: '请填写 API Key' };
     const stored: StoredConfig = {
       ...draft,

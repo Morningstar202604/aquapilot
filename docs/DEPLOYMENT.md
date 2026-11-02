@@ -67,9 +67,11 @@ volumes:
 
 ## Reverse proxy
 
-Put TLS in front of the app. When `AQUAPILOT_TOKEN` is enabled, the browser needs
-to reach `/api/auth-required` and `/api/health` without a token; everything else
-(`/api/*` and the WebSocket handshake) requires it.
+Put TLS in front of the app. When any role token is configured, the browser needs
+to reach `/api/auth-required` and `/api/health` (including `?deep=1`) without a
+token. Other `/api/*` endpoints and the WebSocket handshake require a valid token;
+static assets remain public. Browser WebSocket clients use the base64url token
+subprotocol described in [API.md](API.md#websocket-protocol).
 
 Nginx sketch:
 

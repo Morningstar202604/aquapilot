@@ -158,4 +158,14 @@ describe('密钥与地址绑定（防外带）', () => {
     expect(store.resolveKey('', 'https://maas-api.example.com')).toBe('');
     expect(store.hasKeyForOtherOrigin('https://any.example.com')).toBe(false);
   });
+
+  it('save 换地址且留空密钥时拒绝，不把已存密钥写进新 origin', () => {
+    store.save(draft);
+    const result = store.save({ ...draft, baseUrl: 'https://attacker.example.com/v1', apiKey: '' });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/API Key/);
+    // 原配置未被篡改，存储层仍绑定原 origin
+    expect(store.getRuntime()?.baseUrl).toBe('https://maas-api.example.com/v1');
+    expect(store.resolveKey('', 'https://attacker.example.com/v1')).toBe('');
+  });
 });

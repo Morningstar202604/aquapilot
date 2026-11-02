@@ -540,6 +540,155 @@ describe('能力自动匹配', () => {
   });
 });
 
+describe('压缩响应解码', () => {
+  it('真实 HTTP 解码后清除不一致的编码和长度头', async () => {
+    const { gzipSync, deflateSync, brotliCompressSync } = await import('node:zlib');
+    const payload = Buffer.from('hello compressed world');
+    for (const [encoding, body] of [
+      ['gzip', gzipSync(payload)],
+      ['x-gzip', gzipSync(payload)],
+      ['deflate', deflateSync(payload)],
+      ['br', brotliCompressSync(payload)],
+    ] as const) {
+      const server = createServer((_req, res) => {
+        res.writeHead(200, { 'content-encoding': encoding, 'content-length': body.length, 'x-test': 'retained' });
+        res.end(body);
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      try {
+        const port = (server.address() as { port: number }).port;
+        const res = await fetchPublicUrl(`http://127.0.0.1:${port}/`, { allowPrivate: true, maxBytes: 100 });
+        expect(await res.text()).toBe(payload.toString());
+        expect(res.headers.get('content-encoding')).toBeNull();
+        expect(res.headers.get('content-length')).toBeNull();
+        expect(res.headers.get('x-test')).toBe('retained');
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    }
+  });
+
+  it('压缩前和解压后均执行调用方大小限制，边界相等允许', async () => {
+    const { gzipSync } = await import('node:zlib');
+    const payload = Buffer.from('x'.repeat(200));
+    const body = gzipSync(payload);
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-encoding': 'gzip' });
+      res.end(body);
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const port = (server.address() as { port: number }).port;
+      const url = `http://127.0.0.1:${port}/`;
+      for (const maxBytes of [body.length - 1, payload.length - 1]) {
+        await expect(fetchPublicUrl(url, { allowPrivate: true, maxBytes })).rejects.toThrow(/响应体过大/);
+      }
+      const res = await fetchPublicUrl(url, { allowPrivate: true, maxBytes: payload.length });
+      expect(await res.text()).toBe(payload.toString());
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('无效压缩数据和未知或多重编码均返回 ProviderError', async () => {
+    let encoding = 'gzip';
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-encoding': encoding });
+      res.end('not compressed');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const port = (server.address() as { port: number }).port;
+      for (encoding of ['gzip', 'deflate', 'br', 'unknown', 'gzip, br']) {
+        const result = fetchPublicUrl(`http://127.0.0.1:${port}/`, { allowPrivate: true });
+        await expect(result).rejects.toBeInstanceOf(ProviderError);
+        await expect(result).rejects.toThrow(/解压失败|不支持的响应内容编码/);
+      }
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('压缩流挂起时总超时及外部取消关闭连接', async () => {
+    const { gzipSync } = await import('node:zlib');
+    const body = gzipSync(Buffer.from('partial content'));
+    let closed: (() => void) | undefined;
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-encoding': 'gzip' });
+      res.write(body.subarray(0, 10));
+      res.on('close', () => closed?.());
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const port = (server.address() as { port: number }).port;
+      const url = `http://127.0.0.1:${port}/`;
+      for (const cancel of [false, true]) {
+        const connectionClosed = new Promise<void>((resolve) => (closed = resolve));
+        const controller = new AbortController();
+        const pending = fetchPublicUrl(url, {
+          allowPrivate: true,
+          timeoutMs: cancel ? 2000 : 80,
+          signal: controller.signal,
+        });
+        if (cancel) setTimeout(() => controller.abort(), 80);
+        await expect(pending).rejects.toThrow(/超时/);
+        await connectionClosed;
+      }
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('gzip / deflate / br 强制压缩时仍能解析 JSON', async () => {
+    const { gzipSync, deflateSync, brotliCompressSync } = await import('node:zlib');
+    const payload = Buffer.from(JSON.stringify({ data: [{ id: 'gpt-4o-mini' }] }));
+    for (const [encoding, body] of [
+      ['gzip', gzipSync(payload)],
+      ['deflate', deflateSync(payload)],
+      ['br', brotliCompressSync(payload)],
+    ] as const) {
+      const srv = createServer((_req, res) => {
+        res.writeHead(200, {
+          'content-type': 'application/json',
+          'content-encoding': encoding,
+          'content-length': body.length,
+        });
+        res.end(body);
+      });
+      await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+      const port = (srv.address() as { port: number }).port;
+      try {
+        const models = await discoverModels({ protocol: 'openai', baseUrl: `http://127.0.0.1:${port}/v1` });
+        expect(models.map((m) => m.id)).toEqual(['gpt-4o-mini']);
+      } finally {
+        srv.close();
+      }
+    }
+  });
+
+  it('解压后超过 1 MB 的响应被拒绝', async () => {
+    const { gzipSync } = await import('node:zlib');
+    const body = gzipSync(Buffer.from('x'.repeat(1_200_000)));
+    const srv = createServer((_req, res) => {
+      res.writeHead(200, {
+        'content-type': 'application/json',
+        'content-encoding': 'gzip',
+        'content-length': body.length,
+      });
+      res.end(body);
+    });
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+    const port = (srv.address() as { port: number }).port;
+    try {
+      await expect(discoverModels({ protocol: 'openai', baseUrl: `http://127.0.0.1:${port}/v1` })).rejects.toThrow(
+        /响应体过大/,
+      );
+    } finally {
+      srv.close();
+    }
+  });
+});
+
 describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
   it('拒绝内网、回环、链路本地与 .local', () => {
     for (const u of [
@@ -577,16 +726,53 @@ describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
       'http://[64:ff9b::a9fe:a9fe]/',
       'http://[2002:7f00:1::1]/',
       'http://[2002:a9fe:a9fe::1]/',
+      'http://[::ffff:0:127.0.0.1]/',
+      'http://[::ffff:0:a9fe:a9fe]/',
+      'http://[64:ff9b:1:7f00:1:0:808:808]/',
+      'http://[64:ff9b:1:a9fe:a9fe:0:808:808]/',
     ]) {
       expect(() => assertPublicFetchUrl(u)).toThrow();
     }
   });
 
   it('内嵌私网地址的 IPv6 在模型端点同样被拒，公网 IPv6 仍放行', () => {
-    for (const u of ['http://[::a9fe:a9fe]/', 'http://[64:ff9b::a9fe:a9fe]/', 'http://[2002:a9fe:a9fe::1]/']) {
+    for (const u of [
+      'http://[::a9fe:a9fe]/',
+      'http://[64:ff9b::a9fe:a9fe]/',
+      'http://[2002:a9fe:a9fe::1]/',
+      'http://[::ffff:0:a9fe:a9fe]/',
+      'http://[64:ff9b:1:a9fe:a9fe:0:808:808]/',
+    ]) {
       expect(() => assertSafeBaseUrl(u)).toThrow(/元数据|链路本地/);
     }
     expect(assertSafeBaseUrl('http://[2001:4860:4860::8888]/').hostname).toBe('[2001:4860:4860::8888]');
+  });
+
+  it('本地 NAT64 /48 的字面量对模型和抓取均被拒绝', () => {
+    for (const address of ['64:ff9b:1:6464:64:c800::', '64:ff9b:1:808:8:800::', '64:ff9b:1::']) {
+      const url = `http://[${address}]/`;
+      expect(() => assertSafeBaseUrl(url)).toThrow(ProviderError);
+      expect(() => assertPublicFetchUrl(url)).toThrow(ProviderError);
+    }
+    expect(assertSafeBaseUrl('http://[64:ff9b:2::808:808]/').hostname).toBe('[64:ff9b:2::808:808]');
+  });
+
+  it('本地 NAT64 /48 的 DNS 结果对模型和抓取均被拒绝', async () => {
+    for (const allowPrivate of [true, false]) {
+      for (const address of ['64:ff9b:1:6464:64:c800::', '64:ff9b:1:808:8:800::']) {
+        await expect(
+          resolvePublicFetchAddress(
+            'http://model-alias.example/v1',
+            async () => [
+              { address: '203.0.113.10', family: 4 },
+              { address, family: 6 },
+            ],
+            undefined,
+            allowPrivate,
+          ),
+        ).rejects.toThrow(ProviderError);
+      }
+    }
   });
 
   it('DNS 返回内嵌私网的 IPv6 地址时拒绝整个目标', async () => {

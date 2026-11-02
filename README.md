@@ -94,9 +94,9 @@ When authentication is enabled, read operations require `viewer`, control/scenar
 
 ## Reproducible evidence
 
-The single source for current measured numbers is [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). It records the command, Node version, seed, strategy, and known model limits for each result.
+[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) records the benchmark baseline, including the command, Node version, seed, strategy, and known model limits for each result.
 
-The latest local gate baseline is 91 test files and 1121 passing tests. The reported coverage is **domain coverage** for the configured model/AI/server sources, not coverage of every React component; the current line, branch, and function figures are maintained in `docs/BENCHMARKS.md`.
+The historical local gate baseline is 91 test files and 1121 passing tests. On the current local working tree, `npm test -- --reporter=dot` passed 91 files and 1133 tests on Node 24.20.0; this is not a release or a full quality-gate result. The reported coverage is **domain coverage** for the configured model/AI/server sources, not coverage of every React component; the historical line, branch, and function figures are maintained in `docs/BENCHMARKS.md`.
 
 ## Limitations and safety
 

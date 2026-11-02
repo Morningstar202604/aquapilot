@@ -165,9 +165,14 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 - **Stored LLM API keys could be exfiltrated.** `llmConfig` `discover`/`test`
   accepted an arbitrary `baseUrl` while resolving an empty `apiKey` to the saved
-  secret, so one WebSocket message could send `Authorization: Bearer <saved key>`
-  to an attacker-controlled host. Keys are now bound to their saved origin;
-  changing host or port requires re-entering the key.
+  secret. The current local working tree also binds key reuse on `save` to the saved
+  origin (scheme, host and port); changing origin requires re-entering the key.
+- **Outbound response and address handling.** The current local working tree asks
+  for identity encoding, decodes forced gzip, x-gzip, deflate and br responses,
+  rejects unsupported or stacked encodings on responses with a body, and enforces response size limits
+  before and after decoding. The local-use NAT64 prefix `64:ff9b:1::/48` is
+  rejected even for embedded public IPv4 addresses; custom NAT64 prefixes still
+  require network-level restrictions.
 - **Skill import was a readable SSRF.** `agentConfig/importSkill` fetched any URL
   server-side (private networks included) and stored the body in the skill, which
   `agentConfig/get` returned verbatim. Fetching now uses a strict public-only
@@ -353,8 +358,8 @@ settings) alongside the correctness fixes.
   `requireHumanApproval` stops automatic execution while keeping the suggestion.
 - **Declarative hooks.** alarm / decision / chat / config events trigger notice,
   log, skill or webhook actions with a per-key cooldown. Hooks never execute shell;
-  webhooks require the `open` permission and pass the same SSRF guard as model
-  endpoints (cloud metadata and `169.254/16` rejected, localhost/private allowed).
+  webhooks require the `open` permission. For the current stricter public-only
+  webhook guard, see the Unreleased security notes.
 - **Permission matrix with a real core-protection boundary.** `readonly` blocks all
   writes, `standard` allows everything except webhook hooks and step > 30 %,
   `open` allows the rest. Effluent limits, safety guardrails, authentication,
@@ -390,7 +395,8 @@ settings) alongside the correctness fixes.
   are retried once with a larger budget instead of being reported as failures.
 - **Server-side configuration store.** `data/llm-config.json` (mode 0600) is
   hot-read on every chat turn; the browser only ever receives
-  `hasKey` + `apiKeyMasked`, and an empty key field keeps the stored secret.
+  `hasKey` + `apiKeyMasked`. The current local working tree restricts empty-key
+  reuse to the saved origin; see the Unreleased security notes.
   Requests travel over the existing WebSocket (`llmConfig` frames) with a
   `requestId` and an 800 ms per-socket rate limit.
 - **SSRF guard on user-supplied base URLs.** Only `http(s)`, no embedded
