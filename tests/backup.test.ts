@@ -43,7 +43,14 @@ afterEach(() => {
 describe('备份与恢复', () => {
   it('备份文件可重新打开且数据完整', async () => {
     await store.open();
-    if (!store.enabled) return;
+    /**
+         * Node >= 22.12 是本仓库声明的下限（package.json engines），node:sqlite
+         * 自 Node 22.5 起内置，因此持久化在这里**必须**可用。旧写法
+         * `if (!store.enabled) return;` 会把"SQLite 打不开"这个真实故障
+         * 静默变成 9 个跳过的用例——测试全绿但什么都没验证。
+         * 现在硬断言：持久化层坏了就让测试红，而不是假绿。
+         */
+        if (!store.enabled) throw new Error('node:sqlite 不可用：持久化层故障，测试无法继续');
     store.recordSnapshot(snapshot(10));
     store.recordSnapshot(snapshot(20));
     store.recordDecision({
@@ -74,7 +81,14 @@ describe('备份与恢复', () => {
 
   it('恢复到新路径后能读到原数据', async () => {
     await store.open();
-    if (!store.enabled) return;
+    /**
+         * Node >= 22.12 是本仓库声明的下限（package.json engines），node:sqlite
+         * 自 Node 22.5 起内置，因此持久化在这里**必须**可用。旧写法
+         * `if (!store.enabled) return;` 会把"SQLite 打不开"这个真实故障
+         * 静默变成 9 个跳过的用例——测试全绿但什么都没验证。
+         * 现在硬断言：持久化层坏了就让测试红，而不是假绿。
+         */
+        if (!store.enabled) throw new Error('node:sqlite 不可用：持久化层故障，测试无法继续');
     store.recordSnapshot(snapshot(30));
     const backupPath = join(dir, 'b.db');
     store.backupTo(backupPath);
@@ -94,7 +108,14 @@ describe('备份与恢复', () => {
 
   it('备份不存在的路径会报错而不是静默成功', async () => {
     await store.open();
-    if (!store.enabled) return;
+    /**
+         * Node >= 22.12 是本仓库声明的下限（package.json engines），node:sqlite
+         * 自 Node 22.5 起内置，因此持久化在这里**必须**可用。旧写法
+         * `if (!store.enabled) return;` 会把"SQLite 打不开"这个真实故障
+         * 静默变成 9 个跳过的用例——测试全绿但什么都没验证。
+         * 现在硬断言：持久化层坏了就让测试红，而不是假绿。
+         */
+        if (!store.enabled) throw new Error('node:sqlite 不可用：持久化层故障，测试无法继续');
     expect(() => store.backupTo(join(dir, 'nope', 'x.db'))).not.toThrow(); // 目录会被创建
   });
 
@@ -106,7 +127,14 @@ describe('备份与恢复', () => {
 
   it('恢复拒绝非 SQLite 的垃圾文件，且不覆盖目标库', async () => {
     await store.open();
-    if (!store.enabled) return;
+    /**
+         * Node >= 22.12 是本仓库声明的下限（package.json engines），node:sqlite
+         * 自 Node 22.5 起内置，因此持久化在这里**必须**可用。旧写法
+         * `if (!store.enabled) return;` 会把"SQLite 打不开"这个真实故障
+         * 静默变成 9 个跳过的用例——测试全绿但什么都没验证。
+         * 现在硬断言：持久化层坏了就让测试红，而不是假绿。
+         */
+        if (!store.enabled) throw new Error('node:sqlite 不可用：持久化层故障，测试无法继续');
     store.recordSnapshot(snapshot(99));
     store.close();
 
@@ -128,7 +156,14 @@ describe('备份与恢复', () => {
 describe('持久化失败路径（注入 I/O 故障）', () => {
   it('flush 写失败时回滚、计数并保留待写数据', async () => {
     await store.open();
-    if (!store.enabled) return;
+    /**
+         * Node >= 22.12 是本仓库声明的下限（package.json engines），node:sqlite
+         * 自 Node 22.5 起内置，因此持久化在这里**必须**可用。旧写法
+         * `if (!store.enabled) return;` 会把"SQLite 打不开"这个真实故障
+         * 静默变成 9 个跳过的用例——测试全绿但什么都没验证。
+         * 现在硬断言：持久化层坏了就让测试红，而不是假绿。
+         */
+        if (!store.enabled) throw new Error('node:sqlite 不可用：持久化层故障，测试无法继续');
     const raw = store.__rawDbForTests();
     expect(raw).not.toBeNull();
     if (!raw) return;

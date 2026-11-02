@@ -29,6 +29,7 @@
     "docker:build": "docker build -t aquapilot:local .",
     "docker:run": "docker run --rm -p 5173:5173 -e HOST=0.0.0.0 -e AQUAPILOT_TOKEN -v aquapilot-data:/app/data aquapilot:local",
     "media": "tsx scripts/media.ts",
+    "walkthrough": "tsx scripts/walkthrough.mjs",
     "benchmark:prove": "tsx scripts/prove-benchmark.ts"
   },
   "dependencies": {
