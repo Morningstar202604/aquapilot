@@ -28,13 +28,13 @@ describe('持久化', () => {
   it('写入后能读出，且按 run 隔离', async () => {
     await store.open();
     /**
-         * Node >= 22.12 是本仓库声明的下限（package.json engines），node:sqlite
-         * 自 Node 22.5 起内置，因此持久化在这里**必须**可用。旧写法
-         * `if (!store.enabled) return;` 会把"SQLite 打不开"这个真实故障
-         * 静默变成 9 个跳过的用例——测试全绿但什么都没验证。
-         * 现在硬断言：持久化层坏了就让测试红，而不是假绿。
-         */
-        if (!store.enabled) throw new Error('node:sqlite 不可用：持久化层故障，测试无法继续');
+     * Node >= 22.12 是本仓库声明的下限（package.json engines），node:sqlite
+     * 自 Node 22.5 起内置，因此持久化在这里**必须**可用。旧写法
+     * `if (!store.enabled) return;` 会把"SQLite 打不开"这个真实故障
+     * 静默变成 9 个跳过的用例——测试全绿但什么都没验证。
+     * 现在硬断言：持久化层坏了就让测试红，而不是假绿。
+     */
+    if (!store.enabled) throw new Error('node:sqlite 不可用：持久化层故障，测试无法继续');
 
     store.recordSnapshot({
       runId: 'run-A',
@@ -89,13 +89,13 @@ describe('持久化', () => {
   it('默认只返回最近一次运行，避免时间轴重叠', async () => {
     await store.open();
     /**
-         * Node >= 22.12 是本仓库声明的下限（package.json engines），node:sqlite
-         * 自 Node 22.5 起内置，因此持久化在这里**必须**可用。旧写法
-         * `if (!store.enabled) return;` 会把"SQLite 打不开"这个真实故障
-         * 静默变成 9 个跳过的用例——测试全绿但什么都没验证。
-         * 现在硬断言：持久化层坏了就让测试红，而不是假绿。
-         */
-        if (!store.enabled) throw new Error('node:sqlite 不可用：持久化层故障，测试无法继续');
+     * Node >= 22.12 是本仓库声明的下限（package.json engines），node:sqlite
+     * 自 Node 22.5 起内置，因此持久化在这里**必须**可用。旧写法
+     * `if (!store.enabled) return;` 会把"SQLite 打不开"这个真实故障
+     * 静默变成 9 个跳过的用例——测试全绿但什么都没验证。
+     * 现在硬断言：持久化层坏了就让测试红，而不是假绿。
+     */
+    if (!store.enabled) throw new Error('node:sqlite 不可用：持久化层故障，测试无法继续');
 
     store.recordSnapshot({
       runId: 'run-old',
@@ -135,13 +135,13 @@ describe('持久化', () => {
   it('决策记录按时间倒序返回', async () => {
     await store.open();
     /**
-         * Node >= 22.12 是本仓库声明的下限（package.json engines），node:sqlite
-         * 自 Node 22.5 起内置，因此持久化在这里**必须**可用。旧写法
-         * `if (!store.enabled) return;` 会把"SQLite 打不开"这个真实故障
-         * 静默变成 9 个跳过的用例——测试全绿但什么都没验证。
-         * 现在硬断言：持久化层坏了就让测试红，而不是假绿。
-         */
-        if (!store.enabled) throw new Error('node:sqlite 不可用：持久化层故障，测试无法继续');
+     * Node >= 22.12 是本仓库声明的下限（package.json engines），node:sqlite
+     * 自 Node 22.5 起内置，因此持久化在这里**必须**可用。旧写法
+     * `if (!store.enabled) return;` 会把"SQLite 打不开"这个真实故障
+     * 静默变成 9 个跳过的用例——测试全绿但什么都没验证。
+     * 现在硬断言：持久化层坏了就让测试红，而不是假绿。
+     */
+    if (!store.enabled) throw new Error('node:sqlite 不可用：持久化层故障，测试无法继续');
 
     for (const at of [10, 20, 30]) {
       store.recordDecision({
@@ -283,13 +283,13 @@ describe('告警持久化', () => {
   it('告警按 run 隔离并能读出（此前 recordAlarm 从未被调用，表永远为空）', async () => {
     await store.open();
     /**
-         * Node >= 22.12 是本仓库声明的下限（package.json engines），node:sqlite
-         * 自 Node 22.5 起内置，因此持久化在这里**必须**可用。旧写法
-         * `if (!store.enabled) return;` 会把"SQLite 打不开"这个真实故障
-         * 静默变成 9 个跳过的用例——测试全绿但什么都没验证。
-         * 现在硬断言：持久化层坏了就让测试红，而不是假绿。
-         */
-        if (!store.enabled) throw new Error('node:sqlite 不可用：持久化层故障，测试无法继续');
+     * Node >= 22.12 是本仓库声明的下限（package.json engines），node:sqlite
+     * 自 Node 22.5 起内置，因此持久化在这里**必须**可用。旧写法
+     * `if (!store.enabled) return;` 会把"SQLite 打不开"这个真实故障
+     * 静默变成 9 个跳过的用例——测试全绿但什么都没验证。
+     * 现在硬断言：持久化层坏了就让测试红，而不是假绿。
+     */
+    if (!store.enabled) throw new Error('node:sqlite 不可用：持久化层故障，测试无法继续');
     store.recordAlarm({ runId: 'run-A', id: 'A1', atMin: 10, severity: 'warning', code: 'DO_LOW', message: '低氧' });
     store.recordAlarm({
       runId: 'run-B',

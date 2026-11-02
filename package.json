@@ -17,7 +17,7 @@
     "test:watch": "vitest",
     "start": "node dist/server/index.mjs",
     "harness": "tsx scripts/harness.ts",
-    "verify": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "verify": "npm run typecheck && npm run lint && npm run format && npm run test && npm run build",
     "lint": "eslint src tests",
     "ci": "bash scripts/ci-gate.sh",
     "e2e": "tsx scripts/e2e-ci.ts",
