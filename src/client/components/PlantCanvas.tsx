@@ -106,6 +106,10 @@ export function PlantCanvas({
    *
    * 与"点出口再点入口"并存：拖拽更符合流程模拟器的肌肉记忆，点击仍是
    * 触屏与键盘用户的可靠退路。拖动中的橡皮筋用 SVG 线画在端口层下面。
+   *
+   * 拖动时计算最近的入口端口做吸附（snap）：指针进入吸附半径后，目标端口
+   * 高亮、橡皮筋端点贴到锚点上，松手即连接——命中判定不再依赖
+   * elementFromPoint 的像素级精确，"拖到大概位置"就能连上。
    */
   const [portDrag, setPortDrag] = useState<{
     from: { unitId: string; portId: string };
@@ -114,7 +118,11 @@ export function PlantCanvas({
     x: number;
     y: number;
     moved: boolean;
+    /** 当前吸附到的入口端口（半径内取最近，找不到为 null） */
+    snap: { unitId: string; portId: string; x: number; y: number } | null;
   } | null>(null);
+  /** 吸附半径（图纸 px）：约端口圆点半径的 3 倍，手感与 Aspen/Visio 相当 */
+  const PORT_SNAP_RADIUS = 16;
   /** 拖完会紧跟一次 click，用它把这次 click 吞掉，避免又进入点击连线模式 */
   const suppressPortClick = useRef(false);
   /**
@@ -248,10 +256,38 @@ export function PlantCanvas({
     const x = (e.clientX - rect.left) / effectiveZoom;
     const y = (e.clientY - rect.top) / effectiveZoom;
     suppressPortClick.current = false;
-    setPortDrag({ from: { unitId, portId }, x0: x, y0: y, x, y, moved: false });
+    setPortDrag({ from: { unitId, portId }, x0: x, y0: y, x, y, moved: false, snap: null });
   };
 
-  /** 拖拽中：更新橡皮筋端点与「是否真的拖动过」 */
+  /**
+   * 吸附目标：半径内最近的入口端口。
+   *
+   * 只考虑「其他单元」的入口——起点单元自己的入口不吸附，否则一条边
+   * 可以从出口拖回同一个池，与点击连线的拒绝规则不一致。
+   * 距离比较在图纸坐标系里做，缩放不改变手感（半径也按图纸 px 定义）。
+   */
+  const nearestInPort = (
+    x: number,
+    y: number,
+    fromUnitId: string,
+  ): { unitId: string; portId: string; x: number; y: number } | null => {
+    let best: { unitId: string; portId: string; x: number; y: number } | null = null;
+    let bestDist = PORT_SNAP_RADIUS;
+    for (const node of layout.nodes) {
+      if (node.unit.id === fromUnitId) continue;
+      for (const anchor of portAnchors(node)) {
+        if (anchor.kind !== 'in') continue;
+        const d = Math.hypot(anchor.x - x, anchor.y - y);
+        if (d < bestDist) {
+          bestDist = d;
+          best = { unitId: node.unit.id, portId: anchor.port.id, x: anchor.x, y: anchor.y };
+        }
+      }
+    }
+    return best;
+  };
+
+  /** 拖拽中：更新橡皮筋端点、吸附目标与「是否真的拖动过」 */
   const updatePortDrag = (clientX: number, clientY: number): boolean => {
     const svg = svgRef.current;
     if (!svg || !portDrag) return false;
@@ -259,17 +295,22 @@ export function PlantCanvas({
     const x = (clientX - rect.left) / effectiveZoom;
     const y = (clientY - rect.top) / effectiveZoom;
     const moved = portDrag.moved || Math.hypot(x - portDrag.x0, y - portDrag.y0) > 6;
-    setPortDrag({ ...portDrag, x, y, moved });
+    const snap = moved ? nearestInPort(x, y, portDrag.from.unitId) : null;
+    setPortDrag({ ...portDrag, x, y, moved, snap });
     return true;
   };
 
-  /** 拖拽结束：命中入口圆点则完成连线 */
+  /** 拖拽结束：优先用吸附目标完成连线，没有吸附时退回命中检测 */
   const finishPortDrag = (clientX: number, clientY: number): boolean => {
     const drag = portDrag;
     if (!drag) return false;
     setPortDrag(null);
     if (!drag.moved || !onPortDragConnect) return true;
     suppressPortClick.current = true;
+    if (drag.snap) {
+      onPortDragConnect(drag.from, { unitId: drag.snap.unitId, portId: drag.snap.portId });
+      return true;
+    }
     const hit = document.elementFromPoint(clientX, clientY)?.closest('.port-dot');
     if (!hit || hit.getAttribute('data-kind') !== 'in') return true;
     const layer = hit.closest('.port-layer');
@@ -622,9 +663,10 @@ export function PlantCanvas({
                 className="port-drag-line"
                 x1={portDrag.x0}
                 y1={portDrag.y0}
-                x2={portDrag.x}
-                y2={portDrag.y}
+                x2={portDrag.snap ? portDrag.snap.x : portDrag.x}
+                y2={portDrag.snap ? portDrag.snap.y : portDrag.y}
                 data-from={`${portDrag.from.unitId}.${portDrag.from.portId}`}
+                data-snap={portDrag.snap ? `${portDrag.snap.unitId}.${portDrag.snap.portId}` : undefined}
               />
             )}
             {editable &&
@@ -633,6 +675,7 @@ export function PlantCanvas({
                   key={`ports-${node.unit.id}`}
                   node={node}
                   connectFrom={connectFrom}
+                  snapTarget={portDrag?.moved ? portDrag.snap : null}
                   onPortClick={(unitId, portId, kind) => {
                     if (suppressPortClick.current) {
                       suppressPortClick.current = false;
@@ -832,11 +875,14 @@ function pathMidpoint(path: string): { x: number; y: number } | null {
 function PortDots({
   node,
   connectFrom,
+  snapTarget,
   onPortClick,
   onPortPointerDown,
 }: {
   node: PlacedNode;
   connectFrom: { unitId: string; portId: string } | null;
+  /** 拖拽连线时被吸附的入口端口：高亮显示，提示松手即连接 */
+  snapTarget?: { unitId: string; portId: string; x: number; y: number } | null;
   onPortClick?: (unitId: string, portId: string, kind: 'in' | 'out') => void;
   onPortPointerDown?: (unitId: string, portId: string, e: React.PointerEvent<SVGCircleElement>) => void;
 }) {
@@ -846,16 +892,18 @@ function PortDots({
     <g className="port-layer" data-unit={node.unit.id} role="group" aria-label={`${node.unit.name} 端口`}>
       {portAnchors(node).map(({ port, kind, x, y }) => {
         const active = connectFrom?.unitId === node.unit.id && connectFrom.portId === port.id;
+        const snapped = snapTarget?.unitId === node.unit.id && snapTarget.portId === port.id;
         return (
           <g key={`${node.unit.id}-${port.id}-${kind}`}>
             {/* 端口颜色 = 物流颜色：一眼看出这个口接的是进水、混合液还是空气 */}
             <circle
               cx={x}
               cy={y}
-              r={active ? 6.5 : 4.5}
+              r={active ? 6.5 : snapped ? 7.5 : 4.5}
               className="port-dot"
               data-kind={kind}
               data-active={active}
+              data-snap={snapped}
               data-stream={port.stream}
               data-port={port.id}
               style={{ stroke: streamColor(port.stream) }}
@@ -870,6 +918,7 @@ function PortDots({
               <title>
                 {kind === 'in' ? '入口' : '出口'} {port.id} · {streamLabel(port.stream)}
                 {connectFrom ? '（点击完成连线）' : kind === 'out' ? '（点击开始连线）' : ''}
+                {snapped ? '（松手连接）' : ''}
               </title>
             </circle>
             {/* 悬停放大并显示物流名：小圆点单靠颜色不够，名字直接给出 */}

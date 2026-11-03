@@ -3526,6 +3526,14 @@ button {
   stroke-width: 2;
 }
 
+/* 拖拽连线时的吸附高亮：目标端口放大并发光，提示「松手即连接」 */
+.port-dot[data-snap='true'] {
+  fill: var(--water);
+  stroke: #fff;
+  stroke-width: 2.2;
+  filter: drop-shadow(0 0 4px var(--water));
+}
+
 .plant-node[data-editable='true'] {
   cursor: grab;
 }
