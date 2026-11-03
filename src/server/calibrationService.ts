@@ -56,9 +56,9 @@ function yieldToEventLoop(): Promise<void> {
  * 一次 BSM1 稳态仿真本身仍是不可分割的 1.5 s 同步块，
  * 但两次评估之间至少给事件循环留了一拍，tick 可以插进来。
  */
-async function evaluate(predict: Predictor, params: Asm1Params): Promise<number> {
+async function evaluate(predict: Predictor, target: CalibrationTarget, params: Asm1Params): Promise<number> {
   await yieldToEventLoop();
-  return objective(bsm1SyntheticTarget(), predict(params));
+  return objective(target, predict(params));
 }
 
 export interface AsyncCalibrationOptions {
@@ -97,7 +97,7 @@ export async function calibrateAsync(
   const fixed = CALIBRATABLE_PARAMS.filter((p) => !candidates.includes(p));
 
   let current = { ...baseParams };
-  let currentJ = await evaluate(predict, current);
+  let currentJ = await evaluate(predict, target, current);
   const objectiveBefore = currentJ;
   const trace: CalibrationResult['trace'] = [{ iteration: 0, objective: currentJ, changed: null }];
 
@@ -125,7 +125,7 @@ export async function calibrateAsync(
         if (cancelled()) break;
         const candidate = Math.min(bounds.max, Math.max(bounds.min, v + v * scale * factor));
         if (candidate === v) continue;
-        const j = await evaluate(predict, { ...current, [param]: candidate });
+        const j = await evaluate(predict, target, { ...current, [param]: candidate });
         if (j < bestJ - 1e-12) {
           bestJ = j;
           best = candidate;
