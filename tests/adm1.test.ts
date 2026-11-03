@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { ADM1_COMPONENTS, ADM1_PARAMS, ADM1_PROCESSES, emptyState, stepAdm1, adm1PH } from '../src/sim/adm1';
+import {
+  ADM1_COMPONENTS,
+  ADM1_PARAMS,
+  ADM1_PROCESSES,
+  emptyAdm1State,
+  emptyState,
+  stepAdm1,
+  adm1PH,
+} from '../src/sim/adm1';
 
 describe('ADM1 standalone unit', () => {
   it('declares a non-empty standard state/process surface', () => {
@@ -130,5 +138,38 @@ describe('ADM1 辅助分支', () => {
       state = stepAdm1(state, feed, ADM1_PARAMS, { volume: 1000, flow: 50, dtHours: 0.1 }).state;
     }
     expect(state.G_ch4).toBeGreaterThan(0);
+  });
+
+  it('emptyAdm1State 与 emptyState 等价且接受覆盖', () => {
+    const s = emptyAdm1State({ S_ac: 3 });
+    expect(s.S_ac).toBe(3);
+    expect(s.G_co2).toBe(0);
+    for (const c of ADM1_COMPONENTS) expect(Number.isFinite(s[c]), c).toBe(true);
+  });
+
+  it('省略参数对象时使用默认 ADM1_PARAMS', () => {
+    const feed = emptyState({ S_ac: 10, X_ac: 2, S_IC: 10 });
+    const withDefault = stepAdm1(feed, feed, undefined, { volume: 1000, flow: 100, dtHours: 0.1 });
+    const withExplicit = stepAdm1(feed, feed, ADM1_PARAMS, { volume: 1000, flow: 100, dtHours: 0.1 });
+    expect(withDefault.state.S_ac).toBeCloseTo(withExplicit.state.S_ac, 12);
+    expect(withDefault.pH).toBe(withExplicit.pH);
+  });
+
+  it('非有限输入状态被钳制为 0 而不是传播 NaN', () => {
+    const bad = emptyState({ S_ac: Number.NaN, S_h2: Number.POSITIVE_INFINITY, S_IC: 5 });
+    const out = stepAdm1(bad, emptyState({ S_IC: 5 }), ADM1_PARAMS, {
+      volume: 1000,
+      flow: 100,
+      dtHours: 0.1,
+    });
+    for (const c of ADM1_COMPONENTS) {
+      expect(Number.isFinite(out.state[c]), c).toBe(true);
+      expect(out.state[c], c).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('尚无产气时甲烷体积分数为 0 而不是 NaN', () => {
+    const out = stepAdm1(emptyState(), emptyState(), ADM1_PARAMS, { volume: 1000, flow: 100, dtHours: 0.1 });
+    expect(out.methaneFraction).toBe(0);
   });
 });

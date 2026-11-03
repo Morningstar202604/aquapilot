@@ -5,6 +5,9 @@ import { PLANT_TOPOLOGY } from '../src/model/topology';
 import { createShadowPlant, summarizeBenchmark } from '../src/server/benchmark';
 import { freshClientState } from '../src/server/rateLimit';
 import { resetMetrics } from '../src/server/observability';
+import type { Recommendation } from '../src/ai/agent';
+import type { EnsembleForecast } from '../src/sim/ensemble';
+import type { ForecastOutcomeX } from '../src/sim/plantModel';
 
 /**
  * 快照投影。
@@ -14,7 +17,7 @@ import { resetMetrics } from '../src/server/observability';
  * 共有字段做交叉比对，而不是各自断言形状。
  */
 
-function makeService() {
+function makeService(opts: { forecast?: ForecastOutcomeX; recommendation?: Recommendation } = {}) {
   const net = createNetworkState(PLANT_TOPOLOGY, { seed: 5 });
   spinUpNetwork(net, PLANT_TOPOLOGY, 30);
   const source: SnapshotSource = {
@@ -54,13 +57,13 @@ function makeService() {
     ],
     speed: 1,
     paused: false,
-    recommendation: null,
+    recommendation: opts.recommendation ?? null,
     forecastCache: { key: null, value: null },
     shadow: createShadowPlant(PLANT_TOPOLOGY, 5, 0),
   };
   const service = createSnapshotService({
     source: () => source,
-    forecastFor: () => null,
+    forecastFor: () => opts.forecast ?? null,
     summarizeBenchmark,
   });
   return { service, net, source };
@@ -117,6 +120,77 @@ describe('全量快照', () => {
     const snap = service.buildSnapshot();
     expect(snap.forecast).toBeNull();
     expect(snap.forecastBand).toBeNull();
+  });
+
+  it('有预测时折线从预测点投影，超标清单截断到 12 条', () => {
+    // 临时替换 forecastFor：makeService 固定返回 null，这里直接构造第二个服务
+    const fc: ForecastOutcomeX = {
+      points: [
+        {
+          minute: 30,
+          effluent: { flow: 1800, cod: 28, bod: 4, ss: 4.5, nh: 0.9, tn: 7.5, tp: 0.2, ph: 7.1, temperature: 18 },
+          doLevel: 2.1,
+          blanket: 0.9,
+          score: 82,
+          energyKw: 290,
+        },
+      ],
+      violations: Array.from({ length: 20 }, (_, i) => ({ metric: 'tn', minute: i, value: 16, limit: 15 })),
+      costDelta: 12,
+      peakEnergyKw: 300,
+      endSrt: 12,
+      endBlanket: 0.8,
+      endDilute: 1,
+    };
+    const withForecast = createSnapshotService({
+      source: () => ({
+        topology: PLANT_TOPOLOGY,
+        net: createNetworkState(PLANT_TOPOLOGY, { seed: 5 }),
+        trend: [],
+        speed: 1,
+        paused: false,
+        recommendation: null,
+        forecastCache: { key: null, value: null },
+        shadow: createShadowPlant(PLANT_TOPOLOGY, 5, 0),
+      }),
+      forecastFor: () => fc,
+      summarizeBenchmark,
+    });
+    const snap = withForecast.buildSnapshot();
+    expect(snap.forecast).not.toBeNull();
+    expect(snap.forecast!.points[0].cod).toBe(28);
+    expect(snap.forecast!.points[0].score).toBe(82);
+    expect(snap.forecast!.violations).toHaveLength(12);
+  });
+
+  it('有推荐时集合带随帧下发（快照与补丁一致）', () => {
+    const ensemble = {
+      points: [],
+      exceedanceProbability: 0.1,
+      worstRatio: 1.2,
+    } as unknown as EnsembleForecast;
+    const recommendation = {
+      action: 'hold',
+      severity: 'normal',
+      summary: '维持现状',
+      rationale: [],
+      chosens: {} as never,
+      alternatives: [],
+      predictedEffluent: {} as never,
+      predictedScore: 80,
+      horizonMin: 240,
+      separation: 0.2,
+      risks: [],
+      tweaks: [],
+      generatedAt: 0,
+      ensemble,
+      robustEvaluated: true,
+    } as unknown as Recommendation;
+    const { service } = makeService({ recommendation });
+    const snap = service.buildSnapshot();
+    const patch = service.buildPatch(freshClientState());
+    expect(snap.forecastBand).toBe(ensemble);
+    expect(patch.forecastBand).toBe(ensemble);
   });
 });
 
