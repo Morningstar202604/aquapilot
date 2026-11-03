@@ -304,6 +304,16 @@ grep -c "coverage\|audit\|playwright" .github/workflows/ci.yml
 
 **这些不是"以后再说"，而是明确列为未完成项。**
 
+### 后续回填（2026-11-03，v0.5.1）
+
+上表为 2026-10-23 快照，其中三项已在本轮之前或本轮解决：
+
+| 指标 | 回填状态 | 证据 |
+|---|---|---|
+| 分支覆盖率（topologyRuntime 缺口） | **已关闭** | `src/server/topologyRuntime.ts` 分支覆盖 100%（见 §12.4 与 `tests/coverage-extra.test.ts`）；CI 矩阵因 Vitest 5 的 engines 要求改为 Node 22/24，85% 红线随之以 Node 24 口径执行。此后继续补齐 calibrationService / ADM1 / 快照分支：全仓分支覆盖 81.70 % → 82.68 %（2026-11-03，Node 22 实测，见 `docs/BENCHMARKS.md` §5） |
+| 圈复杂度（`solveReactors`） | **已重构** | 入流构成与 ASM1 入流聚合抽为独立纯函数（`aggregateInflow` / `aggregateAsm1Inflow`，ESLint complexity 口径分别 23 / 14）；`solveReactors` 本体从 66 降到 21（-68%），函数体缩短约 190 行。BSM1 Table 6 对照与全部网络测试逐位不变。按本审计当时的自计口径（12）无法与 ESLint 口径直接换算，如实记录两种数字 |
+| 变异分数 | **已实测** | 见 §12.3：asm1+takacs 合计 28.07%（399 突变体）；保留为 `npm run mutation` 手动质量工具，不进 CI 门禁 |
+
 
 ---
 
