@@ -194,8 +194,7 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'reset_sim',
-    description:
-      '重置仿真到初始稳态（时钟归零、累计量清零）。破坏性操作：会丢弃当前运行的全部累计数据。',
+    description: '重置仿真到初始稳态（时钟归零、累计量清零）。破坏性操作：会丢弃当前运行的全部累计数据。',
     readOnly: false,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     run(_args, facade) {
@@ -271,8 +270,15 @@ const TOOLS: ToolDef[] = [
           }
         }
         const start = state.timeMin;
-        const samples: { minute: number; cod: number; nh: number; tn: number; tp: number; ss: number; score: number }[] =
-          [];
+        const samples: {
+          minute: number;
+          cod: number;
+          nh: number;
+          tn: number;
+          tp: number;
+          ss: number;
+          score: number;
+        }[] = [];
         while (state.timeMin - start < durationMin) {
           state = stepNetwork(state, topo, 1);
           if ((state.timeMin - start) % 30 === 0) {

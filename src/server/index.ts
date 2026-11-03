@@ -1764,9 +1764,7 @@ async function main(): Promise<void> {
     }
     // 分级鉴权：按请求的工具选择角色（未知工具按 viewer 处理，协议层回 -32602）
     const requestedTool =
-      body && typeof body === 'object'
-        ? (body as { params?: { name?: unknown } }).params?.name
-        : undefined;
+      body && typeof body === 'object' ? (body as { params?: { name?: unknown } }).params?.name : undefined;
     const mcpTool = typeof requestedTool === 'string' ? mcpToolByName(requestedTool) : undefined;
     const requiredRole = mcpTool && !mcpTool.readOnly ? 'operator' : 'viewer';
     const decision = authorize(req, null, requiredRole);

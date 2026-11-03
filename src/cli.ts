@@ -58,7 +58,11 @@ interface Sample {
 }
 
 function runSimulation(opts: SimOptions): { samples: Sample[]; totals: { inflowM3: number; energyKwh: number } } {
-  let state = spinUpNetwork(createNetworkState(PLANT_TOPOLOGY, { seed: 20261019, controls: opts.controls }), PLANT_TOPOLOGY, 5);
+  let state = spinUpNetwork(
+    createNetworkState(PLANT_TOPOLOGY, { seed: 20261019, controls: opts.controls }),
+    PLANT_TOPOLOGY,
+    5,
+  );
   if (opts.scenario) startNetworkScenario(state, opts.scenario);
   const samples: Sample[] = [];
   const totalMin = opts.days * 1440;
@@ -99,13 +103,19 @@ function printSummary(opts: SimOptions, samples: Sample[], totals: { inflowM3: n
   console.log('\n── 出水水质（GB 18918-2002 一级 A）──────────────');
   for (const [name, worst, lim] of checks) {
     const status = worst <= lim ? '✓ 达标' : '✗ 超标';
-    console.log(`  ${name.padEnd(6)} 峰值 ${worst.toFixed(3).padStart(8)} / 限值 ${lim.toString().padEnd(5)} ${status}`);
+    console.log(
+      `  ${name.padEnd(6)} 峰值 ${worst.toFixed(3).padStart(8)} / 限值 ${lim.toString().padEnd(5)} ${status}`,
+    );
   }
   console.log('\n── 均值 ────────────────────────────────────────');
-  console.log(`  COD ${(avg('cod') ?? 0).toFixed(1)}  NH₃-N ${(avg('nh') ?? 0).toFixed(2)}  TN ${(avg('tn') ?? 0).toFixed(1)}  TP ${(avg('tp') ?? 0).toFixed(3)}  SS ${(avg('ss') ?? 0).toFixed(1)}  (mg/L)`);
+  console.log(
+    `  COD ${(avg('cod') ?? 0).toFixed(1)}  NH₃-N ${(avg('nh') ?? 0).toFixed(2)}  TN ${(avg('tn') ?? 0).toFixed(1)}  TP ${(avg('tp') ?? 0).toFixed(3)}  SS ${(avg('ss') ?? 0).toFixed(1)}  (mg/L)`,
+  );
   console.log(`  出水评分（均值） ${(samples.reduce((s, x) => s + x.score, 0) / samples.length).toFixed(0)}/100`);
   console.log('\n── 运行量 ──────────────────────────────────────');
-  console.log(`  处理水量 ${totals.inflowM3.toFixed(0)} m³   电耗 ${totals.energyKwh.toFixed(0)} kWh   吨水电耗 ${(totals.energyKwh / Math.max(1, totals.inflowM3)).toFixed(3)} kWh/m³`);
+  console.log(
+    `  处理水量 ${totals.inflowM3.toFixed(0)} m³   电耗 ${totals.energyKwh.toFixed(0)} kWh   吨水电耗 ${(totals.energyKwh / Math.max(1, totals.inflowM3)).toFixed(3)} kWh/m³`,
+  );
   if (opts.scenario) {
     console.log(`  场景：${SCENARIOS[opts.scenario].label}`);
   }
@@ -114,7 +124,17 @@ function printSummary(opts: SimOptions, samples: Sample[], totals: { inflowM3: n
 function writeCsv(path: string, samples: Sample[]): void {
   const header = 'day,hour,cod_mgl,nh_mgl,tn_mgl,tp_mgl,ss_mgl,do_mgl,score';
   const rows = samples.map((s) =>
-    [s.day, s.hour, s.cod.toFixed(3), s.nh.toFixed(3), s.tn.toFixed(3), s.tp.toFixed(4), s.ss.toFixed(2), s.do.toFixed(3), s.score.toFixed(0)].join(','),
+    [
+      s.day,
+      s.hour,
+      s.cod.toFixed(3),
+      s.nh.toFixed(3),
+      s.tn.toFixed(3),
+      s.tp.toFixed(4),
+      s.ss.toFixed(2),
+      s.do.toFixed(3),
+      s.score.toFixed(0),
+    ].join(','),
   );
   writeFileSync(path, [header, ...rows].join('\n'), 'utf8');
 }
@@ -237,7 +257,9 @@ async function main(): Promise<number> {
         );
       }
       const tss = tssOf(result.effluent);
-      console.log(`  ${'tss'.padEnd(6)} 本仿真 ${tss.toFixed(3).padStart(9)}   参考 ${String(BSM1_TABLE6_EFFLUENT.tss).padStart(9)}   （对照，不设红线）`);
+      console.log(
+        `  ${'tss'.padEnd(6)} 本仿真 ${tss.toFixed(3).padStart(9)}   参考 ${String(BSM1_TABLE6_EFFLUENT.tss).padStart(9)}   （对照，不设红线）`,
+      );
       console.log(pass ? '\n关键指标全部落在容差内。' : '\n存在超出容差的红线指标，请检查参数或初始化。');
       return pass ? 0 : 1;
     }
