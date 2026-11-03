@@ -147,11 +147,13 @@ export function createLlmChat(deps: LlmChatDeps) {
           metrics.llmFallbacks += 1;
           // 失败必须可见：否则「配置好了却没补充」无法自查。
           // 但连接已关闭时不能再写（会抛异常并打断调用链）。
+          // 回执重试的真实失败原因：第一次失败必然是 ungrounded-numbers，
+          // 重试失败的原因（超时/网络/5xx）才是用户该排查的方向。
           if (!deps.isOpen(ws)) return;
           deps.send(ws, {
             type: 'notice',
             level: 'warn',
-            text: `模型补充未生成（${reasonText(result.reason)}），已保留规则答案。可在「自检」页查看链路状态。`,
+            text: `模型补充未生成（${reasonText(retry.reason)}），已保留规则答案。可在「自检」页查看链路状态。`,
           });
           return;
         }

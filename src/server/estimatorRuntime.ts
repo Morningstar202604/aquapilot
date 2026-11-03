@@ -103,10 +103,15 @@ export function stepEstimator(
   // 构造「传感器读数」：真值 + 噪声
   const observed: Measurement = {};
   const sigma = rt.config.noiseSigma;
-  for (const key of Object.keys(sigma) as (keyof StateVector)[]) {
+  // 噪声索引按状态维度的固定顺序取模：此前用 key.length，doLevel 与
+  // srtDays 等同长度维度会拿到完全相同的噪声序列，测量误差互相相关，
+  // 违背测量噪声独立性假设
+  const vectorKeys = Object.keys(sigma) as (keyof StateVector)[];
+  for (let i = 0; i < vectorKeys.length; i++) {
+    const key = vectorKeys[i];
     const s = sigma[key];
     if (s === undefined) continue;
-    observed[key] = truth[key] + deterministicNoise(seed, rt.stepIndex * 7 + key.length) * s;
+    observed[key] = truth[key] + deterministicNoise(seed, rt.stepIndex * 7 + i) * s;
   }
 
   const before = rt.estimator.current().x;

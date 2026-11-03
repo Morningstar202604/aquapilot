@@ -503,6 +503,21 @@ function fireAlarmHooks(seen: Set<string>): void {
 const seenAlarmCodes = new Set<string>();
 
 /**
+ * 时钟归零类操作（reset / preset / topology apply·revert）共用的运行态清理。
+ *
+ * 这些状态都锚定仿真时钟，时钟回到 0 而不清掉，就会把上一轮运行的状态
+ * 带进新一轮：manualOverrideUntil 残留让 AI 整轮只建议不执行；
+ * seenAlarmCodes 残留让新运行的活动告警不落库、不触发钩子；
+ * forecastCache 残留让 reset 后的第一个预测回到 boot 时刻的旧轨迹。
+ */
+function clearRunScopedState(): void {
+  runtime.manualOverrideUntil = 0;
+  seenAlarmCodes.clear();
+  runtime.forecastCache.key = null;
+  runtime.forecastCache.value = null;
+}
+
+/**
  * 运行自检：每 10 秒跑一次确定性检查，变化时广播给所有客户端。
  *
  * 「派 AI 全程盯着日志」在这里落成了一个可复核的机制：
@@ -1051,6 +1066,8 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         runtime.simCarryMin = 0;
         runtime.lastDecisionAtMin = 0;
         runtime.paused = false;
+        // 时钟归零，上一轮的运行态必须一并清掉（见 clearRunScopedState）
+        clearRunScopedState();
         broadcast({ type: 'notice', level: 'info', text: '仿真已重置到初始稳态。' });
       }
       broadcast({ type: 'simState', paused: runtime.paused, speed: runtime.speed });
@@ -1132,14 +1149,19 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       runtime.compiled = rt.compiled;
       runtime.topology = candidate;
       runtime.topologyRevision += 1;
-      topologyStore.save(runtime.topology, runtime.topologyRevision, `切换模板：${preset.name}`);
+      const saved = topologyStore.save(runtime.topology, runtime.topologyRevision, `切换模板：${preset.name}`);
+      clearRunScopedState();
       runtime.activePresetId = preset.id;
       runtime.recommendation = null;
       runtime.trend = [];
       runtime.shadow = createShadowPlant(runtime.topology, runtime.net.seed, runtime.net.timeMin);
       pushTrend(runtime.net, runtime.trend);
       runAiCycle(true);
-      broadcast({ type: 'notice', level: 'info', text: `已切换到模板：${preset.name}` });
+      broadcast({
+        type: 'notice',
+        level: 'info',
+        text: saved ? `已切换到模板：${preset.name}` : `已切换到模板：${preset.name}（⚠ 写盘失败，重启后会回退到旧拓扑）`,
+      });
       broadcast({ ...topologyMessage() } satisfies ServerMessage);
       broadcastSnapshot();
       break;
@@ -1228,7 +1250,8 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         runtime.compiled = rt.compiled;
         runtime.topology = target;
         runtime.topologyRevision += 1;
-        topologyStore.save(runtime.topology, runtime.topologyRevision, `回滚到 v${revision}`);
+        const saved = topologyStore.save(runtime.topology, runtime.topologyRevision, `回滚到 v${revision}`);
+        clearRunScopedState();
         runtime.activePresetId = null;
         runtime.recommendation = null;
         runtime.trend = [];
@@ -1238,7 +1261,9 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         broadcast({
           type: 'notice',
           level: 'info',
-          text: `已回滚到第 ${revision} 版；当前为第 ${runtime.topologyRevision} 版，厂已重建并完成预热。`,
+          text: saved
+            ? `已回滚到第 ${revision} 版；当前为第 ${runtime.topologyRevision} 版，厂已重建并完成预热。`
+            : `已回滚到第 ${revision} 版（⚠ 写盘失败，重启后会回退到旧拓扑）；当前为第 ${runtime.topologyRevision} 版。`,
         });
         broadcast({ ...topologyMessage() } satisfies ServerMessage);
         ws.send(JSON.stringify({ type: 'topologyHistory', versions: topologyStore.history() } satisfies ServerMessage));
@@ -1310,7 +1335,8 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         runtime.compiled = rt.compiled;
         runtime.topology = sanitized.topology;
         runtime.topologyRevision += 1;
-        topologyStore.save(runtime.topology, runtime.topologyRevision, '应用自定义拓扑');
+        const saved = topologyStore.save(runtime.topology, runtime.topologyRevision, '应用自定义拓扑');
+        clearRunScopedState();
         runtime.activePresetId = null;
         runtime.recommendation = null;
         runtime.trend = [];
@@ -1320,7 +1346,9 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         broadcast({
           type: 'notice',
           level: 'info',
-          text: `工艺拓扑已应用（第 ${runtime.topologyRevision} 版），厂已按新拓扑重建并完成预热。`,
+          text: saved
+            ? `工艺拓扑已应用（第 ${runtime.topologyRevision} 版），厂已按新拓扑重建并完成预热。`
+            : `工艺拓扑已应用（第 ${runtime.topologyRevision} 版），但 ⚠ 写盘失败：重启后会回退到旧拓扑，请检查磁盘空间。`,
         });
         broadcast({ ...topologyMessage() } satisfies ServerMessage);
         broadcastSnapshot();
@@ -1618,8 +1646,10 @@ async function main(): Promise<void> {
        * 请求路由是一串同步分支；此前 `new URL(..., host)` 与 `LIMIT ?`
        * 的非整数绑定都能把异常抛到事件循环顶层，
        * 表现为「一个畸形请求 = 服务下线」。
+       *
+       * 不在这里加 metrics.httpErrors：下面的 500 响应会触发 res 'finish'
+       * → recordHttp(500) 计数，手工再加就是每个 500 计两次。
        */
-      metrics.httpErrors += 1;
       logger.error('http handler failed', { route: (req.url ?? '/').split('?')[0], error: String(err) });
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -2066,6 +2096,16 @@ async function main(): Promise<void> {
     });
   });
 }
+
+/**
+ * 异步链兜底：`void someAsync()` 的调用（LLM 增强、配置处理）若在
+ * await 之前同步抛错，rejection 无人接——Node 22 默认行为是进程退出，
+ * 一个畸形请求就等于服务下线。记录后保持存活，与 WS/HTTP 的兜底
+ * catch 语义一致。
+ */
+process.on('unhandledRejection', (reason) => {
+  logger.error('unhandled rejection', { error: String(reason) });
+});
 
 process.on('SIGINT', () => {
   store.close();

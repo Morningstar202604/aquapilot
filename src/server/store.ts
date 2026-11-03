@@ -90,8 +90,9 @@ export type { SnapshotRow } from '../shared/protocol';
 
 export class Store {
   private db: DatabaseLike | null = null;
-  private writeBuffer: { decisions: DecisionRow[]; alarms: AlarmRow[]; snapshots: SnapshotRow[] } = {
-    decisions: [],
+  /** 上一次 flush 的 ROLLBACK 也失败：事务仍挂在连接上，需先解锁再写入 */
+  private txPoisoned = false;
+  private writeBuffer: { decisions: DecisionRow[]; alarms: AlarmRow[]; snapshots: SnapshotRow[] } = {    decisions: [],
     alarms: [],
     snapshots: [],
   };
@@ -187,6 +188,18 @@ export class Store {
   /** 批量写入，避免每 tick 都落盘 */
   flush(): void {
     if (!this.db) return;
+    // 上次 ROLLBACK 失败留下的事务先尝试解锁：成功则恢复正常 flush 循环，
+    // 失败则本轮放弃（缓冲由 capBuffer 兜底），错误已在上轮记录
+    if (this.txPoisoned) {
+      try {
+        this.db.exec('ROLLBACK');
+        this.txPoisoned = false;
+        logger.info('persistence transaction recovered after poisoned state');
+      } catch (err) {
+        logger.error('persistence transaction still open; skipping this flush', { error: String(err) });
+        return;
+      }
+    }
     const d = this.writeBuffer.decisions;
     const a = this.writeBuffer.alarms;
     const s = this.writeBuffer.snapshots;
@@ -226,12 +239,22 @@ export class Store {
       this.db.exec('COMMIT');
       this.writeBuffer = { decisions: [], alarms: [], snapshots: [] };
       metrics.persistenceFlushes += 1;
+      this.txPoisoned = false;
     } catch (err) {
       metrics.persistenceErrors += 1;
       try {
         this.db.exec('ROLLBACK');
+        this.txPoisoned = false;
       } catch {
-        /* 事务可能已中止 */
+        /**
+         * ROLLBACK 也失败说明事务仍挂在连接上（罕见的 IO 错误）。
+         * 不处理的话下一次 flush 的 BEGIN 会抛
+         * 「cannot start a transaction within a transaction」，
+         * 此后所有 flush 永久失败、缓冲涨满即丢数据。
+         * 标记后由下次 flush 先尝试解锁；连续失败保持 error 级可见。
+         */
+        this.txPoisoned = true;
+        logger.error('persistence rollback failed; transaction left open', { error: String(err) });
       }
       logger.error('persistence flush failed', { error: String(err) });
     }

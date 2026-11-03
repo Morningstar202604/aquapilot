@@ -42,19 +42,23 @@ export interface LoadResult {
   warning?: string;
 }
 
-function atomicWriteJson(path: string, value: unknown): void {
+function atomicWriteJson(path: string, value: unknown): boolean {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp-${process.pid}`;
   try {
     writeFileSync(tmp, JSON.stringify(value, null, 2), { encoding: 'utf8', mode: 0o600 });
     renameSync(tmp, path);
+    return true;
   } catch (err) {
-    logger.warn('topology write failed', { error: String(err), path });
+    // 编排成果写盘失败必须让调用方知道（磁盘满/只读时内存态正常、
+    // 重启即丢失——静默 warn 等于告诉用户「已保存」的假话）
+    logger.error('topology write failed', { error: String(err), path });
     try {
       rmSync(tmp, { force: true });
     } catch {
       /* 临时文件不存在即可 */
     }
+    return false;
   }
 }
 
@@ -85,11 +89,16 @@ export class TopologyStore {
    *
    * `label` 是给人看的版本说明。同一 revision 重复保存只更新该条（幂等），
    * 避免客户端重试造成重复历史。
+   *
+   * 返回写盘是否成功：调用方必须在失败时告知客户端（「已应用」但没持久化
+   * 是最恶劣的假成功——重启后编排静默回退）。
    */
-  save(topology: ProcessTopology, revision: number, label = '应用拓扑'): void {
+  save(topology: ProcessTopology, revision: number, label = '应用拓扑'): boolean {
     const payload: StoredTopology = { savedAt: new Date().toISOString(), revision, topology };
-    atomicWriteJson(this.path, payload);
+    const ok = atomicWriteJson(this.path, payload);
+    // 历史照记：即使快照写失败，版本链仍可回滚；调用方按快照结果提示
     this.appendVersion(topology, revision, label, payload.savedAt);
+    return ok;
   }
 
   /**
