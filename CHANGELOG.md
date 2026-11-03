@@ -4,6 +4,41 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-11-04
+
+Ecosystem release: the simulator becomes a tool the whole agent ecosystem
+can call (MCP), leaves the browser (CLI), and leaves the terminal (a
+standalone exe) — plus the two research documents that grounded those
+choices.
+
+### Added
+
+- **MCP server** (`POST /mcp`, protocol 2025-06-18, conservative no-SSE):
+  ten tools — plant_state, set_control, list_scenarios, start_scenario,
+  clear_scenario, reset_sim, apply_recommendation, simulate_headless,
+  get_report, get_metrics — with JSON-Schema inputs, readOnlyHint
+  annotations, structuredContent, `isError`-style business errors and
+  JSON-RPC -32602 for unknown tools. Tiered token auth (viewer reads,
+  operator writes), Origin allow-list and a 60 req/min/IP limiter.
+  LangGraph / OpenAI Agents SDK / CrewAI / Vercel AI SDK / Mastra connect
+  with just the URL. 18 protocol tests; live-verified initialize, storm
+  what-if and the 405/403 edges.
+- **`aquapilot` CLI**: simulate (days/scenario/controls/CSV export with a
+  GB-18918 compliance summary), report (Markdown), bench (BSM1 Table 6
+  gates, same thresholds as the regression test), calibrate
+  (identifiability + coordinate descent), serve (full stack). Ships as
+  `bin` in package.json and a bundled `dist/cli.mjs`.
+- **Standalone exe**: `npm run exe` → `dist/aquapilot.exe` (~84 MB, Node
+  SEA + postject). No Node installation needed; `simulate` verified.
+- **Research docs**: docs/AGENT-HARNESS.md (MCP/A2A/AG-UI landscape and
+  what shipped) and docs/REFERENCE-LEARNING.md (14 peer open-source
+  projects studied and where each lesson landed).
+
+### Changed
+
+- README: architecture diagram, three ways to run (npm / exe / CLI),
+  refreshed counts (1208 tests).
+
 ## [0.5.2] — 2026-11-03
 
 A full-code-review release: four parallel review passes read every source file
