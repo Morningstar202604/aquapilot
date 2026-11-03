@@ -126,7 +126,9 @@ describe('MCP 握手与工具枚举', () => {
 describe('MCP 工具调用与错误约定', () => {
   it('plant_state 返回文本 + structuredContent', () => {
     const out = post(rpc(4, 'tools/call', { name: 'plant_state', arguments: {} }));
-    const { result } = out.body as { result: { content: { type: string; text: string }[]; structuredContent: unknown } };
+    const { result } = out.body as {
+      result: { content: { type: string; text: string }[]; structuredContent: unknown };
+    };
     expect(result.content[0].type).toBe('text');
     expect(JSON.parse(result.content[0].text)).toEqual({ timeMin: 120, effluent: { cod: 30, nh: 1 } });
     expect(result.structuredContent).toBeTruthy();
@@ -178,7 +180,9 @@ describe('MCP 工具调用与错误约定', () => {
 
   it('simulate_headless 推演 60 分钟返回达标汇总', () => {
     const out = post(rpc(10, 'tools/call', { name: 'simulate_headless', arguments: { durationMin: 60 } }));
-    const { result } = out.body as { result: { isError?: boolean; content: { text: string }[]; structuredContent: Record<string, unknown> } };
+    const { result } = out.body as {
+      result: { isError?: boolean; content: { text: string }[]; structuredContent: Record<string, unknown> };
+    };
     expect(result.isError).toBeUndefined();
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.durationMin).toBe(60);
