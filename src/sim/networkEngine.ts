@@ -2,7 +2,7 @@ import { ControlSettings, DEFAULT_CONTROLS, INFLUENT_DESIGN, LIMITS, PLANT } fro
 import { mulberry32 } from './rng';
 import { sampleAt, type InfluentSeries } from './influentSeries';
 import { ScenarioSpec, SCENARIOS } from './scenarios';
-import { CompiledNetwork, compileNetwork, resolveFlows } from './network';
+import { CompiledNetwork, compileNetwork, resolveFlows, type CompiledEdge } from './network';
 import { networkSnapshot, PlantModel } from './plantModel';
 import { clampControls, qualityScore } from './metrics';
 import { KINETICS, DESIGN_MLSS, TARIFF } from './kinetics';
@@ -486,6 +486,128 @@ function resolveHydraulics(state: NetworkSimState, dtH: number): { influent: Net
 }
 
 /**
+ * 单个反应器的入流构成：把所有入流边按流量加权混合成一份聚合浓度。
+ *
+ * 浓度语义由边的类型决定：
+ * - 污泥回流（RAS）：来自系统末端池，浓度即末端池当前值；
+ * - 内回流：同样取末端池（内回流把硝化液送回前端）；
+ * - 来自其他反应器：取源池当前值；
+ * - 厂外来水（初沉出水等）：取本步进水，硝酸盐按背景值 0.3。
+ */
+function aggregateInflow(
+  incoming: CompiledEdge[],
+  edgeFlow: Map<string, number>,
+  byId: Map<string, ReactorState>,
+  lastReactor: ReactorState,
+  influent: NetworkSimState['influent'],
+): { qIn: number; codIn: number; nhIn: number; no3In: number; tpIn: number; alkIn: number } {
+  const endCod = lastReactor?.cod ?? 20;
+  const endNh = lastReactor?.nh ?? 1;
+  const endNo3 = lastReactor?.no3 ?? 8;
+  const endTp = lastReactor?.tp ?? 0.2;
+  const endAlk = lastReactor?.alkalinity ?? 180;
+  let qIn = 0;
+  let codIn = 0;
+  let nhIn = 0;
+  let no3In = 0;
+  let tpIn = 0;
+  let alkIn = 0;
+
+  for (const edge of incoming) {
+    const flow = edgeFlow.get(edge.id) ?? 0;
+    if (flow <= 0) continue;
+    const isFromReactor = byId.has(edge.from);
+    const source = isFromReactor ? byId.get(edge.from)! : null;
+
+    let c: { cod: number; nh: number; no3: number; tp: number; alk: number };
+    if (edge.recycleKind === 'ras') {
+      c = { cod: endCod, nh: endNh, no3: endNo3, tp: endTp, alk: endAlk };
+    } else if (edge.recycleKind === 'internal') {
+      c = { cod: endCod, nh: endNh, no3: endNo3, tp: endTp, alk: endAlk };
+    } else if (source) {
+      c = { cod: source.cod, nh: source.nh, no3: source.no3, tp: source.tp, alk: source.alkalinity };
+    } else {
+      // 厂外来水（初沉出水等）
+      c = { cod: influent.cod, nh: influent.nh, no3: 0.3, tp: influent.tp, alk: influent.alkalinity };
+    }
+
+    codIn = qIn === 0 ? c.cod : mixed(codIn, qIn, c.cod, flow);
+    nhIn = qIn === 0 ? c.nh : mixed(nhIn, qIn, c.nh, flow);
+    no3In = qIn === 0 ? c.no3 : mixed(no3In, qIn, c.no3, flow);
+    tpIn = qIn === 0 ? c.tp : mixed(tpIn, qIn, c.tp, flow);
+    alkIn = qIn === 0 ? c.alk : mixed(alkIn, qIn, c.alk, flow);
+    qIn += flow;
+  }
+
+  return { qIn, codIn, nhIn, no3In, tpIn, alkIn };
+}
+
+/**
+ * ASM1 入流组分（13 组分按流量加权）。
+ *
+ * 污泥回流（RAS）不能直接取末端池浓度——二沉池把污泥浓缩了 2–3 倍，
+ * 用未浓缩的浓度会让每个池的颗粒物被"稀释"，生物量持续流失。
+ * Takács 模型已经算出真实的回流浓度 xRas，这里按它的浓缩倍数缩放颗粒态。
+ */
+function aggregateAsm1Inflow(
+  incoming: CompiledEdge[],
+  edgeFlow: Map<string, number>,
+  byId: Map<string, ReactorState>,
+  lastReactor: ReactorState,
+  xRas: number,
+  influent: NetworkSimState['influent'],
+  T: number,
+): Asm1State {
+  const rasConcentrationRatio = (() => {
+    const feedSS = lastReactor?.asm1
+      ? lastReactor.asm1.X_I +
+        lastReactor.asm1.X_S +
+        lastReactor.asm1.X_B_H +
+        lastReactor.asm1.X_B_A +
+        lastReactor.asm1.X_P
+      : 0;
+    if (feedSS <= 1) return 1;
+    // Takács 给出的底流浓度 / 进料浓度 = 真实浓缩倍数
+    return Math.max(1, Math.min(6, xRas / feedSS));
+  })();
+
+  let asmIn = emptyAsm1State();
+  let qAcc = 0;
+  for (const edge of incoming) {
+    const flow = edgeFlow.get(edge.id) ?? 0;
+    if (flow <= 0) continue;
+    let src: Asm1State;
+    if (edge.recycleKind === 'ras' && lastReactor?.asm1) {
+      // 按二沉池浓缩倍数放大颗粒态
+      const base = lastReactor.asm1;
+      src = {
+        ...base,
+        X_I: base.X_I * rasConcentrationRatio,
+        X_S: base.X_S * rasConcentrationRatio,
+        X_B_H: base.X_B_H * rasConcentrationRatio,
+        X_B_A: base.X_B_A * rasConcentrationRatio,
+        X_P: base.X_P * rasConcentrationRatio,
+      };
+    } else if (edge.recycleKind === 'internal' && lastReactor?.asm1) src = lastReactor.asm1;
+    else if (byId.has(edge.from) && byId.get(edge.from)!.asm1) src = byId.get(edge.from)!.asm1!;
+    else
+      src = influentToAsm1({
+        cod: influent.cod,
+        nh: influent.nh,
+        tp: influent.tp,
+        ss: influent.ss,
+        alkalinity: influent.alkalinity,
+        temperature: T,
+      });
+
+    if (qAcc === 0) asmIn = { ...src };
+    else for (const comp of ASM1_COMPONENTS) asmIn[comp] = (asmIn[comp] * qAcc + src[comp] * flow) / (qAcc + flow);
+    qAcc += flow;
+  }
+  return asmIn;
+}
+
+/**
  * 阶段 2：反应器串联求解。
  *
  * ASM1 模式下溶解态随水进出、颗粒态由二沉池截留决定——
@@ -499,11 +621,6 @@ function solveReactors(ctx: StepContext): {
   nhOxidizedKgH: number;
 } {
   const { state, net, dtH, flows, byId, xBiomass, bf, T, thetaH, thetaN, clar, lastReactor, influent, sup } = ctx;
-  const rasCod = lastReactor?.cod ?? 20;
-  const rasNh = lastReactor?.nh ?? 1;
-  const rasNo3 = lastReactor?.no3 ?? 8;
-  const rasTp = lastReactor?.tp ?? 0.2;
-  const rasAlk = lastReactor?.alkalinity ?? 180;
   let o2DemandKgH = 0;
   let codOxidizedKgH = 0;
   let nhOxidizedKgH = 0;
@@ -515,44 +632,13 @@ function solveReactors(ctx: StepContext): {
 
     // 入流构成
     const incoming = net.incomingByReactor[id] ?? [];
-    let qIn = 0;
-    let codIn = 0;
-    let nhIn = 0;
-    let no3In = 0;
-    let tpIn = 0;
-    let alkIn = 0;
-
-    for (const edge of incoming) {
-      const flow = flows.edgeFlow.get(edge.id) ?? 0;
-      if (flow <= 0) continue;
-      const isFromReactor = byId.has(edge.from);
-      const source = isFromReactor ? byId.get(edge.from)! : null;
-
-      let c: { cod: number; nh: number; no3: number; tp: number; alk: number };
-      if (edge.recycleKind === 'ras') {
-        c = { cod: rasCod, nh: rasNh, no3: rasNo3, tp: rasTp, alk: rasAlk };
-      } else if (edge.recycleKind === 'internal') {
-        c = {
-          cod: lastReactor?.cod ?? 20,
-          nh: lastReactor?.nh ?? 1,
-          no3: lastReactor?.no3 ?? 8,
-          tp: lastReactor?.tp ?? 0.2,
-          alk: lastReactor?.alkalinity ?? 180,
-        };
-      } else if (source) {
-        c = { cod: source.cod, nh: source.nh, no3: source.no3, tp: source.tp, alk: source.alkalinity };
-      } else {
-        // 厂外来水（初沉出水等）
-        c = { cod: influent.cod, nh: influent.nh, no3: 0.3, tp: influent.tp, alk: influent.alkalinity };
-      }
-
-      codIn = qIn === 0 ? c.cod : mixed(codIn, qIn, c.cod, flow);
-      nhIn = qIn === 0 ? c.nh : mixed(nhIn, qIn, c.nh, flow);
-      no3In = qIn === 0 ? c.no3 : mixed(no3In, qIn, c.no3, flow);
-      tpIn = qIn === 0 ? c.tp : mixed(tpIn, qIn, c.tp, flow);
-      alkIn = qIn === 0 ? c.alk : mixed(alkIn, qIn, c.alk, flow);
-      qIn += flow;
-    }
+    const { qIn, codIn, nhIn, no3In, tpIn, alkIn } = aggregateInflow(
+      incoming,
+      flows.edgeFlow,
+      byId,
+      lastReactor,
+      influent,
+    );
 
     if (qIn <= 0) {
       // 孤立反应器：不进物料，保持现状但记录
@@ -578,59 +664,7 @@ function solveReactors(ctx: StepContext): {
         });
       }
 
-      /**
-       * 入流组分：按流量加权。
-       *
-       * 污泥回流（RAS）不能直接取末端池浓度——二沉池把污泥浓缩了 2–3 倍，
-       * 用未浓缩的浓度会让每个池的颗粒物被"稀释"，生物量持续流失。
-       * Takács 模型已经算出真实的回流浓度 xRas，这里按它的浓缩倍数缩放颗粒态。
-       */
-      const rasConcentrationRatio = (() => {
-        const feedSS = lastReactor?.asm1
-          ? lastReactor.asm1.X_I +
-            lastReactor.asm1.X_S +
-            lastReactor.asm1.X_B_H +
-            lastReactor.asm1.X_B_A +
-            lastReactor.asm1.X_P
-          : 0;
-        if (feedSS <= 1) return 1;
-        // Takács 给出的底流浓度 / 进料浓度 = 真实浓缩倍数
-        return Math.max(1, Math.min(6, clar.xRas / feedSS));
-      })();
-
-      let asmIn = emptyAsm1State();
-      let qAcc = 0;
-      for (const edge of incoming) {
-        const flow = flows.edgeFlow.get(edge.id) ?? 0;
-        if (flow <= 0) continue;
-        let src: Asm1State;
-        if (edge.recycleKind === 'ras' && lastReactor?.asm1) {
-          // 按二沉池浓缩倍数放大颗粒态
-          const base = lastReactor.asm1;
-          src = {
-            ...base,
-            X_I: base.X_I * rasConcentrationRatio,
-            X_S: base.X_S * rasConcentrationRatio,
-            X_B_H: base.X_B_H * rasConcentrationRatio,
-            X_B_A: base.X_B_A * rasConcentrationRatio,
-            X_P: base.X_P * rasConcentrationRatio,
-          };
-        } else if (edge.recycleKind === 'internal' && lastReactor?.asm1) src = lastReactor.asm1;
-        else if (byId.has(edge.from) && byId.get(edge.from)!.asm1) src = byId.get(edge.from)!.asm1!;
-        else
-          src = influentToAsm1({
-            cod: influent.cod,
-            nh: influent.nh,
-            tp: influent.tp,
-            ss: influent.ss,
-            alkalinity: influent.alkalinity,
-            temperature: T,
-          });
-
-        if (qAcc === 0) asmIn = { ...src };
-        else for (const comp of ASM1_COMPONENTS) asmIn[comp] = (asmIn[comp] * qAcc + src[comp] * flow) / (qAcc + flow);
-        qAcc += flow;
-      }
+      const asmIn = aggregateAsm1Inflow(incoming, flows.edgeFlow, byId, lastReactor, clar.xRas, influent, T);
 
       const r = reactionRatesWithSuppression(reactor.asm1, sup);
       const nextAsm1 = { ...reactor.asm1 };
