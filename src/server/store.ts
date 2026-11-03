@@ -92,7 +92,8 @@ export class Store {
   private db: DatabaseLike | null = null;
   /** 上一次 flush 的 ROLLBACK 也失败：事务仍挂在连接上，需先解锁再写入 */
   private txPoisoned = false;
-  private writeBuffer: { decisions: DecisionRow[]; alarms: AlarmRow[]; snapshots: SnapshotRow[] } = {    decisions: [],
+  private writeBuffer: { decisions: DecisionRow[]; alarms: AlarmRow[]; snapshots: SnapshotRow[] } = {
+    decisions: [],
     alarms: [],
     snapshots: [],
   };
