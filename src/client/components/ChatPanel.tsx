@@ -5,6 +5,8 @@ import type { PlantSnapshot } from '../../shared/protocol';
 
 interface Props {
   chat: ChatEntry[];
+  /** 有提问正在等待 AI 回答：日志底部显示「正在回答」指示 */
+  pending?: boolean;
   onAsk: (text: string) => void;
   connected: boolean;
   snap: PlantSnapshot;
@@ -12,7 +14,7 @@ interface Props {
 
 const SUGGESTIONS = ['现在运行怎么样', '为什么这样调节', '如果发生暴雨会怎样', '给我未来 8 小时计划'];
 
-export function ChatPanel({ chat, onAsk, connected, snap }: Props) {
+export function ChatPanel({ chat, pending = false, onAsk, connected, snap }: Props) {
   const [draft, setDraft] = useState('');
   const logRef = useRef<HTMLDivElement | null>(null);
 
@@ -56,6 +58,16 @@ export function ChatPanel({ chat, onAsk, connected, snap }: Props) {
         {chat.map((entry) => (
           <Message key={entry.id} entry={entry} />
         ))}
+        {pending && (
+          <div className="msg" data-role="ai" data-typing="true" aria-live="polite">
+            <div className="chat-typing">
+              <span className="typing-dot" />
+              <span className="typing-dot" />
+              <span className="typing-dot" />
+              正在回答…
+            </div>
+          </div>
+        )}
       </div>
       <div className="chat-chips">
         {SUGGESTIONS.map((s) => (

@@ -148,7 +148,12 @@ export function useSimulation() {
   const [llmTestResult, setLlmTestResult] = useState<LlmTestResult | null>(null);
   const llmRequestId = useRef(0);
   const llmPending = useRef<Record<string, 'discover' | 'test' | 'save' | 'clear'>>({});
-  const llmSaveResolve = useRef<((ok: boolean) => void) | null>(null);
+  /** 每类操作最近一次发出的 requestId：迟到响应按它过滤，防止旧结果覆盖新结果 */
+  const llmLatest = useRef<{ discover: string | null; test: string | null; save: string | null }>({
+    discover: null,
+    test: null,
+    save: null,
+  });
 
   // Agent 配置（角色/提示词/技能/钩子/约束/权限）
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
@@ -159,6 +164,8 @@ export function useSimulation() {
   const [agentError, setAgentError] = useState<string | null>(null);
   const [agentPromptPreview, setAgentPromptPreview] = useState<string | null>(null);
   const agentRequestId = useRef(0);
+  /** 最近一次写类 agentConfig 请求的 requestId：过期的 saved/error 不改界面状态 */
+  const agentLatest = useRef<string | null>(null);
   const [watchdog, setWatchdog] = useState<WatchdogReport | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisSnapshot | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
@@ -246,8 +253,10 @@ export function useSimulation() {
         let msg: ServerMessage;
         try {
           msg = JSON.parse(event.data as string) as ServerMessage;
-        } catch {
-          // 服务端发来非 JSON（或连接被中途截断）时忽略该帧，不要让异常冒泡
+        } catch (err) {
+          // 服务端发来非 JSON（或连接被中途截断）时忽略该帧，不让异常冒泡；
+          // 但必须留痕——否则协议漂移表现为「界面没反应」而无从排查
+          console.warn('[aqua] 收到无法解析的 WS 帧，已忽略', { error: String(err) });
           return;
         }
         switch (msg.type) {
@@ -262,9 +271,11 @@ export function useSimulation() {
             break;
           case 'decision':
             setRecommendation(msg.data);
+            setDecisionRefreshing(false);
             break;
           case 'chat':
             chatId.current += 1;
+            setChatPending((p) => Math.max(0, p - 1));
             setChat((prev) => [
               ...prev,
               {
@@ -300,6 +311,13 @@ export function useSimulation() {
               break;
             }
             if (msg.action === 'discovered') {
+              // 过期响应直接丢弃：用户改了端点再拉取后，旧端点的迟到响应
+              // 不得覆盖新结果，也不得把 discovering 提前置 false
+              if (llmLatest.current.discover !== msg.requestId) {
+                console.warn('[aqua] 丢弃过期的模型发现响应', { requestId: msg.requestId });
+                delete llmPending.current[msg.requestId];
+                break;
+              }
               setLlmModels(msg.models);
               setLlmDiscovering(false);
               setLlmLastDiscoverAt(Date.now());
@@ -308,12 +326,22 @@ export function useSimulation() {
               break;
             }
             if (msg.action === 'tested') {
+              if (llmLatest.current.test !== msg.requestId) {
+                console.warn('[aqua] 丢弃过期的连接测试响应', { requestId: msg.requestId });
+                delete llmPending.current[msg.requestId];
+                break;
+              }
               setLlmTesting(false);
               setLlmTestResult(msg.result);
               delete llmPending.current[msg.requestId];
               break;
             }
             if (msg.action === 'saved') {
+              if (llmLatest.current.save !== msg.requestId) {
+                console.warn('[aqua] 丢弃过期的配置保存响应', { requestId: msg.requestId });
+                delete llmPending.current[msg.requestId];
+                break;
+              }
               setLlmSaving(false);
               if (msg.ok) {
                 if (msg.config) setLlmConfig(msg.config);
@@ -323,19 +351,27 @@ export function useSimulation() {
               } else {
                 setLlmError(msg.error ?? '保存失败');
               }
-              llmSaveResolve.current?.(msg.ok);
-              llmSaveResolve.current = null;
               delete llmPending.current[msg.requestId];
               break;
             }
             if (msg.action === 'error') {
+              // 带 requestId 的错误只在它仍是最新请求时改界面状态：
+              // 迟到错误不得把新一轮操作的 busy 状态提前清掉
+              const staleError =
+                msg.requestId != null &&
+                msg.requestId !== llmLatest.current.discover &&
+                msg.requestId !== llmLatest.current.test &&
+                msg.requestId !== llmLatest.current.save;
+              if (staleError) {
+                console.warn('[aqua] 丢弃过期的模型配置错误回执', { requestId: msg.requestId });
+                if (msg.requestId) delete llmPending.current[msg.requestId];
+                break;
+              }
               setLlmDiscovering(false);
               setLlmTesting(false);
               setLlmSaving(false);
               setLlmError(msg.error);
               if (msg.requestId) delete llmPending.current[msg.requestId];
-              llmSaveResolve.current?.(false);
-              llmSaveResolve.current = null;
             }
             break;
           case 'agentConfig':
@@ -348,6 +384,10 @@ export function useSimulation() {
               break;
             }
             if (msg.action === 'saved') {
+              if (agentLatest.current !== null && agentLatest.current !== msg.requestId) {
+                console.warn('[aqua] 丢弃过期的角色配置保存响应', { requestId: msg.requestId });
+                break;
+              }
               setAgentSaving(false);
               setAgentWarnings(msg.warnings ?? []);
               if (msg.ok) {
@@ -360,6 +400,10 @@ export function useSimulation() {
               break;
             }
             if (msg.action === 'error') {
+              if (agentLatest.current !== null && agentLatest.current !== msg.requestId) {
+                console.warn('[aqua] 丢弃过期的角色配置错误回执', { requestId: msg.requestId });
+                break;
+              }
               setAgentSaving(false);
               setAgentError(msg.error);
             }
@@ -423,7 +467,8 @@ export function useSimulation() {
          * 界面就会永久卡在「正在拉取模型…」「保存中…」，且无法再次触发。
          */
         llmPending.current = {};
-        llmSaveResolve.current = null;
+        llmLatest.current = { discover: null, test: null, save: null };
+        agentLatest.current = null;
         setLlmDiscovering(false);
         setLlmTesting(false);
         setLlmSaving(false);
@@ -435,7 +480,10 @@ export function useSimulation() {
         // 抖动退避：多客户端同时断线时避免重连请求同步撞击服务端
         setTimeout(connect, reconnectDelayMs(retry.current));
       };
-      ws.onerror = () => {
+      ws.onerror = (event) => {
+        // 保留细节：开发者工具里能看到 onerror 触发时的异常对象，
+        // 否则「连接仿真服务失败」这行文案是唯一线索
+        console.warn('[aqua] WebSocket 连接错误', event);
         setLink((prev) => ({ ...prev, connected: false, error: '连接仿真服务失败' }));
       };
     };
@@ -481,10 +529,19 @@ export function useSimulation() {
     }
   };
 
+  /** 正在等待 AI 回答的提问数：>0 时对话面板显示「正在回答」指示 */
+  const [chatPending, setChatPending] = useState(0);
+  /** 「重新推演」已发出、尚未收到 decision 帧：按钮显示进行中并防重复点击 */
+  const [decisionRefreshing, setDecisionRefreshing] = useState(false);
+
   const ask = (text: string) => {
     if (!text.trim()) return;
     chatId.current += 1;
     setChat((prev) => [...prev, { id: chatId.current, role: 'user', text, at: Date.now() }]);
+    setChatPending((p) => p + 1);
+    // 兜底：AI 回答可能要走 notice 通道（模型未配置/超时），无法与提问配对；
+    // 推理模型最坏 60s+，120s 后无条件撤销指示，避免永久转圈
+    setTimeout(() => setChatPending((p) => Math.max(0, p - 1)), 120_000);
     send({ type: 'chat', text });
   };
 
@@ -497,7 +554,12 @@ export function useSimulation() {
   const pause = () => send({ type: 'sim', action: paused ? 'resume' : 'pause' });
   const reset = () => send({ type: 'sim', action: 'reset' });
   const changeSpeed = (value: number) => send({ type: 'speed', value });
-  const refreshDecision = () => send({ type: 'refreshDecision' });
+  const refreshDecision = () => {
+    setDecisionRefreshing(true);
+    // 决策帧通常数秒内回来；断线或积压时 30s 后解除，防止按钮永久禁用
+    setTimeout(() => setDecisionRefreshing(false), 30_000);
+    send({ type: 'refreshDecision' });
+  };
   const applyPreset = (id: string) => send({ type: 'preset', id });
   const requestTopology = () => send({ type: 'topology', action: 'get' });
   const applyTopology = (topo: ProcessTopology) => send({ type: 'topology', action: 'apply', topology: topo });
@@ -512,6 +574,7 @@ export function useSimulation() {
   const llmDiscover = (input: { protocol: LlmProtocol; baseUrl: string; apiKey?: string }) => {
     const requestId = nextLlmRequestId();
     llmPending.current[requestId] = 'discover';
+    llmLatest.current.discover = requestId;
     setLlmDiscovering(true);
     setLlmError(null);
     send({ type: 'llmConfig', action: 'discover', requestId, ...input });
@@ -525,6 +588,7 @@ export function useSimulation() {
   }) => {
     const requestId = nextLlmRequestId();
     llmPending.current[requestId] = 'test';
+    llmLatest.current.test = requestId;
     setLlmTesting(true);
     setLlmTestResult(null);
     send({ type: 'llmConfig', action: 'test', requestId, ...input });
@@ -532,6 +596,7 @@ export function useSimulation() {
   const llmSave = (draft: LlmDraft) => {
     const requestId = nextLlmRequestId();
     llmPending.current[requestId] = 'save';
+    llmLatest.current.save = requestId;
     setLlmSaving(true);
     setLlmError(null);
     send({ type: 'llmConfig', action: 'save', requestId, draft });
@@ -572,14 +637,16 @@ export function useSimulation() {
     lastError: agentError,
     promptPreview: agentPromptPreview,
     save: (config) => {
+      agentLatest.current = nextAgentId();
       setAgentSaving(true);
       setAgentError(null);
-      send({ type: 'agentConfig', action: 'save', requestId: nextAgentId(), config });
+      send({ type: 'agentConfig', action: 'save', requestId: agentLatest.current, config });
     },
     reset: () => {
+      agentLatest.current = nextAgentId();
       setAgentSaving(true);
       setAgentError(null);
-      send({ type: 'agentConfig', action: 'reset', requestId: nextAgentId() });
+      send({ type: 'agentConfig', action: 'reset', requestId: agentLatest.current });
     },
     reload: () => send({ type: 'agentConfig', action: 'get' }),
     requestPreview: (question, config) => {
@@ -588,9 +655,10 @@ export function useSimulation() {
       send({ type: 'agentConfig', action: 'previewPrompt', requestId: nextAgentId(), question, config });
     },
     importSkill: (skill) => {
+      agentLatest.current = nextAgentId();
       setAgentSaving(true);
       setAgentError(null);
-      send({ type: 'agentConfig', action: 'importSkill', requestId: nextAgentId(), skill });
+      send({ type: 'agentConfig', action: 'importSkill', requestId: agentLatest.current, skill });
     },
   };
 
@@ -598,6 +666,8 @@ export function useSimulation() {
     snapshot,
     recommendation,
     chat,
+    chatPending,
+    decisionRefreshing,
     notices,
     link,
     paused,

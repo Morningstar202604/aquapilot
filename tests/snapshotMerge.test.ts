@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mergeSnapshot } from '../src/client/hooks/snapshotMerge';
 import { DEFAULT_CONTROLS } from '../src/sim/config';
 import { makeSnapshot } from './fixtures/snapshot';
@@ -175,5 +175,54 @@ describe('增量帧字段级校验（协议漂移防线）', () => {
     expect(out.influent.cod).toBe(900);
     expect(out.influent.nh).toBe(55);
     expect(out.influent.temperature).toBe(15);
+  });
+});
+
+describe('增量帧校验（协议漂移防线）', () => {
+  /**
+   * mergeSnapshot 无条件替换 snap.controls：一帧缺 controls 的补丁
+   * 曾让 ControlPanel 的 .toFixed() 与 UnitInspector 的下标访问直接崩溃。
+   * 校验必须把「缺 controls / controls 缺字段 / aiEnabled 缺失」整帧拒收。
+   */
+  it('缺 controls 的补丁被整帧拒收', () => {
+    const snap = makeSnapshot();
+    const patch = basePatch();
+    const bad = { ...patch } as Record<string, unknown>;
+    delete bad.controls;
+    const out = mergeSnapshot(snap, bad as unknown as SnapshotPatch);
+    expect(out).toBe(snap); // 原样返回上一帧
+  });
+
+  it('controls 缺数值字段的补丁被拒收', () => {
+    const snap = makeSnapshot();
+    const patch = basePatch({
+      controls: { doSetpoint: 1.4 } as unknown as SnapshotPatch['controls'],
+    });
+    const out = mergeSnapshot(snap, patch);
+    expect(out).toBe(snap);
+  });
+
+  it('aiEnabled 非布尔的补丁被拒收', () => {
+    const snap = makeSnapshot();
+    const controls = { ...DEFAULT_CONTROLS, aiEnabled: 'yes' } as unknown as SnapshotPatch['controls'];
+    const patch = basePatch({ controls });
+    const out = mergeSnapshot(snap, patch);
+    expect(out).toBe(snap);
+  });
+
+  it('controls 完整时正常合并', () => {
+    const snap = makeSnapshot();
+    const out = mergeSnapshot(snap, basePatch());
+    expect(out.controls.doSetpoint).toBe(1.4);
+  });
+
+  it('丢帧会输出 warn 日志（协议漂移必须可排查）', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const snap = makeSnapshot();
+    const bad = {} as unknown as SnapshotPatch;
+    mergeSnapshot(snap, bad);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain('增量帧');
+    warn.mockRestore();
   });
 });

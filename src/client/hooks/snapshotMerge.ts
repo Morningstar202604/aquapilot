@@ -32,6 +32,17 @@ const INFLUENT_KEYS = ['flow', 'cod', 'bod', 'ss', 'nh', 'tn', 'tp', 'temperatur
 const ENERGY_KEYS = ['totalKw', 'specificKwhM3'] as const;
 const TOTALS_KEYS = ['inflowM3', 'energyKwh', 'cost', 'wasteSludgeKg', 'elapsedMin'] as const;
 const HEALTH_KEYS = ['score'] as const;
+const CONTROLS_KEYS = [
+  'doSetpoint',
+  'internalRecirc',
+  'rasRatio',
+  'wasRatio',
+  'pacDose',
+  'carbonDose',
+  'alkDose',
+  'stormStore',
+  'stepFeed',
+] as const;
 
 export function isUsablePatch(patch: unknown): patch is SnapshotPatch {
   if (!patch || typeof patch !== 'object') return false;
@@ -39,6 +50,15 @@ export function isUsablePatch(patch: unknown): patch is SnapshotPatch {
   if (!isFiniteNumber(p.timeMin)) return false;
   if (!hasNumericFields(p.effluent, EFFLUENT_KEYS)) return false;
   if (!hasNumericFields(p.influent, INFLUENT_KEYS)) return false;
+  // controls 必须整体校验：mergeSnapshot 无条件替换 snap.controls，
+  // 缺字段会让 ControlPanel 的 .toFixed() 与 UnitInspector 的下标访问直接崩溃
+  if (
+    !p.controls ||
+    typeof p.controls !== 'object' ||
+    !hasNumericFields(p.controls, CONTROLS_KEYS) ||
+    typeof (p.controls as Record<string, unknown>).aiEnabled !== 'boolean'
+  )
+    return false;
   if (!Array.isArray(p.tanks)) return false;
   if (
     !p.tanks.every(
@@ -55,6 +75,8 @@ export function isUsablePatch(patch: unknown): patch is SnapshotPatch {
   if (!hasNumericFields(p.cost, ['totalToday', 'total'])) return false;
   if (!hasNumericFields(p.totals, TOTALS_KEYS)) return false;
   if (!isFiniteNumber(p.srtDays) || !isFiniteNumber(p.fmRatio) || !isFiniteNumber(p.score)) return false;
+  // margins 允许为空数组（所有指标都被裁剪的极端配置），但结构必须成立：
+  // InsightsPanel 直接读 margins[0].ratio，空数组已由该面板另行兜底
   if (!Array.isArray(p.margins)) return false;
   if (!Array.isArray(p.trendsAppend)) return false;
   const health = p.health as Record<string, unknown>;
@@ -73,7 +95,15 @@ export function isUsablePatch(patch: unknown): patch is SnapshotPatch {
  * 补丁里没有的 id 说明该单元已不存在，直接从结果里剔除。
  */
 export function mergeSnapshot(prev: PlantSnapshot, patch: SnapshotPatch): PlantSnapshot {
-  if (!isUsablePatch(patch)) return prev;
+  if (!isUsablePatch(patch)) {
+    // 丢帧必须有痕迹：否则协议漂移表现为「数值冻结」而顶栏仍显示链路正常，
+    // 用户和开发者都无法定位。丢帧是异常路径，warn 一次不刷屏（逐帧都异常时
+    // 由 DevTools 的过滤与采样兜底）。
+    console.warn('[aqua] 丢弃不合规增量帧：字段校验未通过', {
+      timeMin: (patch as { timeMin?: unknown } | null)?.timeMin,
+    });
+    return prev;
+  }
   const tankById = new Map(patch.tanks.map((t) => [t.id, t]));
   return {
     ...prev,

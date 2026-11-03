@@ -9,6 +9,8 @@ interface Props {
   rec: Recommendation | null;
   onApply: () => void;
   onRefresh: () => void;
+  /** 重新推演已发出、尚未收到新决策帧：按钮显示进行中并防重复点击 */
+  refreshing?: boolean;
   aiEnabled: boolean;
   onToggleAi: (v: boolean) => void;
 }
@@ -19,7 +21,7 @@ const SEV_LABEL: Record<string, string> = {
   critical: '应急干预',
 };
 
-export function DecisionPanel({ snap, rec, onApply, onRefresh, aiEnabled, onToggleAi }: Props) {
+export function DecisionPanel({ snap, rec, onApply, onRefresh, refreshing = false, aiEnabled, onToggleAi }: Props) {
   if (!rec) {
     return (
       <div className="scroll-panel">
@@ -73,8 +75,8 @@ export function DecisionPanel({ snap, rec, onApply, onRefresh, aiEnabled, onTogg
             <button className="btn btn-primary" onClick={onApply} disabled={aiEnabled && rec.action === 'hold'}>
               {aiEnabled ? 'AI 已自动执行' : '采纳建议'}
             </button>
-            <button className="btn" onClick={onRefresh}>
-              重新推演
+            <button className="btn" onClick={onRefresh} disabled={refreshing}>
+              {refreshing ? '推演中…' : '重新推演'}
             </button>
           </div>
 

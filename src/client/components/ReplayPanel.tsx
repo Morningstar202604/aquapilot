@@ -73,8 +73,11 @@ export function ReplayPanel() {
       setSnapshots(sJson.snapshots ?? []);
       setDecisions((dJson.decisions ?? []).slice().reverse());
       setCursor(Math.max(0, (sJson.snapshots?.length ?? 1) - 1));
-    } catch {
-      setEnabled(false);
+    } catch (err) {
+      // fetch 抛错是网络/代理层故障，不是「未启用持久化」——
+      // 把两者混为一谈会把运维引向完全错误的排查方向
+      console.error('[aqua] 读取回放历史失败', err);
+      setError(`无法连接仿真服务读取历史（${String(err instanceof Error ? err.message : err)}）`);
     } finally {
       setLoading(false);
     }

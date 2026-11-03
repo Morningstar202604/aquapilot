@@ -457,3 +457,46 @@ describe('ChatPanel', () => {
     expect(screen.getByText('93%')).toBeTruthy();
   });
 });
+
+describe('反馈体验（pending / refreshing）', () => {
+  it('ChatPanel pending 时显示「正在回答」指示', () => {
+    render(<ChatPanel chat={[]} pending onAsk={vi.fn()} connected snap={makeSnapshot()} />);
+    expect(screen.getByText('正在回答…')).toBeTruthy();
+  });
+
+  it('ChatPanel 无 pending 时不显示指示', () => {
+    render(<ChatPanel chat={[]} onAsk={vi.fn()} connected snap={makeSnapshot()} />);
+    expect(screen.queryByText('正在回答…')).toBeNull();
+  });
+
+  it('DecisionPanel 推演进行中按钮禁用并显示「推演中…」', () => {
+    render(
+      <DecisionPanel
+        snap={makeSnapshot()}
+        rec={recommendation}
+        onApply={vi.fn()}
+        onRefresh={vi.fn()}
+        refreshing
+        aiEnabled={false}
+        onToggleAi={vi.fn()}
+      />,
+    );
+    const btn = screen.getByText('推演中…') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+  });
+
+  it('DecisionPanel 空闲时按钮可点', () => {
+    render(
+      <DecisionPanel
+        snap={makeSnapshot()}
+        rec={recommendation}
+        onApply={vi.fn()}
+        onRefresh={vi.fn()}
+        aiEnabled={false}
+        onToggleAi={vi.fn()}
+      />,
+    );
+    const btn = screen.getByText('重新推演') as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+  });
+});

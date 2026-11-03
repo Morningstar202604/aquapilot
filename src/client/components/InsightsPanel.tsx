@@ -42,8 +42,15 @@ export function InsightsPanel({ snap, aiEnabled }: Props) {
   // 不做 Math.max(0, ...)：负值必须显示出来，否则会掩盖"比基准更费电"的情况
   const annualSaving = baselineEnergyAnnual - actualEnergyAnnual;
 
+  // margins 可能为空（所有指标都被裁剪的极端配置）：不兜底这里直接崩进 ErrorBoundary
   const margin = snap.margins[0];
-  const complianceRisk = margin.ratio > 1 ? '已越限' : margin.ratio > 0.85 ? '裕度不足' : '裕度充足';
+  const complianceRisk = !margin
+    ? '无裕度数据'
+    : margin.ratio > 1
+      ? '已越限'
+      : margin.ratio > 0.85
+        ? '裕度不足'
+        : '裕度充足';
   const bm = snap.benchmark;
 
   return (

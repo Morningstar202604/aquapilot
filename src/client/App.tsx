@@ -397,19 +397,22 @@ export default function App() {
                   (() => {
                     const unit = findUnit(sim.topology ?? PLANT_TOPOLOGY, selectedTank);
                     if (!unit) return null;
+                    // 检视器直接下标访问 snap.controls[key]，坏数据不能打穿到根边界
                     return (
-                      <UnitInspector
-                        snap={snap}
-                        topo={sim.topology ?? PLANT_TOPOLOGY}
-                        unit={unit}
-                        onClose={() => setSelectedTank(null)}
-                        onSelect={setSelectedTank}
-                        onChangeControls={sim.setControls}
-                        onEditTopology={() => {
-                          seedDraft(sim.topology ?? PLANT_TOPOLOGY);
-                          setView('editor');
-                        }}
-                      />
+                      <ErrorBoundary compact label="单元检视器">
+                        <UnitInspector
+                          snap={snap}
+                          topo={sim.topology ?? PLANT_TOPOLOGY}
+                          unit={unit}
+                          onClose={() => setSelectedTank(null)}
+                          onSelect={setSelectedTank}
+                          onChangeControls={sim.setControls}
+                          onEditTopology={() => {
+                            seedDraft(sim.topology ?? PLANT_TOPOLOGY);
+                            setView('editor');
+                          }}
+                        />
+                      </ErrorBoundary>
                     );
                   })()}
               </div>
@@ -558,26 +561,41 @@ export default function App() {
               </button>
             </nav>
 
-            {tab === 'chat' && <ChatPanel chat={sim.chat} onAsk={sim.ask} connected={sim.link.connected} snap={snap} />}
+            {tab === 'chat' && (
+              <ErrorBoundary compact label="AI 对话">
+                <ChatPanel
+                  chat={sim.chat}
+                  pending={sim.chatPending > 0}
+                  onAsk={sim.ask}
+                  connected={sim.link.connected}
+                  snap={snap}
+                />
+              </ErrorBoundary>
+            )}
             {tab === 'decision' && (
-              <DecisionPanel
-                snap={snap}
-                rec={sim.recommendation}
-                onApply={sim.applyRecommendation}
-                onRefresh={sim.refreshDecision}
-                aiEnabled={aiEnabled}
-                onToggleAi={sim.setAiEnabled}
-              />
+              <ErrorBoundary compact label="AI 决策">
+                <DecisionPanel
+                  snap={snap}
+                  rec={sim.recommendation}
+                  onApply={sim.applyRecommendation}
+                  onRefresh={sim.refreshDecision}
+                  refreshing={sim.decisionRefreshing}
+                  aiEnabled={aiEnabled}
+                  onToggleAi={sim.setAiEnabled}
+                />
+              </ErrorBoundary>
             )}
             {tab === 'control' && (
-              <ControlPanel
-                snap={snap}
-                onChange={sim.setControls}
-                onStartScenario={sim.startScenario}
-                onClearScenario={sim.clearScenario}
-                onApplyPreset={sim.applyPreset}
-                aiEnabled={aiEnabled}
-              />
+              <ErrorBoundary compact label="控制面板">
+                <ControlPanel
+                  snap={snap}
+                  onChange={sim.setControls}
+                  onStartScenario={sim.startScenario}
+                  onClearScenario={sim.clearScenario}
+                  onApplyPreset={sim.applyPreset}
+                  aiEnabled={aiEnabled}
+                />
+              </ErrorBoundary>
             )}
             {tab === 'alarms' && (
               <ErrorBoundary compact label="告警面板">
@@ -590,12 +608,14 @@ export default function App() {
               </ErrorBoundary>
             )}
             {tab === 'analysis' && (
-              <AnalysisPanel
-                analysis={sim.analysis}
-                loading={sim.analysisLoading}
-                error={sim.analysisError}
-                onRun={() => sim.runAnalysis()}
-              />
+              <ErrorBoundary compact label="分析面板">
+                <AnalysisPanel
+                  analysis={sim.analysis}
+                  loading={sim.analysisLoading}
+                  error={sim.analysisError}
+                  onRun={() => sim.runAnalysis()}
+                />
+              </ErrorBoundary>
             )}
             {tab === 'calibration' && (
               <ErrorBoundary compact label="校准面板">
@@ -618,23 +638,33 @@ export default function App() {
               </ErrorBoundary>
             )}
             {tab === 'replay' && (
-              <Suspense fallback={<div className="empty-note">加载回放面板…</div>}>
-                <ReplayPanel />
-              </Suspense>
+              <ErrorBoundary compact label="回放面板">
+                <Suspense fallback={<div className="empty-note">加载回放面板…</div>}>
+                  <ReplayPanel />
+                </Suspense>
+              </ErrorBoundary>
             )}
-            {tab === 'health' && <WatchdogPanel report={sim.watchdog} />}
+            {tab === 'health' && (
+              <ErrorBoundary compact label="健康检查">
+                <WatchdogPanel report={sim.watchdog} />
+              </ErrorBoundary>
+            )}
           </aside>
         )}
       </div>
 
       {modelPanelOpen && (
         <Suspense fallback={null}>
-          <ModelSettingsPanel llm={sim.llm} open onClose={() => setModelPanelOpen(false)} />
+          <ErrorBoundary compact label="模型设置">
+            <ModelSettingsPanel llm={sim.llm} open onClose={() => setModelPanelOpen(false)} />
+          </ErrorBoundary>
         </Suspense>
       )}
       {agentPanelOpen && (
         <Suspense fallback={null}>
-          <AgentSettingsPanel agent={sim.agent} open onClose={() => setAgentPanelOpen(false)} />
+          <ErrorBoundary compact label="角色设置">
+            <AgentSettingsPanel agent={sim.agent} open onClose={() => setAgentPanelOpen(false)} />
+          </ErrorBoundary>
         </Suspense>
       )}
 
