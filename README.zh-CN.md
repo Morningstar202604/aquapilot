@@ -8,7 +8,7 @@
 [![CodeQL](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12-339933)](package.json)
 [![许可证](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![测试](https://img.shields.io/badge/测试-1159%20通过-2ea44f)](docs/BENCHMARKS.md)
+[![测试](https://img.shields.io/badge/测试-1208%20通过-2ea44f)](docs/BENCHMARKS.md)
 
 ![AquaPilot 总览](docs/screenshots/01-overview.jpg)
 
@@ -19,6 +19,8 @@
 - **把自己的 reasoning 摊开的 AI 值守员。** 滚动 4 小时预测对候选控制动作按达标、成本、稳定性排序，在硬边界内执行，并解释每个动作——包括它**没动**的动作和原因。被护栏挡住的调节会如实说「被挡住」；没有任何一条日志会在控制量真的没动的情况下写「已执行」。
 - **分析内建。** 参数灵敏度（中心差分）、达标-成本 Pareto 前沿、覆盖四路去向（出水 / 排泥 / 曝气氧化 / 系统内库存变化）的全厂 COD 质量平衡审计。
 - **证据，不是话术。** AI 与固定策略影子双跑共享 seed、进水与初始状态；效益页展示的是真实差值。参数校准与六维 EKF 作为实验性工具随仓库交付，边界写明。
+- **说 MCP 协议。** `POST /mcp` 把仿真器接入整个 agent 生态（LangGraph、OpenAI Agents SDK、CrewAI、Vercel AI SDK、Mastra——都只要一个 Streamable HTTP URL）：10 个带 JSON Schema 输入的工具、分级令牌鉴权、限流与 Origin 校验。agent 可以读厂、注暴雨、用纯计算的 `simulate_headless` 问「DO 提到 3 会怎样」。
+- **CLI 与单文件 exe。** `aquapilot simulate --days 7 --scenario storm` 离线仿真并输出 GB-18918 达标汇总；`bench` 对照 BSM1 Table 6 基准；`report` 输出 Markdown 报告；`serve` 启动完整服务。`npm run exe` 打出 ~84 MB 的独立 `aquapilot.exe`——无需安装 Node。
 - **运维级卫生。** 三档令牌访问（`viewer` / `operator` / `admin`）、出站请求 SSRF 防护、SQLite 历史 + 备份恢复、Prometheus 指标、带数据质量拒绝的 CSV 进水回放，以及一条本地 11 步 CI 门禁，在 GitHub Actions、GitCode、Gitee 三端等价执行。
 
 **它不是**：设计级模拟器、现场控制系统、合规保证。仿真输出只用于测试与工程讨论；精确边界见 [docs/BENCHMARKS.md](docs/BENCHMARKS.md)。
@@ -43,6 +45,43 @@ npm run build
 npm start                 # → http://127.0.0.1:5173
 ```
 
+也可以完全不装 Node——Windows 单文件可执行：
+
+```bash
+npm run exe               # → dist/aquapilot.exe（~84 MB，Node SEA 单文件）
+distquapilot.exe serve --port 5173
+```
+
+脚本化 / 无头场景用 CLI：
+
+```bash
+npm run cli -- simulate --days 7 --scenario storm --csv week.csv
+npm run cli -- bench      # BSM1 Table 6 基准门禁
+```
+
+架构：
+
+```mermaid
+flowchart LR
+    subgraph client [浏览器]
+        UI[React 控制台<br/>画布 · 面板 · 编排]
+    end
+    subgraph server [Node 22 服务端——单进程]
+        WS[WebSocket<br/>实时遥测]
+        HTTP[HTTP API<br/>鉴权 · 导出 · 健康检查]
+        MCP["MCP 端点<br/>POST /mcp（10 个工具）"]
+        SIM[ASM1 / Takács 求解器<br/>+ AI 操作员 + 护栏]
+        DB[(SQLite WAL)]
+    end
+    LLM[LLM 服务<br/>OpenAI/Anthropic/Gemini] -. SSRF 防护 .-> SIM
+    Agent[外部 AI agent<br/>LangGraph / SDK / CrewAI] --> MCP
+    UI <--> WS
+    UI --> HTTP
+    SIM --> WS
+    SIM <--> DB
+    HTTP --> SIM
+```
+
 开发模式（热更新）：
 
 ```bash
@@ -52,7 +91,7 @@ npm run dev               # Vite 客户端 :5174，API/WS 代理到 :5173
 验证（CI 同款）：
 
 ```bash
-npm run verify            # 类型检查 + lint + 1159 项测试 + 构建
+npm run verify            # 类型检查 + lint + 1208 项测试 + 构建
 npm run ci                # 完整 11 步门禁：覆盖率、冒烟、密钥扫描、备份、审计
 npm run e2e               # Playwright 浏览器冒烟（优先用本机 Edge/Chromium）
 ```

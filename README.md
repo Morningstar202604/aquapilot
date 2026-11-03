@@ -19,6 +19,8 @@
 - **An AI operator that shows its work.** A rolling 4-hour forecast ranks candidate control moves on compliance, cost and stability, applies them inside hard bounds, and explains every action — including the moves it *declined* and why. A guard-blocked move is reported as blocked; nothing is logged as "executed" unless a setpoint actually moved.
 - **Analysis built in.** Parameter sensitivity (central differences), a compliance-vs-cost Pareto frontier, and a plant-wide COD mass-balance audit that accounts for all four destinations — effluent, waste sludge, aeration oxidation and in-system inventory.
 - **Evidence, not marketing.** AI-vs-fixed-strategy shadow runs share seed, influent and initial state; the insights panel shows the real deltas. Parameter calibration and a six-state EKF ship as experimental, clearly-labelled tools.
+- **Speaks MCP.** `POST /mcp` exposes the simulator to the whole agent ecosystem (LangGraph, OpenAI Agents SDK, CrewAI, Vercel AI SDK, Mastra — a Streamable HTTP URL is all they need): ten tools with JSON-Schema inputs, tiered token auth, rate limiting and origin checks. Point an agent at it and it can read the plant, inject a storm, and ask "what if DO goes to 3?" via the pure-compute `simulate_headless` tool.
+- **CLI and a single-file exe.** `aquapilot simulate --days 7 --scenario storm` runs headless with a GB-18918 compliance summary; `bench` gates against BSM1 Table 6; `report` emits Markdown; `serve` starts the full stack. `npm run exe` packs it into a ~84 MB standalone `aquapilot.exe` — no Node installation required.
 - **Operations-grade hygiene.** Three-tier token access (`viewer`/`operator`/`admin`), SSRF-guarded outbound fetches, SQLite history with backup/restore, Prometheus metrics, CSV replay with data-quality rejection, and an 11-step local CI gate mirrored on GitHub Actions, GitCode and Gitee.
 
 **What it is not:** a design-grade simulator, a field control system, or a compliance guarantee. Simulation output is for testing and engineering discussion; the precise boundaries are listed in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
@@ -43,6 +45,43 @@ npm run build
 npm start                 # → http://127.0.0.1:5173
 ```
 
+Or without Node at all — a self-contained Windows binary:
+
+```bash
+npm run exe               # → dist/aquapilot.exe (~84 MB, SEA single file)
+distquapilot.exe serve --port 5173
+```
+
+Headless / scripting via the CLI:
+
+```bash
+npm run cli -- simulate --days 7 --scenario storm --csv week.csv
+npm run cli -- bench      # BSM1 Table 6 reference gates
+```
+
+Architecture:
+
+```mermaid
+flowchart LR
+    subgraph client [Browser]
+        UI[React console<br/>canvas · panels · editor]
+    end
+    subgraph server [Node 22 server — one process]
+        WS[WebSocket<br/>live telemetry]
+        HTTP[HTTP API<br/>auth · export · health]
+        MCP["MCP endpoint<br/>POST /mcp (10 tools)"]
+        SIM[ASM1 / Takács solver<br/>+ AI operator + guards]
+        DB[(SQLite WAL)]
+    end
+    LLM[LLM provider<br/>OpenAI/Anthropic/Gemini] -. SSRF-guarded .-> SIM
+    Agent[External AI agents<br/>LangGraph / SDKs / CrewAI] --> MCP
+    UI <--> WS
+    UI --> HTTP
+    SIM --> WS
+    SIM <--> DB
+    HTTP --> SIM
+```
+
 Development mode with hot reload:
 
 ```bash
@@ -52,7 +91,7 @@ npm run dev               # Vite client on :5174, proxying API/WS to :5173
 Verification (what CI runs):
 
 ```bash
-npm run verify            # typecheck + lint + 1159 tests + build
+npm run verify            # typecheck + lint + 1208 tests + build
 npm run ci                # full 11-step gate: coverage, smoke, secrets, backup, audit
 npm run e2e               # Playwright browser smoke (uses a system Edge/Chromium when present)
 ```
@@ -89,6 +128,8 @@ LLM providers (OpenAI-compatible, Anthropic Messages, Google Gemini) are configu
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Operations, backup/restore, troubleshooting |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Docker, persistence, reverse proxy, mirror layout |
 | [docs/UI-ARCHITECTURE.md](docs/UI-ARCHITECTURE.md) | Frontend module map and data flow |
+| [docs/AGENT-HARNESS.md](docs/AGENT-HARNESS.md) | Agent-protocol research (MCP/A2A) and what shipped from it |
+| [docs/REFERENCE-LEARNING.md](docs/REFERENCE-LEARNING.md) | 14 peer open-source projects studied, and where each lesson landed |
 | [docs/QUALITY-ROADMAP.md](docs/QUALITY-ROADMAP.md) | Known model limitations and the plan for them |
 | [docs/COMPETITIVE-ANALYSIS.md](docs/COMPETITIVE-ANALYSIS.md) | Verified comparison against seven peer projects |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Branches, commit style, the local gate, release steps |
