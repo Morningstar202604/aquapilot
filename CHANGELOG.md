@@ -4,6 +4,58 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] — 2026-11-03
+
+A full-code-review release: four parallel review passes read every source file
+(~29k lines), and the findings ship here — client data-integrity, server
+robustness, AI decision-chain correctness, and the switch to a light default
+theme.
+
+### Added
+
+- **Light theme by default.** The UI shipped dark-only; it is now light
+  (`color-scheme: light`, page background `#f2f6f5`) with the brand teal
+  deepened to hold WCAG AA on white. Canvas, charts, stream colors, crash
+  screens and overlays all follow. Verified with real-browser screenshots
+  across nine views.
+- **Feedback surfaces**: AI chat shows a typing indicator while an answer is
+  in flight; 「重新推演」 disables its button until the next decision frame
+  arrives; ReplayPanel reports network failures as network failures instead of
+  claiming persistence is disabled.
+
+### Fixed
+
+- **Client**: a snapshot patch without a full `controls` object used to blank
+  `snap.controls` and crash the control panels; LLM/agent-config responses are
+  now filtered by the latest requestId so stale replies can't overwrite newer
+  ones; discarded frames, non-JSON WS frames and socket errors leave console
+  traces; `margins[0]` is guarded; ErrorBoundary now wraps every side panel
+  (a panel crash no longer takes the whole app down).
+- **Server**: reset / preset / topology apply no longer leak the manual-override
+  window, alarm dedup set or forecast cache into the new run (a leftover
+  override window muted the AI for an entire run); topology persistence failures
+  are reported to the client instead of pretending success; an
+  `unhandledRejection` handler keeps void-async crashes from killing the
+  process; the SQLite flush self-recovers from a poisoned transaction;
+  `httpErrors` no longer double-counts 500s; LLM strict-retry failures report
+  the retry's real reason; estimator noise is independent per state dimension.
+- **AI / model**: `candidateLabel` misread the magnitude digit, so every
+  candidate was labelled 「（大幅）」 — alternative dedup silently dropped
+  small-step moves and robust ensembles collided by label; cycle detection no
+  longer trusts the client-controlled `recycle` flag (it was an escape hatch
+  past the CYCLE check into a solver crash); a what-if with an all-NaN forecast
+  reports divergence instead of "stays within limits"; `reasoning_effort` is no
+  longer sent with `off` on OpenAI-compatible endpoints; a non-numeric
+  `AQUAPILOT_LLM_TIMEOUT_MS` falls back to the default instead of failing every
+  call as "timeout".
+
+### Changed
+
+- 1189 tests (+30), all green in CI; `solveReactors` complexity 66 → 21
+  (v0.5.1) with bit-identical benchmark numbers.
+
+
+
 ## [0.5.1] — 2026-11-03
 
 A quality-and-closure release: every quantified item still open in the audit's
