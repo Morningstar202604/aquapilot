@@ -32,6 +32,8 @@ interface Props {
   onSelectionChange?: (ids: string[]) => void;
   /** 多选拖动：一次提交多个单元的新坐标 */
   onMoveUnits?: (moves: Record<string, { x: number; y: number }>) => void;
+  /** 各反应器的 DO/MLSS 滚动历史（客户端逐帧积累）：单元框内画迷你趋势线 */
+  tankHistory?: Record<string, { do: number; mlss: number }[]>;
   /** 点端口的回调：first=起点，second=终点 */
   onPortClick?: (unitId: string, portId: string, kind: 'in' | 'out') => void;
   /** 拖拽连线：从出口圆点拖到入口圆点松手即完成 */
@@ -59,6 +61,7 @@ export function PlantCanvas({
   onSelectionChange,
   onMoveUnits,
   onRouteChange,
+  tankHistory,
 }: Props) {
   const selectionIds = selection ?? (selected ? [selected] : []);
   const pick = (ids: string[]) => {
@@ -126,24 +129,14 @@ export function PlantCanvas({
   /** 拖完会紧跟一次 click，用它把这次 click 吞掉，避免又进入点击连线模式 */
   const suppressPortClick = useRef(false);
   /**
-   * 默认全览。
+   * 默认全览（含编排视图）。
    *
    * 首屏的第一诉求是"知道全厂长什么样"，而不是"读清某个池的数字"。
-   * 1:1 模式保留为细读手段：点「1:1」即可，且可横向滚动。
-   */
-  /**
-   * 默认全览，但窄屏除外。
-   *
-   * 手机上全览会把整厂压到 19%，文字完全不可读；
-   * 窄屏改为 1:1 + 横向滑动，至少能看清当前单元。
-   * 平板/笔记本仍用全览：先看清全厂结构，再点 1:1 细读。
-   */
-  /**
-   * 编排视图（fit='flow'）默认 1:1 + 滚动：图纸宽 2000+，全览会压到 40% 看不清；
-   * 监视视图才默认全览（首屏先看全厂结构）。
+   * 三段历史注释对应三个历史决定；实测用户反馈「打开只看到前几个池子」
+   * 之后统一为：所有视图默认全览，1:1 保留为细读/细编手段（点「1:1」，
+   * 配合右下角小地图定位）。窄屏仍 1:1 + 横向滑动（全览压到 19% 不可读）。
    */
   const [fitToWindow, setFitToWindow] = useState(() => {
-    if (fit === 'flow') return false;
     return typeof window === 'undefined' ? true : window.innerWidth > 900;
   });
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -466,6 +459,9 @@ export function PlantCanvas({
 
   return (
     <div className="canvas-viewport">
+      {fit === 'flow' && !fitToWindow && (
+        <MiniMap layout={layout} wrapRef={wrapRef} wrapSize={wrapSize} zoom={effectiveZoom} />
+      )}
       <div className="canvas-zoom-controls" role="group" aria-label="画布缩放">
         <button
           onClick={() => {
@@ -646,6 +642,7 @@ export function PlantCanvas({
                 onSelect={onSelect}
                 showLabel={showLabels}
                 liveTank={unitState[node.unit.id]}
+                history={tankHistory?.[node.unit.id]}
                 compactView={fitToWindow || compact === true}
                 editable={editable}
                 dragging={Boolean(drag?.ids.includes(node.unit.id))}
@@ -945,6 +942,7 @@ function Node({
   onSelect,
   showLabel,
   liveTank,
+  history,
   compactView,
   editable = false,
   dragging = false,
@@ -968,6 +966,8 @@ function Node({
     alkalinity: number;
     kind: string;
   };
+  /** 本单元的 DO/MLSS 滚动历史：画在单元框底部的迷你趋势线 */
+  history?: { do: number; mlss: number }[];
   compactView: boolean;
   editable?: boolean;
   dragging?: boolean;
@@ -1042,7 +1042,17 @@ function Node({
       )}
 
       {showLabel && (
-        <UnitBody unit={unit} x={x} y={y} w={w} h={h} snap={snap} liveTank={liveTank} compact={compactView} />
+        <UnitBody
+          unit={unit}
+          x={x}
+          y={y}
+          w={w}
+          h={h}
+          snap={snap}
+          liveTank={liveTank}
+          history={history}
+          compact={compactView}
+        />
       )}
 
       {bad && <circle cx={x + w - 9} cy={y + 10} r="3.4" fill="var(--alarm)" />}
@@ -1061,6 +1071,125 @@ function fillFor(kind: UnitKind, tank?: { do: number; kind: string }): string {
   return 'rgba(12,157,126,0.06)';
 }
 
+/** 单元框内的 DO 迷你趋势线：归一化到历史窗口内的最大值，带渐变面积填充 */
+function DoSparkline({
+  history,
+  x,
+  y,
+  width,
+  height,
+}: {
+  history: { do: number; mlss: number }[];
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}) {
+  const vals = history.map((p) => Math.max(0, p.do));
+  const max = Math.max(2, ...vals);
+  const step = width / (history.length - 1);
+  const pts = history
+    .map((p, i) => `${(i * step).toFixed(1)},${(height - (Math.max(0, p.do) / max) * (height - 2) - 1).toFixed(1)}`)
+    .join(' ');
+  return (
+    <g transform={`translate(${x}, ${y})`} aria-hidden="true">
+      <polygon points={`0,${height} ${pts} ${width},${height}`} fill="var(--water)" opacity="0.16" />
+      <polyline
+        points={pts}
+        fill="none"
+        stroke="var(--water)"
+        strokeWidth="1.6"
+        opacity="0.95"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <line x1={0} y1={height} x2={width} y2={height} stroke="var(--line)" strokeWidth="1" />
+    </g>
+  );
+}
+
+/**
+ * 编排画布小地图：1:1 / 放大模式下显示在左下角。
+ * 灰块 = 单元，亮框 = 当前视口；点击或拖动直接跳到对应区域。
+ */
+function MiniMap({
+  layout,
+  wrapRef,
+  wrapSize,
+  zoom,
+}: {
+  layout: { width: number; height: number; nodes: PlacedNode[] };
+  wrapRef: React.RefObject<HTMLDivElement | null>;
+  wrapSize: { w: number; h: number };
+  zoom: number;
+}) {
+  const W = 148;
+  const H = Math.max(40, Math.min(64, (W * layout.height) / layout.width));
+  const scale = W / layout.width;
+  const [scroll, setScroll] = useState({ x: 0, y: 0 });
+  const draggingRef = useRef(false);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const onScroll = () => setScroll({ x: el.scrollLeft, y: el.scrollTop });
+    el.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [wrapRef]);
+
+  const jump = (clientX: number, clientY: number, target: SVGSVGElement) => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const rect = target.getBoundingClientRect();
+    el.scrollLeft = ((clientX - rect.left) / rect.width) * el.scrollWidth - el.clientWidth / 2;
+    el.scrollTop = ((clientY - rect.top) / rect.height) * el.scrollHeight - el.clientHeight / 2;
+  };
+
+  // 视口亮框：滚动位置换算到小地图坐标；1:1 下再除以 zoom 得图纸坐标
+  const vx = (scroll.x / zoom) * scale;
+  const vy = (scroll.y / zoom) * scale;
+  const vw = Math.min(W - vx, (wrapSize.w / zoom) * scale);
+  const vh = Math.min(H - vy, (wrapSize.h / zoom) * scale);
+
+  return (
+    <svg
+      className="canvas-minimap"
+      width={W}
+      height={H}
+      onPointerDown={(e) => {
+        draggingRef.current = true;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        jump(e.clientX, e.clientY, e.currentTarget);
+      }}
+      onPointerMove={(e) => {
+        if (draggingRef.current) jump(e.clientX, e.clientY, e.currentTarget);
+      }}
+      onPointerUp={() => {
+        draggingRef.current = false;
+      }}
+      onPointerCancel={() => {
+        draggingRef.current = false;
+      }}
+      role="img"
+      aria-label="画布小地图：点击或拖动定位到对应区域"
+    >
+      <rect x={0} y={0} width={W} height={H} className="minimap-bg" />
+      {layout.nodes.map((n) => (
+        <rect
+          key={n.unit.id}
+          x={n.x * scale}
+          y={n.y * scale}
+          width={Math.max(2, n.w * scale)}
+          height={Math.max(1.5, n.h * scale)}
+          className="minimap-node"
+        />
+      ))}
+      <rect x={vx} y={vy} width={Math.max(4, vw)} height={Math.max(3, vh)} className="minimap-viewport" />
+    </svg>
+  );
+}
+
 function UnitBody({
   unit,
   x,
@@ -1069,6 +1198,7 @@ function UnitBody({
   h,
   snap,
   liveTank,
+  history,
   compact,
 }: {
   unit: UnitSpecOnNode;
@@ -1078,6 +1208,7 @@ function UnitBody({
   h: number;
   snap: PlantSnapshot;
   liveTank?: { do: number; mlss: number; cod: number; nh: number; no3: number; tp: number; alkalinity: number };
+  history?: { do: number; mlss: number }[];
   /** 全览模式：只画最重要的一项数值，字号更大，保证缩小时仍可辨认 */
   compact?: boolean;
 }) {
@@ -1111,6 +1242,9 @@ function UnitBody({
         {line(unit.role)}
         {line(`DO ${liveTank.do.toFixed(2)} · MLSS ${Math.round(liveTank.mlss)}`, 'unit-value')}
         {line(`NH₄ ${liveTank.nh.toFixed(1)} · NO₃ ${liveTank.no3.toFixed(1)}`)}
+        {history && history.length > 3 && (
+          <DoSparkline history={history} x={x + 8} y={y + h - 22} width={w - 16} height={14} />
+        )}
       </g>
     );
   }

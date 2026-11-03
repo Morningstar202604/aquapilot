@@ -30,7 +30,7 @@ export interface CalibrationUiState {
   error: string | null;
 }
 import { nextSendPlan, reconnectDelayMs } from './wsPolicy';
-import { mergeSnapshot } from './snapshotMerge';
+import { mergeSnapshot, isUsablePatch } from './snapshotMerge';
 import { NOTICE_TTL_MS, pruneNotices, pushNotice, type Notice } from './notices';
 
 export interface AgentConfigApi {
@@ -130,6 +130,23 @@ export function useSimulation() {
   const [topology, setTopology] = useState<ProcessTopology | null>(null);
   const [topologyRevision, setTopologyRevision] = useState(1);
   const [topologyVersions, setTopologyVersions] = useState<TopologyVersionSummary[]>([]);
+  /**
+   * 每个反应器的 DO/MLSS 滚动历史（最近 90 帧）。
+   *
+   * 服务端趋势只含全局量，单元框里的迷你趋势线只能由客户端自己积累。
+   * 每帧（约 2 s 仿真时间）追加一条，画布上的 sparkline 由此绘制。
+   */
+  const tankHistoryRef = useRef<Map<string, { do: number; mlss: number }[]>>(new Map());
+  const [tankHistory, setTankHistory] = useState<Record<string, { do: number; mlss: number }[]>>({});
+  const pushTankHistory = (tanks: { id: string; do: number; mlss: number }[]) => {
+    for (const t of tanks) {
+      const arr = tankHistoryRef.current.get(t.id) ?? [];
+      arr.push({ do: t.do, mlss: t.mlss });
+      if (arr.length > 90) arr.shift();
+      tankHistoryRef.current.set(t.id, arr);
+    }
+    setTankHistory(Object.fromEntries(tankHistoryRef.current));
+  };
   const socketRef = useRef<WebSocket | null>(null);
   const chatId = useRef(0);
   const noticeId = useRef(0);
@@ -262,12 +279,18 @@ export function useSimulation() {
         switch (msg.type) {
           case 'snapshot':
             // 拒收不完整快照：宁可保留上一帧可用数据，也不进入崩溃态
-            if (isUsableSnapshot(msg.data)) setSnapshot(msg.data);
-            else console.warn('discarded malformed snapshot from server');
+            if (isUsableSnapshot(msg.data)) {
+              setSnapshot(msg.data);
+              pushTankHistory(msg.data.tanks);
+            } else console.warn('discarded malformed snapshot from server');
             break;
           case 'snapshotPatch':
             // 增量合并：只覆盖变化字段，趋势追加新点（规则见 snapshotMerge，有单测）
-            setSnapshot((prev) => (prev ? mergeSnapshot(prev, msg.data) : prev));
+            setSnapshot((prev) => {
+              if (!prev) return prev;
+              if (isUsablePatch(msg.data)) pushTankHistory(msg.data.tanks);
+              return mergeSnapshot(prev, msg.data);
+            });
             break;
           case 'decision':
             setRecommendation(msg.data);
@@ -664,6 +687,7 @@ export function useSimulation() {
 
   return {
     snapshot,
+    tankHistory,
     recommendation,
     chat,
     chatPending,

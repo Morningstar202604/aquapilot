@@ -387,6 +387,7 @@ export default function App() {
                     topo={sim.topology ?? PLANT_TOPOLOGY}
                     selected={selectedTank}
                     onSelect={setSelectedTank}
+                    tankHistory={sim.tankHistory}
                   />
                 </ErrorBoundary>
                 {/**

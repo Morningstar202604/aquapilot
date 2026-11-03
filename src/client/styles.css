@@ -3601,6 +3601,30 @@ button {
   filter: drop-shadow(0 0 4px var(--water));
 }
 
+/* 编排画布小地图：1:1/放大模式下出现在左下角，点击/拖动定位视口 */
+.canvas-minimap {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 14px rgba(16, 49, 43, 0.12);
+  cursor: crosshair;
+  touch-action: none;
+  z-index: 3;
+}
+
+.minimap-node {
+  fill: rgba(12, 157, 126, 0.45);
+}
+
+.minimap-viewport {
+  fill: rgba(12, 157, 126, 0.1);
+  stroke: var(--water-dim);
+  stroke-width: 1;
+}
+
 .plant-node[data-editable='true'] {
   cursor: grab;
 }
