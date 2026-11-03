@@ -28,6 +28,7 @@ import { decodeWsTokenSubprotocol } from '../shared/wsToken';
 import { isApiPath, isPublicApiPath, isReadMethod, pathnameOf } from './httpRoutes';
 import { logger, metrics, metricsJson, recordHttp, recordTick, renderPrometheus } from './observability';
 import { buildOperationsReport, decisionsCsv, snapshotsCsv } from './export';
+import { handleMcpRequest, mcpInternalError, mcpToolByName, type McpFacade } from './mcp';
 import { syncCursorToBuffer } from './trendCursor';
 import { createShadowPlant, stepShadow, summarizeBenchmark, type ShadowPlant } from './benchmark';
 import { llmConfigStore, sanitizeDraft } from './llmConfig';
@@ -1664,6 +1665,149 @@ async function main(): Promise<void> {
     }
   });
 
+  /**
+   * MCP（Model Context Protocol）门面：把运行态操作暴露给外部 agent 框架。
+   *
+   * 工具语义与 WS 控制路径保持一致——同样的边界夹紧、同样的人工优先期、
+   * 同样的 reset 清理；外部 agent 与浏览器操作员享有同等（而非更大）的权限。
+   * 协议处理在 ./mcp.ts（纯逻辑、可单测）；这里只做 HTTP 壳与鉴权。
+   */
+  const mcpFacade: McpFacade = {
+    serverVersion: process.env.npm_package_version ?? '0.6.0',
+    getTopology: () => runtime.topology,
+    getState: () => {
+      // trends 序列对 agent 无用且体积大：剥离后返回
+      const snap = buildSnapshot() as unknown as Record<string, unknown>;
+      return { ...snap, trends: [] };
+    },
+    setControl: (patch) => {
+      const clamped: string[] = [];
+      for (const [k, raw] of Object.entries(patch)) {
+        const bound = CONTROL_BOUNDS[k as keyof typeof CONTROL_BOUNDS];
+        if (!bound) return { ok: false, error: `未知控制量 ${k}` };
+        if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+          return { ok: false, error: `控制量 ${k} 必须是有限数字` };
+        }
+        const v = Math.min(bound.max, Math.max(bound.min, raw));
+        if (v !== raw) clamped.push(k);
+        (runtime.net.controls as unknown as Record<string, number>)[k] = v;
+      }
+      // 与 WS control 路径一致：人工调整后进入 30 分钟优先期
+      runtime.manualOverrideUntil = runtime.net.timeMin + MANUAL_OVERRIDE_MIN;
+      broadcastSnapshot();
+      return { ok: true, clamped };
+    },
+    startScenario: (kind, durationMin, magnitude) => {
+      if (!VALID_SCENARIOS.has(kind)) return { ok: false, error: `未知场景 ${kind}` };
+      const meta = SCENARIOS[kind as ScenarioType];
+      runtime.net.scenario = {
+        type: kind as ScenarioType,
+        durationMin: durationMin ?? meta.defaultDurationMin,
+        magnitude: magnitude ?? meta.defaultMagnitude,
+        startedAt: runtime.net.timeMin,
+      };
+      broadcast({ type: 'notice', level: 'info', text: `[MCP] 已注入场景：${meta.label}` });
+      broadcastSnapshot();
+      return { ok: true };
+    },
+    clearScenario: () => {
+      runtime.net.scenario = null;
+      runtime.net.controls = { ...runtime.net.controls, stormStore: 0 };
+      broadcast({ type: 'notice', level: 'info', text: '[MCP] 已清除场景，回到常态工况。' });
+      broadcastSnapshot();
+      return { ok: true };
+    },
+    resetSim: () => {
+      // 与 WS sim/reset 分支同语义：完整重建 + 运行态清理
+      rotateRunId();
+      runtime.net = createRuntime(runtime.topology, 20261019).net;
+      runtime.shadow = createShadowPlant(runtime.topology, 20261019, 0);
+      runtime.baselineStoredCodKg = particulateCodKg(runtime.net);
+      runtime.trend = [];
+      runtime.recommendation = null;
+      runtime.tick = 0;
+      runtime.simCarryMin = 0;
+      runtime.lastDecisionAtMin = 0;
+      runtime.paused = false;
+      clearRunScopedState();
+      broadcast({ type: 'notice', level: 'info', text: '[MCP] 仿真已重置到初始稳态。' });
+      broadcastSnapshot();
+      broadcast({ type: 'simState', paused: runtime.paused, speed: runtime.speed });
+      return { ok: true };
+    },
+    applyRecommendation: () => {
+      if (!runtime.recommendation) return { ok: false, error: '当前没有可执行的建议' };
+      runtime.net.controls = { ...runtime.recommendation.chosens.controls, aiEnabled: runtime.net.controls.aiEnabled };
+      broadcast({ type: 'notice', level: 'info', text: '[MCP] 已采纳 AI 建议，控制参数已更新。' });
+      broadcastSnapshot();
+      return { ok: true };
+    },
+    getMetrics: () => renderPrometheus(),
+    getReport: () => buildOperationsReport(buildSnapshot()),
+  };
+
+  /**
+   * POST /mcp —— MCP Streamable HTTP 端点（无 SSE 保守实现）。
+   * 鉴权沿用 HTTP API 的同一套令牌体系并按工具分级：只读工具 viewer 即可，
+   * 写类工具要求 operator；限流（安全 MUST）用最朴素的 IP 滑窗，
+   * 避免外部 agent 刷爆仿真器。
+   */
+  const mcpRate = new Map<string, { count: number; windowStart: number }>();
+  async function handleMcpHttp(req: IncomingMessage, res: import('node:http').ServerResponse): Promise<void> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    let body: unknown = null;
+    try {
+      body = JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null');
+    } catch {
+      body = null; // 让协议层回 -32700/-32600
+    }
+    // 分级鉴权：按请求的工具选择角色（未知工具按 viewer 处理，协议层回 -32602）
+    const requestedTool =
+      body && typeof body === 'object'
+        ? (body as { params?: { name?: unknown } }).params?.name
+        : undefined;
+    const mcpTool = typeof requestedTool === 'string' ? mcpToolByName(requestedTool) : undefined;
+    const requiredRole = mcpTool && !mcpTool.readOnly ? 'operator' : 'viewer';
+    const decision = authorize(req, null, requiredRole);
+    if (!decision.allowed) {
+      metrics.authFailures += 1;
+      logger.warn('mcp auth rejected', { reason: decision.reason, tool: requestedTool ?? null });
+      res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'unauthorized', requiredRole }));
+      return;
+    }
+    // 限流：60 请求/分钟/IP（工具调用是重操作，足够宽裕）
+    const ip = req.socket.remoteAddress ?? 'unknown';
+    const now = Date.now();
+    const bucket = mcpRate.get(ip);
+    if (!bucket || now - bucket.windowStart > 60_000) {
+      mcpRate.set(ip, { count: 1, windowStart: now });
+    } else if (++bucket.count > 60) {
+      res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'rate limited (60 req/min)' }));
+      return;
+    }
+    if (mcpRate.size > 1024) mcpRate.clear(); // 防地址欺骗撑爆内存
+
+    let out;
+    try {
+      out = handleMcpRequest({
+        httpMethod: req.method ?? 'POST',
+        origin: req.headers.origin ?? null,
+        host: req.headers.host ?? null,
+        protocolVersionHeader: (req.headers['mcp-protocol-version'] as string | undefined) ?? null,
+        body,
+        facade: mcpFacade,
+      });
+    } catch (err) {
+      out = mcpInternalError(err);
+      logger.error('mcp internal error', { error: String(err) });
+    }
+    res.writeHead(out.status, { 'Content-Type': 'application/json; charset=utf-8', ...(out.headers ?? {}) });
+    res.end(out.body === undefined ? undefined : JSON.stringify(out.body));
+  }
+
   function handleHttpRequest(req: IncomingMessage, res: import('node:http').ServerResponse): void {
     /**
      * 访问控制只作用于 API 与 WebSocket，不拦静态资源。
@@ -1683,6 +1827,19 @@ async function main(): Promise<void> {
     );
 
     const pathname = pathnameOf(req.url);
+    // MCP 端点：自带鉴权（control 角色）与限流，不走下面的 viewer 只读门
+    if (pathname === '/mcp') {
+      void handleMcpHttp(req, res).catch((err) => {
+        logger.error('mcp http handler failed', { error: String(err) });
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'internal error' }));
+        } else {
+          res.end();
+        }
+      });
+      return;
+    }
     const isApi = isApiPath(pathname);
     // 健康检查与"是否需要认证"必须免鉴权，否则前端无法得知该不该弹登录框（死锁）
     const isPublic = isPublicApiPath(pathname);
