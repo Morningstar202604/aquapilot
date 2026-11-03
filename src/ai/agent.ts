@@ -292,14 +292,17 @@ const CONTROL_VERB: Record<keyof Omit<ControlSettings, 'aiEnabled'>, [string, st
   stepFeed: ['减少缺氧区进水', '增加缺氧区进水'],
 };
 
-function candidateLabel(key: string): string {
+export function candidateLabel(key: string): string {
   if (CANDIDATE_NAMES[key]) return CANDIDATE_NAMES[key];
   const match = /^([a-zA-Z]+)([+-])(\d)$/.exec(key);
   if (!match) return key;
-  const [, field, dir] = match;
+  // 第三组是幅度档位（0=小幅 1=大幅）：此前把 '+/-' 误当档位用，
+  // 导致所有候选都带「（大幅）」——备选去重因此吞掉同方向的小幅候选，
+  // 鲁棒预测带也按 label 互相覆盖
+  const [, field, dir, digit] = match;
   const verbs = CONTROL_VERB[field as keyof typeof CONTROL_VERB];
   if (!verbs) return key;
-  const level = dir === '0' ? '' : '（大幅）';
+  const level = digit === '0' ? '' : '（大幅）';
   return `${dir === '+' ? verbs[1] : verbs[0]}${level}`;
 }
 
@@ -414,7 +417,9 @@ export function decide(context: DecisionContext): Recommendation {
    * 会退化为单点预测，此时 robustEvaluated=false，界面显示"未评估"。
    */
   const robustEnabled = context.robust !== false && typeof model.predictWithUncertainty === 'function';
-  const ensembles = new Map<string, EnsembleForecast>();
+  // 以候选对象为键而不是 label：即使两个候选标签相同（历史上发生过），
+  // P10/P50/P90 也不会互相覆盖、不会张冠李戴
+  const ensembles = new Map<DecisionCandidate, EnsembleForecast>();
   let pool = candidates;
   if (robustEnabled) {
     /**
@@ -428,7 +433,7 @@ export function decide(context: DecisionContext): Recommendation {
     if (holdCandidate && !shortlist.includes(holdCandidate)) shortlist.push(holdCandidate);
     for (const candidate of shortlist) {
       const ens = forecastEnsemble(model, candidate.controls, horizonMin, 30, qualityScore);
-      ensembles.set(candidate.label, ens);
+      ensembles.set(candidate, ens);
       candidate.exceedanceProbability = ens.exceedanceProbability;
       const exceedPenalty = ens.exceedanceProbability * 4200;
       const tailPenalty = Math.max(0, ens.worstRatio - 1) * 6000;
@@ -524,7 +529,7 @@ export function decide(context: DecisionContext): Recommendation {
     );
   }
   const separation = computeDecisionSeparation(best, candidates);
-  const chosenEnsemble = ensembles.get(best.label) ?? null;
+  const chosenEnsemble = ensembles.get(best) ?? null;
 
   return {
     action,
@@ -744,6 +749,22 @@ export function answer(question: string, model: PlantModel, recommendation: Reco
     const fc = model.predictWithScenario
       ? model.predictWithScenario(state.controls, 240, 30, scenario)
       : model.predict(state.controls, 240, 30);
+    // 数值发散时预测点全是 NaN：NaN 与任何数比较为 false，reduce 会停在
+    // 初始 ratio=0 并输出「不会突破限值」的假平安。发散工况必须如实报警。
+    const nonFinite =
+      fc.points.length === 0 ||
+      fc.points.some(
+        (p) => !Number.isFinite(p.effluent.cod + p.effluent.nh + p.effluent.tp + p.effluent.ss + p.effluent.tn),
+      );
+    if (nonFinite) {
+      return {
+        title: `假设推演：${scenarioLabel(scenario)}`,
+        body: '推演在该场景下数值发散（预测出现非有限值）。这说明当前工况叠加该场景已超出模型稳定域，不能当作安全结论——请先降负荷或调整控制，再重试推演。',
+        bullets: ['预测轨迹含 NaN/Inf，已拒绝给出「不会超标」的结论'],
+        confidence: 0.3,
+        kind: 'whatif',
+      };
+    }
     const worst = fc.points.reduce(
       (acc, p) => {
         const r = Math.max(

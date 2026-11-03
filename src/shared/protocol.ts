@@ -238,6 +238,8 @@ export type ClientMessage =
       apiKey?: string;
       model: string;
       maxOutput?: number;
+      /** 按用户选择的思考档位测试，保证测试结果与保存后的行为一致 */
+      reasoningEffort?: 'auto' | 'low' | 'off';
     }
   | { type: 'llmConfig'; action: 'save'; requestId: string; draft: LlmDraft }
   | { type: 'llmConfig'; action: 'clear'; requestId: string }

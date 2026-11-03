@@ -48,11 +48,16 @@ export function readLlmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig |
   const baseUrl = env.AQUAPILOT_LLM_BASE_URL?.trim();
   const model = env.AQUAPILOT_LLM_MODEL?.trim();
   if (!baseUrl || !model) return null;
+  // 环境变量写错（如 AQUAPILOT_LLM_TIMEOUT_MS=8000ms）时 Number() 得 NaN，
+  // setTimeout(NaN) 按 0ms 处理——每个请求在发出前就被 abort，界面却报
+  // 「模型响应超时」，真实原因（环境变量非法）完全不可见
+  const parsedTimeout = Number(env.AQUAPILOT_LLM_TIMEOUT_MS ?? 8000);
+  const timeoutMs = Number.isFinite(parsedTimeout) && parsedTimeout > 0 ? parsedTimeout : 8000;
   return {
     baseUrl: baseUrl.replace(/\/+$/, ''),
     apiKey: env.AQUAPILOT_LLM_API_KEY?.trim() ?? '',
     model,
-    timeoutMs: Number(env.AQUAPILOT_LLM_TIMEOUT_MS ?? 8000),
+    timeoutMs,
   };
 }
 

@@ -529,8 +529,10 @@ export function reasoningFields(
 ): Record<string, unknown> {
   if (effort === 'auto') return {};
   if (protocol === 'openai') {
+    // off 不下发 reasoning_effort：很多兼容端只认这个字段，
+    // 带上 'low' 会把「关闭思考」变成「低档思考」——假关闭
     return effort === 'off'
-      ? { enable_thinking: false, reasoning_effort: 'low', thinking: { type: 'disabled' } }
+      ? { enable_thinking: false, thinking: { type: 'disabled' } }
       : { enable_thinking: true, reasoning_effort: 'low' };
   }
   if (protocol === 'anthropic') {

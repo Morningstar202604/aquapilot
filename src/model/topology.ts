@@ -696,7 +696,10 @@ export function validateTopology(topo: ProcessTopology): TopologyIssue[] {
    * 校验层必须在这里拦住它，而不是留给求解器崩。
    */
   const RECYCLE_STREAMS: StreamKind[] = ['return_activated_sludge', 'internal_recycle', 'waste_sludge'];
-  const forwardEdges = topo.connections.filter((c) => !c.recycle && !RECYCLE_STREAMS.includes(c.stream));
+  // 只按物流种类判定回流，不信任 recycle 布尔标志：它是客户端可控的
+  // （仅用于界面反向绘制），把它当豁免依据时，攻击者可以给普通进水边
+  // 标 recycle:true 绕过环路检测，让 resolveFlows 以 TypeError 崩溃
+  const forwardEdges = topo.connections.filter((c) => !RECYCLE_STREAMS.includes(c.stream));
   const adjacency = new Map<string, string[]>();
   for (const unit of topo.units) adjacency.set(unit.id, []);
   for (const c of forwardEdges) adjacency.get(c.from.unit)?.push(c.to.unit);

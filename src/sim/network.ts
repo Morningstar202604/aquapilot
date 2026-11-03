@@ -136,10 +136,12 @@ export function compileNetwork(topo: ProcessTopology): CompiledNetwork {
     });
   }
 
-  // 拓扑排序：只用非回流边，保证前向顺序
+  // 拓扑排序：只用非回流边，保证前向顺序。
+  // 回流判定以 recycleKind（由物流种类推导）为准，不信任 recycle 标志——
+  // 那是客户端可控的界面绘制方向，曾被用来给普通边打标绕过环路检测
   const order = topologicalOrder(
     reactors.map((r) => r.id),
-    edges.filter((e) => !e.recycle),
+    edges.filter((e) => e.recycleKind === undefined),
   );
   if (order.length !== reactors.length) {
     problems.push('主序列存在环路，无法确定求解顺序');

@@ -84,6 +84,9 @@ export const ClientMessageSchema = v.variant('type', [
       apiKey: v.optional(BoundedText(500)),
       model: BoundedText(200),
       maxOutput: v.optional(FiniteNumber),
+      // 与保存的草稿同字段：「测试连接」必须按用户选的思考档位跑，
+      // 否则测试结果不代表保存后的实际行为（off 被测成 auto）
+      reasoningEffort: v.optional(v.picklist(['auto', 'low', 'off'])),
     }),
     v.object({
       type: v.literal('llmConfig'),

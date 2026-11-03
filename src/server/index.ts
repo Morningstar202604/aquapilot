@@ -1160,7 +1160,9 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       broadcast({
         type: 'notice',
         level: 'info',
-        text: saved ? `已切换到模板：${preset.name}` : `已切换到模板：${preset.name}（⚠ 写盘失败，重启后会回退到旧拓扑）`,
+        text: saved
+          ? `已切换到模板：${preset.name}`
+          : `已切换到模板：${preset.name}（⚠ 写盘失败，重启后会回退到旧拓扑）`,
       });
       broadcast({ ...topologyMessage() } satisfies ServerMessage);
       broadcastSnapshot();
@@ -1601,6 +1603,8 @@ async function handleLlmConfig(ws: WebSocket, msg: Extract<ClientMessage, { type
       apiKey: llmConfigStore.resolveKey(typeof msg.apiKey === 'string' ? msg.apiKey.trim() : '', msg.baseUrl),
       model: msg.model.trim(),
       maxOutput: typeof msg.maxOutput === 'number' ? msg.maxOutput : undefined,
+      // 按用户选择的思考档位测试：缺省时测试与保存后的行为一致
+      reasoningEffort: msg.reasoningEffort,
     });
     send({ type: 'llmConfig', action: 'tested', requestId: msg.requestId, result });
     return;
