@@ -70,7 +70,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
     if (this.props.compact) {
       return (
-        <div className="panel-empty" role="alert" style={{ padding: 12, color: '#ff6b5a', fontSize: 12 }}>
+        <div className="panel-empty" role="alert" style={{ padding: 12, color: 'var(--alarm)', fontSize: 12 }}>
           {this.props.label ?? '该面板'}渲染失败：{this.state.message}
           <button className="chip" style={{ marginLeft: 8 }} onClick={this.retry}>
             重试
@@ -86,24 +86,24 @@ export class ErrorBoundary extends Component<Props, State> {
           placeItems: 'center',
           height: '100%',
           padding: 24,
-          background: '#06100f',
-          color: '#e4f2ee',
+          background: 'var(--bg)',
+          color: 'var(--text)',
           fontFamily: 'system-ui, sans-serif',
         }}
       >
         <div style={{ maxWidth: 520 }}>
-          <div style={{ fontSize: 13, letterSpacing: '0.1em', color: '#ff6b5a', marginBottom: 10 }}>界面渲染失败</div>
-          <p style={{ fontSize: 13, lineHeight: 1.7, color: '#9db8b2', margin: '0 0 16px' }}>
+          <div style={{ fontSize: 13, letterSpacing: '0.1em', color: 'var(--alarm)', marginBottom: 10 }}>界面渲染失败</div>
+          <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text-2)', margin: '0 0 16px' }}>
             仿真服务可能返回了不完整的数据，或页面状态已损坏。重新加载通常可以恢复；若持续出现，请检查服务端日志。
           </p>
           <pre
             style={{
               fontSize: 11,
-              background: '#0d211f',
-              border: '1px solid #1d3b37',
+              background: 'var(--panel-2)',
+              border: '1px solid var(--line)',
               padding: 10,
               overflowX: 'auto',
-              color: '#9db8b2',
+              color: 'var(--text-2)',
               margin: '0 0 16px',
             }}
           >
@@ -114,9 +114,9 @@ export class ErrorBoundary extends Component<Props, State> {
             style={{
               height: 32,
               padding: '0 14px',
-              background: 'rgba(62,224,181,0.12)',
-              border: '1px solid #1c7f68',
-              color: '#3ee0b5',
+              background: 'rgba(12,157,126,0.12)',
+              border: '1px solid var(--water-dim)',
+              color: 'var(--water)',
               cursor: 'pointer',
               fontSize: 12,
             }}
@@ -124,7 +124,7 @@ export class ErrorBoundary extends Component<Props, State> {
             重试渲染
           </button>
           {this.state.retries > 0 && (
-            <p style={{ fontSize: 11, color: '#5f7d78', margin: '12px 0 0' }}>
+            <p style={{ fontSize: 11, color: 'var(--text-3)', margin: '12px 0 0' }}>
               已自动恢复 {this.state.retries} 次。若持续失败，说明数据协议与服务端不一致。
             </p>
           )}

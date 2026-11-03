@@ -86,7 +86,7 @@ describe('what-if 数值发散不做假平安', () => {
       ...real,
       predictWithScenario: () => ({ points: nanPoints, violations: [] }),
       predict: () => ({ points: nanPoints, violations: [] }),
-    } as typeof real;
+    } as unknown as typeof real;
     const a = answer('如果发生暴雨会怎样', broken, null);
     expect(a.body).toContain('发散');
     expect(a.body).not.toContain('不会突破');

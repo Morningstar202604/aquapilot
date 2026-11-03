@@ -34,9 +34,9 @@ const SPECS: ChartSpec[] = [
     unit: 'mg/L',
     bandMetric: 'cod',
     series: [
-      { name: '出水 COD', color: '#3ee0b5', key: 'effluentCod' },
-      { name: '出水 SS', color: '#f0a83c', key: 'effluentSs' },
-      { name: '进水 COD', color: '#2f6a5d', key: 'influentCod' },
+      { name: '出水 COD', color: '#0c9d7e', key: 'effluentCod' },
+      { name: '出水 SS', color: '#b0770e', key: 'effluentSs' },
+      { name: '进水 COD', color: '#4b6f68', key: 'influentCod' },
     ],
     limits: [
       { value: 50, label: 'COD 限值' },
@@ -50,9 +50,9 @@ const SPECS: ChartSpec[] = [
     unit: 'mg/L',
     bandMetric: 'nh',
     series: [
-      { name: '出水 NH₃-N', color: '#4fd6e8', key: 'effluentNh' },
-      { name: '出水 TN', color: '#8f7fe8', key: 'effluentTn' },
-      { name: '出水 TP', color: '#f0a83c', key: 'effluentTp' },
+      { name: '出水 NH₃-N', color: '#0d7f96', key: 'effluentNh' },
+      { name: '出水 TN', color: '#7c5cd6', key: 'effluentTn' },
+      { name: '出水 TP', color: '#b0770e', key: 'effluentTp' },
     ],
     limits: [
       { value: 5, label: 'NH₃-N 限值' },
@@ -65,8 +65,8 @@ const SPECS: ChartSpec[] = [
     title: '能耗与溶解氧',
     unit: 'kW / mg·L⁻¹',
     series: [
-      { name: '总能耗', color: '#f0a83c', key: 'energyKw' },
-      { name: '溶解氧', color: '#4fd6e8', key: 'do' },
+      { name: '总能耗', color: '#b0770e', key: 'energyKw' },
+      { name: '溶解氧', color: '#0d7f96', key: 'do' },
     ],
     limits: [{ value: 1, label: 'DO 下限' }],
   },
@@ -161,7 +161,7 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
           type: 'line',
           showSymbol: false,
           lineStyle: { width: 0, opacity: 0 },
-          areaStyle: { color: 'rgba(79,214,232,0.16)' },
+          areaStyle: { color: 'rgba(13,127,150,0.14)' },
           stack: `band-${spec.key}`,
           data: p90.map((v, i) => (v === null ? null : v - (p10[i] ?? 0))),
           silent: true,
@@ -172,7 +172,7 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
           type: 'line',
           showSymbol: false,
           smooth: 0.2,
-          lineStyle: { width: 1.2, color: '#4fd6e8', type: 'dashed' },
+          lineStyle: { width: 1.2, color: '#0d7f96', type: 'dashed' },
           data: p50,
           silent: true,
         },
@@ -200,7 +200,7 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
         silent: true,
         symbol: 'none',
         label: { show: false },
-        lineStyle: { color: 'rgba(255,107,90,0.5)', type: 'dashed', width: 1 },
+        lineStyle: { color: 'rgba(210,71,47,0.55)', type: 'dashed', width: 1 },
         data: [{ yAxis: 50 }],
       };
     }
@@ -209,7 +209,7 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
         silent: true,
         symbol: 'none',
         label: { show: false },
-        lineStyle: { color: 'rgba(255,107,90,0.5)', type: 'dashed', width: 1 },
+        lineStyle: { color: 'rgba(210,71,47,0.55)', type: 'dashed', width: 1 },
         data: [{ yAxis: 5 }],
       };
     }
@@ -218,7 +218,7 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
         silent: true,
         symbol: 'none',
         label: { show: false },
-        lineStyle: { color: 'rgba(240,168,60,0.45)', type: 'dashed', width: 1 },
+        lineStyle: { color: 'rgba(176,119,14,0.5)', type: 'dashed', width: 1 },
         data: [{ yAxis: 1 }],
       };
     }
@@ -234,23 +234,23 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
         grid: { left: 42, right: 12, top: 20, bottom: 20 },
         tooltip: {
           trigger: 'axis',
-          backgroundColor: 'rgba(8,22,21,0.97)',
-          borderColor: 'rgba(62,224,181,0.2)',
+          backgroundColor: 'rgba(255,255,255,0.97)',
+          borderColor: 'rgba(12,157,126,0.28)',
           borderWidth: 1,
           padding: [6, 9],
-          extraCssText: 'border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,0.45);backdrop-filter:blur(4px);',
-          textStyle: { color: '#e4f2ee', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' },
-          axisPointer: { type: 'line', lineStyle: { color: 'rgba(62,224,181,0.25)', width: 1 } },
+          extraCssText: 'border-radius:6px;box-shadow:0 10px 30px rgba(16,49,43,0.18);backdrop-filter:blur(4px);',
+          textStyle: { color: '#182b26', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' },
+          axisPointer: { type: 'line', lineStyle: { color: 'rgba(12,157,126,0.3)', width: 1 } },
           valueFormatter: (v: unknown) => (typeof v === 'number' ? v.toFixed(2) : String(v)),
         },
         xAxis: {
           type: 'category',
           data: xData2,
           boundaryGap: false,
-          axisLine: { lineStyle: { color: 'rgba(29,59,55,0.7)' } },
+          axisLine: { lineStyle: { color: 'rgba(16,49,43,0.35)' } },
           axisTick: { show: false },
           axisLabel: {
-            color: '#72948d',
+            color: '#5d7871',
             fontSize: 9,
             interval: Math.max(0, Math.floor(xData2.length / 5)),
             fontFamily: 'JetBrains Mono, monospace',
@@ -265,12 +265,12 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
             axisLine: { show: false },
             axisTick: { show: false },
             axisLabel: {
-              color: '#72948d',
+              color: '#5d7871',
               fontSize: 9,
               fontFamily: 'JetBrains Mono, monospace',
               formatter: (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1)),
             },
-            splitLine: { lineStyle: { color: 'rgba(29,59,55,0.35)', type: 'dashed' } },
+            splitLine: { lineStyle: { color: 'rgba(16,49,43,0.12)', type: 'dashed' } },
           },
           {
             type: 'value',
@@ -280,7 +280,7 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
             axisLine: { show: false },
             axisTick: { show: false },
             axisLabel: {
-              color: '#2f6a5d',
+              color: '#4b6f68',
               fontSize: 9,
               fontFamily: 'JetBrains Mono, monospace',
               formatter: (v: number) => String(Math.round(v)),

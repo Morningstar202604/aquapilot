@@ -358,7 +358,7 @@ export function useSimulation() {
               // 带 requestId 的错误只在它仍是最新请求时改界面状态：
               // 迟到错误不得把新一轮操作的 busy 状态提前清掉
               const staleError =
-                msg.requestId != null &&
+                msg.requestId !== undefined &&
                 msg.requestId !== llmLatest.current.discover &&
                 msg.requestId !== llmLatest.current.test &&
                 msg.requestId !== llmLatest.current.save;

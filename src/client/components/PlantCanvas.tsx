@@ -745,7 +745,7 @@ function Edge({
         <path
           d={edge.path}
           fill="none"
-          stroke="#ffffff"
+          stroke="rgba(16,49,43,0.5)"
           strokeWidth={Math.max(1, width * 0.45)}
           strokeDasharray="3 34"
           opacity={0.5}
@@ -1021,7 +1021,7 @@ function Node({
         stroke={stroke}
         strokeWidth={strokeWidth}
       />
-      <rect x={x} y={y} width={w} height="20" rx="2" fill="rgba(6,16,15,0.66)" />
+      <rect x={x} y={y} width={w} height="20" rx="2" fill="rgba(255,255,255,0.78)" />
       {/**
        * 全览模式不画图标：24px 字号的标题才是读图主线，图标只占宽度。
        * 标题从 x+8 起算，配合 fitCompactTitle 的宽度估算，长名字不会压到邻居。
@@ -1053,12 +1053,12 @@ function Node({
 function fillFor(kind: UnitKind, tank?: { do: number; kind: string }): string {
   if (kind === 'aerobic' && tank) {
     const a = 0.06 + Math.min(0.2, Math.max(0, tank.do) * 0.06);
-    return `rgba(79,214,232,${a})`;
+    return `rgba(13,127,150,${a})`;
   }
-  if (kind === 'anaerobic' || kind === 'anoxic') return 'rgba(62,224,181,0.055)';
-  if (kind === 'clarifier') return 'rgba(62,224,181,0.07)';
-  if (kind === 'storage') return 'rgba(79,214,232,0.06)';
-  return 'rgba(13,33,31,0.9)';
+  if (kind === 'anaerobic' || kind === 'anoxic') return 'rgba(12,157,126,0.07)';
+  if (kind === 'clarifier') return 'rgba(12,157,126,0.09)';
+  if (kind === 'storage') return 'rgba(13,127,150,0.07)';
+  return 'rgba(12,157,126,0.06)';
 }
 
 function UnitBody({
@@ -1231,13 +1231,13 @@ function ClarifierBody({
 
   return (
     <g>
-      <rect x={fx} y={fy} width={fw} height={fh} fill="rgba(6,16,15,0.35)" />
+      <rect x={fx} y={fy} width={fw} height={fh} fill="rgba(255,255,255,0.5)" />
       <rect
         x={fx}
         y={fy + fh - bh}
         width={fw}
         height={bh}
-        fill={over ? 'rgba(190,80,60,0.3)' : 'rgba(150,110,70,0.26)'}
+        fill={over ? 'rgba(210,71,47,0.32)' : 'rgba(176,119,14,0.28)'}
       />
       <line
         x1={fx}

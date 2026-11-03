@@ -20,22 +20,22 @@ export interface StreamMeta {
 }
 
 export const STREAM_META: Record<StreamKind, StreamMeta> = {
-  influent: { label: '进水', short: '进水', color: '#5b9cf5', width: 2.6, labelInLegend: true },
-  mixed_liquor: { label: '混合液', short: '混合', color: '#2fa88c', width: 2.4, labelInLegend: true },
+  influent: { label: '进水', short: '进水', color: '#3d7fd9', width: 2.6, labelInLegend: true },
+  mixed_liquor: { label: '混合液', short: '混合', color: '#12876f', width: 2.4, labelInLegend: true },
   return_activated_sludge: {
     label: '污泥回流',
     short: '污泥',
-    color: '#f0a83c',
+    color: '#b0770e',
     width: 1.8,
     dash: '7 5',
     labelInLegend: true,
   },
-  waste_sludge: { label: '剩余污泥', short: '排泥', color: '#a97b3f', width: 1.4, dash: '5 4', labelInLegend: true },
-  internal_recycle: { label: '内回流', short: '内回', color: '#4fd6e8', width: 1.8, dash: '3 5', labelInLegend: true },
-  effluent: { label: '出水', short: '出水', color: '#3ee0b5', width: 2.2, labelInLegend: true },
-  air: { label: '空气', short: '空气', color: '#8fd8e8', width: 1, dash: '2 6', labelInLegend: true },
-  chemical: { label: '药剂', short: '药剂', color: '#c9a0e8', width: 1.2, dash: '2 4', labelInLegend: true },
-  sludge_cake: { label: '泥饼', short: '泥饼', color: '#8a6a45', width: 1.2, dash: '4 4', labelInLegend: false },
+  waste_sludge: { label: '剩余污泥', short: '排泥', color: '#8a5f2e', width: 1.4, dash: '5 4', labelInLegend: true },
+  internal_recycle: { label: '内回流', short: '内回', color: '#0d7f96', width: 1.8, dash: '3 5', labelInLegend: true },
+  effluent: { label: '出水', short: '出水', color: '#0c9d7e', width: 2.2, labelInLegend: true },
+  air: { label: '空气', short: '空气', color: '#38a8c9', width: 1, dash: '2 6', labelInLegend: true },
+  chemical: { label: '药剂', short: '药剂', color: '#8e5fc9', width: 1.2, dash: '2 4', labelInLegend: true },
+  sludge_cake: { label: '泥饼', short: '泥饼', color: '#6f5436', width: 1.2, dash: '4 4', labelInLegend: false },
 };
 
 export const streamLabel = (s: StreamKind): string => STREAM_META[s].label;

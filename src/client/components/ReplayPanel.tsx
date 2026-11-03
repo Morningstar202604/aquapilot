@@ -113,25 +113,25 @@ export function ReplayPanel() {
         grid: { left: 44, right: 14, top: 24, bottom: 24 },
         tooltip: {
           trigger: 'axis',
-          backgroundColor: 'rgba(8,22,21,0.96)',
-          borderColor: '#1d3b37',
-          textStyle: { color: '#e4f2ee', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' },
+          backgroundColor: 'rgba(255,255,255,0.97)',
+          borderColor: '#d7e2de',
+          textStyle: { color: '#182b26', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' },
         },
         xAxis: {
           type: 'category',
           // 采样点可能落在同一小时内：写成 H:MM，否则轴上会连出「0h 0h 0h」
           data: pts.map((p) => formatClock(p.atMin)),
-          axisLine: { lineStyle: { color: '#1d3b37' } },
+          axisLine: { lineStyle: { color: '#d7e2de' } },
           axisTick: { show: false },
-          axisLabel: { color: '#5f7d78', fontSize: 9, interval: Math.max(0, Math.floor(pts.length / 6)) },
+          axisLabel: { color: '#5d7871', fontSize: 9, interval: Math.max(0, Math.floor(pts.length / 6)) },
           splitLine: { show: false },
         },
         yAxis: {
           type: 'value',
           axisLine: { show: false },
           axisTick: { show: false },
-          axisLabel: { color: '#5f7d78', fontSize: 9 },
-          splitLine: { lineStyle: { color: 'rgba(29,59,55,0.5)' } },
+          axisLabel: { color: '#5d7871', fontSize: 9 },
+          splitLine: { lineStyle: { color: 'rgba(16,49,43,0.12)' } },
         },
         series: [
           {
@@ -139,13 +139,13 @@ export function ReplayPanel() {
             type: 'line',
             showSymbol: false,
             smooth: 0.2,
-            lineStyle: { width: 1.4, color: '#3ee0b5' },
+            lineStyle: { width: 1.4, color: '#0c9d7e' },
             data: pts.map((p) => Number(p.effluentCod.toFixed(1))),
             markLine: {
               silent: true,
               symbol: 'none',
               label: { show: false },
-              lineStyle: { color: 'rgba(255,107,90,0.5)', type: 'dashed' },
+              lineStyle: { color: 'rgba(210,71,47,0.55)', type: 'dashed' },
               data: [{ yAxis: 50 }],
             },
           },
@@ -154,7 +154,7 @@ export function ReplayPanel() {
             type: 'line',
             showSymbol: false,
             smooth: 0.2,
-            lineStyle: { width: 1.4, color: '#4fd6e8' },
+            lineStyle: { width: 1.4, color: '#0d7f96' },
             data: pts.map((p) => Number(p.effluentNh.toFixed(2))),
           },
           {
@@ -162,7 +162,7 @@ export function ReplayPanel() {
             type: 'line',
             showSymbol: false,
             smooth: 0.2,
-            lineStyle: { width: 1.2, color: '#f0a83c' },
+            lineStyle: { width: 1.2, color: '#b0770e' },
             data: pts.map((p) => Number(p.effluentTp.toFixed(3))),
           },
         ],
@@ -322,7 +322,7 @@ export function ReplayPanel() {
                 className="alarm-row"
                 key={`${d.atMin}-${d.summary.slice(0, 8)}`}
                 data-sev={d.severity === 'critical' ? 'critical' : 'warning'}
-                style={isCurrent ? { borderLeftWidth: 3, background: 'rgba(62,224,181,0.06)' } : undefined}
+                style={isCurrent ? { borderLeftWidth: 3, background: 'rgba(12,157,126,0.08)' } : undefined}
               >
                 <div className="alarm-meta">
                   <span>第 {Math.floor(d.atMin / 60)}h</span>

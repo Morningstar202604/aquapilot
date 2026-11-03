@@ -66,10 +66,10 @@ describe('PlantCanvas 渲染', () => {
     );
     const dots = Array.from(container.querySelectorAll('.port-dot')) as SVGCircleElement[];
     const air = dots.find((d) => d.getAttribute('data-stream') === 'air');
-    expect(air?.style.stroke).toBe('#8fd8e8');
+    expect(air?.style.stroke).toBe('#38a8c9');
     // 不同物流的端口不能同色（否则靠颜色区分水位/回流就失效了）
     const grey = dots.find((d) => d.getAttribute('data-stream') === 'influent');
-    expect(grey?.style.stroke).toBe('#5b9cf5');
+    expect(grey?.style.stroke).toBe('#3d7fd9');
   });
 
   it('点端口回调带上单元、端口与方向', () => {
