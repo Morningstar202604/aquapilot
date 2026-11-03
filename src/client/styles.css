@@ -302,7 +302,7 @@ button {
 }
 
 .kpi {
-  padding: 11px 14px 12px;
+  padding: 8px 12px 9px;
   border-right: 1px solid var(--line-soft);
   min-width: 0;
   position: relative;
@@ -341,7 +341,7 @@ button {
 
 .kpi-num {
   font-family: var(--mono);
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 500;
   line-height: 1.1;
   letter-spacing: -0.02em;
@@ -1742,15 +1742,23 @@ button {
 }
 
 @media (max-width: 900px) {
+  /*
+   * 窄视口（内置浏览器预览 / 侧栏面板）：
+   * 固定视口高度，各区块**内部**滚动——不再允许整页长滚动。
+   * 视觉顺序：顶栏 → KPI 横滑条 → 画布 → 趋势横滑行 → 面板标签 → 面板。
+   * 面板吃掉剩余高度：AI 对话/控制/决策这些高频操作不用再滚到页面底部找。
+   */
   body {
-    overflow: auto;
+    overflow: hidden;
   }
   .app {
-    height: auto;
-    min-height: 100%;
-    grid-template-rows: auto 1fr;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
   .topbar {
+    flex: none;
     flex-wrap: wrap;
     height: auto;
     min-height: 46px;
@@ -1772,22 +1780,18 @@ button {
     padding-top: 8px;
     border-top: 1px solid var(--line-soft);
   }
-  /* 每个 meta 项都不能被压成竖排：给出最小宽度并允许换行 */
   .meta-item {
     min-width: 130px;
     flex: 1 1 auto;
   }
   .meta-value {
+    font-size: 11px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .meta-value {
-    font-size: 11px;
-  }
   .topbar-right {
     margin-left: auto;
-    /* 手机宽度装不下一整排控件：允许换行，且宽度受父级约束 */
     flex: 1 1 100%;
     max-width: 100%;
     flex-wrap: wrap;
@@ -1799,31 +1803,45 @@ button {
     font-size: 10.5px;
   }
   .layout {
-    grid-template-columns: 1fr;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
   .stage {
-    grid-template-rows: auto auto auto;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     border-right: none;
   }
-  /* 移动端不做整厂缩放（19% 时完全不可读），改为可横向滑动，文字保持可辨 */
+  /* KPI：多行大卡片 → 单行横滑紧凑条 */
+  .kpi-strip {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(118px, 1fr);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .kpi-bar {
+    display: none;
+  }
+  /* 画布：保持 1:1 横滑（可读优先），高度收进视口预算 */
   .canvas-wrap {
     overflow-x: auto;
     overflow-y: hidden;
+    max-height: clamp(200px, 30dvh, 300px);
   }
   .canvas-wrap .plant-canvas {
     min-width: 1200px;
     height: 100%;
   }
   .canvas-viewport {
-    height: 300px;
-  }
-  /* 移动端把画布压到可用高度，避免大片空白 */
-  .canvas-wrap {
-    max-height: 300px;
+    height: clamp(200px, 30dvh, 300px);
   }
   .canvas-zoom-controls {
     right: 6px;
-    /* top/bottom 同时存在会把绝对定位元素拉满整列：这里必须显式复位 */
     top: auto;
     bottom: 6px;
     padding: 2px 3px;
@@ -1833,23 +1851,27 @@ button {
     min-width: 18px;
     height: 18px;
   }
-  .kpi-strip {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+  /* 趋势：纵向堆叠 504px → 单行横滑，三张图都保留、滑动查看 */
   .trends {
-    grid-template-columns: 1fr;
-    grid-auto-rows: 168px;
-  }
-  .trend-cell:nth-child(3) {
-    display: flex;
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(250px, 68%);
+    grid-auto-rows: 148px;
+    height: 148px;
+    overflow-x: auto;
+    overflow-y: hidden;
   }
   .trend-cell {
-    border-right: none;
-    border-bottom: 1px solid var(--line-soft);
+    border-right: 1px solid var(--line-soft);
+    border-bottom: none;
+    height: 148px;
   }
   .side {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    overflow: hidden;
     border-top: 1px solid var(--line);
-    height: 660px;
   }
   .side-tab {
     font-size: 11px;
@@ -1870,16 +1892,7 @@ button {
     display: none;
   }
   .kpi-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .kpi:nth-child(3n) {
-    border-right: 1px solid var(--line-soft);
-  }
-  .kpi:nth-child(2n) {
-    border-right: none;
-  }
-  .kpi:nth-child(-n + 6) {
-    border-bottom: 1px solid var(--line-soft);
+    grid-auto-columns: minmax(104px, 1fr);
   }
   .process-panel {
     height: 320px;
