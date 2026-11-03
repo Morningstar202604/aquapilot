@@ -4,6 +4,56 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] — 2026-11-03
+
+A quality-and-closure release: every quantified item still open in the audit's
+red-line table gets either resolved, measured, or honestly backfilled, and the
+first of the UI-architecture backlog items (port snap) ships.
+
+### Fixed
+
+- **`calibrateAsync` ignored the caller's target during fitting.** `evaluate()`
+  hardcoded `bsm1SyntheticTarget()`, so identifiability screening ran against the
+  target the caller passed while coordinate descent optimised a different one.
+  Harmless today because the only call site passes the synthetic target — but the
+  signature promised otherwise. `evaluate` now takes the target explicitly; both
+  phases optimise the same objective, as the sync `calibrate()` already did.
+
+### Added
+
+- **Port snap + highlight during drag-to-connect** (`PlantCanvas`). While dragging
+  from an outlet, the nearest inlet port within 16 sheet-px becomes the snap
+  target: the port highlights (`data-snap='true'`), the rubber band sticks to its
+  anchor, and release connects to it — `elementFromPoint` hit-testing is now only
+  the fallback. Connecting to the source unit's own inlet is excluded, matching
+  the click-path rule. UI-architecture backlog §8 item "拖近端口时自动吸附高亮"
+  is therefore done.
+- **Branch-coverage batch** (+16 tests): `calibrationService` guard/cancel/concurrency
+  branches (`run`/`identify`/`calibrateAsync`), ADM1 edge branches (default params,
+  non-finite clamping, zero-gas fraction, `emptyAdm1State`), snapshot forecast &
+  recommendation paths. Total branch coverage 81.70 % → **82.68 %**; line 94.63 %,
+  statements 92.89 %, functions 96.54 % (1175 tests).
+
+### Changed
+
+- **`solveReactors` refactor** (topology engine): inflow composition and ASM1
+  inflow aggregation extracted into pure helpers (`aggregateInflow`,
+  `aggregateAsm1Inflow`). ESLint cyclomatic complexity 66 → 21; the function
+  shrinks by ~190 lines. BSM1 Table 6 comparison and all network tests are
+  bit-identical — verified before and after.
+- `docs/BENCHMARKS.md` gains a mutation-testing baseline section (28.07 %,
+  measured 2026-10-23, deliberately not in CI).
+
+### Docs
+
+- `docs/AUDIT-REPORT.md` §九: the red-line table was left contradicting later
+  sections of the same file. A dated backfill now records what happened to each
+  row: topologyRuntime branch gap closed (100 %), `solveReactors` refactored,
+  mutation score measured instead of "未测".
+- `docs/UI-ARCHITECTURE.md`: the closing sentence still claimed topology-driven
+  solving "排在路线图第一位" while the same file's header said it was done.
+  Removed; the remaining UI backlog is now listed explicitly.
+
 ## [0.5.0] — 2026-11-02
 
 This release turns the prototype into an auditable operations tool: the model can be
