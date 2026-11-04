@@ -1138,7 +1138,9 @@ function TankSparkline({
   const max = Math.max(metric === 'do' ? 2 : 1, ...vals);
   const step = width / (history.length - 1);
   const pts = history
-    .map((pt, i) => `${(i * step).toFixed(1)},${(height - (Math.max(0, pt[metric]) / max) * (height - 2) - 1).toFixed(1)}`)
+    .map(
+      (pt, i) => `${(i * step).toFixed(1)},${(height - (Math.max(0, pt[metric]) / max) * (height - 2) - 1).toFixed(1)}`,
+    )
     .join(' ');
   const color = metric === 'do' ? 'var(--water)' : 'var(--amber)';
   return (
