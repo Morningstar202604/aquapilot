@@ -37,7 +37,7 @@ export function TopbarMenu({ label, icon, items, live }: Props) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setOpen(false);
-        buttonRef.current?.focus();
+        buttonRef.current?.focus({ preventScroll: true });
       }
     };
     document.addEventListener('pointerdown', onPointer);
@@ -52,7 +52,9 @@ export function TopbarMenu({ label, icon, items, live }: Props) {
   useEffect(() => {
     if (!open) return;
     const first = rootRef.current?.querySelector<HTMLButtonElement>('.topbar-menu-item');
-    first?.focus();
+    // preventScroll：焦点移动不得触发任何祖先的滚动（.topbar 已改 clip 双保险，
+    // 这里防的是未来又有人给某个祖先加 overflow）
+    first?.focus({ preventScroll: true });
   }, [open]);
 
   return (

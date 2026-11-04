@@ -118,8 +118,10 @@ button {
   background:
     linear-gradient(180deg, rgba(12, 157, 126, 0.035), transparent 55%), linear-gradient(180deg, #ffffff, #eef4f2);
   z-index: 5;
-  /* 顶栏是仪表盘的身份条：宁可少显示一个字段，也不能让数值折成竖排 */
-  overflow: hidden;
+  /* 顶栏是仪表盘的身份条：宁可少显示一个字段，也不能让数值折成竖排。
+     必须用 clip 而不是 hidden：hidden 仍可被程序化滚动（打开菜单聚焦
+     菜单项时浏览器会把整条顶栏滚上去 38px，实测踩过），clip 禁止一切滚动。 */
+  overflow: clip;
 }
 
 .brand {

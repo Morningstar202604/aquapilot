@@ -6,7 +6,7 @@ import { fitCompactTitle } from '../src/client/components/labels';
 import { normalizeRoute, SLO } from '../src/server/observability';
 import { mergeSnapshot } from '../src/client/hooks/snapshotMerge';
 import { makeSnapshot } from './fixtures/snapshot';
-import { pushNotice, pruneNotices, NOTICE_LIMIT, NOTICE_TTL_MS } from '../src/client/hooks/notices';
+import { pushNotice, pruneNotices, NOTICE_LIMIT, NOTICE_TTL_MS, type Notice } from '../src/client/hooks/notices';
 import type { SnapshotPatch } from '../src/shared/protocol';
 
 /**
@@ -310,5 +310,25 @@ describe('增量帧批量构建（多客户端）', () => {
     // 共享字段必须完全一致
     expect(a.timeMin).toBe(b.timeMin);
     expect(a.effluent).toEqual(b.effluent);
+  });
+});
+
+describe('通知去重（连续同文 toast 不堆叠）', () => {
+  it('栈顶同文同级的重复消息被吞掉，只刷新时间戳', () => {
+    let list: Notice[] = [];
+    list = pushNotice(list, { id: 1, at: 1000, level: 'info', text: 'AI 已执行：应急调节' });
+    list = pushNotice(list, { id: 2, at: 2000, level: 'info', text: 'AI 已执行：应急调节' });
+    list = pushNotice(list, { id: 3, at: 3000, level: 'info', text: 'AI 已执行：应急调节' });
+    expect(list).toHaveLength(1);
+    expect(list[0].at).toBe(3000);
+  });
+
+  it('不同文案照常入栈；同文不同级别也照常入栈', () => {
+    let list: Notice[] = [];
+    list = pushNotice(list, { id: 1, at: 1000, level: 'info', text: 'A' });
+    list = pushNotice(list, { id: 2, at: 2000, level: 'info', text: 'B' });
+    expect(list.map((n) => n.text)).toEqual(['B', 'A']);
+    list = pushNotice(list, { id: 3, at: 3000, level: 'alarm', text: 'A' });
+    expect(list.map((n) => n.text)).toEqual(['A', 'B', 'A']);
   });
 });

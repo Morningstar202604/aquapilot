@@ -20,8 +20,14 @@ export interface Notice {
 export const NOTICE_LIMIT = 3;
 export const NOTICE_TTL_MS = 12_000;
 
-/** 追加一条提示：新的排在最前，超出上限的旧消息被丢弃 */
+/** 追加一条提示：新的排在最前，超出上限的旧消息被丢弃。
+ * 与栈顶完全同文的重复消息直接吞掉——AI 每个决策节拍都会执行同一条
+ * 应急调节，实测三连相同 toast 会把面板糊住，信息量为零。 */
 export function pushNotice(list: Notice[], notice: Notice, limit = NOTICE_LIMIT): Notice[] {
+  if (list.length > 0 && list[0].text === notice.text && list[0].level === notice.level) {
+    // 同文刷新：只更新时间戳，让它多活一个 TTL，不新增卡片
+    return [{ ...notice, id: list[0].id }, ...list.slice(1)];
+  }
   return [notice, ...list].slice(0, limit);
 }
 
