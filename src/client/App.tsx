@@ -336,7 +336,7 @@ export default function App() {
             {aiEnabled ? 'AI 自动值守' : 'AI 仅建议'}
           </span>
           <span
-            className="pill"
+            className="pill pill-link"
             style={{ borderColor: sim.link.connected ? 'var(--water-dim)' : 'var(--alarm-dim)' }}
             title={
               sim.link.lastUpdateAt

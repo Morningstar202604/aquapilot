@@ -1619,6 +1619,25 @@ button {
  * 直接被切掉，而 e2e 只量了 meta-value 高度（仍是单行）所以没抓到。
  * 这里按「先收重复信息 → 再收次要字段 → 最后换行」三档降级。
  */
+@media (max-width: 1440px) {
+  /* CI 实测：CJK 字体度量偏宽，1366 下顶栏最右控件超出 27px 被裁。
+     链路状态退化为纯状态点（语义由 title 与颜色承载），并收紧间距。 */
+  .topbar-right {
+    gap: 5px;
+  }
+  .topbar-right .pill {
+    padding: 0 6px;
+  }
+  .pill-link {
+    font-size: 0;
+    gap: 0;
+    padding: 0 7px;
+  }
+  .pill-link .dot {
+    margin: 0;
+  }
+}
+
 @media (max-width: 1600px) {
   /* 顶栏一行总宽约 1553px（1440/1600 实测）：先收「处理规模」（与厂站信息重复）
      与「执行标准」（静态常量，title 里仍可查），保住身份、时钟与求解结构。 */
