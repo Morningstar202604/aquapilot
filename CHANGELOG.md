@@ -4,6 +4,32 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-11-04
+
+Closes out the v0.6.0 roadmap: the remaining reference-project lessons
+land, and the AI now sees the plant the way an engineer draws it.
+
+### Added
+
+- **Per-kind tank sparklines**: aerobic reactors draw DO (teal), anoxic/
+  anaerobic reactors draw NH4 (amber) — each tank shows the variable its
+  operator actually watches. History buffer carries do/mlss/nh.
+- **Flow-aware pipe pulses**: recycle, WAS, air and chemical line
+  animation speed derives from the live setpoints (raise internal
+  recycle and that line visibly speeds up), clamped 0.9-4 s.
+- **Inspector upgrades (editor)**: per-unit validation issues render
+  inline in the property panel; volume/area inputs warn on impossible
+  values while typing; one-click duplicate unit (no connections copied).
+- **Structured P&ID grounding for the AI**: the chat grounding now
+  includes a compact three-line P&ID summary (train order, unit list
+  with volumes, recycle links, <1200 chars). FALCON 2025 found
+  structured graph representations beat natural-language plant
+  descriptions for LLM context (docs/REFERENCE-LEARNING.md R3).
+
+### Changed
+
+- 1209 tests (+1 P&ID summary gate).
+
 ## [0.6.0] — 2026-11-04
 
 Ecosystem release: the simulator becomes a tool the whole agent ecosystem
