@@ -4,6 +4,22 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] — 2026-11-04
+
+Interaction-quality release: a real drag/wire/click walkthrough of the
+editor (not just screenshots) found the "building blocks" feel broken.
+
+### Fixed
+
+- Node boxes in the editor rendered live telemetry (truncating
+  mid-character at box width); they now render as structural blocks —
+  role + design parameter, opaque fill so wires no longer show through
+- Connect mode had no rubber band; a dashed guide now follows the
+  cursor from the source port
+- Dragged nodes lift above siblings with a shadow
+- Minimap background was black (unstyled SVG rect); lane labels were
+  buried under the first node row — both fixed
+
 ## [0.7.0] — 2026-11-04
 
 Closes out the v0.6.0 roadmap: the remaining reference-project lessons
