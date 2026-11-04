@@ -4,6 +4,22 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] — 2026-11-04
+
+Full-UI audit release: every side tab, topbar button, editor toolbar
+button and panel tab clicked by automation, with DOM overlap/overflow
+checks and a screenshot per state.
+
+### Fixed
+
+- **Opening the settings menu slid the whole topbar out of the
+  viewport.** Focusing the first menu item made the browser
+  programmatically scroll the `overflow: hidden` topbar (~38 px).
+  `overflow: clip` + `preventScroll` on both focus calls.
+- **Identical consecutive toasts stacked three cards over the panels**
+  (the AI executes the same emergency adjustment every decision beat).
+  Same-text repeats now merge into a timestamp refresh.
+
 ## [0.7.1] — 2026-11-04
 
 Interaction-quality release: a real drag/wire/click walkthrough of the
