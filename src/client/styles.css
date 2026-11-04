@@ -2150,6 +2150,10 @@ button {
   fill: var(--text-3);
   font-family: var(--sans);
   letter-spacing: 0.12em;
+
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 4px;
 }
 
 /* ── 编排器 ──────────────────────────────────────────── */
@@ -4409,4 +4413,28 @@ button {
   border-left-color: var(--alarm);
   background: rgba(210, 71, 47, 0.07);
   color: var(--alarm);
+}
+
+/* 编排模式积木块：结构参数用等宽小字，与遥测值区分 */
+.unit-structural {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  fill: var(--text-2);
+}
+
+/* 拖拽中的单元：阴影提升 + 轻微放大描边 */
+.plant-node[data-dragging='true'] rect:first-of-type {
+  filter: drop-shadow(0 6px 14px rgba(16, 49, 43, 0.28));
+}
+
+/* 连线橡皮筋 */
+.connect-rubber line {
+  pointer-events: none;
+}
+.connect-rubber circle {
+  pointer-events: none;
+}
+
+.minimap-bg {
+  fill: #ffffff;
 }

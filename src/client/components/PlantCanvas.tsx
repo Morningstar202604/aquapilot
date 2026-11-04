@@ -143,6 +143,8 @@ export function PlantCanvas({
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [wrapSize, setWrapSize] = useState({ w: 0, h: 0 });
+  /** 连线模式下光标的图纸坐标：画橡皮筋虚线（从源端口到光标） */
+  const [connectCursor, setConnectCursor] = useState<{ x: number; y: number } | null>(null);
   /**
    * 拖拽平移。
    *
@@ -193,6 +195,12 @@ export function PlantCanvas({
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (connectFrom && svgRef.current) {
+      const rect = svgRef.current.getBoundingClientRect();
+      setConnectCursor({ x: (e.clientX - rect.left) / effectiveZoom, y: (e.clientY - rect.top) / effectiveZoom });
+    } else if (connectCursor) {
+      setConnectCursor(null);
+    }
     if (updatePortDrag(e.clientX, e.clientY)) return;
     if (marqueeRef.current && svgRef.current) {
       const rect = svgRef.current.getBoundingClientRect();
@@ -639,29 +647,57 @@ export function PlantCanvas({
               />
             )}
 
-            {layout.nodes.map((node) => (
-              <Node
-                key={node.unit.id}
-                node={node}
-                snap={snap}
-                selected={selectionIds.includes(node.unit.id)}
-                multiSelected={selectionIds.length > 1 && selectionIds.includes(node.unit.id)}
-                onSelect={onSelect}
-                showLabel={showLabels}
-                liveTank={unitState[node.unit.id]}
-                history={tankHistory?.[node.unit.id]}
-                compactView={fitToWindow || compact === true}
-                editable={editable}
-                dragging={Boolean(drag?.ids.includes(node.unit.id))}
-                onPointerDownNode={onNodePointerDown}
-                onPointerMoveNode={onNodePointerMove}
-                onPointerUpNode={endNodeDrag}
-              />
-            ))}
+            {[...layout.nodes]
+              .sort(
+                (a, b) =>
+                  Number(drag?.ids.includes(b.unit.id) ?? false) - Number(drag?.ids.includes(a.unit.id) ?? false),
+              )
+              .map((node) => (
+                <Node
+                  key={node.unit.id}
+                  node={node}
+                  snap={snap}
+                  selected={selectionIds.includes(node.unit.id)}
+                  multiSelected={selectionIds.length > 1 && selectionIds.includes(node.unit.id)}
+                  onSelect={onSelect}
+                  showLabel={showLabels}
+                  liveTank={unitState[node.unit.id]}
+                  history={tankHistory?.[node.unit.id]}
+                  compactView={fitToWindow || compact === true}
+                  editable={editable}
+                  dragging={Boolean(drag?.ids.includes(node.unit.id))}
+                  onPointerDownNode={onNodePointerDown}
+                  onPointerMoveNode={onNodePointerMove}
+                  onPointerUpNode={endNodeDrag}
+                />
+              ))}
             {/**
              * 端口必须画在节点之后（上层）：端口锚点正好落在节点边界上，
              * 画在下层时圆点有一半被节点矩形盖住，点中心实际点到的是节点。
              */}
+            {connectFrom &&
+              connectCursor &&
+              (() => {
+                const srcNode = layout.nodes.find((n) => n.unit.id === connectFrom.unitId);
+                if (!srcNode) return null;
+                const anchor = portAnchors(srcNode).find((a) => a.port.id === connectFrom.portId);
+                if (!anchor) return null;
+                return (
+                  <g className="connect-rubber" aria-hidden="true">
+                    <line
+                      x1={anchor.x}
+                      y1={anchor.y}
+                      x2={connectCursor.x}
+                      y2={connectCursor.y}
+                      stroke="var(--water)"
+                      strokeWidth="2"
+                      strokeDasharray="7 5"
+                      opacity="0.85"
+                    />
+                    <circle cx={connectCursor.x} cy={connectCursor.y} r="4.5" fill="var(--water)" opacity="0.9" />
+                  </g>
+                );
+              })()}
             {portDrag?.moved && (
               <line
                 className="port-drag-line"
@@ -1055,7 +1091,7 @@ function Node({
         width={w}
         height={h}
         rx="2"
-        fill={fillFor(unit.kind, liveTank)}
+        fill={fillFor(unit.kind, liveTank, editable)}
         stroke={stroke}
         strokeWidth={strokeWidth}
       />
@@ -1090,6 +1126,7 @@ function Node({
           liveTank={liveTank}
           history={history}
           compact={compactView}
+          editable={editable}
         />
       )}
 
@@ -1098,7 +1135,15 @@ function Node({
   );
 }
 
-function fillFor(kind: UnitKind, tank?: { do: number; kind: string }): string {
+function fillFor(kind: UnitKind, tank: { do: number; kind: string } | undefined, opaque?: boolean): string {
+  // 编排模式用不透明填充：连线从框下走、不透出来，块与块才有"积木"的边界感
+  if (opaque) {
+    if (kind === 'aerobic') return '#eef7f5';
+    if (kind === 'anaerobic' || kind === 'anoxic') return '#f2f7f4';
+    if (kind === 'clarifier' || kind === 'thickener') return '#f0f6f4';
+    if (kind === 'storage') return '#eef5f8';
+    return '#f6f9f8';
+  }
   if (kind === 'aerobic' && tank) {
     const a = 0.06 + Math.min(0.2, Math.max(0, tank.do) * 0.06);
     return `rgba(13,127,150,${a})`;
@@ -1252,6 +1297,7 @@ function UnitBody({
   liveTank,
   history,
   compact,
+  editable,
 }: {
   unit: UnitSpecOnNode;
   x: number;
@@ -1263,6 +1309,8 @@ function UnitBody({
   history?: TankHistoryPoint[];
   /** 全览模式：只画最重要的一项数值，字号更大，保证缩小时仍可辨认 */
   compact?: boolean;
+  /** 编排模式：渲染"积木块"——只画结构与设计参数，不画遥测数值 */
+  editable?: boolean;
 }) {
   const lx = x + 7;
   let ly = y + 36;
@@ -1275,6 +1323,18 @@ function UnitBody({
     ly += 14;
     return el;
   };
+  if (editable) {
+    // 编排模式 = 搭积木：遥测数字在这里全是噪音，且窄框里必然截断溢出。
+    // 只留工艺角色与设计参数，让用户看到的是"块"，不是仪表。
+    const detail =
+      unit.volume !== undefined ? `容积 ${unit.volume} m³` : unit.area !== undefined ? `面积 ${unit.area} m²` : null;
+    return (
+      <g>
+        {line(unit.role)}
+        {detail && line(detail, 'unit-structural')}
+      </g>
+    );
+  }
 
   if (liveTank) {
     if (compact) {
