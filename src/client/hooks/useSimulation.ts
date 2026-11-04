@@ -31,6 +31,7 @@ export interface CalibrationUiState {
 }
 import { nextSendPlan, reconnectDelayMs } from './wsPolicy';
 import { mergeSnapshot, isUsablePatch } from './snapshotMerge';
+import type { TankHistoryPoint } from '../components/PlantCanvas';
 import { NOTICE_TTL_MS, pruneNotices, pushNotice, type Notice } from './notices';
 
 export interface AgentConfigApi {
@@ -136,12 +137,12 @@ export function useSimulation() {
    * 服务端趋势只含全局量，单元框里的迷你趋势线只能由客户端自己积累。
    * 每帧（约 2 s 仿真时间）追加一条，画布上的 sparkline 由此绘制。
    */
-  const tankHistoryRef = useRef<Map<string, { do: number; mlss: number }[]>>(new Map());
-  const [tankHistory, setTankHistory] = useState<Record<string, { do: number; mlss: number }[]>>({});
-  const pushTankHistory = (tanks: { id: string; do: number; mlss: number }[]) => {
+  const tankHistoryRef = useRef<Map<string, TankHistoryPoint[]>>(new Map());
+  const [tankHistory, setTankHistory] = useState<Record<string, TankHistoryPoint[]>>({});
+  const pushTankHistory = (tanks: { id: string; do: number; mlss: number; nh: number }[]) => {
     for (const t of tanks) {
       const arr = tankHistoryRef.current.get(t.id) ?? [];
-      arr.push({ do: t.do, mlss: t.mlss });
+      arr.push({ do: t.do, mlss: t.mlss, nh: t.nh });
       if (arr.length > 90) arr.shift();
       tankHistoryRef.current.set(t.id, arr);
     }

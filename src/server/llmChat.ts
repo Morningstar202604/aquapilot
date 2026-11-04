@@ -12,6 +12,7 @@ import { metrics, logger } from './observability';
 import { estimateMargin } from '../sim/metrics';
 import type { NetworkSimState } from '../sim/networkEngine';
 import type { Recommendation } from '../ai/agent';
+import type { ProcessTopology } from '../model/topology';
 
 /**
  * 对话增强：规则答案之后的可选模型补充。
@@ -25,7 +26,7 @@ import type { Recommendation } from '../ai/agent';
  */
 
 export interface LlmChatDeps {
-  snapshot: () => { net: NetworkSimState; recommendation: Recommendation | null };
+  snapshot: () => { net: NetworkSimState; recommendation: Recommendation | null; topology: ProcessTopology };
   isOpen: (ws: WebSocket) => boolean;
   send: (ws: WebSocket, message: ServerMessage) => void;
 }
@@ -53,11 +54,41 @@ export function errorText(err: unknown): string {
 }
 
 /**
+ * 结构化 P&ID 摘要（FALCON 2025 实证：结构化图表示喂 LLM 优于自然语言/源码）。
+ *
+ * 三行紧凑表示：主序列 → 单元清单（含容积）→ 回流连线。
+ * 长度受控（~500 字符），让模型知道「这是个什么厂、水怎么流」，
+ * 而不是靠猜 A²/O 的结构。
+ */
+export function buildPidSummary(topo: ProcessTopology): string {
+  const byId = new Map(topo.units.map((u) => [u.id, u]));
+  const nameOf = (id: string) => byId.get(id)?.name ?? id;
+  const trainLine = topo.train.map(nameOf).join(' → ');
+  const unitsLine = topo.units
+    .map((u) => {
+      const base = `${u.name}(${u.kind}`;
+      return u.volume ? `${base}, ${u.volume}m³)` : `${base})`;
+    })
+    .join('；');
+  const recycleLine = topo.connections
+    .filter((c) => c.recycle || ['return_activated_sludge', 'internal_recycle', 'waste_sludge'].includes(c.stream))
+    .map((c) => `${nameOf(c.from.unit)} --${c.stream}--> ${nameOf(c.to.unit)}`)
+    .join('；');
+  const lines = [`主序列: ${trainLine}`, `单元: ${unitsLine}`];
+  if (recycleLine) lines.push(`回流: ${recycleLine}`);
+  return lines.join('\n');
+}
+
+/**
  * 把当前状态压成 LLM 可引用的最小事实集。
  *
  * 只放已经有数值的量，不放控制器写权限、不放日志、不放环境变量。
  */
-export function buildLlmGrounding(s: NetworkSimState, rec: Recommendation | null): GroundingContext {
+export function buildLlmGrounding(
+  s: NetworkSimState,
+  rec: Recommendation | null,
+  topo?: ProcessTopology,
+): GroundingContext {
   const margins = estimateMargin(s.effluent);
   const facts: GroundingContext['facts'] = [
     { label: '进水流量', value: s.influent.flow.toFixed(0), unit: 'm³/h' },
@@ -85,6 +116,7 @@ export function buildLlmGrounding(s: NetworkSimState, rec: Recommendation | null
     facts,
     recommendation: rec ? rec.summary : null,
     risks: rec ? rec.risks : [],
+    topology: topo ? buildPidSummary(topo) : undefined,
   };
 }
 
@@ -105,8 +137,8 @@ export function llmBudget(
 export function createLlmChat(deps: LlmChatDeps) {
   return async function enhance(ws: WebSocket, question: string, ruleAnswer: ReturnType<typeof answer>): Promise<void> {
     const started = Date.now();
-    const { net, recommendation } = deps.snapshot();
-    const grounding = buildLlmGrounding(net, recommendation);
+    const { net, recommendation, topology } = deps.snapshot();
+    const grounding = buildLlmGrounding(net, recommendation, topology);
     const agentCfg = agentConfigStore.get();
     const composed = composeSystemPrompt({ config: agentCfg, question });
     const { maxOutput, timeoutMs } = llmBudget(llmConfigStore.getPublic(), agentCfg.constraints.maxAnswerChars);

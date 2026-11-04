@@ -10,8 +10,9 @@ import {
 } from '../../shared/streamMeta';
 import { moveNodes, nodesInRect, nextSelection } from '../hooks/editorSelection';
 import { fitCompactTitle } from './labels';
-import { PLANT_TOPOLOGY, UnitKind, ProcessTopology } from '../../model/topology';
+import { PLANT_TOPOLOGY, UnitKind, ProcessTopology, type StreamKind } from '../../model/topology';
 import type { PlantSnapshot } from '../../shared/protocol';
+import type { ControlSettings } from '../../sim/config';
 
 interface Props {
   snap: PlantSnapshot;
@@ -32,8 +33,8 @@ interface Props {
   onSelectionChange?: (ids: string[]) => void;
   /** 多选拖动：一次提交多个单元的新坐标 */
   onMoveUnits?: (moves: Record<string, { x: number; y: number }>) => void;
-  /** 各反应器的 DO/MLSS 滚动历史（客户端逐帧积累）：单元框内画迷你趋势线 */
-  tankHistory?: Record<string, { do: number; mlss: number }[]>;
+  /** 各反应器的 DO/MLSS/NH₄ 滚动历史（客户端逐帧积累）：单元框内画迷你趋势线 */
+  tankHistory?: Record<string, TankHistoryPoint[]>;
   /** 点端口的回调：first=起点，second=终点 */
   onPortClick?: (unitId: string, portId: string, kind: 'in' | 'out') => void;
   /** 拖拽连线：从出口圆点拖到入口圆点松手即完成 */
@@ -612,8 +613,14 @@ export function PlantCanvas({
               </g>
             ))}
 
-            {visibleEdges.map((edge, i) => (
-              <Edge key={edge.connection.id} edge={edge} index={i} animate={animate} showLabel={showLabels} />
+            {visibleEdges.map((edge) => (
+              <Edge
+                key={edge.connection.id}
+                edge={edge}
+                animate={animate}
+                showLabel={showLabels}
+                duration={pulseDuration(edge.connection.stream, snap.controls)}
+              />
             ))}
 
             {/**
@@ -699,16 +706,47 @@ export function PlantCanvas({
   );
 }
 
+/**
+ * 流速感应：回流/加药管线的流速由对应控制量决定，动画周期随之变化——
+ * 提高内回流比能「看见」内回流加速。流量为零时压到最慢（接近停滞）。
+ * 基准周期 2.4s；scale>1 更快、<1 更慢，钳制在 0.9–4s。
+ */
+function pulseDuration(stream: StreamKind, controls: ControlSettings): number {
+  const base = 2.4;
+  let scale = 1;
+  switch (stream) {
+    case 'return_activated_sludge':
+      scale = Math.max(0.2, controls.rasRatio / 0.8);
+      break;
+    case 'waste_sludge':
+      scale = Math.max(0.2, controls.wasRatio / 0.0085);
+      break;
+    case 'internal_recycle':
+      scale = Math.max(0.2, controls.internalRecirc / 2);
+      break;
+    case 'air':
+      scale = Math.max(0.3, controls.doSetpoint / 2);
+      break;
+    case 'chemical':
+      scale = Math.max(0.2, controls.pacDose / 40);
+      break;
+    default:
+      scale = 1;
+  }
+  return Math.min(4, Math.max(0.9, base / scale));
+}
+
 function Edge({
   edge,
-  index,
   animate,
   showLabel,
+  duration,
 }: {
   edge: PlacedEdge;
-  index: number;
   animate: boolean;
   showLabel: boolean;
+  /** 流速感应的动画周期（秒）：由物流类型与当前控制量换算 */
+  duration: number;
 }) {
   if (!edge.path) return null;
   const stream = edge.connection.stream;
@@ -716,7 +754,7 @@ function Edge({
   const color = meta.color;
   const width = meta.width;
   const dash = meta.dash;
-  const dur = 2.4 + (index % 4) * 0.5;
+  const dur = duration;
 
   return (
     <g>
@@ -966,8 +1004,8 @@ function Node({
     alkalinity: number;
     kind: string;
   };
-  /** 本单元的 DO/MLSS 滚动历史：画在单元框底部的迷你趋势线 */
-  history?: { do: number; mlss: number }[];
+  /** 本单元的滚动历史：画在单元框底部的迷你趋势线 */
+  history?: TankHistoryPoint[];
   compactView: boolean;
   editable?: boolean;
   dragging?: boolean;
@@ -1071,33 +1109,45 @@ function fillFor(kind: UnitKind, tank?: { do: number; kind: string }): string {
   return 'rgba(12,157,126,0.06)';
 }
 
-/** 单元框内的 DO 迷你趋势线：归一化到历史窗口内的最大值，带渐变面积填充 */
-function DoSparkline({
+export interface TankHistoryPoint {
+  do: number;
+  mlss: number;
+  nh: number;
+}
+
+/**
+ * 单元框内的迷你趋势线：好氧池画 DO、厌氧/缺氧池画 NH₄（各自最关心的量），
+ * 归一化到历史窗口内的最大值，带渐变面积填充。
+ */
+function TankSparkline({
   history,
+  metric,
   x,
   y,
   width,
   height,
 }: {
-  history: { do: number; mlss: number }[];
+  history: TankHistoryPoint[];
+  metric: 'do' | 'nh';
   x: number;
   y: number;
   width: number;
   height: number;
 }) {
-  const vals = history.map((p) => Math.max(0, p.do));
-  const max = Math.max(2, ...vals);
+  const vals = history.map((pt) => Math.max(0, pt[metric]));
+  const max = Math.max(metric === 'do' ? 2 : 1, ...vals);
   const step = width / (history.length - 1);
   const pts = history
-    .map((p, i) => `${(i * step).toFixed(1)},${(height - (Math.max(0, p.do) / max) * (height - 2) - 1).toFixed(1)}`)
+    .map((pt, i) => `${(i * step).toFixed(1)},${(height - (Math.max(0, pt[metric]) / max) * (height - 2) - 1).toFixed(1)}`)
     .join(' ');
+  const color = metric === 'do' ? 'var(--water)' : 'var(--amber)';
   return (
     <g transform={`translate(${x}, ${y})`} aria-hidden="true">
-      <polygon points={`0,${height} ${pts} ${width},${height}`} fill="var(--water)" opacity="0.16" />
+      <polygon points={`0,${height} ${pts} ${width},${height}`} fill={color} opacity="0.16" />
       <polyline
         points={pts}
         fill="none"
-        stroke="var(--water)"
+        stroke={color}
         strokeWidth="1.6"
         opacity="0.95"
         strokeLinejoin="round"
@@ -1208,7 +1258,7 @@ function UnitBody({
   h: number;
   snap: PlantSnapshot;
   liveTank?: { do: number; mlss: number; cod: number; nh: number; no3: number; tp: number; alkalinity: number };
-  history?: { do: number; mlss: number }[];
+  history?: TankHistoryPoint[];
   /** 全览模式：只画最重要的一项数值，字号更大，保证缩小时仍可辨认 */
   compact?: boolean;
 }) {
@@ -1243,7 +1293,14 @@ function UnitBody({
         {line(`DO ${liveTank.do.toFixed(2)} · MLSS ${Math.round(liveTank.mlss)}`, 'unit-value')}
         {line(`NH₄ ${liveTank.nh.toFixed(1)} · NO₃ ${liveTank.no3.toFixed(1)}`)}
         {history && history.length > 3 && (
-          <DoSparkline history={history} x={x + 8} y={y + h - 22} width={w - 16} height={14} />
+          <TankSparkline
+            history={history}
+            metric={unit.kind === 'aerobic' ? 'do' : 'nh'}
+            x={x + 8}
+            y={y + h - 22}
+            width={w - 16}
+            height={14}
+          />
         )}
       </g>
     );

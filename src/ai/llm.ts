@@ -42,6 +42,8 @@ export interface GroundingContext {
   facts: GroundingFact[];
   recommendation: string | null;
   risks: string[];
+  /** 结构化 P&ID 摘要（可选）：结构化图表示喂 LLM 优于自然语言（FALCON 2025） */
+  topology?: string;
 }
 
 export function readLlmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig | null {
@@ -66,6 +68,7 @@ export function buildGroundingText(context: GroundingContext): string {
   return [
     `厂站：${context.plant}`,
     `仿真时钟：${context.simClock}`,
+    context.topology ? `工艺结构：${context.topology}` : '',
     '当前实测与预测数据（唯一可引用的事实来源）：',
     facts,
     context.recommendation ? `当前 AI 建议：${context.recommendation}` : '当前没有待执行的建议。',

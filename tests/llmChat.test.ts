@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildLlmGrounding, createLlmChat, errorText, llmBudget, reasonText } from '../src/server/llmChat';
+import {
+  buildLlmGrounding,
+  createLlmChat,
+  errorText,
+  llmBudget,
+  reasonText,
+  buildPidSummary,
+} from '../src/server/llmChat';
 import { createNetworkState, spinUpNetwork } from '../src/sim/networkEngine';
 import { PLANT_TOPOLOGY } from '../src/model/topology';
 
@@ -92,7 +99,7 @@ describe('增强链路的降级行为', () => {
   it('未配置模型时保留规则答案且不发 chat', async () => {
     const sent: unknown[] = [];
     const enhance = createLlmChat({
-      snapshot: () => ({ net: makeNet(), recommendation: null }),
+      snapshot: () => ({ topology: PLANT_TOPOLOGY, net: makeNet(), recommendation: null }),
       isOpen: () => true,
       send: (_ws, m) => sent.push(m),
     });
@@ -105,11 +112,26 @@ describe('增强链路的降级行为', () => {
   it('连接已关闭时不再发送', async () => {
     const sent: unknown[] = [];
     const enhance = createLlmChat({
-      snapshot: () => ({ net: makeNet(), recommendation: null }),
+      snapshot: () => ({ topology: PLANT_TOPOLOGY, net: makeNet(), recommendation: null }),
       isOpen: () => false,
       send: (_ws, m) => sent.push(m),
     });
     await enhance({} as never, '怎么样', ruleAnswer);
     expect(sent).toEqual([]);
+  });
+});
+
+describe('结构化 P&ID 摘要（FALCON 落地）', () => {
+  it('包含主序列、单元容积与回流连线', () => {
+    const pid = buildPidSummary(PLANT_TOPOLOGY);
+    expect(pid).toContain('主序列:');
+    // 主序列按 train 顺序出现
+    expect(pid).toContain('→');
+    // 单元清单带容积
+    expect(pid).toMatch(/m³\)/);
+    // 回流连线（RAS / 内回流 / WAS 至少其一）
+    expect(/回流: .+--(return_activated_sludge|internal_recycle|waste_sludge)-->/.test(pid)).toBe(true);
+    // 长度受控（上下文预算）
+    expect(pid.length).toBeLessThan(1200);
   });
 });

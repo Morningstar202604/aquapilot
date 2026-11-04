@@ -267,6 +267,7 @@ export function ProcessEditor({
   const readiness = useMemo(() => checkRunReadiness(topology, snap.influent.flow), [topology, snap.influent.flow]);
 
   const selectedUnit = selected ? findUnit(topology, selected) : undefined;
+  const unitIssues = selectedUnit ? issues.filter((i) => i.unitId === selectedUnit.id) : [];
   const errors = issues.filter((i) => i.severity === 'error');
 
   const addUnit = (entry: PaletteEntry, pos?: { x: number; y: number }) => {
@@ -353,6 +354,29 @@ export function ProcessEditor({
     onChange({
       ...topology,
       units: topology.units.map((u) => (u.id === id ? { ...u, ...patch } : u)),
+    });
+  };
+
+  /**
+   * 复制单元：同规格副本（含 states/interventions），位置右下偏移 40px，
+   * 生物池自动进主序列末尾。连线不复制——副本是断开的，由用户自己接线。
+   */
+  const duplicateUnit = (id: string) => {
+    const src = topology.units.find((u) => u.id === id);
+    if (!src) return;
+    const newId = nextId(topology, src.kind);
+    const pos = topology.positions?.[id] ?? { x: 80, y: 80 };
+    const unit: UnitSpec = {
+      ...src,
+      id: newId,
+      name: `${src.name}·副本`,
+      ports: src.ports.map((p, i) => ({ ...p, order: i })),
+    };
+    onChange({
+      ...topology,
+      units: [...topology.units, unit],
+      train: topology.train.includes(id) ? [...topology.train, newId] : topology.train,
+      positions: { ...(topology.positions ?? {}), [newId]: { x: pos.x + 40, y: pos.y + 40 } },
     });
   };
 
@@ -708,9 +732,20 @@ export function ProcessEditor({
                       <label>容积 m³</label>
                       <input
                         type="number"
+                        min="1"
                         value={selectedUnit.volume ?? 0}
                         onChange={(e) => updateUnit(selectedUnit.id, { volume: Number(e.target.value) })}
                       />
+                      {(selectedUnit.volume ?? 0) <= 0 && (
+                        <div className="control-hint" data-warn="true">
+                          容积必须大于 0（引擎按容积推进 CSTR）
+                        </div>
+                      )}
+                      {(selectedUnit.volume ?? 0) > 1000000 && (
+                        <div className="control-hint" data-warn="true">
+                          容积异常大，请确认单位是 m³
+                        </div>
+                      )}
                     </div>
                     <div className="field">
                       <label>类型</label>
@@ -724,9 +759,15 @@ export function ProcessEditor({
                       <label>面积 m²</label>
                       <input
                         type="number"
+                        min="1"
                         value={selectedUnit.area ?? 0}
                         onChange={(e) => updateUnit(selectedUnit.id, { area: Number(e.target.value) })}
                       />
+                      {(selectedUnit.area ?? 0) <= 0 && (
+                        <div className="control-hint" data-warn="true">
+                          面积必须大于 0（二沉池固液分离按面积负荷计算）
+                        </div>
+                      )}
                     </div>
                     <div className="field">
                       <label>池深 m</label>
@@ -756,6 +797,19 @@ export function ProcessEditor({
                   </div>
                 )}
 
+                {unitIssues.length > 0 && (
+                  <div className="field">
+                    <label>本单元校验问题（{unitIssues.length}）</label>
+                    {unitIssues.map((iss) => (
+                      <div key={iss.code + iss.message} className="unit-issue" data-sev={iss.severity}>
+                        {iss.message}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button className="btn" onClick={() => duplicateUnit(selectedUnit.id)}>
+                  复制单元（不复制连线）
+                </button>
                 <div className="field">
                   <label>出口端口（点击开始连线）</label>
                   {selectedUnit.ports.filter((p) => p.kind === 'out').length === 0 && (

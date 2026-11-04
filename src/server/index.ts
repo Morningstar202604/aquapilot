@@ -337,7 +337,7 @@ const calibration = createCalibrationService({
 
 /** 对话增强（规则答案之后的模型补充） */
 const enhanceWithLlm = createLlmChat({
-  snapshot: () => ({ net: runtime.net, recommendation: runtime.recommendation }),
+  snapshot: () => ({ net: runtime.net, recommendation: runtime.recommendation, topology: runtime.topology }),
   isOpen: (ws) => ws.readyState === WebSocket.OPEN,
   send: (ws, message) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
