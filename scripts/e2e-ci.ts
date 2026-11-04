@@ -76,7 +76,19 @@ try {
   });
 
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(3500);
+
+  /**
+   * 等 WS 首帧：CI runner 是 2 核，固定 3.5s 在慢环境会竞态失败
+   * （快照未到 → KPI 数 0）。轮询等 KPI 出现，上限 20s，本地 1s 内即过。
+   */
+  let kpisReady = 0;
+  for (let i = 0; i < 40; i++) {
+    kpisReady = await page.locator('.kpi').count();
+    if (kpisReady >= 7) break;
+    await page.waitForTimeout(500);
+  }
+  if (kpisReady < 7) fail(`KPI tiles never appeared after 20s (got ${kpisReady}) — first WS frame likely lost`);
+  await page.waitForTimeout(800);
 
   const onboarding = page.getByRole('dialog', { name: '使用引导' });
   if (await onboarding.isVisible().catch(() => false)) {
