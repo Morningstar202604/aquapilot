@@ -8,7 +8,7 @@
 [![CodeQL](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12-339933)](package.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![tests](https://img.shields.io/badge/tests-1159%20passing-2ea44f)](docs/BENCHMARKS.md)
+[![tests](https://img.shields.io/badge/tests-1286%20passing-2ea44f)](docs/BENCHMARKS.md)
 
 ![AquaPilot overview](docs/screenshots/01-overview.jpg)
 

@@ -71,6 +71,23 @@ TOTAL=${TEST_COUNTS%% *}
 PASSED=${TEST_COUNTS##* }
 pass "$PASSED/$TOTAL 通过，0 失败/跳过/todo"
 
+# README 徽章与真实测试数对账。
+# 这里防的是一类反复发生的漂移：模型或测试增减后徽章没跟上，英文写 1159、
+# 中文写 1208、实际 1286——三个数字同时出现在同一份仓库里，读者无从判断
+# 哪个是真的。徽章必须引用 docs/BENCHMARKS.md，而那份文件由人维护，
+# 所以只能在这里用真实计数把两份 README 锁住。
+BADGE_DRIFT=""
+for f in README.md README.zh-CN.md; do
+  BADGE=$(grep -oE 'badge/tests-[0-9]+%20passing|badge/[^)]*-[0-9]+%20通过' "$f" | grep -oE '[0-9]+' | head -1)
+  if [ "$BADGE" != "$TOTAL" ]; then
+    BADGE_DRIFT="$BADGE_DRIFT $f=$BADGE"
+  fi
+done
+if [ -n "$BADGE_DRIFT" ]; then
+  fail "README 测试徽章与真实数量不一致（实际 $TOTAL）：$BADGE_DRIFT —— 更新两份 README 的徽章数字"
+fi
+pass "README 徽章与真实测试数一致"
+
 step "6/11 构建"
 npm run build > /dev/null 2>&1 && pass "客户端与服务端构建成功" || fail "构建失败"
 [ -f dist/client/index.html ] || fail "缺少客户端产物"

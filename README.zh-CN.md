@@ -8,7 +8,7 @@
 [![CodeQL](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12-339933)](package.json)
 [![许可证](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![测试](https://img.shields.io/badge/测试-1208%20通过-2ea44f)](docs/BENCHMARKS.md)
+[![测试](https://img.shields.io/badge/测试-1286%20通过-2ea44f)](docs/BENCHMARKS.md)
 
 ![AquaPilot 总览](docs/screenshots/01-overview.jpg)
 
