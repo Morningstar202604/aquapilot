@@ -160,6 +160,16 @@ describe('增量快照必须刷新预测与双跑', () => {
       stormStorageM3: 0,
       reactorCount: 5,
       forecastBand: null,
+      scorecard: {
+        total: 0,
+        dimensions: [],
+        samples: 0,
+        spanMin: 0,
+        standard: { id: 'x', label: 'x' },
+        confidence: 'insufficient' as const,
+        violations: [],
+        energy: { normalKwhM3: 0, scenarioKwhM3: 0 },
+      },
       benchmark: null,
       ...over,
     };
