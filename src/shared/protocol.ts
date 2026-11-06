@@ -377,6 +377,14 @@ export interface SnapshotPatch {
    * 收益面板的对照必须随运行推进更新。
    */
   benchmark: BenchmarkSummary | null;
+  /**
+   * 运营评分卡。
+   *
+   * 与 benchmark 同一类问题：它随趋势缓冲逐帧变化（达标率是滚动窗口），
+   * 只在全量帧里带的话，评分页签永远停在最近一次全量帧（连接/重置那一刻），
+   * 暴雨或故障期间分数不动——这不是"没更新"，是"看起来没发生"。
+   */
+  scorecard: import('../sim/scorecard').Scorecard;
 }
 
 export type ServerMessage =
