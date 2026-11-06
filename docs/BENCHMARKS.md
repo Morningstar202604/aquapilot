@@ -125,6 +125,36 @@ Measured 2026-11-06 on Node 24.20.0, working tree at v0.8.0. Numbers move with t
 tree; the table above is the reference point for the current release, and the
 thresholds in `vitest.config.ts` are what CI actually enforces.
 
+
+## 7. Real-world capability exam
+
+```bash
+npm run exercise   # scripts/exercise-realworld.ts, ~60 s against a live server + CLI + MCP
+```
+
+Five journeys modelled on real roles, graded on physics and accounting rather
+than "endpoint returns 200":
+
+| Journey | Role | Checks | Result (2026-11-07) |
+|---|---|---:|---|
+| J1 storm shift | duty operator, 6 h storm + recovery | 5 | PASS — inflow 1.45×, peak over 2000 m³/h design, AI action with 6-step rationale, score 53→17 during surge |
+| J2 blower failure | crisis handling, 3 h at 50 % air | 5 | PASS — DO 2.00→0.35 mg/L, AI raises DO 2.0→2.6 inside the 4.5 guardrail, NH₄ 0.79→1.18 (still < 5), scorecard consistent |
+| J3 what-if | process engineer via MCP | 5 | PASS — invalid duration rejected; DO 3.0 vs 2.0: NH₄ not worse, both plans score |
+| J4 weekly report | plant manager via CLI | 4 | PASS — CSV exactly 336 rows = 7 d × 48, JSON totals reconcile, Markdown report deliverable |
+| J5 dirty influent | data triage | 6 | PASS — gap/stuck/spike/out-of-range all flagged, usable=false, clean series traceable in watchdog |
+
+25/25 checks green. The exam exists because interface smoke tests cannot ask
+"did the storm actually push flow past the design flow" — this one does, and it
+found a real defect on its first run: the operational scorecard was absent from
+`snapshotPatch` and from the client merge, so the Score tab froze at the last
+full frame (connect/reset) exactly when scores were moving. Fixed in the same
+commit that added the exam.
+
+The exam asserts product semantics, not implementation details: storage staying
+at 0 during a storm is *correct* (stormStore is a control the AI may choose not
+to use), and a crisis dimension at 100 is *correct* when the AI rode out the
+failure without an exceedance. Wrong assertions in either direction would make
+the exam lie.
 ## 6a. Operational scorecard baseline
 
 ```bash
