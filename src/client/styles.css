@@ -4709,3 +4709,22 @@ button {
   background: rgba(210, 71, 47, 0.08);
   color: var(--alarm-dim);
 }
+
+/* 样本不足：不配色、不加粗，只用中性提示——避免把"还没验证"显示成"很好" */
+.score-card[data-tone='unknown'] {
+  border-color: var(--line);
+}
+
+.score-card[data-tone='unknown'] .score-total {
+  color: var(--text-2);
+}
+
+.score-confidence {
+  margin-top: 6px;
+  padding: 4px 7px;
+  border-radius: var(--radius);
+  background: rgba(176, 119, 14, 0.08);
+  color: var(--amber-dim);
+  font-size: 10px;
+  line-height: 1.5;
+}

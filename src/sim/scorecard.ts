@@ -57,10 +57,34 @@ export interface Scorecard {
   spanMin: number;
   /** 判定所用的排放标准（口径写进结果，避免分数不可解释） */
   standard: { id: string; label: string };
+  /**
+   * 置信度：样本太少时分数不可用于比较。
+   *
+   * 实测过的问题：只跑 3 个采样点（6 分钟仿真）也会给出 98 分，
+   * 那和跑满 30 天得到的 98 分完全不是一回事。分数本身不压制，
+   * 但必须带上这个字段，让界面与 agent 知道"这个数字有多硬"。
+   */
+  confidence: 'insufficient' | 'provisional' | 'stable';
   /** 各指标的违规分钟数，供图表与下钻 */
   violations: { metric: keyof EffluentState; minutes: number }[];
   /** 场景内/外的平均比能耗，便于做"危机是否推高能耗"的对照 */
   energy: { normalKwhM3: number; scenarioKwhM3: number };
+}
+
+/**
+ * 置信门槛（按采样点数）。
+ *
+ * 720 点缓冲 ≈ 24 h 仿真时间（每点 2 分钟）：<12 点不足半小时，
+ * 只能算冒烟；>=240 点（8 h）才覆盖完整的昼夜周期与一次决策节拍，
+ * 分数才具备可比性。
+ */
+const CONFIDENCE_STABLE_MIN = 240;
+const CONFIDENCE_PROVISIONAL_MIN = 12;
+
+function confidenceOf(samples: number): Scorecard['confidence'] {
+  if (samples >= CONFIDENCE_STABLE_MIN) return 'stable';
+  if (samples >= CONFIDENCE_PROVISIONAL_MIN) return 'provisional';
+  return 'insufficient';
 }
 
 /** 四维权重：与参考项目一致（40/20/20/20），达标是运营的第一约束 */
@@ -131,6 +155,7 @@ export function computeScorecard(
       samples: 0,
       spanMin: 0,
       standard: { id: standard.id, label: standard.label },
+      confidence: 'insufficient',
       violations: [],
       energy: { normalKwhM3: 0, scenarioKwhM3: 0 },
     };
@@ -277,6 +302,7 @@ export function computeScorecard(
     samples: samples.length,
     spanMin,
     standard: { id: standard.id, label: standard.label },
+    confidence: confidenceOf(samples.length),
     violations: [...perMetric.entries()].map(([metric, minutes]) => ({
       metric: metric as keyof EffluentState,
       minutes,

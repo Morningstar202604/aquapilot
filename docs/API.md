@@ -87,9 +87,31 @@ loop is paused **because it threw**.
 ### `GET /api/snapshot`
 
 Full plant snapshot: effluent, per-reactor state, clarifier, controls, energy,
-cost, score, margins, alarms, trends (max 720 points), forecast and the current
-AI recommendation. This is the largest response; the UI normally receives
-incremental `snapshotPatch` messages over the WebSocket instead.
+cost, score, margins, alarms, trends (max 720 points), forecast, the current
+AI recommendation and the operational scorecard. This is the largest response;
+the UI normally receives incremental `snapshotPatch` messages over the WebSocket
+instead.
+
+### `GET /api/standards`
+
+The discharge standards a score can be judged against. Each entry carries
+`id`, `label`, `source`, the six effluent `limits` and a `note` explaining where
+that envelope is strict.
+
+```json
+{
+  "standards": [
+    { "id": "gb18918-1a", "label": "GB 18918-2002 一级 A", "limits": { "cod": 50, "ss": 10, "…": 0 } },
+    { "id": "gb18918-1b", "label": "GB 18918-2002 一级 B", "limits": { "cod": 60, "ss": 20, "…": 0 } },
+    { "id": "bsm1-reference", "label": "BSM1 benchmark reference", "limits": { "cod": 100, "ss": 15, "…": 0 } }
+  ],
+  "default": "gb18918-1a"
+}
+```
+
+The three envelopes are not interchangeable: the BSM1 benchmark plant settles at
+TSS ≈ 11.7 mg/L, so it is compliant under the BSM1 envelope and under Class 1B,
+but not under Class 1A's SS ≤ 10. A scorecard always names the envelope it used.
 
 ### `GET /api/limits`
 
@@ -168,6 +190,42 @@ is simulated, not measured.
 All export endpoints are read-only and sit behind the same auth gate as every other
 `/api/*` route. The UI downloads them with `fetch` plus an `Authorization` header —
 the token is never placed in a URL.
+
+## Operational scorecard
+
+Every snapshot carries a `scorecard` object. It is computed by the engine from
+the trend buffer — never self-reported by the AI layer — because the reference
+benchmark (`wwtp-operator-challenge`) measured LLM self-assessment inflating its
+own score by up to 20 points.
+
+```json
+{
+  "total": 43,
+  "standard": { "id": "gb18918-1a", "label": "GB 18918-2002 一级 A" },
+  "confidence": "stable",
+  "samples": 1440,
+  "spanMin": 43170,
+  "dimensions": [
+    { "key": "compliance", "label": "出水达标", "score": 0, "weight": 40, "detail": "21.2% 采样点全部指标达标",
+      "deductions": ["达标率 21.2%，低于 95% 门槛", "ss 超标 1023 个采样点"] }
+  ],
+  "violations": [{ "metric": "ss", "minutes": 1023 }],
+  "energy": { "normalKwhM3": 0.153, "scenarioKwhM3": 0.152 }
+}
+```
+
+| Dimension | Weight | What it scores |
+| --- | ---: | --- |
+| `compliance` | 40 | Share of samples where all six effluent metrics are within the limits |
+| `energy` | 20 | Specific energy in kWh/m³ outside disturbance windows |
+| `stability` | 20 | Share of samples with MLSS 2000–5000 mg/L and SRT 8–30 d |
+| `crisis` | 20 | Excess violation rate inside disturbance windows vs. the normal baseline |
+
+`confidence` is `insufficient` below 12 samples, `provisional` below 240 and
+`stable` above that. A 96 from three samples and a 96 from a full day are not
+the same claim, and the field says so. Crisis scores are only meaningful when a
+scenario actually ran; with no scenario the dimension scores 100 and the detail
+states that no disturbance was injected.
 
 ## WebSocket protocol
 

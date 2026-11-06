@@ -226,3 +226,47 @@ describe('标准 30 天危机脚本', () => {
     }
   });
 });
+
+/**
+ * 置信度门槛。
+ *
+ * 存在的原因是一个实测缺陷：只喂 3 个采样点（6 分钟仿真）时评分卡给出
+ * 98 分，与跑满 8 小时的 98 分视觉上完全一样。分数不压制，但必须标明
+ * 它有多硬，否则就是假精度。
+ */
+describe('置信度', () => {
+  const samplesOf = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      minute: i * 2,
+      effluent: { flow: 2000, cod: 30, bod: 6, ss: 6, nh: 1, tn: 10, tp: 0.2, ph: 7.2, temperature: 20 },
+      energyKw: 300,
+      mlss: 3000,
+      srtDays: 15,
+      inScenario: false,
+    }));
+
+  it('少于 12 点为 insufficient', () => {
+    expect(computeScorecard(samplesOf(1), 2000).confidence).toBe('insufficient');
+    expect(computeScorecard(samplesOf(11), 2000).confidence).toBe('insufficient');
+  });
+
+  it('12 点起为 provisional', () => {
+    expect(computeScorecard(samplesOf(12), 2000).confidence).toBe('provisional');
+    expect(computeScorecard(samplesOf(239), 2000).confidence).toBe('provisional');
+  });
+
+  it('240 点起为 stable', () => {
+    expect(computeScorecard(samplesOf(240), 2000).confidence).toBe('stable');
+  });
+
+  it('空样本为 insufficient', () => {
+    expect(computeScorecard([], 2000).confidence).toBe('insufficient');
+  });
+
+  it('置信度不影响分数本身（分数照算，只是标注可信度）', () => {
+    const few = computeScorecard(samplesOf(5), 2000);
+    const many = computeScorecard(samplesOf(300), 2000);
+    expect(few.total).toBe(many.total);
+    expect(few.confidence).not.toBe(many.confidence);
+  });
+});

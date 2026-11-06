@@ -26,12 +26,23 @@ export function ScorecardPanel({ card }: { card: Scorecard | undefined }) {
   }
 
   const tone = card.total >= 80 ? 'good' : card.total >= 60 ? 'watch' : 'risk';
+  /**
+   * 样本不足时不给"好/坏"配色：3 个点算出来的 96 分与跑满一天算出的 96 分
+   * 不是同一件事，用绿色表扬它会让用户误以为已经验证过了。
+   */
+  const lowConfidence = card.confidence !== 'stable';
+  const confidenceText =
+    card.confidence === 'insufficient'
+      ? '样本不足（<12 点）：分数仅供冒烟参考，不能用于横向比较'
+      : card.confidence === 'provisional'
+        ? '样本偏少（<240 点）：建议至少跑满 8 小时仿真再比较分数'
+        : '';
 
   return (
     <div className="scroll-panel">
       <div>
         <div className="section-label">运营评分卡</div>
-        <div className="score-card" data-tone={tone}>
+        <div className="score-card" data-tone={lowConfidence ? 'unknown' : tone}>
           <div className="score-head">
             <span className="score-total">{card.total}</span>
             <span className="score-unit">/ 100</span>
@@ -40,6 +51,11 @@ export function ScorecardPanel({ card }: { card: Scorecard | undefined }) {
           <div className="score-note">
             {card.samples} 个采样点 · 覆盖 {(card.spanMin / 60).toFixed(1)} h · 分数由仿真结果复算（非 AI 自评）
           </div>
+          {lowConfidence && (
+            <div className="score-confidence" role="status">
+              {confidenceText}
+            </div>
+          )}
         </div>
       </div>
 

@@ -18,8 +18,17 @@
 - **ASM1 + Takács clarifier, benchmarked.** The water train is checked against the IWA BSM1 Table 6 reference in CI; the worst deviation (TSS, the quantity affected by the Takács non-settling fraction `f_ns`) sits at **+5.1%** against the official value. ASM2d and ADM1 ship as standalone, conservation-checked modules.
 - **An AI operator that shows its work.** A rolling 4-hour forecast ranks candidate control moves on compliance, cost and stability, applies them inside hard bounds, and explains every action — including the moves it *declined* and why. A guard-blocked move is reported as blocked; nothing is logged as "executed" unless a setpoint actually moved.
 - **Analysis built in.** Parameter sensitivity (central differences), a compliance-vs-cost Pareto frontier, and a plant-wide COD mass-balance audit that accounts for all four destinations — effluent, waste sludge, aeration oxidation and in-system inventory.
+- **A scorecard you can argue with.** Every run is scored on four weighted axes —
+  effluent compliance (40), energy (20), biological stability (20) and crisis
+  response (20) — computed by the engine, never self-reported (the reference
+  benchmark measured LLM self-assessment inflating its own score by up to 20
+  points). Each axis lists its deduction reasons, and the card names the
+  discharge envelope it was judged against: GB 18918-2002 Class 1A, Class 1B or
+  the IWA BSM1 reference. `aquapilot scorecard` replays a standard 30-day crisis
+  timeline — storm, shock load, toxic inlet, cold spell, blower failure,
+  chemical shortage — in under a second.
 - **Evidence, not marketing.** AI-vs-fixed-strategy shadow runs share seed, influent and initial state; the insights panel shows the real deltas. Parameter calibration and a six-state EKF ship as experimental, clearly-labelled tools.
-- **Speaks MCP.** `POST /mcp` exposes the simulator to the whole agent ecosystem (LangGraph, OpenAI Agents SDK, CrewAI, Vercel AI SDK, Mastra — a Streamable HTTP URL is all they need): ten tools with JSON-Schema inputs, tiered token auth, rate limiting and origin checks. Point an agent at it and it can read the plant, inject a storm, and ask "what if DO goes to 3?" via the pure-compute `simulate_headless` tool.
+- **Speaks MCP.** `POST /mcp` exposes the simulator to the whole agent ecosystem (LangGraph, OpenAI Agents SDK, CrewAI, Vercel AI SDK, Mastra — a Streamable HTTP URL is all they need): eleven tools with JSON-Schema inputs, tiered token auth, rate limiting and origin checks. Point an agent at it and it can read the plant, inject a storm, and ask "what if DO goes to 3?" via the pure-compute `simulate_headless` tool.
 - **CLI and a single-file exe.** `aquapilot simulate --days 7 --scenario storm` runs headless with a GB-18918 compliance summary; `bench` gates against BSM1 Table 6; `report` emits Markdown; `serve` starts the full stack. `npm run exe` packs it into a ~84 MB standalone `aquapilot.exe` — no Node installation required.
 - **Operations-grade hygiene.** Three-tier token access (`viewer`/`operator`/`admin`), SSRF-guarded outbound fetches, SQLite history with backup/restore, Prometheus metrics, CSV replay with data-quality rejection, and an 11-step local CI gate mirrored on GitHub Actions, GitCode and Gitee.
 
@@ -69,7 +78,7 @@ flowchart LR
     subgraph server [Node 22 server — one process]
         WS[WebSocket<br/>live telemetry]
         HTTP[HTTP API<br/>auth · export · health]
-        MCP["MCP endpoint<br/>POST /mcp (10 tools)"]
+        MCP["MCP endpoint<br/>POST /mcp (11 tools)"]
         SIM[ASM1 / Takács solver<br/>+ AI operator + guards]
         DB[(SQLite WAL)]
     end

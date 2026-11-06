@@ -39,6 +39,7 @@ import { HookRuntime } from './hooks';
 import { parseAgentCommand } from './agentConfigCommands';
 import { buildReport, type CheckInput } from './watchdog';
 import { runAnalysis } from '../sim/analysis';
+import { DEFAULT_STANDARD, DISCHARGE_STANDARDS } from '../sim/standards';
 import { listModelDescriptors } from '../sim/modelRegistry';
 import { ADAPTER_CAPABILITIES } from '../sim/dataSources';
 import { checkAllowedControls } from '../shared/agentConfig';
@@ -1961,6 +1962,29 @@ async function main(): Promise<void> {
      * 而不是靠读 README 猜。返回注册表里的真实描述符，
      * 未接入运行的模型标注 `active: false`——避免把「已实现」误读成「已启用」。
      */
+    /**
+     * 排放标准档案。
+     *
+     * 评分卡必须说明自己是按哪套口径打的，前端也需要能列出可选项。
+     * 三套口径的差异是真实的：BSM1 基准厂出水 TSS ≈ 11.7 mg/L，在
+     * 一级 A 的 SS ≤ 10 下天然吃紧，在基准口径下则正常。
+     */
+    if (pathname === '/api/standards') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(
+        JSON.stringify({
+          standards: DISCHARGE_STANDARDS.map((s) => ({
+            id: s.id,
+            label: s.label,
+            source: s.source,
+            limits: s.limits,
+            note: s.note,
+          })),
+          default: DEFAULT_STANDARD.id,
+        }),
+      );
+      return;
+    }
     if (pathname === '/api/models') {
       const list = listModelDescriptors().map((d) => ({
         id: d.id,

@@ -18,8 +18,9 @@
 - **ASM1 + Takács 沉淀池，有基准背书。** 水线在 CI 里对照 IWA BSM1 Table 6 官方值；偏差最大的 TSS（受 Takács 非沉降分数 `f_ns` 影响）为 **+5.1%**。ASM2d 与 ADM1 作为独立、经过组分守恒校验的模块交付。
 - **把自己的 reasoning 摊开的 AI 值守员。** 滚动 4 小时预测对候选控制动作按达标、成本、稳定性排序，在硬边界内执行，并解释每个动作——包括它**没动**的动作和原因。被护栏挡住的调节会如实说「被挡住」；没有任何一条日志会在控制量真的没动的情况下写「已执行」。
 - **分析内建。** 参数灵敏度（中心差分）、达标-成本 Pareto 前沿、覆盖四路去向（出水 / 排泥 / 曝气氧化 / 系统内库存变化）的全厂 COD 质量平衡审计。
+- **可以拿去争论的评分卡。** 每次运行按四个加权维度打分——出水达标（40）、能效（20）、生物稳定（20）、危机处置（20）——分数由引擎复算，不由 AI 自报（参考基准实测 AI 自评会把分数高估 20 分）。每个维度列出扣分依据，评分卡同时写明按哪套排放口径判读：GB 18918-2002 一级 A、一级 B 或 IWA BSM1 基准。`aquapilot scorecard` 用标准 30 天危机脚本（暴雨 / 高负荷 / 毒性 / 低温 / 鼓风机故障 / 药剂短缺）跑完整流程，不到 1 秒。
 - **证据，不是话术。** AI 与固定策略影子双跑共享 seed、进水与初始状态；效益页展示的是真实差值。参数校准与六维 EKF 作为实验性工具随仓库交付，边界写明。
-- **说 MCP 协议。** `POST /mcp` 把仿真器接入整个 agent 生态（LangGraph、OpenAI Agents SDK、CrewAI、Vercel AI SDK、Mastra——都只要一个 Streamable HTTP URL）：10 个带 JSON Schema 输入的工具、分级令牌鉴权、限流与 Origin 校验。agent 可以读厂、注暴雨、用纯计算的 `simulate_headless` 问「DO 提到 3 会怎样」。
+- **说 MCP 协议。** `POST /mcp` 把仿真器接入整个 agent 生态（LangGraph、OpenAI Agents SDK、CrewAI、Vercel AI SDK、Mastra——都只要一个 Streamable HTTP URL）：11 个带 JSON Schema 输入的工具、分级令牌鉴权、限流与 Origin 校验。agent 可以读厂、注暴雨、用纯计算的 `simulate_headless` 问「DO 提到 3 会怎样」。
 - **CLI 与单文件 exe。** `aquapilot simulate --days 7 --scenario storm` 离线仿真并输出 GB-18918 达标汇总；`bench` 对照 BSM1 Table 6 基准；`report` 输出 Markdown 报告；`serve` 启动完整服务。`npm run exe` 打出 ~84 MB 的独立 `aquapilot.exe`——无需安装 Node。
 - **运维级卫生。** 三档令牌访问（`viewer` / `operator` / `admin`）、出站请求 SSRF 防护、SQLite 历史 + 备份恢复、Prometheus 指标、带数据质量拒绝的 CSV 进水回放，以及一条本地 11 步 CI 门禁，在 GitHub Actions、GitCode、Gitee 三端等价执行。
 
