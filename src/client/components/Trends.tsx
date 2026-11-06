@@ -100,6 +100,11 @@ function Chart({ spec, snap, range = 'all' }: { spec: ChartSpec; snap: PlantSnap
   useEffect(() => {
     if (!el.current) return;
     const instance = echarts.init(el.current, undefined, { renderer: 'canvas' });
+    // 多图联动（ECharts 官方 group + connect）：三张图共享时间范围后，
+    // 十字线与 tooltip 也应同步——操作员横向对照「同一时刻」的出水与能耗时，
+    // 不该在三张图上分别找同一时刻。
+    instance.group = 'aquapilot-trends';
+    echarts.connect('aquapilot-trends');
     chart.current = instance;
     const onResize = () => instance.resize();
     const ro = new ResizeObserver(onResize);
@@ -267,7 +272,31 @@ function Chart({ spec, snap, range = 'all' }: { spec: ChartSpec; snap: PlantSnap
           extraCssText: 'border-radius:6px;box-shadow:0 10px 30px rgba(16,49,43,0.18);backdrop-filter:blur(4px);',
           textStyle: { color: '#182b26', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' },
           axisPointer: { type: 'line', lineStyle: { color: 'rgba(12,157,126,0.3)', width: 1 } },
-          valueFormatter: (v: unknown) => (typeof v === 'number' ? v.toFixed(2) : String(v)),
+          /**
+           * 自定义 formatter 而不是 valueFormatter：
+           * 预测扇区由三条静默辅助序列拼成（P10 / P10-P90 差值 / P50），
+           * axis 触发会把它们原样列进 tooltip——实测出现三行「undefined」，
+           * 操作员看到的是噪音不是信息。这里只保留有有限数值的序列。
+           */
+          formatter: (raw: unknown) => {
+            const list = (Array.isArray(raw) ? raw : [raw]) as {
+              marker?: string;
+              seriesName?: string;
+              value?: unknown;
+              axisValueLabel?: string;
+              name?: string;
+            }[];
+            const rows = list.filter((p) => typeof p.value === 'number' && Number.isFinite(p.value));
+            if (rows.length === 0) return '';
+            const title = `<div style="font-weight:600;margin-bottom:3px">${rows[0].axisValueLabel ?? rows[0].name ?? ''}</div>`;
+            const lines = rows
+              .map((p) => {
+                const v = p.value as number;
+                return `<div>${p.marker ?? ''}${p.seriesName}&nbsp;&nbsp;<b>${v.toFixed(2)}</b></div>`;
+              })
+              .join('');
+            return title + lines;
+          },
         },
         xAxis: {
           type: 'category',
