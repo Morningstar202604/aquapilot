@@ -53,6 +53,16 @@ const basePatch = (over: Partial<SnapshotPatch> = {}): SnapshotPatch => {
     stormStorageM3: snap.stormStorageM3,
     reactorCount: snap.reactorCount,
     forecastBand: null,
+    scorecard: {
+      total: 0,
+      dimensions: [],
+      samples: 0,
+      spanMin: 0,
+      standard: { id: 'x', label: 'x' },
+      confidence: 'insufficient' as const,
+      violations: [],
+      energy: { normalKwhM3: 0, scenarioKwhM3: 0 },
+    },
     benchmark: null,
     ...over,
   };
