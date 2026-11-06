@@ -115,15 +115,38 @@ npx vitest run --coverage
 | Item | Value |
 |---|---|
 | Test files | 94 |
-| Tests | 1175 |
-| Statement coverage | 92.89 % |
-| Branch coverage | 82.68 % |
-| Function coverage | 96.54 % |
-| Line coverage | 94.63 % |
+| Tests | 1286 |
+| Statement coverage | 92.75 % |
+| Branch coverage | 82.93 % |
+| Function coverage | 95.87 % |
+| Line coverage | 94.39 % |
 
-Measured 2026-11-03 on Node 22.22.2, working tree at v0.5.1. Numbers move with the
+Measured 2026-11-06 on Node 24.20.0, working tree at v0.8.0. Numbers move with the
 tree; the table above is the reference point for the current release, and the
 thresholds in `vitest.config.ts` are what CI actually enforces.
+
+## 6a. Operational scorecard baseline
+
+```bash
+aquapilot scorecard                    # 30-day crisis timeline, Class 1A envelope
+aquapilot scorecard --standard bsm1-reference
+```
+
+| Envelope | Total | Compliance | Energy | Stability | Crisis | Samples |
+|---|---:|---:|---:|---:|---:|---:|
+| GB 18918-2002 Class 1A | 43 | 0 | 89 | 97 | 31 | 1440 |
+| IWA BSM1 reference | 42 | 12 | 89 | 97 | 0 | 1440 |
+
+Measured 2026-11-06 with the standard 30-day script, seed 20261019, on the default
+A²/O plant. The two runs are the same simulation judged against different
+envelopes — which is the point of publishing both. Under Class 1A the plant fails
+SS on 1023 of 1440 samples because it settles at TSS ≈ 11.7 mg/L, faithful to
+BSM1 but above the 10 mg/L Class 1A limit; under the BSM1 envelope SS violations
+drop to 75 (NH₄ and TN become the binding constraints instead — 261 and 218
+samples — so the compliance dimension only rises from 0 to 12). Treating that as a model defect would be wrong, and treating it as
+"compliant" under Class 1A would be worse. The card states which envelope it used.
+
+Runtime: 0.8 s for 30 simulated days (43 200 steps) on a single core.
 
 ## 6. Mutation testing baseline
 

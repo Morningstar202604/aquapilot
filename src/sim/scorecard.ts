@@ -167,7 +167,6 @@ export function computeScorecard(
 
   // ---- 1. 达标率 -----------------------------------------------------------
   const perMetric = new Map<string, number>();
-  let violationMinutes = 0;
   let scenarioViolationMinutes = 0;
   let scenarioMinutes = 0;
   let compliantMinutes = 0;
@@ -179,7 +178,6 @@ export function computeScorecard(
       compliantMinutes += 1;
       continue;
     }
-    violationMinutes += 1;
     if (s.inScenario) scenarioViolationMinutes += 1;
     for (const item of v) perMetric.set(item.metric, (perMetric.get(item.metric) ?? 0) + 1);
   }

@@ -137,7 +137,61 @@ AquaPilot 落地：src/server/snapshotView.ts 已实现只读视图（已做）�
 | LLMDrivenSimulation | LLM 无关；实验-总结两阶段 | providers.ts 已做；agent.ts 输出格式（建议） |
 | MABDT | 只读状态接口隔离写路径；四层架构 | snapshotView.ts 已做；架构文档（建议） |
 
+
+## 15-17. 2026-11 第二轮调研（评分卡与交付形态）
+
+这一轮针对「AI 操作员怎么被评测」与「仿真工具怎么交付」两个问题，核查了三个在
+2025-2026 年出现、且直接影响设计取舍的项目。
+
+### 15. wwtp-operator-challenge（22 个 LLM 的 30 天操作员评测）
+定位与活跃度：2026-02 发布的 Kaggle 基准，MIT，2 stars 但被广泛引用。
+可学优点：
+- **四维评分卡**：出水达标 40 / 能效 20 / 生物稳定 20 / 危机处置 20。单一分数
+  无法行动，四个维度各自能追问。
+- **30 天危机时序**：平静 → 暴雨 → 恢复 → 冲击 → 恢复 → 低温 → 设备故障 → 收尾。
+  单次场景注入测不出「连续事件之间恢复期够不够」。
+- **AI 自评必然高估**：实测最高高估 20 分（自报 62，实际 42）。结论是评分必须
+  由引擎算，不能让模型自己报。
+- **反模式**：4 个模型在鼓风机故障时加大排泥，把生物量杀死了（WAS 死亡螺旋）。
+AquaPilot 落地：**已做** `src/sim/scorecard.ts`（四维、权重与参考项目一致）+
+`STANDARD_30_DAY_CRISIS` 六事件脚本 + `aquapilot scorecard` + `get_scorecard` MCP
+工具 + 界面评分页签。**有意不做** bypass 惩罚：本引擎没有排水旁通这条可调路径，
+凭空扣分是假精度。**改用** MLSS/SRT 而非 SVI：引擎不输出 SVI。
+
+### 16. AutoWaterSimu Next（契约优先的水处理仿真平台）
+定位与活跃度：15 stars，2026-08 仍在更新，TypeScript/Go/Python 三栈。
+可学优点：
+- **contract-first**：UI 画布状态、工艺拓扑、可执行输入、计算作业、结果、产物
+  用 JSON Schema 契约分开，Web/Desktop/worker/API 共享同一集成边界。
+- **artifact 分离**：摘要进 metadata，大时序进 artifact 文件。
+- **迁移用 oracle**：旧 FastAPI 保留为对照，不被删掉，直到 parity 通过。
+- **README First**：`AGENTS.md` 是可执行规则书，`.ai/` 存变更/决策/计划/评审。
+AquaPilot 落地：**已做** 拓扑交换格式（`src/model/topologyExchange.ts` 带
+format/formatVersion 与同一套 sanitize）——这就是契约先行的一个具体切面；
+**已做** SQLite 快照 + CSV/Markdown 导出（artifact 分离的小型版本）。
+**未做**：多栈拆分（Go API + Python worker）——对一个单进程 Web 应用是过度设计。
+**建议做**：根目录 `AGENTS.md`（见本轮新增）。
+
+### 17. bsm2-baseline（BSM2 理想基线数据生成器）
+定位与活跃度：2026-06，1 star，薄封装 `bsm2-python` 而不重写内核。
+可学优点：
+- **不重写内核**：明确声明「wraps the validated engine, does not reimplement」，
+  把力气放在 harness、导出格式与可复现元数据上。
+- **可复现元数据**：每次运行输出 metadata JSON 描述这份数据是怎么跑出来的。
+- **Sensor/Actuator seam**：预留单一扩展点给未来的故障注入层。
+AquaPilot 落地：**已做** 拓扑导出的 `exportedAt` + `appVersion` 元数据；
+`docs/BENCHMARKS.md` 每条结论附可复现命令。**建议做**：故障注入 seam 已由
+`scenarios.ts` 覆盖，无需再造一层。
+
+## 总表（2026-11 增量）
+
+| 项目 | 学到的核心优点 | AquaPilot 落地 |
+|---|---|---|
+| wwtp-operator-challenge | 四维评分卡；30 天危机时序；AI 自评不可信 | 已做 scorecard.ts + CLI + MCP + UI |
+| AutoWaterSimu Next | contract-first；artifact 分离；oracle 迁移 | 已做拓扑交换契约；未做多栈 |
+| bsm2-baseline | 不重写内核；可复现元数据；seam 预留 | 已做导出元数据；seam 已有 |
+
 ## 结论要点
 1. 已被 AquaPilot 覆盖并被外部项目验证正确的：内核/UI 解耦（DWSIM、MABDT）、只读快照+护栏（MABDT、n8n）、版本回滚（Windmill）、LLM 无关 providers（LLMDrivenSimulation）。
-2. 最值得优先落地的三件事：① ECharts lttb+connect（Trends.tsx，纯前端收益大）；② 官方 BSM1 基准回归测试（可信度差异化）；③ ProcessEditor 的 palette+导入导出（对标 Node-RED/FUXA 的编排体验）。
+2. 2026-11 复核：三项已全部落地——① ECharts LTTB 降采样 + 三图共享时间范围（Trends.tsx，见 `src/client/components/trendData.ts`）；② BSM1 Table 6 回归测试已在 CI（`tests/bsm1-benchmark.test.ts`）；③ 拓扑导入导出（`src/model/topologyExchange.ts` + 编辑器工具栏 + CLI `topology` 子命令）。
 3. AI 侧差异化：FALCON 的结论（结构化图表示优于源码喂给 LLM）可直接用于 promptComposer 调优；候选确认表单（Windmill 风格）能提升护栏的可感知性。

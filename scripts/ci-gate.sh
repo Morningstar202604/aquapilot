@@ -150,6 +150,8 @@ step "11/11 工程卫生"
 [ -f Dockerfile ] || fail "缺少 Dockerfile"
 [ -f docs/API.md ] || fail "缺少 docs/API.md"
 [ -f docs/RUNBOOK.md ] || fail "缺少 docs/RUNBOOK.md"
+# AI 贡献者规则书：外部 agent 与协作者都靠它，缺了等于把已知坑重新踩一遍
+[ -f AGENTS.md ] || fail "缺少 AGENTS.md"
 pass "必要文件齐全"
 
 printf '\n\033[1;42m  CI GATE: ALL GREEN  \033[0m\n'

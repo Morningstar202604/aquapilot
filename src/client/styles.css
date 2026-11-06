@@ -677,18 +677,25 @@ button {
   font-size: 11px;
 }
 
+.trend-section-inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+}
+
 .trends {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  grid-template-rows: auto 1fr;
   border-top: 1px solid var(--line);
   background: var(--rail);
   min-height: 0;
+  flex: 1;
 }
 
-/* 时间范围条横跨三列：范围是三张图共享的，视觉上也要压在它们之上 */
+/* 时间范围条压在图表上方，独占一行（不参与图表网格） */
 .trend-range-bar {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1847,11 +1854,25 @@ button {
   .kpi:nth-child(-n + 6) {
     border-bottom: 1px solid var(--line-soft);
   }
+  /*
+   * 中窄宽度：三张图压进两列。
+   *
+   * 早先这里直接 `display: none` 掉第三张（能耗与溶解氧）。那是把
+   * 「布局放不下」转嫁成「数据看不见」——能耗恰恰是运营最关心的两条曲线
+   * 之一，在 1180px 的笔记本上凭空消失没有任何提示。改成三图两行：
+   * 第一行两张，能耗图独占第二行通栏。
+   */
   .trends {
+    /* 三图两行：上排两张等宽，下排能耗图通栏。
+       行高必须显式等分（minmax(0, 1fr)），否则第三张只有 49 px 高，
+       曲线被压成一条线，等于有图等于没图。 */
     grid-template-columns: 1fr 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
   }
   .trend-cell:nth-child(3) {
-    display: none;
+    grid-column: 1 / -1;
+    border-right: none;
+    border-top: 1px solid var(--line-soft);
   }
 }
 
@@ -1966,16 +1987,24 @@ button {
     height: 18px;
   }
   /* 趋势：纵向堆叠 504px → 单行横滑，三张图都保留、滑动查看 */
+  .trend-section-inner {
+    flex: none;
+  }
   .trends {
-    grid-template-columns: none;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(250px, 68%);
-    grid-auto-rows: 148px;
+    /* 窄屏用横向 flex 而不是 grid：
+       grid-auto-flow: column 会把三张图按容器宽度排成多列多行，
+       实测 390px 下变成 2 列 2 行，第三个 cell 塌成 0×0（完全不可见）。
+       flex + 固定宽度项不存在这个问题，滑动距离也等于真实内容宽度。 */
+    display: flex;
+    flex-direction: row;
     height: 148px;
     overflow-x: auto;
     overflow-y: hidden;
   }
   .trend-cell {
+    flex: 0 0 minmax(250px, 68%);
+    width: 68%;
+    min-width: 250px;
     border-right: 1px solid var(--line-soft);
     border-bottom: none;
     height: 148px;
@@ -4251,6 +4280,12 @@ button {
    特异性相同且写在后面，会覆盖 hidden，导致收起后趋势图仍占满高度（实测踩到）。 */
 .trend-section > .collapsible-body[hidden] {
   display: none;
+}
+
+.trend-section .trend-section-inner {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
 }
 
 .trend-section .trends {

@@ -379,7 +379,14 @@ export function Trends({ snap, dense = false }: Props & { dense?: boolean }) {
   const clipped = spanMin > 0 && wantedMin > spanMin + 1;
 
   return (
-    <div className={dense ? 'trends trends-dense' : 'trends'}>
+    <div className={dense ? 'trend-section-inner trends-dense' : 'trend-section-inner'}>
+      {/*
+        范围条放在网格外面。
+        早先它作为 `.trends` 的第一个网格项（grid-column: 1/-1），在窄屏下
+        `.trends` 会变成 grid-auto-flow: column 的横滑行——范围条自己占了
+        一列，三张图被推到后面，手机上只能看到一张图加一大片空白（截图实测）。
+        独立成一层后，两种布局都不会互相干扰。
+      */}
       <div className="trend-range-bar" role="group" aria-label="趋势时间范围">
         {(Object.keys(RANGE_LABEL) as TrendRange[]).map((r) => (
           <button
@@ -397,9 +404,11 @@ export function Trends({ snap, dense = false }: Props & { dense?: boolean }) {
           {clipped ? '（范围超出缓冲，已显示全部）' : ''}
         </span>
       </div>
-      {SPECS.map((spec) => (
-        <Chart key={spec.key} spec={spec} snap={snap} range={range} />
-      ))}
+      <div className={dense ? 'trends trends-dense' : 'trends'}>
+        {SPECS.map((spec) => (
+          <Chart key={spec.key} spec={spec} snap={snap} range={range} />
+        ))}
+      </div>
     </div>
   );
 }

@@ -160,6 +160,11 @@ try {
   await page.waitForTimeout(2500);
   await snap(page, '06-replay');
 
+  // 运营评分卡：跑久一点让样本量进入 provisional/stable，分数才有意义
+  await page.locator('.side-tab', { hasText: '评分' }).click();
+  await page.waitForTimeout(1600);
+  await snap(page, '11-scorecard');
+
   // 工艺编排
   await page.locator('.topbar button', { hasText: '工艺编排' }).click();
   await page.waitForTimeout(2000);

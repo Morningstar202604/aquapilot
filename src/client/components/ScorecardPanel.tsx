@@ -106,7 +106,14 @@ export function ScorecardPanel({ card }: { card: Scorecard | undefined }) {
         </div>
         <div className="alt-row">
           <span className="alt-name">场景内吨水电耗</span>
-          <span className="alt-score">{card.energy.scenarioKwhM3.toFixed(3)} kWh/m³</span>
+          {/*
+            没有场景时不能显示 0.000：那会被读成「危机工况不耗电」。
+            评测里「没有数据」与「数值是 0」必须严格区分（Home Assistant
+            把 unavailable 与 off 分开处理，是同一个理由）。
+          */}
+          <span className="alt-score">
+            {card.energy.scenarioKwhM3 > 0 ? `${card.energy.scenarioKwhM3.toFixed(3)} kWh/m³` : '本次未注入扰动'}
+          </span>
         </div>
         <div className="control-hint">
           场景内能耗不参与打分（危机工况本来就该多耗电），列出是为了看「用多少电换回了达标」。
