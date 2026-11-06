@@ -53,6 +53,8 @@ export interface McpFacade {
   applyRecommendation(): { ok: boolean; error?: string };
   getMetrics(): string;
   getReport(): string;
+  /** 运营评分卡（四维）；外部 agent 用它评估"当前运行得怎么样" */
+  getScorecard(): Record<string, unknown>;
 }
 
 export interface McpRequestInput {
@@ -319,6 +321,17 @@ const TOOLS: ToolDef[] = [
       } catch (err) {
         return { content: `Simulation failed: ${String(err)}`, isError: true };
       }
+    },
+  },
+  {
+    name: 'get_scorecard',
+    description:
+      'Operational scorecard for the current run: four weighted dimensions (effluent compliance, energy, biological stability, crisis response) computed from simulation output, plus the discharge standard the score was judged against. Read-only.',
+    readOnly: true,
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    run(_args, facade) {
+      const card = facade.getScorecard();
+      return { content: JSON.stringify(card, null, 2), structured: card };
     },
   },
   {

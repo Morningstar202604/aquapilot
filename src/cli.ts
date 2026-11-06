@@ -23,6 +23,8 @@ import {
   qualityScoreOf,
 } from './sim/networkEngine';
 import { SCENARIOS, type ScenarioType } from './sim/scenarios';
+import { STANDARD_30_DAY_CRISIS, computeScorecard, type CrisisStep, type ScorecardSample } from './sim/scorecard';
+import { DEFAULT_STANDARD, DISCHARGE_STANDARDS, standardById } from './sim/standards';
 import { checkRunReadiness } from './sim/topologyEngine';
 import { CONTROL_BOUNDS, type ControlSettings } from './sim/config';
 
@@ -88,6 +90,61 @@ function runSimulation(opts: SimOptions): { samples: Sample[]; totals: { inflowM
     }
   }
   return { samples, totals: { inflowM3: state.totals.inflowM3, energyKwh: state.totals.energyKwh } };
+}
+
+/**
+ * 30 天危机跑：按标准脚本逐日注入扰动，并留下逐时刻观测供评分卡使用。
+ *
+ * 与 runSimulation 的区别是「什么时候注入什么」由时间轴决定，而不是开头
+ * 一次性设一个场景。真实运营的难点正是"连续事件之间的恢复期够不够"，
+ * 单一场景跑不出来这件事。
+ */
+function runCrisisSimulation(
+  opts: SimOptions,
+  script: CrisisStep[],
+): {
+  samples: ScorecardSample[];
+  totals: { inflowM3: number; energyKwh: number };
+  fired: { day: number; type: string; atMin: number }[];
+} {
+  let state = spinUpNetwork(
+    createNetworkState(PLANT_TOPOLOGY, { seed: 20261019, controls: opts.controls }),
+    PLANT_TOPOLOGY,
+    5,
+  );
+  const samples: ScorecardSample[] = [];
+  const fired: { day: number; type: string; atMin: number }[] = [];
+  const totalMin = opts.days * 1440;
+  const pending = [...script].sort((a, b) => a.day - b.day);
+  let elapsed = 0;
+
+  while (elapsed < totalMin) {
+    // 到点注入：每次只注入一个，避免同一分钟叠加多个场景（引擎只保留一个）
+    const day = elapsed / 1440;
+    const next = pending[0];
+    if (next && day >= next.day) {
+      startNetworkScenario(state, next.type, { durationMin: next.durationDays * 1440 });
+      fired.push({ day: next.day, type: next.type, atMin: elapsed });
+      pending.shift();
+    }
+    state = stepNetwork(state, PLANT_TOPOLOGY, 1);
+    elapsed += 1;
+    if (elapsed % 30 === 0) {
+      const activeScenario =
+        state.scenario !== null &&
+        state.timeMin >= state.scenario.startedAt &&
+        state.timeMin < state.scenario.startedAt + state.scenario.durationMin;
+      samples.push({
+        minute: elapsed,
+        effluent: { ...state.effluent },
+        energyKw: state.energy.totalKw,
+        mlss: (state.biomassKg * 1000) / Math.max(1, state.volume.bio),
+        srtDays: state.srtDays,
+        inScenario: activeScenario,
+      });
+    }
+  }
+  return { samples, totals: { inflowM3: state.totals.inflowM3, energyKwh: state.totals.energyKwh }, fired };
 }
 
 function worstOf(samples: Sample[], key: 'cod' | 'nh' | 'tn' | 'tp' | 'ss'): number {
@@ -159,6 +216,10 @@ function usage(): string {
     （同 simulate 的 --days/--scenario/--control）
   bench                          BSM1 Table 6 基准对照（Christoulou et al. 2024 数值）
   calibrate                      对合成目标跑参数辨识 + 坐标下降校准，打印辨识结果
+  scorecard                      跑标准 30 天危机脚本，输出四维运营评分（达标/能效/生物稳定/危机）
+    --days <n>                   至少 30 天（默认 30）
+    --standard <id>              排放口径：${DISCHARGE_STANDARDS.map((s) => s.id).join(' | ')}
+    --json                       以 JSON 输出
   topology <validate|export>     校验拓扑 JSON 文件，或导出标准厂拓扑
     --file <path>                拓扑 JSON 文件（validate 必填）
   version                        显示版本号
@@ -196,6 +257,8 @@ async function main(): Promise<number> {
       json: { type: 'boolean', default: false },
       /** topology 子命令的输入文件 */
       file: { type: 'string' },
+      /** scorecard 的排放标准口径 */
+      standard: { type: 'string' },
     },
     strict: false,
   });
@@ -274,6 +337,51 @@ async function main(): Promise<number> {
       }
       console.error(`未知子命令：${sub ?? '(空)'}\n用法：aquapilot topology <validate|export> --file <path>`);
       return 1;
+    }
+    case 'scorecard': {
+      /**
+       * 运营评分卡：默认跑标准 30 天危机脚本。
+       *
+       * 分数全部由仿真结果算出（参考项目实测「AI 自评会高估 20 分」），
+       * 四个维度分别给结论与扣分依据，可直接用于回归对比。
+       */
+      const script: CrisisStep[] = STANDARD_30_DAY_CRISIS;
+      const days = Math.max(opts.days, 30);
+      if (!parsed.values.json) {
+        console.log(`AquaPilot 运营评分卡：${days} 天，按标准危机脚本注入 ${script.length} 次扰动…`);
+        for (const s of script) console.log(`  第 ${s.day} 天  ${s.type.padEnd(18)} ${s.durationDays} 天  ${s.intent}`);
+      }
+      const { samples, totals, fired } = runCrisisSimulation({ ...opts, days }, script);
+      const standardId = parsed.values.standard as string | undefined;
+      const standard = standardId ? standardById(standardId) : DEFAULT_STANDARD;
+      if (!standard) {
+        throw new Error(`未知排放标准 ${standardId}（可用：${DISCHARGE_STANDARDS.map((s) => s.id).join(', ')}）`);
+      }
+      const card = computeScorecard(samples, PLANT.designFlowM3h, standard);
+
+      if (parsed.values.json) {
+        console.log(JSON.stringify({ days, fired, scorecard: card, totals }, null, 2));
+        return 0;
+      }
+
+      console.log('\n── 四维评分 ────────────────────────────────────');
+      for (const d of card.dimensions) {
+        console.log(
+          `  ${d.label.padEnd(6)} ${String(d.score).padStart(3)} /100  权重 ${String(d.weight).padStart(2)}%   ${d.detail}`,
+        );
+        for (const why of d.deductions) console.log(`           · ${why}`);
+      }
+      console.log(`\n  加权总分 ${card.total} / 100`);
+      console.log(
+        `  样本 ${card.samples} 点 / 覆盖 ${(card.spanMin / 60).toFixed(1)} h；常态 ${card.energy.normalKwhM3.toFixed(3)} kWh/m³，场景内 ${card.energy.scenarioKwhM3.toFixed(3)} kWh/m³`,
+      );
+      if (card.violations.length > 0) {
+        console.log('\n── 超标分布 ────────────────────────────────────');
+        for (const v of card.violations) console.log(`  ${v.metric.padEnd(4)} ${v.minutes} 个采样点`);
+      } else {
+        console.log('\n  全程无指标越限。');
+      }
+      return 0;
     }
     case 'simulate': {
       if (!parsed.values.json) console.log(`AquaPilot 离线仿真：${days} 天（预热 5 天稳态后开始计时）…`);

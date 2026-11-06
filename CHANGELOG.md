@@ -42,7 +42,30 @@ class of silent-truth defects is closed.
 - **MCP tool descriptions in English** with English business errors: external
   agents consume these strings directly, and a mixed-language catalogue reads
   as an unfinished integration.
-- 42 new tests (98 files / 1253 total).
+### Added (continued)
+
+- **Operational scorecard** (`src/sim/scorecard.ts`): four weighted dimensions —
+  effluent compliance (40), energy (20), biological stability (20) and crisis
+  response (20) — computed from simulation output, never self-reported. The
+  reference benchmark found LLM self-assessment inflated its own score by up to
+  20 points, so the rule here is that only the engine may score the operator.
+- **Discharge standard profiles** (`src/sim/standards.ts`): GB 18918-2002 Class
+  1A / 1B and the IWA BSM1 evaluation envelope. A run judged against Class 1A
+  and against the BSM1 envelope legitimately produces different scores; the
+  scorecard now states which one it used instead of leaving the reader to guess.
+  Running the standard 30-day crisis script makes the difference visible —
+  Class 1A flags 1023 SS samples, the BSM1 envelope flags 75, because the
+  benchmark plant settles at TSS ~11.7 mg/L against a 10 mg/L Class 1A limit.
+- **`aquapilot scorecard`**: runs the standard 30-day crisis timeline (six
+  disturbances: storm, shock load, toxic inlet, cold spell, blower failure,
+  chemical shortage), then prints the four dimensions with per-metric deduction
+  reasons. `--standard` switches the judging envelope; `--json` for CI.
+- **`get_scorecard` MCP tool** (11 tools total) and a `scorecard` field on every
+  snapshot, so the browser, the CLI and external agents all read the same score.
+- **Score tab** in the UI: total, four dimensions with bars, deduction reasons,
+  violation distribution and normal-vs-scenario energy comparison.
+
+- 65 new tests (100 files / 1281 total).
 
 ### Changed
 

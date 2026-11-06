@@ -42,6 +42,7 @@ import { TopbarMenu } from './components/TopbarMenu';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { CalibrationPanel } from './components/CalibrationPanel';
 import { InfluentPanel } from './components/InfluentPanel';
+import { ScorecardPanel } from './components/ScorecardPanel';
 import { Onboarding, HelpButton, hasSeenOnboarding, markOnboarded } from './components/Onboarding';
 import { Collapsible } from './components/Collapsible';
 import { PLANT } from '../sim/config';
@@ -57,7 +58,8 @@ type Tab =
   | 'calibration'
   | 'influent'
   | 'replay'
-  | 'health';
+  | 'health'
+  | 'score';
 type View = 'plant' | 'editor';
 
 export default function App() {
@@ -510,6 +512,15 @@ export default function App() {
               <button
                 className="side-tab"
                 role="tab"
+                aria-selected={tab === 'score'}
+                data-active={tab === 'score'}
+                onClick={() => setTab('score')}
+              >
+                评分
+              </button>
+              <button
+                className="side-tab"
+                role="tab"
                 aria-selected={tab === 'analysis'}
                 data-active={tab === 'analysis'}
                 onClick={() => setTab('analysis')}
@@ -606,6 +617,11 @@ export default function App() {
             {tab === 'insights' && (
               <ErrorBoundary compact label="收益面板">
                 <InsightsPanel snap={snap} aiEnabled={aiEnabled} />
+              </ErrorBoundary>
+            )}
+            {tab === 'score' && (
+              <ErrorBoundary compact label="运营评分">
+                <ScorecardPanel card={snap.scorecard} />
               </ErrorBoundary>
             )}
             {tab === 'analysis' && (

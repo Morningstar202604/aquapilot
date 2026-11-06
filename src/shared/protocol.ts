@@ -133,12 +133,15 @@ export interface TrendPoint {
   influentNh: number;
   influentFlow: number;
   effluentCod: number;
+  effluentBod: number;
   effluentNh: number;
   effluentTn: number;
   effluentTp: number;
   effluentSs: number;
   do: number;
   mlss: number;
+  /** 污泥龄（d）：运营评分卡要评生物稳定性，趋势缓冲必须带上 */
+  srtDays: number;
   energyKw: number;
   blanket: number;
 }
@@ -169,6 +172,14 @@ export interface PlantSnapshot {
   /** 全厂健康度：五个可核对维度的加权分 */
   health: PlantHealth;
   trends: TrendPoint[];
+  /**
+   * 运营评分卡（四维：达标 / 能效 / 生物稳定 / 危机处置）。
+   *
+   * 分数由服务端从趋势缓冲复算，不由 AI 自评——参考项目实测 AI 自评
+   * 会高估 20 分。standard 字段写明判读口径，避免同一分数在不同标准下
+   * 被误读。
+   */
+  scorecard?: import('../sim/scorecard').Scorecard;
   forecast: {
     points: {
       minute: number;

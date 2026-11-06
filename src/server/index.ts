@@ -252,12 +252,14 @@ function pushTrend(state: NetworkSimState, trend: TrendPoint[]): void {
     influentNh: state.influent.nh,
     influentFlow: state.influent.flow,
     effluentCod: state.effluent.cod,
+    effluentBod: state.effluent.bod,
     effluentNh: state.effluent.nh,
     effluentTn: state.effluent.tn,
     effluentTp: state.effluent.tp,
     effluentSs: state.effluent.ss,
     do: last?.doLevel ?? 0,
     mlss: Math.round(mlss),
+    srtDays: Number(state.srtDays.toFixed(2)),
     energyKw: state.energy.totalKw,
     blanket: state.clarifier.blanketM,
   });
@@ -1764,6 +1766,19 @@ async function main(): Promise<void> {
     },
     getMetrics: () => renderPrometheus(),
     getReport: () => buildOperationsReport(buildSnapshot()),
+    /**
+     * 评分卡走同一个 buildSnapshot，保证 MCP 与浏览器看到的是同一份分数。
+     * 未积累到趋势点时返回明确的对象而不是空字符串——agent 需要能区分
+     * 「没有数据」与「分数是 0」。
+     */
+    getScorecard: () => {
+      const snap = buildSnapshot();
+      return {
+        available: Boolean(snap.scorecard && snap.scorecard.samples > 0),
+        standard: snap.scorecard?.standard ?? null,
+        scorecard: snap.scorecard ?? null,
+      };
+    },
   };
 
   /**

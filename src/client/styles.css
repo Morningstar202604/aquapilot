@@ -809,19 +809,23 @@ button {
 }
 
 .side-tabs {
-  display: flex;
+  display: grid;
+  /* 11 个页签单行排会挤成 33px 一个：改为 6 列网格，两行放下，
+     每个页签有足够宽度单行显示「控制与工况」这类四字标签。 */
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   border-bottom: 1px solid var(--line);
   flex: none;
   background: linear-gradient(180deg, rgba(62, 224, 181, 0.02), transparent);
 }
 
 .side-tab {
-  flex: 1;
-  height: 40px;
+  height: 32px;
   font-size: 10.5px;
-  /* 七个页签挤在 372px 侧栏里：11.5px 时「控制与工况」会被折成两行，
-     与其他页签的垂直对齐全乱（截图实测）。禁止换行 + 略小字号即可单行放下。 */
+  /* 网格已保证宽度：仍禁止换行，避免「控制与工况」被硬折成两行破坏对齐 */
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 2px;
   color: var(--text-3);
   border-bottom: 1.5px solid transparent;
   transition:
@@ -4547,4 +4551,161 @@ button {
 
 .minimap-bg {
   fill: #ffffff;
+}
+
+/* 运营评分卡：分数 → 四维分解 → 扣分依据 */
+.score-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  padding: 10px 12px;
+}
+
+.score-card[data-tone='good'] {
+  border-color: rgba(12, 157, 126, 0.4);
+}
+
+.score-card[data-tone='risk'] {
+  border-color: rgba(210, 71, 47, 0.4);
+}
+
+.score-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.score-total {
+  font-family: var(--mono);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.score-card[data-tone='good'] .score-total {
+  color: var(--water-dim);
+}
+
+.score-card[data-tone='risk'] .score-total {
+  color: var(--alarm);
+}
+
+.score-unit {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.score-standard {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-3);
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score-note {
+  margin-top: 5px;
+  font-size: 10px;
+  color: var(--text-3);
+  line-height: 1.45;
+}
+
+.score-dim {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.score-dim-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.score-dim-name {
+  font-size: 11.5px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.score-dim-weight {
+  font-size: 9.5px;
+  color: var(--text-3);
+  font-family: var(--mono);
+}
+
+.score-dim-value {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.score-dim-value[data-tone='good'] {
+  color: var(--water-dim);
+}
+
+.score-dim-value[data-tone='risk'] {
+  color: var(--alarm);
+}
+
+.score-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+
+.score-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--text-3);
+  transition: width 0.3s ease;
+}
+
+.score-bar > span[data-tone='good'] {
+  background: var(--water);
+}
+
+.score-bar > span[data-tone='watch'] {
+  background: var(--amber);
+}
+
+.score-bar > span[data-tone='risk'] {
+  background: var(--alarm);
+}
+
+.score-dim-detail {
+  font-size: 10px;
+  color: var(--text-2);
+}
+
+.score-why {
+  margin: 0;
+  padding-left: 14px;
+  font-size: 9.5px;
+  color: var(--text-3);
+  line-height: 1.5;
+}
+
+.score-violations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.score-violation {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(210, 71, 47, 0.08);
+  color: var(--alarm-dim);
 }

@@ -19,6 +19,11 @@ const facade: McpFacade = {
   applyRecommendation: () => ({ ok: true }),
   getMetrics: () => '# HELP test\n',
   getReport: () => '# 运营报告\n',
+  getScorecard: () => ({
+    available: true,
+    standard: { id: 'gb18918-1a', label: 'GB 18918-2002 一级 A' },
+    scorecard: { total: 88 },
+  }),
 };
 
 const post = (body: unknown, opts: { origin?: string; host?: string; pv?: string } = {}) =>
@@ -98,6 +103,21 @@ describe('MCP 握手与工具枚举', () => {
     expect(result.protocolVersion).toBe('2025-06-18');
     expect(result.capabilities).toEqual({ tools: { listChanged: false } });
     expect((result.serverInfo as Record<string, unknown>).name).toBe('aquapilot');
+  });
+
+  it('get_scorecard 返回评分卡与判读口径', async () => {
+    const r = await post({
+      jsonrpc: '2.0',
+      id: 90,
+      method: 'tools/call',
+      params: { name: 'get_scorecard', arguments: {} },
+    });
+    const payload = r.body as {
+      result: { structuredContent: { available: boolean; standard: { id: string }; scorecard: { total: number } } };
+    };
+    expect(payload.result.structuredContent.available).toBe(true);
+    expect(payload.result.structuredContent.standard.id).toBe('gb18918-1a');
+    expect(payload.result.structuredContent.scorecard.total).toBe(88);
   });
 
   it('tools/list 暴露全部工具并带 readOnlyHint 注解', () => {

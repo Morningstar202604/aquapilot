@@ -12,6 +12,8 @@ import type { BenchmarkSummary } from '../shared/protocol';
 import type { ShadowBenchmark } from './benchmark';
 import { buildTankPatch, buildTankStates } from './tankStates';
 import { takeNewPoints, type TrendCursor } from './trendCursor';
+import { scorecardFromTrend } from '../sim/scorecard';
+import { DEFAULT_STANDARD } from '../sim/standards';
 
 /**
  * 快照视图：把仿真状态投影成「浏览器要看的形状」。
@@ -28,6 +30,8 @@ export interface SnapshotSource {
   net: NetworkSimState;
   trend: TrendPoint[];
   speed: number;
+  /** 当前判读用的排放标准（缺省一级 A）；由入口注入，便于切换口径 */
+  standard?: import('../sim/standards').DischargeStandard;
   paused: boolean;
   recommendation: Recommendation | null;
   forecastCache: { key: string | null; value: ForecastOutcomeX | null };
@@ -174,6 +178,19 @@ export function createSnapshotService(deps: SnapshotDeps) {
       alarmAttribution: attribution,
       health,
       trends: src.trend,
+      /**
+       * 运营评分卡：直接从趋势缓冲复算。
+       *
+       * 放在全量帧而不是增量帧里——它随窗口整体变化（达标率、均值），
+       * 不是一个 tick 的增量；每帧只算一次 720 点累加，实测 < 0.2 ms。
+       */
+      scorecard: scorecardFromTrend(src.trend, {
+        flowM3h: s.influent.flow,
+        standard: src.standard ?? DEFAULT_STANDARD,
+        scenarioWindow: s.scenario
+          ? { from: s.scenario.startedAt, to: s.scenario.startedAt + s.scenario.durationMin }
+          : null,
+      }),
       forecast: fc
         ? {
             points: fc.points.map((pt) => ({
