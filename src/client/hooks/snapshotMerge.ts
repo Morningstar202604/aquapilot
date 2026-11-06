@@ -141,5 +141,9 @@ export function mergeSnapshot(prev: PlantSnapshot, patch: SnapshotPatch): PlantS
      */
     forecastBand: patch.forecastBand ?? prev.forecastBand,
     benchmark: patch.benchmark ?? prev.benchmark,
+    // 评分卡与 benchmark 同理：随增量帧刷新。漏了它，评分页签会停在
+    // 最近一次全量帧（连接/重置那一刻），暴雨期间分数纹丝不动——
+    // 这正是能力考察 J2 抓到的真缺陷（协议、合并、两处都要接）。
+    scorecard: patch.scorecard ?? prev.scorecard,
   };
 }
