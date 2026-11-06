@@ -32,7 +32,8 @@
     "walkthrough": "tsx scripts/walkthrough.mjs",
     "benchmark:prove": "tsx scripts/prove-benchmark.ts",
     "cli": "node dist/cli.mjs",
-    "exe": "npm run build && node scripts/build-exe.mjs"
+    "exe": "npm run build && node scripts/build-exe.mjs",
+    "exercise": "tsx scripts/exercise-realworld.ts"
   },
   "dependencies": {
     "echarts": "6.1.0",
