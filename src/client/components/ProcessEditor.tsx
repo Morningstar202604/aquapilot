@@ -17,6 +17,8 @@ import { deleteUnits, moveUnitsTo, setRoute } from '../../model/topologyEdit';
 import { streamColor, streamLabel as streamName, unitKindAccent } from '../../shared/streamMeta';
 import { PlantCanvas } from './PlantCanvas';
 import type { PlantSnapshot, TopologyVersionSummary } from '../../shared/protocol';
+import { APP_VERSION } from '../../shared/version';
+import { MAX_IMPORT_BYTES, exportTopology, importTopology, suggestFileName } from '../../model/topologyExchange';
 
 interface Props {
   snap: PlantSnapshot;
@@ -474,6 +476,52 @@ export function ProcessEditor({
     onChange({ ...topology, train: next });
   };
 
+  /**
+   * 拓扑导入 / 导出。
+   *
+   * 导出走 Blob + a[download]，不请求服务端：这份 JSON 就是当前草稿的
+   * 完整快照，多一次往返只会引入"导出的和屏幕上的不一致"的风险。
+   * 导入先过 `importTopology`（与服务端同一套 sanitize），失败就把原因
+   * 显示在工具栏上，绝不让一份坏文件进草稿。
+   */
+  const [ioNote, setIoNote] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+
+  const exportCurrent = () => {
+    const json = exportTopology(topology, APP_VERSION);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = suggestFileName(topology.name);
+    a.click();
+    URL.revokeObjectURL(url);
+    setIoNote({ kind: 'ok', text: `已导出 ${topology.units.length} 单元 / ${topology.connections.length} 物流` });
+  };
+
+  const importFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // 同一个文件连续选两次不会触发 change，必须清空 value
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > MAX_IMPORT_BYTES) {
+      setIoNote({ kind: 'error', text: `文件 ${(file.size / 1024 / 1024).toFixed(1)} MB 超过 2 MB 上限` });
+      return;
+    }
+    void file.text().then((text) => {
+      const result = importTopology(text);
+      if (!result.ok) {
+        setIoNote({ kind: 'error', text: `导入失败：${result.error}` });
+        return;
+      }
+      onChange(result.topology);
+      const src = result.meta.appVersion ? `（导出自 v${result.meta.appVersion}）` : '';
+      setIoNote({
+        kind: 'ok',
+        text: `已导入 ${result.topology.units.length} 单元 / ${result.topology.connections.length} 物流${src}，未应用`,
+      });
+    });
+  };
+
   return (
     <div className="editor">
       <div className="editor-palette">
@@ -510,6 +558,14 @@ export function ProcessEditor({
             {topology.units.length} 单元 · {topology.connections.length} 物流
           </span>
           <span className="pill">{errors.length} 错误</span>
+          {ioNote && (
+            <span className="pill pill-io" data-tone={ioNote.kind === 'error' ? 'alarm' : undefined} role="status">
+              {ioNote.text}
+              <button className="pill-io-close" aria-label="关闭提示" onClick={() => setIoNote(null)}>
+                ×
+              </button>
+            </span>
+          )}
           {selection.length > 1 && (
             <span className="pill" data-tone="amber" data-active>
               已选 {selection.length} 个
@@ -534,6 +590,13 @@ export function ProcessEditor({
           <button className="pill" onClick={() => onChange(PLANT_TOPOLOGY)}>
             恢复标准厂
           </button>
+          <button className="pill" onClick={exportCurrent} title="导出为 JSON 文件，可存档或分享给同事">
+            导出
+          </button>
+          <label className="pill pill-file" title="导入 JSON 拓扑（覆盖当前草稿，可撤销）">
+            导入
+            <input type="file" accept="application/json,.json" onChange={importFile} aria-label="导入拓扑文件" />
+          </label>
           {dirtyLayout && (
             <button
               className="pill"

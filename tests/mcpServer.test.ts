@@ -150,7 +150,7 @@ describe('MCP 工具调用与错误约定', () => {
     const out = post(rpc(7, 'tools/call', { name: 'start_scenario', arguments: { scenario: 'meteor' } }));
     const { result } = out.body as { result: { isError?: boolean; content: { text: string }[] } };
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('未知场景');
+    expect(result.content[0].text).toContain('Unknown scenario');
   });
 
   it('set_control 把数字参数传给门面；非数字被拒', () => {

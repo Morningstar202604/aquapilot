@@ -30,6 +30,7 @@ import { logger, metrics, metricsJson, recordHttp, recordTick, renderPrometheus 
 import { buildOperationsReport, decisionsCsv, snapshotsCsv } from './export';
 import { handleMcpRequest, mcpInternalError, mcpToolByName, type McpFacade } from './mcp';
 import { syncCursorToBuffer } from './trendCursor';
+import { APP_VERSION } from '../shared/version';
 import { createShadowPlant, stepShadow, summarizeBenchmark, type ShadowPlant } from './benchmark';
 import { llmConfigStore, sanitizeDraft } from './llmConfig';
 import { discoverModels, fetchPublicUrl, testConnection } from '../ai/providers';
@@ -535,6 +536,7 @@ function watchdogInput(): CheckInput {
   const status = agentConfigStore.status();
   const llmRuntime = llmConfigStore.getRuntime();
   const simMinutes = runtime.net.timeMin;
+  const series = runtime.net.influentSeries ?? null;
   return {
     tickErrors: metrics.tickErrors,
     tickDelta: simMinutes - lastSimMinutes,
@@ -551,6 +553,19 @@ function watchdogInput(): CheckInput {
     hookFailures,
     llmConfigured: llmRuntime !== null || readLlmConfig() !== null,
     configPath: status.path,
+    /**
+     * 进水数据源新鲜度：CSV 序列走完一轮后会循环复用，曲线照动但已不是新数据。
+     * 这里换成「已循环几轮」的客观描述，让面板能直接说清这件事。
+     */
+    influentSource: series
+      ? {
+          kind: 'csv',
+          name: series.name,
+          spanMin: series.durationMin,
+          cycles: series.durationMin > 0 ? Math.floor(simMinutes / series.durationMin) : 0,
+          points: series.samples.length,
+        }
+      : { kind: 'synthetic', name: 'synthetic', spanMin: null, cycles: 0, points: 0 },
   };
 }
 
@@ -1673,7 +1688,12 @@ async function main(): Promise<void> {
    * 协议处理在 ./mcp.ts（纯逻辑、可单测）；这里只做 HTTP 壳与鉴权。
    */
   const mcpFacade: McpFacade = {
-    serverVersion: process.env.npm_package_version ?? '0.6.0',
+    /**
+     * 版本必须来自打包时常量：`npm_package_version` 只在 `npm run` 起进程
+     * 时存在，`node dist/server/index.mjs`、Docker、SEA exe 都拿不到；
+     * 早先的 `?? '0.6.0'` 回落让 MCP 客户端在 0.7.2 上看到 0.6.0。
+     */
+    serverVersion: APP_VERSION,
     getTopology: () => runtime.topology,
     getState: () => {
       // trends 序列对 agent 无用且体积大：剥离后返回

@@ -31,6 +31,23 @@ export interface CheckInput {
   hookFailures: number;
   llmConfigured: boolean;
   configPath: string;
+  /**
+   * 进水数据源新鲜度（对标 ScadaLTS 的 no-update 事件类型）。
+   *
+   * 真实现场最危险的状态不是「数值超限」，而是「数值看起来正常但已经
+   * 停止更新」——探头冻结、通讯中断都会让操作员对着一条死数据做决策。
+   * 这里只报事实：数据源是什么、覆盖多久、循环了几轮。
+   */
+  influentSource?: {
+    kind: 'synthetic' | 'csv';
+    name: string;
+    /** 序列覆盖的仿真时长（分钟）；合成进水为 null */
+    spanMin: number | null;
+    /** 已循环轮数（仿真时间超过序列长度时为 >=1） */
+    cycles: number;
+    /** 序列内的采样点数 */
+    points: number;
+  };
 }
 
 export interface CheckResult {
@@ -216,6 +233,46 @@ export function evaluateChecks(input: CheckInput): CheckResult[] {
     detail: `${input.wsActive} 个连接`,
     action: input.wsActive > 0 ? '无需处理' : '确认浏览器页面是否已打开',
   });
+
+  /**
+   * 进水数据源。
+   *
+   * 三种状态必须分开说，不能合并成一句「正常」：
+   * - 合成进水：模型自带昼夜节律，永远不会"断数"，如实标注即可；
+   * - CSV 单轮未走完：数据仍在有效期内，只需知道还剩多少；
+   * - CSV 已循环：说明原始记录用完了，后面的工况是重复播放的历史剖面。
+   *   这是真实部署里最容易被忽略的失真点——曲线还在动，但已经不是新数据。
+   */
+  const src = input.influentSource;
+  if (!src) {
+    out.push({
+      id: 'influent-source',
+      label: '进水数据源',
+      severity: 'ok',
+      detail: '未采集（使用内置模型）',
+      action: '无需处理',
+    });
+  } else if (src.kind === 'synthetic') {
+    out.push({
+      id: 'influent-source',
+      label: '进水数据源',
+      severity: 'ok',
+      detail: '合成进水（昼夜节律 + 噪声）',
+      action: '无需处理',
+    });
+  } else {
+    const spanH = src.spanMin === null ? 0 : src.spanMin / 60;
+    const looping = src.cycles >= 1;
+    out.push({
+      id: 'influent-source',
+      label: '进水数据源',
+      severity: looping ? 'warn' : 'ok',
+      detail: looping
+        ? `CSV「${src.name}」${src.points} 点 / ${spanH.toFixed(1)} h，已循环 ${src.cycles} 轮——后续工况是同一段历史的重复`
+        : `CSV「${src.name}」${src.points} 点 / ${spanH.toFixed(1)} h，仍在有效期内`,
+      action: looping ? '接入持续采集，或换用覆盖更长周期的进水序列' : '无需处理',
+    });
+  }
 
   return out;
 }

@@ -112,7 +112,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'plant_state',
     description:
-      '读取污水厂当前运行状态：进出水水质、各反应器 DO/MLSS、控制量、累计水量/电耗/成本、活动告警与健康度。只读。',
+      'Current plant state: influent and effluent quality, per-reactor DO/MLSS, control setpoints, cumulative flow/energy/cost, active alarms and health score. Read-only.',
     readOnly: true,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     run(_args, facade) {
@@ -123,7 +123,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'set_control',
     description:
-      '设置曝气 DO 设定点、内回流比、污泥回流比、排泥比、加药量等控制量。数值会被夹紧到安全边界；设置后进入 30 分钟人工优先期（AI 只建议不覆盖）。',
+      'Set control setpoints (aeration DO, internal recycle ratio, RAS ratio, WAS ratio, chemical dosing). Values are clamped to safe bounds; a 30-minute manual-priority window follows, during which the AI operator only advises and never overrides.',
     readOnly: false,
     inputSchema: controlSchema(),
     run(args, facade) {
@@ -132,22 +132,23 @@ const TOOLS: ToolDef[] = [
         const v = args[k];
         if (v !== undefined) {
           if (typeof v !== 'number' || !Number.isFinite(v)) {
-            return { content: `参数 ${k} 必须是有限数字`, isError: true };
+            return { content: `${k} must be a finite number`, isError: true };
           }
           patch[k] = v;
         }
       }
       if (Object.keys(patch).length === 0) {
-        return { content: '至少提供一个控制量字段', isError: true };
+        return { content: 'Provide at least one control field', isError: true };
       }
       const r = facade.setControl(patch);
-      if (!r.ok) return { content: r.error ?? '设置失败', isError: true };
+      if (!r.ok) return { content: r.error ?? 'Failed to set control', isError: true };
       return { content: JSON.stringify({ ok: true, applied: patch, clamped: r.clamped ?? [] }) };
     },
   },
   {
     name: 'list_scenarios',
-    description: '列出全部可注入的扰动场景（暴雨、冲击负荷、毒性、鼓风机故障等）及其默认时长与幅度。只读。',
+    description:
+      'List every injectable disturbance scenario (storm, shock load, toxic inlet, blower failure, ...) with its default duration and magnitude. Read-only.',
     readOnly: true,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     run() {
@@ -156,14 +157,14 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'start_scenario',
-    description: '向正在运行的厂注入一个扰动场景（如暴雨冲击），可指定持续时长与幅度。',
+    description: 'Inject a disturbance scenario into the running plant, with optional duration and magnitude.',
     readOnly: false,
     inputSchema: {
       type: 'object',
       properties: {
-        scenario: { type: 'string', enum: scenarioNames, description: '场景类型' },
-        durationMin: { type: 'number', minimum: 10, maximum: 2880, description: '持续分钟（仿真时间）' },
-        magnitude: { type: 'number', minimum: 0, maximum: 3, description: '幅度倍率' },
+        scenario: { type: 'string', enum: scenarioNames, description: 'Scenario kind' },
+        durationMin: { type: 'number', minimum: 10, maximum: 2880, description: 'Duration in simulated minutes' },
+        magnitude: { type: 'number', minimum: 0, maximum: 3, description: 'Magnitude multiplier' },
       },
       required: ['scenario'],
       additionalProperties: false,
@@ -171,20 +172,20 @@ const TOOLS: ToolDef[] = [
     run(args, facade) {
       const kind = String(args.scenario);
       if (!(kind in SCENARIOS)) {
-        return { content: `未知场景 ${kind}，可用：${scenarioNames.join(', ')}`, isError: true };
+        return { content: `Unknown scenario ${kind}. Available: ${scenarioNames.join(', ')}`, isError: true };
       }
       const r = facade.startScenario(
         kind,
         typeof args.durationMin === 'number' ? args.durationMin : undefined,
         typeof args.magnitude === 'number' ? args.magnitude : undefined,
       );
-      if (!r.ok) return { content: r.error ?? '启动失败', isError: true };
+      if (!r.ok) return { content: r.error ?? 'Failed to start scenario', isError: true };
       return { content: JSON.stringify({ ok: true, scenario: kind }) };
     },
   },
   {
     name: 'clear_scenario',
-    description: '结束当前活动场景，恢复常规进水。',
+    description: 'Clear the active scenario and restore normal influent.',
     readOnly: false,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     run(_args, facade) {
@@ -194,7 +195,8 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'reset_sim',
-    description: '重置仿真到初始稳态（时钟归零、累计量清零）。破坏性操作：会丢弃当前运行的全部累计数据。',
+    description:
+      'Reset the simulation to the initial steady state (clock and totals to zero). Destructive: all accumulated run data is discarded.',
     readOnly: false,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     run(_args, facade) {
@@ -204,25 +206,30 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'apply_recommendation',
-    description: '采纳 AI 决策引擎当前给出的控制建议并立即执行。',
+    description: 'Apply the AI decision engine current control recommendation immediately.',
     readOnly: false,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     run(_args, facade) {
       const r = facade.applyRecommendation();
-      if (!r.ok) return { content: r.error ?? '当前没有可执行的建议', isError: true };
+      if (!r.ok) return { content: r.error ?? 'No recommendation is available to apply', isError: true };
       return { content: JSON.stringify(r) };
     },
   },
   {
     name: 'simulate_headless',
     description:
-      '离线推演：在不影响正在运行的厂的情况下，对当前工艺拓扑跑一段虚拟仿真并返回出水水质/达标/能耗汇总。用于 What-if 试算与方案比选，可叠加扰动场景与自定义控制量。',
+      'Offline what-if run: simulate the current flowsheet for a period without touching the live plant, returning effluent quality, compliance and energy summary. Optional scenario overlay and control overrides.',
     readOnly: true,
     inputSchema: {
       type: 'object',
       properties: {
-        durationMin: { type: 'number', minimum: 30, maximum: 1440, description: '推演时长（仿真分钟，预热另计）' },
-        scenario: { type: 'string', enum: scenarioNames, description: '可选：叠加的扰动场景' },
+        durationMin: {
+          type: 'number',
+          minimum: 30,
+          maximum: 1440,
+          description: 'Simulated minutes to run (warm-up excluded)',
+        },
+        scenario: { type: 'string', enum: scenarioNames, description: 'Optional disturbance scenario to overlay' },
         controls: controlSchema(),
       },
       required: ['durationMin'],
@@ -231,20 +238,20 @@ const TOOLS: ToolDef[] = [
     run(args, facade) {
       const durationMin = args.durationMin;
       if (typeof durationMin !== 'number' || !Number.isFinite(durationMin) || durationMin < 30 || durationMin > 1440) {
-        return { content: 'durationMin 必须在 30–1440 之间', isError: true };
+        return { content: 'durationMin must be between 30 and 1440', isError: true };
       }
       let controls: Record<string, unknown> | undefined;
       if (args.controls !== undefined) {
         if (!args.controls || typeof args.controls !== 'object' || Array.isArray(args.controls)) {
-          return { content: 'controls 必须是对象', isError: true };
+          return { content: 'controls must be an object', isError: true };
         }
         controls = args.controls as Record<string, unknown>;
         for (const [k, v] of Object.entries(controls)) {
           if (!(CONTROL_KEYS as readonly string[]).includes(k)) {
-            return { content: `未知控制量 ${k}`, isError: true };
+            return { content: `Unknown control ${k}`, isError: true };
           }
           if (typeof v !== 'number' || !Number.isFinite(v)) {
-            return { content: `控制量 ${k} 必须是有限数字`, isError: true };
+            return { content: `Control ${k} must be a finite number`, isError: true };
           }
         }
       }
@@ -310,13 +317,14 @@ const TOOLS: ToolDef[] = [
         };
         return { content: JSON.stringify(summary, null, 2), structured: summary };
       } catch (err) {
-        return { content: `推演失败：${String(err)}`, isError: true };
+        return { content: `Simulation failed: ${String(err)}`, isError: true };
       }
     },
   },
   {
     name: 'get_report',
-    description: '生成 Markdown 运营报告（运行摘要、达标状况、能水耗与 AI vs 人工基准对比）。',
+    description:
+      'Render a Markdown operations report: run summary, compliance, energy/water use and AI-vs-baseline comparison.',
     readOnly: true,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     run(_args, facade) {
@@ -325,7 +333,7 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'get_metrics',
-    description: '获取 Prometheus 格式的服务器指标（HTTP/SLO/仿真 tick/持久化）。',
+    description: 'Fetch server metrics in Prometheus text format (HTTP, SLO, simulation ticks, persistence).',
     readOnly: true,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     run(_args, facade) {
@@ -393,7 +401,7 @@ export function handleMcpRequest(input: McpRequestInput): McpResult {
 
   const rpc = input.body as { jsonrpc?: string; id?: unknown; method?: unknown; params?: unknown } | null;
   if (!rpc || typeof rpc !== 'object' || rpc.jsonrpc !== '2.0' || typeof rpc.method !== 'string') {
-    return { status: 400, body: rpcError(null, ERR_PARSE, '请求不是合法的 JSON-RPC 2.0 消息') };
+    return { status: 400, body: rpcError(null, ERR_PARSE, 'Request is not a valid JSON-RPC 2.0 message') };
   }
   const isNotification = !('id' in rpc);
   const id = rpc.id;
@@ -426,15 +434,15 @@ export function handleMcpRequest(input: McpRequestInput): McpResult {
       const params = rpc.params as { name?: unknown; arguments?: unknown } | undefined;
       const name = typeof params?.name === 'string' ? params.name : null;
       if (!params || !name) {
-        return { status: 200, body: rpcError(id, ERR_INVALID_PARAMS, '缺少工具名 name') };
+        return { status: 200, body: rpcError(id, ERR_INVALID_PARAMS, 'Missing tool name') };
       }
       const tool = TOOLS.find((t) => t.name === name);
       if (!tool) {
-        return { status: 200, body: rpcError(id, ERR_INVALID_PARAMS, `未知工具: ${name}`) };
+        return { status: 200, body: rpcError(id, ERR_INVALID_PARAMS, `Unknown tool: ${name}`) };
       }
       const args = (params.arguments ?? {}) as Record<string, unknown>;
       if (args && typeof args !== 'object') {
-        return { status: 200, body: rpcError(id, ERR_INVALID_PARAMS, 'arguments 必须是对象') };
+        return { status: 200, body: rpcError(id, ERR_INVALID_PARAMS, 'arguments must be an object') };
       }
       try {
         const out = tool.run(args, facade);
@@ -446,7 +454,7 @@ export function handleMcpRequest(input: McpRequestInput): McpResult {
         return {
           status: 200,
           body: rpcResult(id, {
-            content: [{ type: 'text', text: `工具执行异常：${String(err)}` }],
+            content: [{ type: 'text', text: `Tool execution failed: ${String(err)}` }],
             isError: true,
           }),
         };
@@ -456,7 +464,7 @@ export function handleMcpRequest(input: McpRequestInput): McpResult {
       if (isNotification) return { status: 202 };
       return {
         status: 200,
-        body: rpcError(id, ERR_INVALID_REQUEST, `不支持的方法: ${rpc.method}`),
+        body: rpcError(id, ERR_INVALID_REQUEST, `Unsupported method: ${rpc.method}`),
       };
   }
 }
@@ -468,7 +476,7 @@ export function mcpToolByName(name: string): ToolDef | undefined {
 
 /** 解析并执行一批工具调用错误时的统一内部错误兜底（供路由层 catch 使用）。 */
 export function mcpInternalError(err: unknown): McpResult {
-  return { status: 200, body: rpcError(null, ERR_INTERNAL, `内部错误: ${String(err)}`) };
+  return { status: 200, body: rpcError(null, ERR_INTERNAL, `Internal error: ${String(err)}`) };
 }
 
 function isAllowedOrigin(origin: string, host: string | null): boolean {

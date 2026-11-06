@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as echarts from 'echarts/core';
 import type { LineSeriesOption } from 'echarts/charts';
 import { LineChart } from 'echarts/charts';
@@ -6,11 +6,26 @@ import { GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent }
 import { CanvasRenderer } from 'echarts/renderers';
 import type { PlantSnapshot } from '../../shared/protocol';
 import { formatClock } from '../../shared/time';
+import {
+  RANGE_LABEL,
+  RANGE_MINUTES,
+  type TrendRange,
+  autoYMax,
+  loadRangePreference,
+  lttb,
+  saveRangePreference,
+  sliceByRange,
+} from './trendData';
+
+/** 排除 'all' 后的窗口分钟数，供「缓冲是否够用」判断使用 */
+const RANGE_MINUTES_ONLY = RANGE_MINUTES;
 
 echarts.use([LineChart, GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent, CanvasRenderer]);
 
 interface Props {
   snap: PlantSnapshot;
+  /** 全局时间范围（三张图共享同一窗口，便于横向对照） */
+  range?: TrendRange;
 }
 
 type SeriesKey = 'water' | 'nitrogen' | 'energy';
@@ -78,7 +93,7 @@ function withAlpha(hex: string, alpha: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
-function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
+function Chart({ spec, snap, range = 'all' }: { spec: ChartSpec; snap: PlantSnapshot; range?: TrendRange }) {
   const el = useRef<HTMLDivElement | null>(null);
   const chart = useRef<echarts.ECharts | null>(null);
 
@@ -99,7 +114,15 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
   useEffect(() => {
     const instance = chart.current;
     if (!instance) return;
-    const trend = snap.trends.slice(-260);
+    /**
+     * 数据量上限与降采样。
+     *
+     * 缓冲 720 点、三张图各自 Canvas 重绘时，切到 72 h 会明显卡顿；
+     * 降到 260 点后肉眼几乎看不出区别，而峰谷由 LTTB 保证保留。
+     * 抽样以首条曲线为保形基准，其余曲线同下标取值（共享 X 轴）。
+     */
+    const windowed = sliceByRange(snap.trends, range);
+    const trend = lttb(windowed, 260, (p) => Number(p[spec.series[0].key] as number)) as PlantSnapshot['trends'];
     const times = trend.map((p) => p.t);
     // 仿真时钟格式：天 时:分，如 D2 03:40。此前写成「55h10」，
     // 跨天后既不可读也无法判断是哪一天。
@@ -224,9 +247,12 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
     }
 
     const tracked = spec.series.filter((s) => (s.key as string) !== 'influentCod');
-    const maxTracked = Math.max(...trend.flatMap((p) => tracked.map((s) => p[s.key] as number)), 0.1);
     const limitMax = Math.max(...spec.limits.map((l) => l.value));
-    const yMax = Math.max(maxTracked * 1.6, limitMax * 1.35, 0.5);
+    // autoYMax 抽到纯函数里：同一套留白规则被三张图与单测共用
+    const yMax = autoYMax(
+      trend.flatMap((p) => tracked.map((s) => p[s.key] as number)),
+      limitMax,
+    );
 
     instance.setOption(
       {
@@ -292,7 +318,7 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
       },
       { notMerge: false, lazyUpdate: true },
     );
-  }, [snap, spec]);
+  }, [snap, spec, range]);
 
   const last = snap.trends[snap.trends.length - 1];
   const readout = spec.series
@@ -330,12 +356,49 @@ function Chart({ spec, snap }: { spec: ChartSpec; snap: PlantSnapshot }) {
  *
  * `dense` 用于把三张图压成一行高度更小的紧凑模式（编排视图或小屏），
  * 网格列数仍由 CSS 决定，这里只控制内边距与图表高度。
+ *
+ * 时间范围是三张图共享的（Grafana 的做法）：只改一张图的范围会让
+ * 「同一时刻的能耗与出水」对不上，那正是操作员最需要横向对照的东西。
  */
 export function Trends({ snap, dense = false }: Props & { dense?: boolean }) {
+  const [range, setRange] = useState<TrendRange>(() => loadRangePreference());
+  const pick = (r: TrendRange) => {
+    setRange(r);
+    saveRangePreference(r);
+  };
+  const total = snap.trends.length;
+  const shownPoints = sliceByRange(snap.trends, range);
+  const shown = shownPoints.length;
+  /**
+   * 缓冲只有 720 点：选中的窗口超过可用数据时如实说明，而不是假装画满。
+   * 起点只有一两个点时（刚启动/刚重置）不提示"超出缓冲"——那会让用户
+   * 以为数据出了问题，实际只是还没跑起来。
+   */
+  const spanMin = total > 1 ? snap.trends[total - 1].t - snap.trends[0].t : 0;
+  const wantedMin = range === 'all' ? spanMin : RANGE_MINUTES_ONLY[range];
+  const clipped = spanMin > 0 && wantedMin > spanMin + 1;
+
   return (
     <div className={dense ? 'trends trends-dense' : 'trends'}>
+      <div className="trend-range-bar" role="group" aria-label="趋势时间范围">
+        {(Object.keys(RANGE_LABEL) as TrendRange[]).map((r) => (
+          <button
+            key={r}
+            className="pill trend-range"
+            data-active={range === r}
+            aria-pressed={range === r}
+            onClick={() => pick(r)}
+          >
+            {RANGE_LABEL[r]}
+          </button>
+        ))}
+        <span className="trend-range-note">
+          {total <= 1 ? '等待采样点' : `${shown} 点 · 缓冲 ${(spanMin / 60).toFixed(1)} h`}
+          {clipped ? '（范围超出缓冲，已显示全部）' : ''}
+        </span>
+      </div>
       {SPECS.map((spec) => (
-        <Chart key={spec.key} spec={spec} snap={snap} />
+        <Chart key={spec.key} spec={spec} snap={snap} range={range} />
       ))}
     </div>
   );

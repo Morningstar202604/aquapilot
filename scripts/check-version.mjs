@@ -13,7 +13,7 @@
  *   node scripts/check-version.mjs --fix-cff     # 把 CITATION.cff 对齐到 package.json
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
 const version = pkg.version;
@@ -26,6 +26,31 @@ const fail = (msg) => {
 // ---- package.json ---------------------------------------------------------
 if (!/^\d+\.\d+\.\d+$/.test(version)) {
   fail(`package.json version "${version}" 不是三段式 semver（major.minor.patch）`);
+}
+
+// ---- src/shared/version.ts -------------------------------------------------
+/**
+ * 运行时常量（MCP serverInfo、CLI --version）必须与 package.json 同步。
+ *
+ * 这一条是补回来的真实缺陷：原先服务端读 `npm_package_version`，
+ * 非 `npm run` 启动（node dist、Docker、SEA exe）时回落到硬编码的
+ * 0.6.0，导致 MCP 客户端在 0.7.2 上看到 0.6.0。改成打包期常量后，
+ * 一致性只能靠这道门禁保证。
+ */
+const versionTs = readFileSync('src/shared/version.ts', 'utf8');
+const tsVersion = versionTs.match(/APP_VERSION\s*=\s*'([^']+)'/)?.[1];
+if (process.argv.includes('--fix-cff') && tsVersion !== version) {
+  writeFileSync(
+    'src/shared/version.ts',
+    versionTs.replace(/APP_VERSION\s*=\s*'[^']+'/, `APP_VERSION = '${version}'`),
+  );
+  console.log(`src/shared/version.ts 已对齐到 ${version}`);
+}
+const tsVersionAfter = readFileSync('src/shared/version.ts', 'utf8').match(/APP_VERSION\s*=\s*'([^']+)'/)?.[1];
+if (tsVersionAfter !== version) {
+  fail(
+    `src/shared/version.ts APP_VERSION "${tsVersionAfter}" 与 package.json "${version}" 不一致（node scripts/check-version.mjs --fix-cff 可自动对齐）`,
+  );
 }
 
 // ---- CITATION.cff ----------------------------------------------------------
@@ -85,4 +110,6 @@ for (let i = 1; i < headings.length; i += 1) {
   if (!newer || same) fail(`CHANGELOG 版本顺序错误：[${a}] 必须严格新于 [${b}]`);
 }
 
-console.log(`版本一致性通过：package.json=${version}，CITATION.cff=${cffVersionAfter}，CHANGELOG 顶部=[${first[1]}]`);
+console.log(
+  `版本一致性通过：package.json=${version}，src/shared/version.ts=${tsVersionAfter}，CITATION.cff=${cffVersionAfter}，CHANGELOG 顶部=[${first[1]}]`,
+);

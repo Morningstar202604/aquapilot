@@ -4,6 +4,52 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2026-11-06
+
+Federation release: the simulator becomes exchangeable and scriptable, and a
+class of silent-truth defects is closed.
+
+### Fixed
+
+- **MCP `serverInfo.version` reported 0.6.0 on any non-`npm run` start.** The
+  server read `process.env.npm_package_version`, which only exists under npm,
+  and fell back to a hardcoded string — Docker, `node dist/server/index.mjs`
+  and the SEA exe all advertised a version three releases stale. The version now
+  comes from `src/shared/version.ts`, asserted against `package.json`,
+  `CITATION.cff` and `CHANGELOG` by both `npm run check:version` and a test.
+- **Recycled influent CSVs looked live.** A CSV series shorter than the run
+  loops silently; the curves keep moving while the plant replays old history.
+  The watchdog now reports the source, its span and the loop count, and raises a
+  warning once the series has wrapped.
+
+### Added
+
+- **Topology import / export** (`src/model/topologyExchange.ts`): a versioned
+  JSON envelope with `format`, `formatVersion`, `exportedAt` and `appVersion`.
+  Import accepts both the envelope and a bare topology, enforces a 2 MB cap,
+  rejects unknown formats and future format versions, and then runs the same
+  server-side sanitiser as live edits — a file the CLI accepts is a file the
+  editor accepts.
+- **Trend range selector**: `6 h / 12 h / 24 h / 72 h / all`, shared by all three
+  charts and remembered across reloads. Windows longer than the 720-point
+  buffer say so instead of pretending to be full.
+- **LTTB downsampling for trends** (`src/client/components/trendData.ts`):
+  peaks and troughs survive reduction to 260 points, so an effluent exceedance
+  can no longer be averaged away by the chart.
+- **CLI**: `aquapilot version`, `aquapilot topology export`,
+  `aquapilot topology validate --file <path>` (structure + run-readiness gate,
+  exit code 1 on failure), and `simulate --json` for machine-readable output.
+- **MCP tool descriptions in English** with English business errors: external
+  agents consume these strings directly, and a mixed-language catalogue reads
+  as an unfinished integration.
+- 42 new tests (98 files / 1253 total).
+
+### Changed
+
+- `docs/REFERENCE-LEARNING.md` recommendations that were still open (trend
+  range + LTTB, no-update detection, topology exchange) are now implemented
+  rather than aspirational.
+
 ## [0.7.2] — 2026-11-04
 
 Full-UI audit release: every side tab, topbar button, editor toolbar

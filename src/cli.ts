@@ -10,9 +10,11 @@
  * - 单文件 exe：Node SEA 流程（scripts/build-exe.mjs），入口是本文件
  */
 import { parseArgs } from 'node:util';
-import { writeFileSync } from 'node:fs';
-import { PLANT_TOPOLOGY } from './model/topology';
-import { LIMITS } from './sim/config';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { PLANT_TOPOLOGY, validateTopology } from './model/topology';
+import { exportTopology, importTopology } from './model/topologyExchange';
+import { APP_VERSION } from './shared/version';
+import { LIMITS, PLANT } from './sim/config';
 import {
   createNetworkState,
   spinUpNetwork,
@@ -21,6 +23,7 @@ import {
   qualityScoreOf,
 } from './sim/networkEngine';
 import { SCENARIOS, type ScenarioType } from './sim/scenarios';
+import { checkRunReadiness } from './sim/topologyEngine';
 import { CONTROL_BOUNDS, type ControlSettings } from './sim/config';
 
 interface SimOptions {
@@ -151,15 +154,25 @@ function usage(): string {
     --scenario <kind>            注入扰动场景：${Object.keys(SCENARIOS).join(' | ')}
     --control <k=v>              设置控制量（可重复），如 --control doSetpoint=2.5 --control wasRatio=0.02
     --csv <path>                 每 30 分钟一条采样，输出 CSV
+    --json                       以 JSON 输出（供脚本消费，不打印人类可读文本）
   report                         生成 Markdown 运营报告到 stdout
     （同 simulate 的 --days/--scenario/--control）
   bench                          BSM1 Table 6 基准对照（Christoulou et al. 2024 数值）
   calibrate                      对合成目标跑参数辨识 + 坐标下降校准，打印辨识结果
+  topology <validate|export>     校验拓扑 JSON 文件，或导出标准厂拓扑
+    --file <path>                拓扑 JSON 文件（validate 必填）
+  version                        显示版本号
   help                           显示本帮助
+
+环境变量：
+  AQUAPILOT_TOKEN / AQUAPILOT_OPERATOR_TOKEN / AQUAPILOT_VIEWER_TOKEN
+                                  serve 的访问令牌（分级权限）
 
 示例：
   aquapilot simulate --days 7 --csv week.csv
-  aquapilot simulate --days 2 --scenario storm --control doSetpoint=3
+  aquapilot simulate --days 2 --scenario storm --control doSetpoint=3 --json
+  aquapilot topology validate --file my-plant.json
+  aquapilot topology export > standard.json
   aquapilot serve --port 8080`;
 }
 
@@ -179,6 +192,10 @@ async function main(): Promise<number> {
       csv: { type: 'string' },
       port: { type: 'string' },
       host: { type: 'string' },
+      /** 机器可读输出：CI 与脚本消费，不带任何装饰文本 */
+      json: { type: 'boolean', default: false },
+      /** topology 子命令的输入文件 */
+      file: { type: 'string' },
     },
     strict: false,
   });
@@ -196,13 +213,123 @@ async function main(): Promise<number> {
   };
 
   switch (command) {
+    case 'version': {
+      console.log(APP_VERSION);
+      return 0;
+    }
+    case 'topology': {
+      /**
+       * 拓扑校验 / 导出。
+       *
+       * 校验用的是服务端同一套 sanitize + 结构校验（`importTopology`），
+       * 所以「CLI 说能导入」等价于「Web 编辑器里能导入」——两处不会漂移。
+       * 导出走标准厂拓扑，可作为手写 JSON 的起点。
+       */
+      const sub = rest[0];
+      if (sub === 'export') {
+        const json = exportTopology(PLANT_TOPOLOGY, APP_VERSION);
+        process.stdout.write(json);
+        return 0;
+      }
+      if (sub === 'validate') {
+        const file = typeof parsed.values.file === 'string' ? parsed.values.file : undefined;
+        if (!file) throw new Error('topology validate 需要 --file <path>');
+        const text = readFileSync(file, 'utf8');
+        const result = importTopology(text);
+        if (!result.ok) {
+          console.error(`✗ 校验失败：${result.error}`);
+          return 1;
+        }
+        const t = result.topology;
+        const issues = validateTopology(t).filter((i) => i.severity === 'error');
+        const readiness = checkRunReadiness(t, PLANT.designFlowM3h);
+        if (parsed.values.json) {
+          console.log(
+            JSON.stringify(
+              {
+                ok: issues.length === 0,
+                units: t.units.length,
+                connections: t.connections.length,
+                train: t.train.length,
+                errors: issues.map((i) => i.message),
+                ready: readiness.ready,
+                blockers: readiness.blockers,
+                source: result.meta,
+              },
+              null,
+              2,
+            ),
+          );
+        } else {
+          console.log(`✓ 结构合法：${t.units.length} 单元 / ${t.connections.length} 物流 / 主序列 ${t.train.length}`);
+          if (result.meta.appVersion) console.log(`  导出自 v${result.meta.appVersion}（${result.meta.exportedAt}）`);
+          if (issues.length > 0) for (const i of issues) console.log(`  ✗ ${i.message}`);
+          console.log(
+            readiness.ready
+              ? '✓ 可运行（满足进水/曝气/二沉池等最低运行条件）'
+              : `✗ 不可运行：${readiness.blockers.join('；')}`,
+          );
+        }
+        return issues.length === 0 && readiness.ready ? 0 : 1;
+      }
+      console.error(`未知子命令：${sub ?? '(空)'}\n用法：aquapilot topology <validate|export> --file <path>`);
+      return 1;
+    }
     case 'simulate': {
-      console.log(`AquaPilot 离线仿真：${days} 天（预热 5 天稳态后开始计时）…`);
+      if (!parsed.values.json) console.log(`AquaPilot 离线仿真：${days} 天（预热 5 天稳态后开始计时）…`);
       const { samples, totals } = runSimulation(opts);
-      printSummary(opts, samples, totals);
+      if (parsed.values.json) {
+        /**
+         * JSON 输出只给结构化事实，不带任何中文说明段落。
+         * 供 CI 断言与外部调度系统消费；字段名与 WS 协议保持一致。
+         */
+        const avg = (k: 'cod' | 'nh' | 'tn' | 'tp' | 'ss') => samples.reduce((s, x) => s + x[k], 0) / samples.length;
+        const worst = {
+          cod: worstOf(samples, 'cod'),
+          nh: worstOf(samples, 'nh'),
+          tn: worstOf(samples, 'tn'),
+          tp: worstOf(samples, 'tp'),
+          ss: worstOf(samples, 'ss'),
+        };
+        console.log(
+          JSON.stringify(
+            {
+              days,
+              scenario: opts.scenario ?? null,
+              controls: opts.controls,
+              samples,
+              peak: worst,
+              mean: {
+                cod: Number(avg('cod').toFixed(3)),
+                nh: Number(avg('nh').toFixed(3)),
+                tn: Number(avg('tn').toFixed(3)),
+                tp: Number(avg('tp').toFixed(4)),
+                ss: Number(avg('ss').toFixed(3)),
+              },
+              compliant: {
+                cod: worst.cod <= LIMITS.cod,
+                nh: worst.nh <= LIMITS.nh,
+                tn: worst.tn <= LIMITS.tn,
+                tp: worst.tp <= LIMITS.tp,
+                ss: worst.ss <= LIMITS.ss,
+              },
+              totals: {
+                inflowM3: Number(totals.inflowM3.toFixed(1)),
+                energyKwh: Number(totals.energyKwh.toFixed(1)),
+                kwhPerM3: Number((totals.energyKwh / Math.max(1, totals.inflowM3)).toFixed(4)),
+              },
+              score: Number((samples.reduce((s, x) => s + x.score, 0) / samples.length).toFixed(1)),
+            },
+            null,
+            2,
+          ),
+        );
+      } else {
+        printSummary(opts, samples, totals);
+      }
       if (opts.csvPath) {
         writeCsv(opts.csvPath, samples);
-        console.log(`\n采样序列已写入 ${opts.csvPath}`);
+        if (!parsed.values.json) console.log(`\n采样序列已写入 ${opts.csvPath}`);
       }
       return 0;
     }

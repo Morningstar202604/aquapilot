@@ -234,6 +234,48 @@ button {
   background: rgba(240, 168, 60, 0.08);
 }
 
+.pill[data-tone='alarm'] {
+  border-color: rgba(210, 71, 47, 0.45);
+  color: var(--alarm);
+  background: rgba(210, 71, 47, 0.07);
+}
+
+/* 导入/导出结果提示：工具栏里的短句，超长时省略而不是把工具栏撑破 */
+.pill-io {
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  line-height: 23px;
+  font-size: 10.5px;
+}
+
+.pill-io-close {
+  margin-left: 6px;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.pill-io-close:hover {
+  opacity: 1;
+}
+
+/* label 包着隐藏的 file input：原生按钮样式无法统一，用 label 当按钮 */
+.pill-file {
+  position: relative;
+  cursor: pointer;
+}
+
+.pill-file input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+}
+
 .dot {
   width: 6px;
   height: 6px;
@@ -638,9 +680,56 @@ button {
 .trends {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: auto 1fr;
   border-top: 1px solid var(--line);
   background: var(--rail);
   min-height: 0;
+}
+
+/* 时间范围条横跨三列：范围是三张图共享的，视觉上也要压在它们之上 */
+.trend-range-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--rail);
+  min-width: 0;
+}
+
+.trend-range-bar .pill {
+  height: 20px;
+  padding: 0 8px;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--text-3);
+  border: 1px solid transparent;
+  flex: none;
+}
+
+.trend-range-bar .pill:hover {
+  color: var(--text-2);
+  border-color: var(--line);
+}
+
+/* 选中态用底色 + 文字色双通道，不只靠颜色深浅区分 */
+.trend-range-bar .pill[data-active='true'] {
+  color: var(--ink);
+  background: var(--panel);
+  border-color: var(--line);
+  box-shadow: 0 1px 2px rgba(16, 49, 43, 0.06);
+}
+
+.trend-range-note {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-3);
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .trend-cell {

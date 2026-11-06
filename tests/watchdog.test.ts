@@ -130,3 +130,68 @@ describe('总体结论', () => {
     expect(report.checks.length).toBeGreaterThanOrEqual(8);
   });
 });
+
+/**
+ * 进水数据源新鲜度（对标 ScadaLTS 的 no-update 事件类型）。
+ *
+ * 关键断言：CSV 序列走完一轮后循环复用必须报 warn，而不是静默重复
+ * 一段历史剖面——这是真实部署里最容易被当成"运行正常"的失真。
+ */
+describe('进水数据源检查', () => {
+  it('未提供数据源信息时显示内置模型', () => {
+    const c = find(evaluateChecks(base), 'influent-source');
+    expect(c.severity).toBe('ok');
+    expect(c.detail).toContain('内置');
+  });
+
+  it('合成进水恒为 ok', () => {
+    const c = find(
+      evaluateChecks({
+        ...base,
+        influentSource: { kind: 'synthetic', name: 'synthetic', spanMin: null, cycles: 0, points: 0 },
+      }),
+      'influent-source',
+    );
+    expect(c.severity).toBe('ok');
+    expect(c.detail).toContain('合成');
+  });
+
+  it('CSV 首轮未走完为 ok，并报出点数与时长', () => {
+    const c = find(
+      evaluateChecks({
+        ...base,
+        influentSource: { kind: 'csv', name: 'week.csv', spanMin: 1440, cycles: 0, points: 2880 },
+      }),
+      'influent-source',
+    );
+    expect(c.severity).toBe('ok');
+    expect(c.detail).toContain('2880');
+    expect(c.detail).toContain('24.0');
+    expect(c.detail).toContain('有效期内');
+  });
+
+  it('CSV 已循环时为 warn，并说明后续是历史重复', () => {
+    const c = find(
+      evaluateChecks({
+        ...base,
+        influentSource: { kind: 'csv', name: 'week.csv', spanMin: 1440, cycles: 2, points: 2880 },
+      }),
+      'influent-source',
+    );
+    expect(c.severity).toBe('warn');
+    expect(c.detail).toContain('循环 2 轮');
+    expect(c.action).toContain('持续采集');
+  });
+
+  it('零长度序列不会算出 Infinity 或 NaN', () => {
+    const c = find(
+      evaluateChecks({
+        ...base,
+        influentSource: { kind: 'csv', name: 'empty.csv', spanMin: 0, cycles: 0, points: 1 },
+      }),
+      'influent-source',
+    );
+    expect(c.detail).not.toContain('NaN');
+    expect(c.detail).not.toContain('Infinity');
+  });
+});
