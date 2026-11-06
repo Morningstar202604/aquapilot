@@ -65,7 +65,20 @@ class of silent-truth defects is closed.
 - **Score tab** in the UI: total, four dimensions with bars, deduction reasons,
   violation distribution and normal-vs-scenario energy comparison.
 
-- 65 new tests (100 files / 1281 total).
+### Added (continued)
+
+- **Real-world capability exam** (`npm run exercise`): five automated journeys
+  modelled on real roles - a duty operator riding out a 6 h storm, crisis
+  handling during a blower failure, a process engineer running what-if
+  comparisons over MCP, a plant manager's weekly CLI report, and a data triage
+  pass over a dirty influent CSV. 25 checks graded on physics and accounting
+  (inflow must actually surge past the design flow, DO must actually fall when
+  air is halved, the CSV must be exactly 336 rows), not on "endpoint returned
+  200". First run caught a real defect: the operational scorecard was missing
+  from `snapshotPatch` and from the client merge, so the Score tab froze at the
+  last full frame precisely while scores were moving.
+
+- Test suite: 1286 tests across 100 files (CI-enforced counts; the exam itself is a live-server harness, not vitest).
 
 ### Changed
 
