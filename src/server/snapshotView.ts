@@ -269,6 +269,13 @@ export function createSnapshotService(deps: SnapshotDeps) {
        */
       forecastBand: src.recommendation?.ensemble ?? null,
       benchmark: deps.summarizeBenchmark(src.shadow.benchmark),
+      scorecard: scorecardFromTrend(src.trend, {
+        flowM3h: s.influent.flow,
+        standard: src.standard ?? DEFAULT_STANDARD,
+        scenarioWindow: s.scenario
+          ? { from: s.scenario.startedAt, to: s.scenario.startedAt + s.scenario.durationMin }
+          : null,
+      }),
     };
   }
 
