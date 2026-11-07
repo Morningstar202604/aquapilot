@@ -44,9 +44,9 @@ become usable from a keyboard and a screen reader.
 
 ### Fixed
 
-- **`distquapilot.exe` rendered as garbage in both READMEs.** The quick-start
-  block contained a literal BEL character (0x07): `distquapilot.exe` had been
-  written through a `` escape. Both files now carry the forward-slash form.
+- **`dist/aquapilot.exe` rendered as garbage in both READMEs.** The quick-start
+  block contained a literal BEL character (0x07): `dist/aquapilot.exe` had been
+  written through a backslash-a escape. Both files now carry the forward-slash form.
 - **Nine moderate `npm audit` findings** came from `minimatch@10.2.6` reachable
   through ESLint and Stryker. Pinned to `11.0.5` via `overrides`; `npm audit`
   now reports zero vulnerabilities on both the production and dev trees.

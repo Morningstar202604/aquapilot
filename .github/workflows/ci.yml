@@ -172,6 +172,9 @@ jobs:
           fi
           echo "密钥扫描通过"
 
+      - name: Documentation visibility
+        run: node scripts/check-docs.mjs
+
       - name: Ensure no build artifacts committed
         run: |
           set -e

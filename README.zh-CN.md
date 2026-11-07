@@ -54,7 +54,7 @@ npm start                 # → http://127.0.0.1:5173
 
 ```bash
 npm run exe               # → dist/aquapilot.exe（~84 MB，Node SEA 单文件）
-distquapilot.exe serve --port 5173
+dist\aquapilot.exe serve --port 5173
 ```
 
 脚本化 / 无头场景用 CLI：

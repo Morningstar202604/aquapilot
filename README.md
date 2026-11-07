@@ -62,7 +62,7 @@ Or without Node at all — a self-contained Windows binary:
 
 ```bash
 npm run exe               # → dist/aquapilot.exe (~84 MB, SEA single file)
-distquapilot.exe serve --port 5173
+dist\aquapilot.exe serve --port 5173
 ```
 
 Headless / scripting via the CLI:

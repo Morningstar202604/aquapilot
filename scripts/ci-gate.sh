@@ -171,6 +171,15 @@ step "11/11 工程卫生"
 [ -f AGENTS.md ] || fail "缺少 AGENTS.md"
 pass "必要文件齐全"
 
+# 文档可见性：不可见控制字符与转义写坏的路径（见 scripts/check-docs.mjs 的说明）
+if node scripts/check-docs.mjs > /dev/null 2>&1; then
+  pass "文档无控制字符、exe 路径正确"
+else
+  node scripts/check-docs.mjs || true
+  fail "文档检查未通过（不可见控制字符或 exe 路径损坏）"
+fi
+
+
 printf '\n\033[1;42m  CI GATE: ALL GREEN  \033[0m\n'
 printf '  typecheck  0 errors\n'
 printf '  tests      %s/%s\n' "$PASSED" "$TOTAL"
