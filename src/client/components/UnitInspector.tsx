@@ -219,6 +219,8 @@ export function UnitInspector({ snap, topo, unit, onClose, onSelect, onChangeCon
             <div className="section-label" style={{ marginTop: 10 }}>
               可调参数
             </div>
+            {/* tickets 由 CONTROL_BOUNDS 的键集过滤而来，是编译期常量表，
+                不是外部输入；此处以它作对象键与 DOM id 不构成注入面。 */}
             {tickets.map((key) => {
               const meta = CONTROL_BOUNDS[key];
               const value = snap.controls[key] as number;

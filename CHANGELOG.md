@@ -55,6 +55,27 @@ become usable from a keyboard and a screen reader.
   an assertion threw first, the variable leaked and the remaining cases failed
   with a misleading "node:sqlite unavailable". Reset moved to `afterEach`.
 
+### Security
+
+- **API path detection is now normalised** (`src/server/httpRoutes.ts`).
+  `//api/snapshot`, `/API/snapshot` and `/x/../api/snapshot` previously missed the API
+  branch and returned the SPA shell with HTTP 200, so a client asking for JSON got
+  HTML and the auth gate keyed on the same predicate. Paths are now slash-folded,
+  dot-resolved and compared case-insensitively. Verified against a running server:
+  all three now return 401 JSON.
+- **Topology ids are whitelisted** (`isSafeId`). `__proto__`, `constructor` and
+  `prototype` were accepted as unit, port and connection ids and then used as
+  object keys — a real prototype-pollution path. Negative control: the old validator
+  accepts all four dangerous ids on a mutated real topology, the new one rejects them.
+- **Dynamic deletes are guarded** (`safeDelete`, `dropPending`) so a
+  server-supplied or document-supplied key can no longer reach the prototype chain.
+- **Static file serving uses one handle** for the type check and the read, closing a
+  `stat`/`readFile` TOCTOU window.
+- **The live-topology script sanitises console output**, so a forged notice containing
+  ANSI escapes can no longer clear the screen and disguise a failing run.
+- Full reproduction, negative controls and the items deliberately left alone are in
+  `docs/SECURITY-HARDENING.md`.
+
 ### Docs
 
 - `docs/REFERENCE-LEARNING.md` gains five projects studied this cycle

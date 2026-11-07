@@ -48,3 +48,49 @@ describe('路径判定', () => {
     expect(isReadMethod(undefined)).toBe(false);
   });
 });
+
+describe('pathnameOf 规范化', () => {
+  /**
+   * 旧实现只切查询串，`//api/x` 和 `/API/x` 都不会命中 API 分支，
+   * 会落到静态文件兜底返回 SPA 的 index.html（200 + HTML）。
+   * 客户端把 HTML 当 JSON 解析时报的错与真实原因毫无关系。
+   */
+  it('折叠重复斜杠', () => {
+    expect(pathnameOf('//api/snapshot')).toBe('/api/snapshot');
+    expect(pathnameOf('///api/metrics')).toBe('/api/metrics');
+  });
+
+  it('解析 . 与 .. 段', () => {
+    expect(pathnameOf('/api/./snapshot')).toBe('/api/snapshot');
+    expect(pathnameOf('/x/../api/snapshot')).toBe('/api/snapshot');
+    expect(pathnameOf('/api/a/../../api/snapshot')).toBe('/api/snapshot');
+  });
+
+  it('保留查询串以外的原样路径段', () => {
+    expect(pathnameOf('/api/snapshot?from=1&to=2')).toBe('/api/snapshot');
+    expect(pathnameOf('/')).toBe('/');
+    expect(pathnameOf(undefined)).toBe('/');
+  });
+
+  it('顶层 .. 不会逃出根', () => {
+    expect(pathnameOf('/../../etc/passwd')).toBe('/etc/passwd');
+  });
+});
+
+describe('isApiPath 大小写与规范化', () => {
+  it('大小写不敏感', () => {
+    expect(isApiPath('/api/snapshot')).toBe(true);
+    expect(isApiPath('/API/snapshot')).toBe(true);
+    expect(isApiPath('/Api')).toBe(true);
+  });
+
+  it('规范化后的路径同样命中', () => {
+    expect(isApiPath(pathnameOf('//api/snapshot'))).toBe(true);
+    expect(isApiPath(pathnameOf('/x/../api/snapshot'))).toBe(true);
+  });
+
+  it('非 API 路径不受影响', () => {
+    expect(isApiPath('/assets/index.js')).toBe(false);
+    expect(isApiPath('/apix/snapshot')).toBe(false);
+  });
+});

@@ -15,6 +15,22 @@ export const MAX_ROUTE_POINTS = 8;
 /** 画布坐标上限：与布局层的健康范围一致，防止脏坐标把画布撑到百万像素 */
 export const MAX_COORD = 20000;
 
+/**
+ * 安全删除动态键。
+ *
+ * 这些键来自拓扑文档（单元 id、连线 id），也就是用户可编辑内容。
+ * 直接 delete obj[key] 在 key 为 __proto__ / constructor / prototype 时
+ * 会作用到原型链而不是自有属性，轻则删除失败，重则污染全局对象。
+ * 只删除自有属性，并显式挡掉三个保留字——即使上游校验未来被放宽也安全。
+ */
+const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+export function safeDelete<T extends object>(obj: T, key: string): void {
+  if (RESERVED_KEYS.has(key)) return;
+  if (!Object.prototype.hasOwnProperty.call(obj, key)) return;
+  delete (obj as Record<string, unknown>)[key];
+}
+
 export interface Point {
   x: number;
   y: number;
@@ -45,10 +61,10 @@ export function deleteUnits(topo: ProcessTopology, ids: string[]): ProcessTopolo
   const kept = new Set(connections.map((c) => c.id));
 
   const positions = { ...(topo.positions ?? {}) };
-  for (const id of drop) delete positions[id];
+  for (const id of drop) safeDelete(positions, id);
 
   const routes = { ...(topo.routes ?? {}) };
-  for (const id of Object.keys(routes)) if (!kept.has(id)) delete routes[id];
+  for (const id of Object.keys(routes)) if (!kept.has(id)) safeDelete(routes, id);
 
   const next: ProcessTopology = {
     ...topo,
@@ -75,16 +91,16 @@ export function setRoute(topo: ProcessTopology, connectionId: string, points: Po
 
   const routes = { ...(topo.routes ?? {}) };
   if (points === null || points.length === 0) {
-    if (!(connectionId in routes)) return topo;
-    delete routes[connectionId];
+    if (!Object.prototype.hasOwnProperty.call(routes, connectionId)) return topo;
+    safeDelete(routes, connectionId);
   } else {
     const clean = points
       .map(finitePoint)
       .filter((p): p is Point => Boolean(p))
       .slice(0, MAX_ROUTE_POINTS);
     if (clean.length === 0) {
-      if (!(connectionId in routes)) return topo;
-      delete routes[connectionId];
+      if (!Object.prototype.hasOwnProperty.call(routes, connectionId)) return topo;
+      safeDelete(routes, connectionId);
     } else {
       routes[connectionId] = clean;
     }

@@ -1,7 +1,7 @@
 import type { IncomingMessage } from 'node:http';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
-import { readFile, stat } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { shouldFallbackToIndex } from './httpRoutes';
@@ -109,9 +109,23 @@ export async function serveStatic(
     filePath = join(clientDir, 'index.html');
   }
   try {
-    const info = await stat(filePath);
-    if (!info.isFile()) throw new Error('not a file');
-    const raw = await readFile(filePath);
+    /**
+     * 先 open 再 fstat/read：不要在 stat 与 readFile 之间留 TOCTOU 窗口。
+     *
+     * stat 通过只说明那一刻路径指向普通文件；两次系统调用之间它可能被换成
+     * 目录、FIFO 或指向别处的符号链接，随后 readFile 会按新目标读取。
+     * 这里用同一个句柄完成「确认类型 + 读内容」，句柄在 close 之前不会改指。
+     */
+    const handle = await open(filePath, 'r');
+    let raw: Buffer;
+    let info: Awaited<ReturnType<typeof handle.stat>>;
+    try {
+      info = await handle.stat();
+      if (!info.isFile()) throw new Error('not a file');
+      raw = await handle.readFile();
+    } finally {
+      await handle.close();
+    }
 
     /**
      * 缓存与压缩规则：

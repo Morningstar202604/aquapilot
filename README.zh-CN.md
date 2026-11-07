@@ -8,7 +8,7 @@
 [![CodeQL](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12-339933)](package.json)
 [![许可证](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![测试](https://img.shields.io/badge/测试-1323%20通过-2ea44f)](docs/BENCHMARKS.md)
+[![测试](https://img.shields.io/badge/测试-1343%20通过-2ea44f)](docs/BENCHMARKS.md)
 
 ![AquaPilot 总览](docs/screenshots/01-overview.jpg)
 
@@ -96,7 +96,7 @@ npm run dev               # Vite 客户端 :5174，API/WS 代理到 :5173
 验证（CI 同款）：
 
 ```bash
-npm run verify            # 类型检查 + lint + 1323 项测试 + 构建
+npm run verify            # 类型检查 + lint + 1343 项测试 + 构建
 npm run ci                # 完整 11 步门禁：覆盖率、冒烟、密钥扫描、备份、审计
 npm run e2e               # Playwright 浏览器冒烟（优先用本机 Edge/Chromium）
 ```
@@ -133,6 +133,7 @@ LLM 服务商（OpenAI 兼容 / Anthropic Messages / Google Gemini）在界面�
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | 运维、备份恢复、故障排查 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Docker、持久化、反向代理、镜像仓库布局 |
 | [docs/UI-ARCHITECTURE.md](docs/UI-ARCHITECTURE.md) | 前端模块划分与数据流 |
+| [docs/SECURITY-HARDENING.md](docs/SECURITY-HARDENING.md) | 已修复的安全问题、复现步骤与反证记录 |
 | [docs/QUALITY-ROADMAP.md](docs/QUALITY-ROADMAP.md) | 已知模型局限与处理计划 |
 | [docs/COMPETITIVE-ANALYSIS.md](docs/COMPETITIVE-ANALYSIS.md) | 对照 7 个同类项目的核实比较 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 分支、提交规范、本地门禁、发版步骤 |

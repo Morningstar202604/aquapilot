@@ -36,6 +36,22 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 }
 
+/**
+ * 单元/连线 id 的字符白名单。
+ *
+ * 这些 id 会被当作对象键使用（`positions[id]`、`routes[connId]`），
+ * 只校验「非空且不超长」是不够的：`__proto__`、`constructor`、`prototype`
+ * 作为键写入/删除会触到原型链，轻则界面状态错乱，重则污染所有对象。
+ * 白名单限定为小写字母、数字、连字符与下划线——界面生成的 id 全部满足，
+ * 手写拓扑 JSON 也能用它自查。
+ */
+const ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const RESERVED_IDS = new Set(['__proto__', 'constructor', 'prototype']);
+
+export function isSafeId(value: unknown): value is string {
+  return typeof value === 'string' && ID_PATTERN.test(value) && !RESERVED_IDS.has(value.toLowerCase());
+}
+
 function str(v: unknown, max = MAX_TEXT_LEN): string | null {
   if (typeof v !== 'string') return null;
   const trimmed = v.trim();
@@ -67,7 +83,7 @@ function coord(v: unknown): number | null {
 
 function sanitizeUnit(raw: unknown): UnitSpec | null {
   if (!isObject(raw)) return null;
-  const id = str(raw.id, MAX_ID_LEN);
+  const id = isSafeId(raw.id) ? raw.id : null;
   const kind = typeof raw.kind === 'string' && KNOWN_KINDS.has(raw.kind) ? raw.kind : null;
   const name = str(raw.name);
   const role = typeof raw.role === 'string' ? raw.role.slice(0, MAX_TEXT_LEN) : '';
@@ -78,7 +94,7 @@ function sanitizeUnit(raw: unknown): UnitSpec | null {
   const seenPorts = new Set<string>();
   for (const p of raw.ports) {
     if (!isObject(p)) return null;
-    const pid = str(p.id, 32);
+    const pid = isSafeId(p.id) ? p.id : null;
     if (!pid || seenPorts.has(pid)) return null;
     seenPorts.add(pid);
     if (p.kind !== 'in' && p.kind !== 'out') return null;
@@ -119,7 +135,7 @@ function sanitizeConnection(
   portIndex: Map<string, Set<string>>,
 ): Connection | null {
   if (!isObject(raw)) return null;
-  const id = str(raw.id, MAX_ID_LEN);
+  const id = isSafeId(raw.id) ? raw.id : null;
   if (!id) return null;
   if (!isObject(raw.from) || !isObject(raw.to)) return null;
   const fromUnit = str(raw.from.unit, MAX_ID_LEN);

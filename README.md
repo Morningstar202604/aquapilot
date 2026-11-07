@@ -8,7 +8,7 @@
 [![CodeQL](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12-339933)](package.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![tests](https://img.shields.io/badge/tests-1323%20passing-2ea44f)](docs/BENCHMARKS.md)
+[![tests](https://img.shields.io/badge/tests-1343%20passing-2ea44f)](docs/BENCHMARKS.md)
 
 ![AquaPilot overview](docs/screenshots/01-overview.jpg)
 
@@ -104,7 +104,7 @@ npm run dev               # Vite client on :5174, proxying API/WS to :5173
 Verification (what CI runs):
 
 ```bash
-npm run verify            # typecheck + lint + 1323 tests + build
+npm run verify            # typecheck + lint + 1343 tests + build
 npm run ci                # full 11-step gate: coverage, smoke, secrets, backup, audit
 npm run e2e               # Playwright browser smoke (uses a system Edge/Chromium when present)
 ```
@@ -143,6 +143,7 @@ LLM providers (OpenAI-compatible, Anthropic Messages, Google Gemini) are configu
 | [docs/UI-ARCHITECTURE.md](docs/UI-ARCHITECTURE.md) | Frontend module map and data flow |
 | [docs/AGENT-HARNESS.md](docs/AGENT-HARNESS.md) | Agent-protocol research (MCP/A2A) and what shipped from it |
 | [docs/REFERENCE-LEARNING.md](docs/REFERENCE-LEARNING.md) | 20 peer open-source projects studied, and where each lesson landed |
+| [docs/SECURITY-HARDENING.md](docs/SECURITY-HARDENING.md) | Closed vulnerabilities, with reproduction and negative controls |
 | [docs/QUALITY-ROADMAP.md](docs/QUALITY-ROADMAP.md) | Known model limitations and the plan for them |
 | [docs/COMPETITIVE-ANALYSIS.md](docs/COMPETITIVE-ANALYSIS.md) | Verified comparison against seven peer projects |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Branches, commit style, the local gate, release steps |

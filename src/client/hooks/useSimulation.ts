@@ -166,6 +166,20 @@ export function useSimulation() {
   const [llmTestResult, setLlmTestResult] = useState<LlmTestResult | null>(null);
   const llmRequestId = useRef(0);
   const llmPending = useRef<Record<string, 'discover' | 'test' | 'save' | 'clear'>>({});
+
+  /**
+   * 清除一次挂起的模型操作。
+   *
+   * requestId 来自服务端消息，属于外部输入。直接 delete 一个 Record 的动态键
+   * 在键为 __proto__ / constructor 时会落到原型链上——挂起表没清掉，
+   * 而 Object.prototype 被改写。这里只删自有属性并挡掉保留字。
+   */
+  const dropPending = (requestId: string | undefined) => {
+    if (!requestId) return;
+    if (requestId === '__proto__' || requestId === 'constructor' || requestId === 'prototype') return;
+    if (!Object.prototype.hasOwnProperty.call(llmPending.current, requestId)) return;
+    delete llmPending.current[requestId];
+  };
   /** 每类操作最近一次发出的 requestId：迟到响应按它过滤，防止旧结果覆盖新结果 */
   const llmLatest = useRef<{ discover: string | null; test: string | null; save: string | null }>({
     discover: null,
@@ -339,31 +353,31 @@ export function useSimulation() {
               // 不得覆盖新结果，也不得把 discovering 提前置 false
               if (llmLatest.current.discover !== msg.requestId) {
                 console.warn('[aqua] 丢弃过期的模型发现响应', { requestId: msg.requestId });
-                delete llmPending.current[msg.requestId];
+                dropPending(msg.requestId);
                 break;
               }
               setLlmModels(msg.models);
               setLlmDiscovering(false);
               setLlmLastDiscoverAt(Date.now());
               setLlmError(null);
-              delete llmPending.current[msg.requestId];
+              dropPending(msg.requestId);
               break;
             }
             if (msg.action === 'tested') {
               if (llmLatest.current.test !== msg.requestId) {
                 console.warn('[aqua] 丢弃过期的连接测试响应', { requestId: msg.requestId });
-                delete llmPending.current[msg.requestId];
+                dropPending(msg.requestId);
                 break;
               }
               setLlmTesting(false);
               setLlmTestResult(msg.result);
-              delete llmPending.current[msg.requestId];
+              dropPending(msg.requestId);
               break;
             }
             if (msg.action === 'saved') {
               if (llmLatest.current.save !== msg.requestId) {
                 console.warn('[aqua] 丢弃过期的配置保存响应', { requestId: msg.requestId });
-                delete llmPending.current[msg.requestId];
+                dropPending(msg.requestId);
                 break;
               }
               setLlmSaving(false);
@@ -375,7 +389,7 @@ export function useSimulation() {
               } else {
                 setLlmError(msg.error ?? '保存失败');
               }
-              delete llmPending.current[msg.requestId];
+              dropPending(msg.requestId);
               break;
             }
             if (msg.action === 'error') {
@@ -388,14 +402,14 @@ export function useSimulation() {
                 msg.requestId !== llmLatest.current.save;
               if (staleError) {
                 console.warn('[aqua] 丢弃过期的模型配置错误回执', { requestId: msg.requestId });
-                if (msg.requestId) delete llmPending.current[msg.requestId];
+                if (msg.requestId) dropPending(msg.requestId);
                 break;
               }
               setLlmDiscovering(false);
               setLlmTesting(false);
               setLlmSaving(false);
               setLlmError(msg.error);
-              if (msg.requestId) delete llmPending.current[msg.requestId];
+              if (msg.requestId) dropPending(msg.requestId);
             }
             break;
           case 'agentConfig':

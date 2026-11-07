@@ -366,6 +366,8 @@ export function ProcessEditor({
   const duplicateUnit = (id: string) => {
     const src = topology.units.find((u) => u.id === id);
     if (!src) return;
+    // newId 由 nextId 生成（kind + 递增数字），字符集完全本地决定；
+    // 用作 positions 的键不构成原型污染面。
     const newId = nextId(topology, src.kind);
     const pos = topology.positions?.[id] ?? { x: 80, y: 80 };
     const unit: UnitSpec = {
