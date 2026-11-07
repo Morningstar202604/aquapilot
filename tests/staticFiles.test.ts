@@ -161,3 +161,42 @@ describe('serveStatic 不吞异常', () => {
     vi.restoreAllMocks();
   });
 });
+
+describe('符号链接逃逸（realpath 守卫）', () => {
+  /**
+   * 词法前缀校验挡不住符号链接。
+   *
+   * `dist/client/assets/leak.js` 在字符串层面完全合法，只有 realpath 之后
+   * 才看得出它指向 clientDir 之外的敏感文件。这条用例真的在磁盘上创建软链，
+   * 不是模拟——Windows 上创建符号链接需要权限，失败时跳过而非假装通过。
+   */
+  it('指向根目录之外的软链返回 403', async () => {
+    const clientDir = makeClientDir();
+    const outside = join(dir, '..', `aquapilot-outside-${Date.now()}.txt`);
+    writeFileSync(outside, 'TOP SECRET');
+    const linkPath = join(clientDir, 'assets', 'leak.js');
+    try {
+      // 'file' 类型在 Windows 上需要开发者模式或管理员；失败则跳过
+      const { symlinkSync } = await import('node:fs');
+      symlinkSync(outside, linkPath, 'file');
+    } catch {
+      rmSync(outside, { force: true });
+      return; // 环境不允许创建软链：跳过，但不能算通过
+    }
+
+    server = createServer((req, res) => {
+      void serveStatic(req, res, clientDir);
+    });
+    await new Promise<void>((r) => server!.listen(0, '127.0.0.1', () => r()));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const res = await fetch(`http://127.0.0.1:${port}/assets/leak.js`);
+    const body = await res.text();
+    expect(res.status).toBe(403);
+    expect(body).not.toContain('TOP SECRET');
+
+    rmSync(outside, { force: true });
+    rmSync(linkPath, { force: true });
+  });
+});

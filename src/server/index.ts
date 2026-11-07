@@ -11,7 +11,6 @@ import type { ForecastOutcomeX } from '../sim/plantModel';
 import { CompiledNetwork } from '../sim/network';
 import type { ClientMessage, PlantSnapshot, ServerMessage, TrendPoint } from '../shared/protocol';
 import { PLANT_TOPOLOGY, ProcessTopology, validateTopology } from '../model/topology';
-import { sanitizeTopologyInput } from '../model/topologyInput';
 import { TopologyStore } from './topologyStore';
 import { PRESETS, buildPreset, presetById } from '../model/presets';
 import { applyTopology, checkRunReadiness, createRuntime } from './topologyRuntime';
@@ -42,7 +41,6 @@ import { runAnalysis } from '../sim/analysis';
 import { DEFAULT_STANDARD, DISCHARGE_STANDARDS } from '../sim/standards';
 import { listModelDescriptors } from '../sim/modelRegistry';
 import { ADAPTER_CAPABILITIES } from '../sim/dataSources';
-import { checkAllowedControls } from '../shared/agentConfig';
 import { applyGuards } from './aiGuard';
 import { serveStatic, queryOf } from './staticFiles';
 import { boundedWindow, MAX_SNAPSHOT_POINTS } from './queryBounds';
@@ -53,6 +51,8 @@ import { parseClientMessage } from './messageSchema';
 import { createCalibrationService } from './calibrationService';
 import { handleInfluentMessage } from './influentHandler';
 import { adoptTopology } from './topologyRebuild';
+import { handleTopologyMessage } from './topologyHandler';
+import { handleControlMessage } from './controlHandler';
 import type { InfluentSeries } from '../sim/influentSeries';
 import { drySolidsToCod } from '../sim/units';
 import { resolveListenConfig } from './listenConfig';
@@ -71,15 +71,7 @@ import {
   freshClientState,
   type ClientState,
 } from './rateLimit';
-import {
-  SCENARIO_MAGNITUDE_RANGE,
-  VALID_SCENARIOS,
-  sanitizeBoolean,
-  sanitizeChatText,
-  sanitizeControlPatch,
-  sanitizeRange,
-  sanitizeSpeed,
-} from './validation';
+import { VALID_SCENARIOS, sanitizeChatText, sanitizeRange } from './validation';
 
 /**
  * 环境变量必须校验后再用。
@@ -566,6 +558,27 @@ function recordReview(verdict: 'approve' | 'reject' | 'auto', actor: string, act
 }
 
 /**
+ * 重置到初始稳态。
+ *
+ * 单一入口：WS 的 sim/reset 与 MCP 的 reset_sim 必须做完全一样的事。
+ * 此前两处各抄一份，MCP 那份漏了 runId 轮换 —— 重置后的快照会写进上一条
+ * 运行的时间轴，回放曲线出现锯齿。
+ */
+function resetRuntime(): void {
+  rotateRunId();
+  runtime.net = createRuntime(runtime.topology, 20261019).net;
+  runtime.shadow = createShadowPlant(runtime.topology, 20261019, 0);
+  runtime.baselineStoredCodKg = particulateCodKg(runtime.net);
+  runtime.trend = [];
+  runtime.recommendation = null;
+  runtime.tick = 0;
+  runtime.simCarryMin = 0;
+  runtime.lastDecisionAtMin = 0;
+  runtime.paused = false;
+  clearRunScopedState();
+}
+
+/**
  * 运行自检：每 10 秒跑一次确定性检查，变化时广播给所有客户端。
  *
  * 「派 AI 全程盯着日志」在这里落成了一个可复核的机制：
@@ -991,211 +1004,70 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       });
       break;
     }
-    case 'control': {
-      if (rateLimited(ws, 'control')) {
-        throttledNotice(ws, 'control', '操作过于频繁，请稍后再试');
-        break;
-      }
-      const result = sanitizeControlPatch((msg as { patch?: unknown }).patch);
-      if (!result.ok) {
-        ws.send(
-          JSON.stringify({
-            type: 'notice',
-            level: 'error',
-            text: `控制参数非法：${result.error}`,
-          } satisfies ServerMessage),
-        );
-        break;
-      }
-      // 约束生效：allowedControls 之外的量，手动也不允许写。
-      // 这是「约束工程」对人工通道同样生效的关键——否则界面能拖、服务端照收。
-      const allowedCheck = checkAllowedControls(
-        result.value as Record<string, unknown> as Partial<Record<string, unknown>>,
-        agentConfigStore.get().constraints.allowedControls,
-      );
-      if (!allowedCheck.ok) {
-        ws.send(
-          JSON.stringify({
-            type: 'notice',
-            level: 'error',
-            text: `该控制量已被约束禁用：${allowedCheck.rejected.join('、')}。可在「Agent 设置 → 约束」里放开。`,
-          } satisfies ServerMessage),
-        );
-        break;
-      }
-      runtime.net.controls = {
-        ...runtime.net.controls,
-        ...result.value,
-        aiEnabled: runtime.net.controls.aiEnabled,
-      };
-
-      // 人工调整后进入优先期：期内 AI 只出建议、不覆盖设定值。
-      // 否则用户拖完滑块，下一帧就被 AI 改回去——控制实际不可用。
-      runtime.manualOverrideUntil = runtime.net.timeMin + MANUAL_OVERRIDE_MIN;
-
-      // 重新评估决策（用于展示），但不强制应用
-      runAiCycle(false);
-      ws.send(
-        JSON.stringify({
-          type: 'notice',
-          level: 'info',
-          text: `已应用手动设定。接下来 ${MANUAL_OVERRIDE_MIN} 分钟仿真时间内 AI 只给出建议，不会覆盖你的调整。`,
-        } satisfies ServerMessage),
-      );
-      broadcastSnapshot();
-      break;
-    }
-    case 'aiEnabled': {
-      const enabled = sanitizeBoolean((msg as { enabled?: unknown }).enabled);
-      if (enabled === null) {
-        ws.send(
-          JSON.stringify({ type: 'notice', level: 'error', text: 'aiEnabled 必须是布尔值' } satisfies ServerMessage),
-        );
-        break;
-      }
-      runtime.net.controls.aiEnabled = enabled;
-      ws.send(
-        JSON.stringify({
-          type: 'notice',
-          level: 'info',
-          text: enabled ? 'AI 自动值守已启用，将自动执行控制调节。' : 'AI 已切换为建议模式，控制调节需人工确认。',
-        } satisfies ServerMessage),
-      );
-      if (!rateLimited(ws, 'snapshot')) broadcastSnapshot();
-      break;
-    }
-    case 'applyRecommendation': {
-      if (!runtime.recommendation) return;
-      if (rateLimited(ws, 'snapshot')) break;
-      const adopted = runtime.recommendation;
-      runtime.net.controls = { ...adopted.chosens.controls, aiEnabled: runtime.net.controls.aiEnabled };
-      recordReview('approve', senderRole, adopted.action, '');
-      broadcast({ type: 'notice', level: 'info', text: '已采纳 AI 建议，控制参数已更新。' });
-      broadcastSnapshot();
-      break;
-    }
-    case 'dismissRecommendation': {
-      /**
-       * 拒绝建议与采纳同等留痕。
-       *
-       * 此前只有「采纳」这一个正向事件，拒绝完全无声：事后复盘看到
-       * 一条 AI 建议后面没有任何动作，无法区分「人拒绝了」与「系统丢了消息」。
-       * 竞品 waterworks-ai 的审计日志对 approve/deny 用同等保真度记录，
-       * 这里补齐同一口径。
-       */
-      if (!runtime.recommendation) {
-        ws.send(
-          JSON.stringify({ type: 'notice', level: 'info', text: '当前没有可拒绝的建议。' } satisfies ServerMessage),
-        );
-        break;
-      }
-      if (rateLimited(ws, 'snapshot')) break;
-      const dismissed = runtime.recommendation;
-      const reason = typeof msg.reason === 'string' ? msg.reason.trim().slice(0, 300) : '';
-      recordReview('reject', senderRole, dismissed.action, reason);
-      ws.send(
-        JSON.stringify({
-          type: 'notice',
-          level: 'info',
-          text: reason ? `已拒绝该建议（原因：${reason}）。` : '已拒绝该建议。',
-        } satisfies ServerMessage),
-      );
-      break;
-    }
-    case 'scenario': {
-      if (msg.kind === 'start' && rateLimited(ws, 'decision')) {
-        throttledNotice(ws, 'scenario', '场景启动过于频繁，请稍后再试');
-        break;
-      }
-      if (msg.kind === 'clear') {
-        runtime.net.scenario = null;
-        runtime.net.controls = { ...runtime.net.controls, stormStore: 0 };
-        broadcast({ type: 'notice', level: 'info', text: '已清除场景，回到常态工况。' });
-      } else {
-        const scenarioType = (msg as { scenario?: unknown }).scenario;
-        if (typeof scenarioType !== 'string' || !VALID_SCENARIOS.has(scenarioType)) {
-          ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '未知的场景类型' } satisfies ServerMessage));
-          break;
-        }
-        const meta = SCENARIOS[scenarioType as ScenarioType];
-        runtime.net.scenario = {
-          type: scenarioType as ScenarioType,
-          durationMin: sanitizeRange(
-            (msg as { durationMin?: unknown }).durationMin,
-            10,
-            10080,
-            meta.defaultDurationMin,
-          ),
-          magnitude: sanitizeRange(
-            (msg as { magnitude?: unknown }).magnitude,
-            SCENARIO_MAGNITUDE_RANGE[scenarioType]?.min ?? 0,
-            SCENARIO_MAGNITUDE_RANGE[scenarioType]?.max ?? 30,
-            meta.defaultMagnitude,
-          ),
-          startedAt: runtime.net.timeMin,
-        };
-        broadcast({ type: 'notice', level: 'warn', text: `已注入场景：${meta.label}` });
-        runAiCycle(true);
-      }
-      broadcastSnapshot();
-      break;
-    }
-    case 'sim': {
-      if (msg.action !== 'pause' && msg.action !== 'resume' && msg.action !== 'reset') {
-        metrics.invalidMessages += 1;
-        ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '未知的仿真操作' } satisfies ServerMessage));
-        break;
-      }
-      if (rateLimited(ws, 'snapshot')) break;
-      if (msg.action === 'pause') runtime.paused = true;
-      if (msg.action === 'resume') runtime.paused = false;
-      if (msg.action === 'reset') {
-        rotateRunId();
-        runtime.net = createRuntime(runtime.topology, 20261019).net;
-        runtime.shadow = createShadowPlant(runtime.topology, 20261019, 0);
-        runtime.baselineStoredCodKg = particulateCodKg(runtime.net);
-        runtime.trend = [];
-        runtime.recommendation = null;
-        runtime.tick = 0;
-        runtime.simCarryMin = 0;
-        runtime.lastDecisionAtMin = 0;
-        runtime.paused = false;
-        // 时钟归零，上一轮的运行态必须一并清掉（见 clearRunScopedState）
-        clearRunScopedState();
-        broadcast({ type: 'notice', level: 'info', text: '仿真已重置到初始稳态。' });
-      }
-      broadcast({ type: 'simState', paused: runtime.paused, speed: runtime.speed });
-      broadcastSnapshot();
-      break;
-    }
-    case 'speed': {
-      const speed = sanitizeSpeed((msg as { value?: unknown }).value);
-      if (speed === null) {
-        ws.send(
-          JSON.stringify({
-            type: 'notice',
-            level: 'error',
-            text: '速度必须是 0.25–8 之间的数值',
-          } satisfies ServerMessage),
-        );
-        break;
-      }
-      runtime.speed = speed;
-      broadcast({ type: 'simState', paused: runtime.paused, speed: runtime.speed });
-      break;
-    }
+    case 'control':
+    case 'aiEnabled':
+    case 'applyRecommendation':
+    case 'dismissRecommendation':
+    case 'scenario':
+    case 'sim':
+    case 'speed':
     case 'refreshDecision': {
-      /**
-       * 「重新推演」是一个昂贵的同步操作（≈200 ms，含 3 组扰动轨迹）。
-       * 之前没有限流：连点或恶意脚本可以把主线程钉死、tick 全部积压。
-       * 与拓扑变更共用一套客户端限流，间隔 2 s；被拦时给出明确提示。
-       */
-      if (rateLimited(ws, 'decision')) {
-        throttledNotice(ws, 'decision', '推演过于频繁，请 2 秒后再试');
-        break;
-      }
-      runAiCycle(true);
-      broadcastSnapshot();
+      handleControlMessage(msg as Exclude<ClientMessage, { type: 'hello' | 'chat' | 'topology' | 'preset' }>, {
+        state: () => ({
+          controls: runtime.net.controls as unknown as Record<string, number>,
+          aiEnabled: runtime.net.controls.aiEnabled,
+          timeMin: runtime.net.timeMin,
+          scenario: runtime.net.scenario,
+          paused: runtime.paused,
+          speed: runtime.speed,
+        }),
+        // 写入必须回到 runtime 上：state() 是快照，改它等于改副本（曾因此丢场景注入）
+        setControls: (next) => {
+          runtime.net.controls = { ...next, aiEnabled: runtime.net.controls.aiEnabled } as typeof runtime.net.controls;
+        },
+        setAiEnabled: (enabled) => {
+          runtime.net.controls.aiEnabled = enabled;
+        },
+        setScenario: (scenario) => {
+          runtime.net.scenario = scenario as typeof runtime.net.scenario;
+        },
+        setPaused: (paused) => {
+          runtime.paused = paused;
+        },
+        setSpeed: (speed) => {
+          runtime.speed = speed;
+        },
+        recommendation: () => runtime.recommendation,
+        adoptRecommendation: (controls, aiEnabled) => {
+          runtime.net.controls = { ...(controls as object), aiEnabled } as typeof runtime.net.controls;
+        },
+        enterManualWindow: () => {
+          runtime.manualOverrideUntil = runtime.net.timeMin + MANUAL_OVERRIDE_MIN;
+        },
+        resetSimulation: () => resetRuntime(),
+        refreshDecision: () => {
+          runAiCycle(false);
+        },
+        rateLimited: (kind) => rateLimited(ws, kind),
+        throttledNotice: (kind, text) => throttledNotice(ws, kind, text),
+        send: (message) => {
+          ws.send(JSON.stringify(message));
+        },
+        broadcast,
+        broadcastSnapshot,
+        broadcastSimState: () => {
+          broadcast({ type: 'simState', paused: runtime.paused, speed: runtime.speed });
+        },
+        recordReview: (verdict, actor, action, reason) => recordReview(verdict, actor, action, reason),
+        actor: senderRole,
+        onInvalid: () => {
+          metrics.invalidMessages += 1;
+        },
+        onRateLimited: () => {
+          metrics.rateLimited += 1;
+        },
+        allowedControls: () => agentConfigStore.get().constraints.allowedControls,
+      });
       break;
     }
     case 'preset': {
@@ -1259,170 +1131,33 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       break;
     }
     case 'topology': {
-      if (msg.action === 'get') {
-        ws.send(JSON.stringify({ ...topologyMessage() } satisfies ServerMessage));
-        break;
-      }
-      if (msg.action === 'history') {
-        const requestId = (msg as { requestId?: unknown }).requestId;
-        ws.send(
-          JSON.stringify({
-            type: 'topologyHistory',
-            requestId: typeof requestId === 'string' ? requestId : undefined,
-            versions: topologyStore.history(),
-          } satisfies ServerMessage),
-        );
-        break;
-      }
-      if (msg.action === 'revert') {
-        if (rateLimited(ws, 'topology')) {
-          ws.send(
+      handleTopologyMessage(ws, msg as Extract<ClientMessage, { type: 'topology' }>, {
+        runtime,
+        topologyMessage,
+        history: () => topologyStore.history(),
+        versionAt: (revision) => topologyStore.version(revision),
+        throttled: (socket) => {
+          if (!rateLimited(socket as unknown as WebSocket, 'topology')) return false;
+          socket.send(
             JSON.stringify({
               type: 'notice',
               level: 'error',
               text: '拓扑变更过于频繁，请稍后再试',
             } satisfies ServerMessage),
           );
-          break;
-        }
-        const revision = (msg as { revision?: unknown }).revision;
-        if (typeof revision !== 'number' || !Number.isFinite(revision)) {
-          ws.send(
-            JSON.stringify({ type: 'notice', level: 'error', text: '回滚目标版本不合法' } satisfies ServerMessage),
-          );
-          break;
-        }
-        /**
-         * 回滚 = 以旧内容创建一个新 revision。
-         *
-         * 不把 revision 指针拨回去：客户端的增量判断、审计链、持久化都按
-         * 单调递增的 revision 工作，倒退会让"最新"变成歧义。
-         * 取出的历史条目在写入时已过 sanitize，这里再走与 apply 完全相同的
-         * readiness + 编译 + 预热路径（fail-closed）。
-         */
-        const target = topologyStore.version(revision);
-        if (!target) {
-          ws.send(
-            JSON.stringify({
-              type: 'notice',
-              level: 'error',
-              text: `找不到第 ${revision} 版拓扑`,
-            } satisfies ServerMessage),
-          );
-          break;
-        }
-        const rt = {
-          topology: runtime.topology,
-          compiled: runtime.compiled,
-          appliedAt: Date.now(),
-          revision: runtime.topologyRevision,
-          net: runtime.net,
-        };
-        let result: ReturnType<typeof applyTopology>;
-        try {
-          result = applyTopology(rt, target);
-        } catch (err) {
-          const reason = err instanceof Error ? err.message : String(err);
-          ws.send(
-            JSON.stringify({ type: 'notice', level: 'error', text: `回滚失败：${reason}` } satisfies ServerMessage),
-          );
-          break;
-        }
-        if (!result.ok) {
-          ws.send(
-            JSON.stringify({
-              type: 'notice',
-              level: 'error',
-              text: `第 ${revision} 版当前不可运行：${result.blockers[0] ?? '未知原因'}`,
-            } satisfies ServerMessage),
-          );
-          break;
-        }
-        const { saved } = adoptTopology(target, rt.compiled, rt.net, `回滚到 v${revision}`, null, rebuildDeps);
-        broadcast({
-          type: 'notice',
-          level: 'info',
-          text: saved
-            ? `已回滚到第 ${revision} 版；当前为第 ${runtime.topologyRevision} 版，厂已重建并完成预热。`
-            : `已回滚到第 ${revision} 版（⚠ 写盘失败，重启后会回退到旧拓扑）；当前为第 ${runtime.topologyRevision} 版。`,
-        });
-        broadcast({ ...topologyMessage() } satisfies ServerMessage);
-        ws.send(JSON.stringify({ type: 'topologyHistory', versions: topologyStore.history() } satisfies ServerMessage));
-        broadcastSnapshot();
-        break;
-      }
-      if (msg.action === 'apply') {
-        if (rateLimited(ws, 'topology')) {
-          ws.send(
-            JSON.stringify({
-              type: 'notice',
-              level: 'error',
-              text: '拓扑变更过于频繁，请稍后再试',
-            } satisfies ServerMessage),
-          );
-          break;
-        }
-        const incoming = (msg as { topology?: unknown }).topology;
-        /**
-         * 信任边界：先把任意 JSON 收成合法拓扑，再交给引擎。
-         *
-         * 此前只检查 `Array.isArray(units)` 就 `as ProcessTopology`：
-         * units 里的 null、NaN 容积、超长主序列都会原样进入 compileNetwork，
-         * 轻则应用失败，重则每个 tick 抛错把仿真停掉。
-         */
-        const sanitized = sanitizeTopologyInput(incoming);
-        if (!sanitized.ok) {
+          return true;
+        },
+        send: (socket, message) => {
+          socket.send(JSON.stringify(message));
+        },
+        broadcast,
+        broadcastSnapshot,
+        adopt: (topology, compiled, net, note, presetId) =>
+          adoptTopology(topology, compiled, net, note, presetId, rebuildDeps),
+        onInvalid: () => {
           metrics.invalidMessages += 1;
-          logger.warn('topology apply rejected', { reason: sanitized.error });
-          ws.send(
-            JSON.stringify({
-              type: 'notice',
-              level: 'error',
-              text: `拓扑结构不合法：${sanitized.error}`,
-            } satisfies ServerMessage),
-          );
-          break;
-        }
-        const rt = {
-          topology: runtime.topology,
-          compiled: runtime.compiled,
-          appliedAt: Date.now(),
-          revision: runtime.topologyRevision,
-          net: runtime.net,
-        };
-        let result: ReturnType<typeof applyTopology>;
-        try {
-          result = applyTopology(rt, sanitized.topology);
-        } catch (err) {
-          const reason = err instanceof Error ? err.message : String(err);
-          ws.send(
-            JSON.stringify({ type: 'notice', level: 'error', text: `拓扑应用失败：${reason}` } satisfies ServerMessage),
-          );
-          break;
-        }
-        if (!result.ok) {
-          ws.send(
-            JSON.stringify({
-              type: 'notice',
-              level: 'error',
-              text: `拓扑无法应用：${result.blockers[0] ?? '未知原因'}`,
-            } satisfies ServerMessage),
-          );
-          ws.send(JSON.stringify({ ...topologyMessage() } satisfies ServerMessage));
-          break;
-        }
-        // applyTopology 内部会重建 net，必须把新状态接回来，否则只是改了拓扑对象
-        const { saved } = adoptTopology(sanitized.topology, rt.compiled, rt.net, '应用自定义拓扑', null, rebuildDeps);
-        broadcast({
-          type: 'notice',
-          level: 'info',
-          text: saved
-            ? `工艺拓扑已应用（第 ${runtime.topologyRevision} 版），厂已按新拓扑重建并完成预热。`
-            : `工艺拓扑已应用（第 ${runtime.topologyRevision} 版），但 ⚠ 写盘失败：重启后会回退到旧拓扑，请检查磁盘空间。`,
-        });
-        broadcast({ ...topologyMessage() } satisfies ServerMessage);
-        broadcastSnapshot();
-      }
+        },
+      });
       break;
     }
     case 'llmConfig': {
@@ -1623,10 +1358,11 @@ async function main(): Promise<void> {
     const startedHr = process.hrtime.bigint();
     res.on('finish', () => {
       const seconds = Number(process.hrtime.bigint() - startedHr) / 1e9;
-      recordHttp(req.method ?? 'GET', req.url ?? '/', res.statusCode, seconds);
+      // 指标按规范化路径聚合，避免 /api/x?y=1 与 /api/x?y=2 各占一条时间线
+      recordHttp(req.method ?? 'GET', pathnameOf(req.url), res.statusCode, seconds);
     });
     res.on('error', (err) => {
-      logger.warn('http response error', { route: (req.url ?? '/').split('?')[0], error: String(err) });
+      logger.warn('http response error', { route: pathnameOf(req.url), error: String(err) });
     });
     try {
       handleHttpRequest(req, res);
@@ -1641,7 +1377,7 @@ async function main(): Promise<void> {
        * 不在这里加 metrics.httpErrors：下面的 500 响应会触发 res 'finish'
        * → recordHttp(500) 计数，手工再加就是每个 500 计两次。
        */
-      logger.error('http handler failed', { route: (req.url ?? '/').split('?')[0], error: String(err) });
+      logger.error('http handler failed', { route: pathnameOf(req.url), error: String(err) });
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: 'internal error' }));
@@ -1709,18 +1445,8 @@ async function main(): Promise<void> {
       return { ok: true };
     },
     resetSim: () => {
-      // 与 WS sim/reset 分支同语义：完整重建 + 运行态清理
-      rotateRunId();
-      runtime.net = createRuntime(runtime.topology, 20261019).net;
-      runtime.shadow = createShadowPlant(runtime.topology, 20261019, 0);
-      runtime.baselineStoredCodKg = particulateCodKg(runtime.net);
-      runtime.trend = [];
-      runtime.recommendation = null;
-      runtime.tick = 0;
-      runtime.simCarryMin = 0;
-      runtime.lastDecisionAtMin = 0;
-      runtime.paused = false;
-      clearRunScopedState();
+      // 与 WS sim/reset 共用同一个实现：两份副本已经开始漂移（MCP 曾漏 runId 轮换）
+      resetRuntime();
       broadcast({ type: 'notice', level: 'info', text: '[MCP] 仿真已重置到初始稳态。' });
       broadcastSnapshot();
       broadcast({ type: 'simState', paused: runtime.paused, speed: runtime.speed });
@@ -1828,6 +1554,14 @@ async function main(): Promise<void> {
       "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:",
     );
 
+    /**
+     * 路由判定的唯一起点。
+     *
+     * `pathnameOf` 已经折叠斜杠、解析点段、统一到前导单斜杠，
+     * 下面所有分支（MCP、鉴权、公开端点、静态回落）都只读这一个值。
+     * 不再有任何地方回头去看 `req.url` —— 两套口径必然产生
+     * 「鉴权认为不是 API、路由认为它是 API」这类绕过。
+     */
     const pathname = pathnameOf(req.url);
     // MCP 端点：自带鉴权（control 角色）与限流，不走下面的 viewer 只读门
     if (pathname === '/mcp') {
@@ -1852,7 +1586,8 @@ async function main(): Promise<void> {
         metrics.authFailures += 1;
         logger.warn('auth rejected', {
           scope: 'http',
-          route: req.url?.split('?')[0],
+          // 用规范化后的 pathname，不用原始 req.url：后者含换行即可伪造日志行
+          route: pathname,
           reason: decision.reason,
           ip: req.socket.remoteAddress,
         });

@@ -60,11 +60,17 @@ export function deleteUnits(topo: ProcessTopology, ids: string[]): ProcessTopolo
   const connections = topo.connections.filter((c) => !drop.has(c.from.unit) && !drop.has(c.to.unit));
   const kept = new Set(connections.map((c) => c.id));
 
-  const positions = { ...(topo.positions ?? {}) };
-  for (const id of drop) safeDelete(positions, id);
+  /**
+   * 用重建代替删除。
+   *
+   * `delete positions[id]` 的键来自拓扑文档。即使加了保留字守卫，
+   * 「从对象里删掉一个由外部字符串指定的键」本身就是一个容易被静态分析
+   * 判为注入的写法，也很难让人一眼看出安全边界在哪。
+   * 过滤 + Object.fromEntries 只构造白名单内的自有条目，从结构上就没有可删的东西。
+   */
+  const positions = Object.fromEntries(Object.entries(topo.positions ?? {}).filter(([id]) => !drop.has(id)));
 
-  const routes = { ...(topo.routes ?? {}) };
-  for (const id of Object.keys(routes)) if (!kept.has(id)) safeDelete(routes, id);
+  const routes = Object.fromEntries(Object.entries(topo.routes ?? {}).filter(([id]) => kept.has(id)));
 
   const next: ProcessTopology = {
     ...topo,
@@ -89,24 +95,39 @@ export function setRoute(topo: ProcessTopology, connectionId: string, points: Po
   const exists = topo.connections.some((c) => c.id === connectionId);
   if (!exists) return topo;
 
-  const routes = { ...(topo.routes ?? {}) };
+  const existing = topo.routes ?? {};
   if (points === null || points.length === 0) {
-    if (!Object.prototype.hasOwnProperty.call(routes, connectionId)) return topo;
-    safeDelete(routes, connectionId);
-  } else {
-    const clean = points
-      .map(finitePoint)
-      .filter((p): p is Point => Boolean(p))
-      .slice(0, MAX_ROUTE_POINTS);
-    if (clean.length === 0) {
-      if (!Object.prototype.hasOwnProperty.call(routes, connectionId)) return topo;
-      safeDelete(routes, connectionId);
-    } else {
-      routes[connectionId] = clean;
-    }
+    if (!Object.prototype.hasOwnProperty.call(existing, connectionId)) return topo;
+    return finishRoutes(topo, existing, connectionId, null);
   }
+  const clean = points
+    .map(finitePoint)
+    .filter((p): p is Point => Boolean(p))
+    .slice(0, MAX_ROUTE_POINTS);
+  if (clean.length === 0) {
+    if (!Object.prototype.hasOwnProperty.call(existing, connectionId)) return topo;
+    return finishRoutes(topo, existing, connectionId, null);
+  }
+  return finishRoutes(topo, existing, connectionId, clean);
+}
+
+/**
+ * 用「过滤 + 追加」重建 routes，绝不 delete 动态键。
+ *
+ * `connectionId` 来自拓扑文档；把它从对象里删掉需要 `delete obj[key]`，
+ * 而该写法对原型链键有副作用。这里改为先过滤掉目标键，再把清理过的点集
+ * 追加为自有条目——目标键要么不存在，要么是明确赋值，没有第三条路径。
+ */
+function finishRoutes(
+  topo: ProcessTopology,
+  existing: Record<string, Point[]>,
+  connectionId: string,
+  points: Point[] | null,
+): ProcessTopology {
+  const filtered = Object.entries(existing).filter(([id]) => id !== connectionId);
+  if (points) filtered.push([connectionId, points]);
   const next: ProcessTopology = { ...topo };
-  if (Object.keys(routes).length > 0) next.routes = routes;
+  if (filtered.length > 0) next.routes = Object.fromEntries(filtered);
   else delete next.routes;
   return next;
 }

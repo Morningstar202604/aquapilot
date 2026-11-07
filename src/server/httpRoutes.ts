@@ -48,9 +48,21 @@ export function isApiPath(pathname: string): boolean {
   return lower === '/api' || lower.startsWith(API_PREFIX);
 }
 
-/** 健康检查与「是否需要认证」必须免鉴权，否则前端无法判断该不该弹登录框 */
+/**
+ * 免鉴权端点集合。
+ *
+ * 用显式集合而不是字符串比较：
+ * - 与 `isApiPath` 保持同一套大小写口径（`/API/health` 也认），
+ *   避免出现「isApiPath 认它是 API、isPublicApiPath 又不认」的两套判定；
+ * - 集合是编译期常量，判定不经过任何拼接或前缀匹配，边界一眼可见。
+ *
+ * 只有两个端点在这里：健康探针（自动重启要看）与 auth-required
+ * （前端靠它决定要不要弹登录框，拦掉会死锁）。
+ */
+const PUBLIC_API_PATHS: ReadonlySet<string> = new Set(['/api/health', '/api/auth-required']);
+
 export function isPublicApiPath(pathname: string): boolean {
-  return pathname === '/api/health' || pathname === '/api/auth-required';
+  return PUBLIC_API_PATHS.has(pathname.toLowerCase());
 }
 
 /**

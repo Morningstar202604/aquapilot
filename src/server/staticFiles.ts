@@ -1,9 +1,9 @@
 import type { IncomingMessage } from 'node:http';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
-import { open } from 'node:fs/promises';
+import { open, realpath } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { extname, join, relative, isAbsolute, normalize, resolve, sep } from 'node:path';
 import { shouldFallbackToIndex } from './httpRoutes';
 
 /**
@@ -92,12 +92,45 @@ export async function serveStatic(
 
   let filePath = normalize(join(clientDir, urlPath === '/' ? 'index.html' : urlPath));
 
-  // 前缀校验必须带分隔符，否则 dist/clientX 会通过 startsWith('dist/client')
+  /**
+   * 词法前缀校验：先挡掉 `../` 这类显而易见的越界。
+   *
+   * 必须带分隔符，否则 dist/clientX 会通过 startsWith('dist/client')。
+   * 这一步只看字符串，不碰文件系统——它是快速失败，不是最终判据。
+   */
   const withSep = clientDir.endsWith(sep) ? clientDir : clientDir + sep;
   if (filePath !== clientDir && !filePath.startsWith(withSep)) {
     res.writeHead(403);
     res.end('forbidden');
     return;
+  }
+
+  /**
+   * 真实路径校验：词法校验挡不住符号链接。
+   *
+   * `dist/client/assets/x.js` 在磁盘上可能是一个指向 `/etc/passwd` 的软链，
+   * 字符串层面它完全合法，只有 realpath 之后才看得出越界。
+   * 判据用 `relative(root, real)`：结果以 `..` 开头或为绝对路径即越界。
+   * 根目录本身允许（`relative` 返回空串）。
+   *
+   * 注意 realpath 只对**已存在**的路径有效：不存在的路径会抛 ENOENT，
+   * 此时保持词法校验结果，交给下面的 existsSync/404 分支处理。
+   */
+  const rootReal = await realpath(clientDir).catch(() => clientDir);
+  let realFile: string | null = null;
+  try {
+    realFile = await realpath(filePath);
+  } catch {
+    realFile = null; // 不存在：后续按 404 / SPA 回落处理
+  }
+  if (realFile !== null) {
+    const rel = relative(rootReal, realFile);
+    if (rel !== '' && (rel.startsWith('..') || isAbsolute(rel))) {
+      res.writeHead(403);
+      res.end('forbidden');
+      return;
+    }
+    filePath = realFile;
   }
   if (!existsSync(filePath)) {
     // 只有前端路由才回落首页；缺资源必须 404，否则浏览器把 HTML 当 JS 执行

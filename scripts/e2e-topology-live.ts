@@ -7,16 +7,21 @@ const ws = new WebSocket(url);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * 终端输出净化。
+ * 只输出可验证的数值，不输出服务端文本。
  *
- * `noticeText` 里的字符串来自服务端广播，而服务端会把用户可控内容
- * （拓扑名、场景名、错误详情）拼进提示。直接 console.log 会让
- * ANSI 转义序列生效：ESC[2J 清屏、CR 覆盖已打印的行，
- * 一个伪造的通知就能把整段诊断输出伪装成「全部通过」。
- * 这里剥离控制字符，只保留可打印文本。
+ * 这个脚本的作用是回答「新增的反应器有没有被真实求解」，需要的是
+ * 池容、出水浓度、评分这类数字。服务端通知文本（拓扑名、错误详情）
+ * 属于外部输入，把它打到终端既没有诊断价值，又让 ANSI 转义序列
+ * （ESC[2J 清屏、CR 覆盖行）能把失败伪装成成功。
+ *
+ * 因此这里不做「净化后打印」，而是从根本上不打印它：
+ * 文本类字段只输出长度与是否为空，数字按固定小数位格式化。
  */
-const CONTROL_CHARS = new RegExp('[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]', 'g');
-const safe = (v: unknown): string => String(v).replace(CONTROL_CHARS, '?').replace(new RegExp('[\r\n]+', 'g'), ' ');
+const num = (v: unknown, digits = 3): string =>
+  typeof v === 'number' && Number.isFinite(v) ? v.toFixed(digits) : 'n/a';
+
+const count = (v: unknown): number => (Array.isArray(v) ? v.length : 0);
+
 let snapshots: any[] = [];
 let noticeText: string[] = [];
 
@@ -38,9 +43,9 @@ async function main() {
     throw new Error('应用前未收到快照');
   }
   console.log(
-    safe(
-      `应用前：反应器 ${before.reactorCount} | 池容 ${before.tanks.map((t: any) => t.volume).join('/')} | 出水 NH₄ ${before.effluent.nh.toFixed(3)} | 评分 ${before.score}`,
-    ),
+    `应用前：反应器 ${num(before.reactorCount, 0)} | 池容 ${before.tanks
+      .map((t: any) => num(t.volume, 0))
+      .join('/')} | 出水 NH₄ ${num(before.effluent?.nh)} | 评分 ${num(before.score, 1)}`,
   );
 
   // 构造 6 池拓扑：在好氧池 C 之后加一个好氧池 D
@@ -82,15 +87,18 @@ async function main() {
   const after = snapshots[snapshots.length - 1];
   if (!after) {
     ws.close();
-    throw new Error(safe(`未收到快照，应用可能失败。通知：${noticeText.join(' | ')}`));
+    // 不拼接通知正文：只报数量，正文可能是任意服务端字符串
+    throw new Error(`未收到快照，应用可能失败（期间收到 ${noticeText.length} 条通知）`);
   }
   console.log(
-    safe(
-      `应用后：反应器 ${after.reactorCount} | 池容 ${after.tanks.map((t: any) => t.volume).join('/')} | 出水 NH₄ ${after.effluent.nh.toFixed(3)} | 评分 ${after.score}`,
-    ),
+    `应用后：反应器 ${num(after.reactorCount, 0)} | 池容 ${after.tanks
+      .map((t: any) => num(t.volume, 0))
+      .join('/')} | 出水 NH₄ ${num(after.effluent?.nh)} | 评分 ${num(after.score, 1)}`,
   );
-  console.log(safe(`反应器名称：${after.tanks.map((t: any) => t.name).join(' / ')}`));
-  console.log(safe(`通知：${noticeText.join(' | ')}`));
+  console.log(
+    `反应器数量：${count(after.tanks)}；名称长度合计：${after.tanks.reduce((n: number, t: any) => n + String(t.name ?? '').length, 0)}`,
+  );
+  console.log(`通知条数：${noticeText.length}`);
 
   const ok = after.reactorCount === 6 && after.tanks.some((t: any) => t.id === 'aerobic4');
   console.log(`\n结论：界面/协议层新增的池子被引擎真实求解 — ${ok ? '是' : '否'}`);

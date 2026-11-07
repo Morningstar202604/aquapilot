@@ -165,7 +165,14 @@ export function useSimulation() {
   const [llmLastDiscoverAt, setLlmLastDiscoverAt] = useState<number | null>(null);
   const [llmTestResult, setLlmTestResult] = useState<LlmTestResult | null>(null);
   const llmRequestId = useRef(0);
-  const llmPending = useRef<Record<string, 'discover' | 'test' | 'save' | 'clear'>>({});
+  /**
+   * 进行中的模型配置操作，按 requestId 索引。
+   *
+   * 用 Map 而不是普通对象：键来自服务端回执的 requestId，
+   * 普通对象的动态删除会碰到原型链（`__proto__` 等键既删不掉又可能污染
+   * 全局对象）。Map 只按自有键工作，没有这个问题。
+   */
+  const llmPending = useRef<Map<string, 'discover' | 'test' | 'save' | 'clear'>>(new Map());
 
   /**
    * 清除一次挂起的模型操作。
@@ -176,9 +183,7 @@ export function useSimulation() {
    */
   const dropPending = (requestId: string | undefined) => {
     if (!requestId) return;
-    if (requestId === '__proto__' || requestId === 'constructor' || requestId === 'prototype') return;
-    if (!Object.prototype.hasOwnProperty.call(llmPending.current, requestId)) return;
-    delete llmPending.current[requestId];
+    llmPending.current.delete(requestId);
   };
   /** 每类操作最近一次发出的 requestId：迟到响应按它过滤，防止旧结果覆盖新结果 */
   const llmLatest = useRef<{ discover: string | null; test: string | null; save: string | null }>({
@@ -504,7 +509,7 @@ export function useSimulation() {
          * 这些 flag 只在收到响应时清零；连接一断，请求永远不会回来，
          * 界面就会永久卡在「正在拉取模型…」「保存中…」，且无法再次触发。
          */
-        llmPending.current = {};
+        llmPending.current = new Map();
         llmLatest.current = { discover: null, test: null, save: null };
         agentLatest.current = null;
         setLlmDiscovering(false);
@@ -612,7 +617,7 @@ export function useSimulation() {
   const llmReload = () => send({ type: 'llmConfig', action: 'get' });
   const llmDiscover = (input: { protocol: LlmProtocol; baseUrl: string; apiKey?: string }) => {
     const requestId = nextLlmRequestId();
-    llmPending.current[requestId] = 'discover';
+    llmPending.current.set(requestId, 'discover');
     llmLatest.current.discover = requestId;
     setLlmDiscovering(true);
     setLlmError(null);
@@ -626,7 +631,7 @@ export function useSimulation() {
     maxOutput?: number;
   }) => {
     const requestId = nextLlmRequestId();
-    llmPending.current[requestId] = 'test';
+    llmPending.current.set(requestId, 'test');
     llmLatest.current.test = requestId;
     setLlmTesting(true);
     setLlmTestResult(null);
@@ -634,7 +639,7 @@ export function useSimulation() {
   };
   const llmSave = (draft: LlmDraft) => {
     const requestId = nextLlmRequestId();
-    llmPending.current[requestId] = 'save';
+    llmPending.current.set(requestId, 'save');
     llmLatest.current.save = requestId;
     setLlmSaving(true);
     setLlmError(null);
@@ -642,7 +647,7 @@ export function useSimulation() {
   };
   const llmClear = () => {
     const requestId = nextLlmRequestId();
-    llmPending.current[requestId] = 'clear';
+    llmPending.current.set(requestId, 'clear');
     setLlmModels([]);
     send({ type: 'llmConfig', action: 'clear', requestId });
   };
