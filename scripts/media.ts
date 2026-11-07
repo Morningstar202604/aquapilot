@@ -12,7 +12,7 @@ import { resolveBrowserExecutable } from './e2eBrowser';
  * 生产构建（dist/），不是设计稿。
  *
  * 输出：
- *   docs/screenshots/*.jpg   10 张
+ *   docs/screenshots/*.jpg   11 张（含 0.8.0 新增评分卡与移动端）
  *   docs/media/demo.webm     原始录制
  *   （外层用 ffmpeg 转 docs/media/demo.mp4 与 demo.gif）
  */
@@ -195,7 +195,7 @@ try {
     const raw = await video.path();
     if (existsSync(raw)) await rename(raw, 'docs/media/demo.webm');
   }
-  console.log('MEDIA PASS: 10 screenshots + demo.webm');
+  console.log('MEDIA PASS: 11 screenshots + demo.webm');
 } finally {
   await context?.close().catch(() => undefined);
   await browser?.close().catch(() => undefined);

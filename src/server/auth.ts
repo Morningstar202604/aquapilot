@@ -150,6 +150,7 @@ export function requiredRoleFor(messageType: string): Role {
     case 'control':
     case 'aiEnabled':
     case 'applyRecommendation':
+    case 'dismissRecommendation':
     case 'scenario':
     case 'sim':
     case 'speed':

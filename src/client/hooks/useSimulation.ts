@@ -572,6 +572,7 @@ export function useSimulation() {
   const setControls = (patch: Partial<ControlSettings>) => send({ type: 'control', patch });
   const setAiEnabled = (enabled: boolean) => send({ type: 'aiEnabled', enabled });
   const applyRecommendation = () => send({ type: 'applyRecommendation' });
+  const dismissRecommendation = (reason = '') => send({ type: 'dismissRecommendation', reason });
   const startScenario = (scenario: ScenarioType, options: { durationMin?: number; magnitude?: number } = {}) =>
     send({ type: 'scenario', kind: 'start', scenario, ...options });
   const clearScenario = () => send({ type: 'scenario', kind: 'clear' });
@@ -702,6 +703,7 @@ export function useSimulation() {
     setControls,
     setAiEnabled,
     applyRecommendation,
+    dismissRecommendation,
     startScenario,
     clearScenario,
     pause,

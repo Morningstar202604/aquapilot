@@ -45,6 +45,7 @@ export const ClientMessageSchema = v.variant('type', [
   v.object({ type: v.literal('control'), patch: ControlPatch }),
   v.object({ type: v.literal('aiEnabled'), enabled: v.boolean() }),
   v.object({ type: v.literal('applyRecommendation') }),
+  v.object({ type: v.literal('dismissRecommendation'), reason: v.optional(BoundedText(300)) }),
   v.object({
     type: v.literal('scenario'),
     kind: v.picklist(['start', 'clear']),

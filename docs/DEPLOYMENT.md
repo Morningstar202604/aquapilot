@@ -161,11 +161,13 @@ Docker Hub is identical with `docker.io/<user>/aquapilot`. Never bake tokens or
 ## Demo assets
 
 ```bash
-npx tsx scripts/media.ts     # 10 screenshots + docs/media/demo.webm
-ffmpeg -y -i docs/media/demo.webm -vf "fps=12,scale=1280:-2" \
-  -c:v libx264 -pix_fmt yuv420p -crf 26 -movflags +faststart docs/media/demo.mp4
-ffmpeg -y -i docs/media/demo.mp4 -vf "fps=8,scale=960:-2:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer" \
-  docs/media/demo.gif
+npx tsx scripts/media.ts     # 11 screenshots + docs/media/demo.webm (1600x950, ~45 s)
+# MP4: 1200 px wide, 12 fps, CRF 30 → ~650 kB
+ffmpeg -y -i docs/media/demo.webm -vf "fps=12,scale=1200:-2" \
+  -c:v libx264 -pix_fmt yuv420p -crf 30 -preset veryslow -movflags +faststart -an docs/media/demo.mp4
+# GIF: 560 px wide, 4 fps, 64-colour palette with diff-mode dithering → ~3 MB
+ffmpeg -y -i docs/media/demo.webm -vf "fps=4,scale=560:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" \
+  -loop 0 docs/media/demo.gif
 ```
 
 `media.ts` starts the production build on port 5190 with persistence disabled, so

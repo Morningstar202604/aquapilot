@@ -9,7 +9,7 @@
  * 数值与本系统生成的中文摘要，不来自外部输入。
  */
 
-import type { DecisionRow, SnapshotRow } from './store';
+import type { DecisionReviewRow, DecisionRow, SnapshotRow } from './store';
 import type { PlantSnapshot } from '../shared/protocol';
 import { formatClock, formatTimeOfDay, simClock } from '../shared/time';
 
@@ -76,6 +76,20 @@ export function decisionsCsv(rows: DecisionRow[]): string {
       r.separation,
       r.tweaks,
     ]),
+  );
+}
+
+/**
+ * 人工裁决 CSV。
+ *
+ * 与 decisionsCsv 并列导出：决策表答「AI 建议了什么」，
+ * 裁决表答「谁在什么时候怎么处置的」。只导出决策会让人误以为
+ * 每条建议都被执行了。
+ */
+export function reviewsCsv(rows: DecisionReviewRow[]): string {
+  return toCsv(
+    ['run_id', 'at_min', 'verdict', 'actor', 'action', 'reason'],
+    rows.map((r) => [r.runId ?? '', r.atMin, r.verdict, r.actor, r.action, r.reason]),
   );
 }
 

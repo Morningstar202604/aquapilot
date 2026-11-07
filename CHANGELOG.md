@@ -4,6 +4,67 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] — 2026-11-07
+
+Auditability release: what an operator does with a recommendation is now recorded
+with the same fidelity as the recommendation itself, and the eleven side panels
+become usable from a keyboard and a screen reader.
+
+### Added
+
+- **Operator verdicts in the audit trail** (`reviews` table,
+  `GET /api/history/reviews`, `GET /api/export/reviews.csv`). Three verdicts are
+  recorded: `approve` (a human adopted the recommendation), `reject` (a human
+  declined it, optionally with a reason) and `auto` (the agent executed on its
+  own). Previously only adoption produced a record, so a recommendation with no
+  follow-up was indistinguishable from one an operator deliberately rejected.
+  The decision panel now offers *Decline and log* plus four one-click reasons;
+  the acting role is stored with every row.
+- **WAI-ARIA tabs for the side panels** (`src/client/components/tabNav.ts`).
+  Roving tabindex (only the selected tab is in the Tab sequence), Arrow/Home/End
+  navigation with focus following selection, `aria-controls` on every tab and a
+  labelled `role="tabpanel"` per view. Keyboard and screen-reader users could
+  previously only reach the eleventh panel by pressing Tab eleven times.
+
+### Changed
+
+- `src/server/index.ts` 2340 → 2258 lines: the influent CSV handler moved to
+  `src/server/influentHandler.ts` (pure, injectable state) and the post-topology
+  rebuild sequence — previously **copy-pasted three times** across preset switch,
+  version revert and custom apply — collapsed into `adoptTopology()`
+  (`src/server/topologyRebuild.ts`). The three copies had to stay byte-identical;
+  dropping one line meant stale trends, a shadow plant still running the old
+  flowsheet, or a carried-over manual-override window.
+- The browser smoke test's panel assertion was a false green: it queried
+  `.scroll-panel, .side-body` and `.side-body` is always visible, so a crashed
+  panel still passed. It now asserts exactly one `tabpanel`, that
+  `aria-labelledby` matches the selected tab, that the panel's content marker is
+  visible, that only one tab sits in the Tab sequence, and that ArrowRight moves
+  the selection. Negative control: removing `role="tabpanel"` fails the test.
+
+### Fixed
+
+- **`distquapilot.exe` rendered as garbage in both READMEs.** The quick-start
+  block contained a literal BEL character (0x07): `distquapilot.exe` had been
+  written through a `` escape. Both files now carry the forward-slash form.
+- **Nine moderate `npm audit` findings** came from `minimatch@10.2.6` reachable
+  through ESLint and Stryker. Pinned to `11.0.5` via `overrides`; `npm audit`
+  now reports zero vulnerabilities on both the production and dev trees.
+- **A failing store test could silently disable persistence for every later
+  test.** Two cases set `AQUAPILOT_PERSIST=0` and cleared it on the last line; if
+  an assertion threw first, the variable leaked and the remaining cases failed
+  with a misleading "node:sqlite unavailable". Reset moved to `afterEach`.
+
+### Docs
+
+- `docs/REFERENCE-LEARNING.md` gains five projects studied this cycle
+  (waterworks-ai, aloha-water-treatment, digital-twin-water,
+  Multi-PLC-Water-Treatment-Testbed, asm1-influent-generator) with what was
+  adopted and what was deliberately not.
+- `docs/API.md` documents the reviews endpoint, the CSV export and the
+  `dismissRecommendation` message; `docs/DEPLOYMENT.md` records the actual
+  encode settings used for the demo video.
+
 ## [0.8.0] — 2026-11-06
 
 Federation release: the simulator becomes exchangeable and scriptable, and a

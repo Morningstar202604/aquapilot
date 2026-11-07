@@ -5,7 +5,7 @@ import { logger, metrics } from './observability';
 import type { SnapshotRow } from '../shared/protocol';
 
 /** 持久化表名白名单：任何拼进 SQL 的表名都必须出自这里，禁止任意字符串拼接 */
-export const PERSIST_TABLES = ['decisions', 'alarms', 'snapshots'] as const;
+export const PERSIST_TABLES = ['decisions', 'alarms', 'snapshots', 'reviews'] as const;
 export type PERSIST_TABLE = (typeof PERSIST_TABLES)[number];
 
 /**
@@ -62,6 +62,33 @@ export interface DecisionRow {
   separation: number;
 }
 
+/**
+ * 人工裁决记录。
+ *
+ * 竞品（waterworks-ai）把「审批通过」与「拒绝」以同等保真度写入审计日志；
+ * 这里此前只有 AI 侧的 decision 与 alarm，人的动作完全不留痕——
+ * 事故复盘时无法回答「这条建议是谁处置的、什么时候、为什么没采纳」。
+ *
+ * 单独成表而不是给 decisions 加列：
+ * 1. 一次决策可能被多次处置（先拒绝、后手动采纳），是一对多；
+ * 2. decisions 表已有 8 列 + 迁移逻辑，加列会让“旧库补列”的分支继续膨胀；
+ * 3. 裁决是审计对象，读写模式与决策不同（按 runId + 时间窗查询）。
+ */
+export interface DecisionReviewRow {
+  runId?: string;
+  /** 被处置的建议在仿真时钟上的时刻（毫秒/分钟口径与 decisions 的 at_min 一致） */
+  atMin: number;
+  /** approve = 采纳并执行；reject = 明确拒绝；auto = AI 自动执行（无人参与） */
+  verdict: 'approve' | 'reject' | 'auto';
+  /** 作出裁决的角色：viewer/operator/admin；auto 时写 'ai' */
+  actor: string;
+  /** 被处置建议的动作类型（hold/adjust/…），便于按动作统计 |
+   */
+  action: string;
+  /** 处置理由；approve/auto 可为空，reject 建议填（界面提供快捷理由） */
+  reason: string;
+}
+
 export interface AlarmRow {
   runId?: string;
   id: string;
@@ -77,7 +104,7 @@ export interface BackupManifest {
   createdAt: string;
   sourcePath: string;
   bytes: number;
-  counts: { decisions: number; alarms: number; snapshots: number };
+  counts: { decisions: number; alarms: number; snapshots: number; reviews: number };
 }
 
 export interface RestoreResult {
@@ -92,11 +119,12 @@ export class Store {
   private db: DatabaseLike | null = null;
   /** 上一次 flush 的 ROLLBACK 也失败：事务仍挂在连接上，需先解锁再写入 */
   private txPoisoned = false;
-  private writeBuffer: { decisions: DecisionRow[]; alarms: AlarmRow[]; snapshots: SnapshotRow[] } = {
-    decisions: [],
-    alarms: [],
-    snapshots: [],
-  };
+  private writeBuffer: {
+    decisions: DecisionRow[];
+    alarms: AlarmRow[];
+    snapshots: SnapshotRow[];
+    reviews: DecisionReviewRow[];
+  } = { decisions: [], alarms: [], snapshots: [], reviews: [] };
   private flushTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly path: string = DB_PATH) {}
@@ -124,6 +152,10 @@ export class Store {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           alarm_id TEXT, at_min REAL NOT NULL, severity TEXT, code TEXT, message TEXT
         );
+        CREATE TABLE IF NOT EXISTS reviews (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          run_id TEXT, at_min REAL NOT NULL, verdict TEXT, actor TEXT, action TEXT, reason TEXT
+        );
         CREATE TABLE IF NOT EXISTS snapshots (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           run_id TEXT, at_min REAL NOT NULL, cod REAL, nh REAL, tn REAL, tp REAL, ss REAL,
@@ -132,6 +164,7 @@ export class Store {
         CREATE INDEX IF NOT EXISTS idx_decisions_at ON decisions(at_min);
         CREATE INDEX IF NOT EXISTS idx_snapshots_at ON snapshots(at_min);
         CREATE INDEX IF NOT EXISTS idx_snapshots_run ON snapshots(run_id);
+        CREATE INDEX IF NOT EXISTS idx_reviews_run ON reviews(run_id);
       `);
       // 迁移：给旧表补 run_id 列（SQLite 不支持 IF NOT EXISTS 加列，用 try 包裹）
       for (const table of PERSIST_TABLES) {
@@ -156,6 +189,13 @@ export class Store {
   recordDecision(row: DecisionRow): void {
     if (!this.db) return;
     this.writeBuffer.decisions.push(row);
+    this.capBuffer();
+  }
+
+  /** 记录一次人工裁决（approve/reject/auto）；audit 表的写入点只有一个 */
+  recordReview(row: DecisionReviewRow): void {
+    if (!this.db) return;
+    this.writeBuffer.reviews.push(row);
     this.capBuffer();
   }
 
@@ -204,7 +244,8 @@ export class Store {
     const d = this.writeBuffer.decisions;
     const a = this.writeBuffer.alarms;
     const s = this.writeBuffer.snapshots;
-    if (!d.length && !a.length && !s.length) return;
+    const r = this.writeBuffer.reviews;
+    if (!d.length && !a.length && !s.length && !r.length) return;
 
     try {
       this.db.exec('BEGIN');
@@ -237,8 +278,13 @@ export class Store {
           r.score,
         );
       }
+      const insR = this.db.prepare(
+        'INSERT INTO reviews(run_id,at_min,verdict,actor,action,reason) VALUES(?,?,?,?,?,?)',
+      );
+      for (const row of r) insR.run(row.runId ?? null, row.atMin, row.verdict, row.actor, row.action, row.reason);
+
       this.db.exec('COMMIT');
-      this.writeBuffer = { decisions: [], alarms: [], snapshots: [] };
+      this.writeBuffer = { decisions: [], alarms: [], snapshots: [], reviews: [] };
       metrics.persistenceFlushes += 1;
       this.txPoisoned = false;
     } catch (err) {
@@ -259,6 +305,18 @@ export class Store {
       }
       logger.error('persistence flush failed', { error: String(err) });
     }
+  }
+
+  /** 最近 N 条人工裁决，用于审计导出与复盘 */
+  recentReviews(limit = 100, runId?: string): DecisionReviewRow[] {
+    if (!this.db) return [];
+    const base = 'SELECT run_id as runId, at_min as atMin, verdict, actor, action, reason FROM reviews';
+    if (runId) {
+      return this.db
+        .prepare(`${base} WHERE run_id = ? ORDER BY id DESC LIMIT ?`)
+        .all(runId, limit) as unknown as DecisionReviewRow[];
+    }
+    return this.db.prepare(`${base} ORDER BY id DESC LIMIT ?`).all(limit) as unknown as DecisionReviewRow[];
   }
 
   /** 读取最近 N 条告警，用于事故复盘与导出 */
@@ -337,12 +395,17 @@ export class Store {
       .all() as unknown as { runId: string; fromMin: number; toMin: number; points: number }[];
   }
 
-  count(): { decisions: number; alarms: number; snapshots: number } {
-    if (!this.db) return { decisions: 0, alarms: 0, snapshots: 0 };
+  count(): { decisions: number; alarms: number; snapshots: number; reviews: number } {
+    if (!this.db) return { decisions: 0, alarms: 0, snapshots: 0, reviews: 0 };
     // 表名只能来自白名单常量，不允许字符串拼接进 SQL（防御性约束，防未来误用）
     const one = (table: PERSIST_TABLE) =>
       (this.db!.prepare(`SELECT COUNT(*) as c FROM ${table}`).get() as unknown as { c: number }).c;
-    return { decisions: one('decisions'), alarms: one('alarms'), snapshots: one('snapshots') };
+    return {
+      decisions: one('decisions'),
+      alarms: one('alarms'),
+      snapshots: one('snapshots'),
+      reviews: one('reviews'),
+    };
   }
 
   /**
@@ -385,7 +448,7 @@ export class Store {
       await probe.open();
       if (!probe.enabled) return { ok: false, reason: '备份文件无法作为 SQLite 打开（文件损坏或格式不符）' };
       const counts = probe.count();
-      if (counts.snapshots === 0 && counts.decisions === 0 && counts.alarms === 0) {
+      if (counts.snapshots === 0 && counts.decisions === 0 && counts.alarms === 0 && counts.reviews === 0) {
         return { ok: false, reason: '备份文件可打开但没有任何数据' };
       }
       probe.close();

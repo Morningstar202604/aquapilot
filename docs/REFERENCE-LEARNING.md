@@ -191,6 +191,52 @@ AquaPilot 落地：**已做** 拓扑导出的 `exportedAt` + `appVersion` 元数
 | AutoWaterSimu Next | contract-first；artifact 分离；oracle 迁移 | 已做拓扑交换契约；未做多栈 |
 | bsm2-baseline | 不重写内核；可复现元数据；seam 预留 | 已做导出元数据；seam 已有 |
 
+## 18-22. 2026-11-07 第三轮调研（审计、协议栈与交付形态）
+
+本轮针对「可审计性、工业协议、零后端交付」三条线各补了样本。五个项目的 README
+与目录结构逐一读过（GitHub API 取原文），结论按「能不能落在 AquaPilot 的定位上」筛。
+
+### 18. smslavin/waterworks-ai
+
+- **做对了什么**：MQTT + OPC-UA 发布真实传感器流；MCP 聚合器把 influx/audit/control/memory
+  四个 server 拼成一套工具面；**审批对话框把 approve 与 deny 以同等保真度写审计日志**；
+  InfluxDB 做历史、Grafana 做看板；故障注入引擎让「诊断质量可验证而不是自吹」。
+- **落地到 AquaPilot**：采纳「否决也留痕」这一条（项目此前只有采纳的正向事件）——
+  新增 reviews 表 + `dismissRecommendation` + 拒绝理由 UI + `/api/history/reviews`
+  与 `reviews.csv`，并把 AI 自动执行记为第三种裁决 `auto`。
+- **不采纳**：它的多进程 MCP 拆分（4 个 server + 聚合器）。本项目单进程内已有 11 个工具，
+  拆进程只会增加部署面与鉴权缝隙，收益不抵成本。
+
+### 19. mitre/aloha-water-treatment
+
+- **做对了什么**：Modbus + BACnet 双协议、PLC 服务器 + Web HMI，作为 OT 安全靶场；
+  依赖声明精确到小版本（`BAC0==2025.9.15`），保证复现。
+- **落地到 AquaPilot**：无。AquaPilot 不做 OT 协议栈，接 PLC 需要工业安全评估，
+  已在 COMPETITIVE-ANALYSIS 记录为独立项目。
+- **借鉴**：依赖精确锁版本的纪律——本轮把 minimatch 用 overrides 钉到 11.0.5 同理。
+
+### 20. j03rul4nd/digital-twin-water
+
+- **做对了什么**：**无后端、无数据库、纯浏览器**的数字孪生起步包；Three.js 三维视图；
+  Sparkplug B 载荷映射；规则引擎 + 趋势检测 + webhook 告警；30 分钟可跑起来。
+- **落地到 AquaPilot**：拒绝「无后端」——本项目的卖点之一是服务端权威仿真与审计落库，
+  纯浏览器会把审计链变成可篡改的客户端状态。但接受它的**上手门槛**教训：
+  README 首屏必须能在 30 秒内给出「跑起来看到什么」，本轮据此重排了 Quick start。
+
+### 21. SamTruss/Multi-PLC-Water-Treatment-Testbed
+
+- **做对了什么**：明确标注「故意脆弱、仅限隔离主机运行」，把危险默认值写在 README 第一屏；
+  Purdue 分层网络分段；agent harness 做 recon → attack → probe 三阶段。
+- **落地到 AquaPilot**：采纳**危险默认值的显式声明**——本项目非回环监听无令牌时 fail-closed，
+  `.env.example` 与 README 都把这条写在显眼位置。
+
+### 22. ttronas/asm1-influent-generator
+
+- **做对了什么**：单一职责的极小工具（只做 ASM1 进水序列生成），CLI 一行出 CSV，可 pip 装。
+- **落地到 AquaPilot**：这是本项目 `simulate --csv` / `influent` 导入路径的对标形态；
+  已在第五轮实现进水序列解析 + 数据质量门禁（`src/sim/influentSeries.ts`、`dataQuality.ts`），
+  差异是 AquaPilot 把质量报告前置到应用之前，而不是生成后直接喂给模型。
+
 ## 结论要点
 1. 已被 AquaPilot 覆盖并被外部项目验证正确的：内核/UI 解耦（DWSIM、MABDT）、只读快照+护栏（MABDT、n8n）、版本回滚（Windmill）、LLM 无关 providers（LLMDrivenSimulation）。
 2. 2026-11 复核：三项已全部落地——① ECharts LTTB 降采样 + 三图共享时间范围（Trends.tsx，见 `src/client/components/trendData.ts`）；② BSM1 Table 6 回归测试已在 CI（`tests/bsm1-benchmark.test.ts`）；③ 拓扑导入导出（`src/model/topologyExchange.ts` + 编辑器工具栏 + CLI `topology` 子命令）。

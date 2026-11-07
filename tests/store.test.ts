@@ -22,6 +22,15 @@ beforeEach(() => {
 afterEach(() => {
   store.close();
   rmSync(dir, { recursive: true, force: true });
+  /**
+   * 环境变量必须无条件复位。
+   *
+   * 之前两个用例会临时把 AQUAPILOT_PERSIST 设为 '0' 并在用例末尾 delete；
+   * 一旦断言提前失败，delete 就执行不到，后面所有用例都会在"持久化关闭"
+   * 状态下运行——表现为一串莫名其妙的 "node:sqlite 不可用"。
+   * 本例曾真实踩到：count() 形状变更让前一个用例失败，后续 3 个用例连带失败。
+   */
+  delete process.env.AQUAPILOT_PERSIST;
 });
 
 describe('持久化', () => {
@@ -193,7 +202,7 @@ describe('未启用持久化时的全部读取路径', () => {
     expect(s.snapshotsBetween(0, 100)).toEqual([]);
     expect(s.latestRunId()).toBeNull();
     expect(s.listRuns()).toEqual([]);
-    expect(s.count()).toEqual({ decisions: 0, alarms: 0, snapshots: 0 });
+    expect(s.count()).toEqual({ decisions: 0, alarms: 0, snapshots: 0, reviews: 0 });
     s.recordAlarm({ id: 'a1', atMin: 1, severity: 'warning', code: 'X', message: 'm' });
     s.flush();
     expect(s.count().alarms).toBe(0);
@@ -305,5 +314,73 @@ describe('告警持久化', () => {
     expect(a[0].code).toBe('DO_LOW');
     expect(a[0].runId).toBe('run-A');
     expect(store.count().alarms).toBe(2);
+  });
+});
+
+describe('人工裁决审计', () => {
+  /**
+   * 「采纳」与「拒绝」必须同等留痕。
+   *
+   * 这是对标 waterworks-ai 的审计设计后补的：它把 approve 与 deny
+   * 以同等保真度写入审计日志。本项目此前只有 AI 侧 decisions，
+   * 人的处置完全不留痕——复盘时无法区分「人拒绝了」与「消息丢了」。
+   */
+  it('approve/reject/auto 三类裁决都能落库并按 run 隔离', async () => {
+    await store.open();
+    if (!store.enabled) throw new Error('node:sqlite 不可用：持久化层故障，测试无法继续');
+    store.recordReview({
+      runId: 'run-A',
+      atMin: 15,
+      verdict: 'approve',
+      actor: 'operator',
+      action: 'adjust',
+      reason: '',
+    });
+    store.recordReview({
+      runId: 'run-A',
+      atMin: 30,
+      verdict: 'reject',
+      actor: 'admin',
+      action: 'adjust',
+      reason: '成本不划算',
+    });
+    store.recordReview({ runId: 'run-B', atMin: 45, verdict: 'auto', actor: 'ai', action: 'dose', reason: '' });
+    store.flush();
+
+    const a = store.recentReviews(10, 'run-A');
+    expect(a).toHaveLength(2);
+    // 倒序：最新在前
+    expect(a[0].verdict).toBe('reject');
+    expect(a[0].reason).toBe('成本不划算');
+    expect(a[1].verdict).toBe('approve');
+
+    const b = store.recentReviews(10, 'run-B');
+    expect(b).toHaveLength(1);
+    expect(b[0].actor).toBe('ai');
+    expect(store.count().reviews).toBe(3);
+  });
+
+  it('未按 run 过滤时返回全部裁决，且受 limit 约束', async () => {
+    await store.open();
+    if (!store.enabled) throw new Error('node:sqlite 不可用');
+    for (let i = 0; i < 5; i += 1) {
+      store.recordReview({
+        runId: `run-${i}`,
+        atMin: i,
+        verdict: 'reject',
+        actor: 'operator',
+        action: 'hold',
+        reason: '',
+      });
+    }
+    store.flush();
+    expect(store.recentReviews()).toHaveLength(5);
+    expect(store.recentReviews(2)).toHaveLength(2);
+  });
+
+  it('持久化关闭时写入不抛错、读取返回空', async () => {
+    // 未 open 的实例：db 为 null，所有路径必须安全
+    store.recordReview({ atMin: 1, verdict: 'reject', actor: 'operator', action: 'hold', reason: 'x' });
+    expect(store.recentReviews()).toEqual([]);
   });
 });

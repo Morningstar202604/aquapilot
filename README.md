@@ -8,7 +8,7 @@
 [![CodeQL](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12-339933)](package.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![tests](https://img.shields.io/badge/tests-1286%20passing-2ea44f)](docs/BENCHMARKS.md)
+[![tests](https://img.shields.io/badge/tests-1323%20passing-2ea44f)](docs/BENCHMARKS.md)
 
 ![AquaPilot overview](docs/screenshots/01-overview.jpg)
 
@@ -27,9 +27,11 @@
   the IWA BSM1 reference. `aquapilot scorecard` replays a standard 30-day crisis
   timeline — storm, shock load, toxic inlet, cold spell, blower failure,
   chemical shortage — in under a second.
+- **Operator verdicts are logged, not inferred.** Approving a recommendation, declining it (with a reason) and letting the agent execute on its own are three distinct audit rows — `GET /api/history/reviews` and `reviews.csv` export them next to the decision log. A recommendation with no follow-up is no longer indistinguishable from one the operator deliberately rejected.
 - **Evidence, not marketing.** AI-vs-fixed-strategy shadow runs share seed, influent and initial state; the insights panel shows the real deltas. Parameter calibration and a six-state EKF ship as experimental, clearly-labelled tools.
 - **Speaks MCP.** `POST /mcp` exposes the simulator to the whole agent ecosystem (LangGraph, OpenAI Agents SDK, CrewAI, Vercel AI SDK, Mastra — a Streamable HTTP URL is all they need): eleven tools with JSON-Schema inputs, tiered token auth, rate limiting and origin checks. Point an agent at it and it can read the plant, inject a storm, and ask "what if DO goes to 3?" via the pure-compute `simulate_headless` tool.
 - **CLI and a single-file exe.** `aquapilot simulate --days 7 --scenario storm` runs headless with a GB-18918 compliance summary; `bench` gates against BSM1 Table 6; `report` emits Markdown; `serve` starts the full stack. `npm run exe` packs it into a ~84 MB standalone `aquapilot.exe` — no Node installation required.
+- **Keyboard and screen-reader complete.** The eleven side panels follow the WAI-ARIA Tabs pattern: roving tabindex, arrow/Home/End navigation, `aria-controls` on every tab and a labelled `tabpanel` for each view. Verified in the browser smoke test, not only in unit tests.
 - **Operations-grade hygiene.** Three-tier token access (`viewer`/`operator`/`admin`), SSRF-guarded outbound fetches, SQLite history with backup/restore, Prometheus metrics, CSV replay with data-quality rejection, and an 11-step local CI gate mirrored on GitHub Actions, GitCode and Gitee.
 
 **What it is not:** a design-grade simulator, a field control system, or a compliance guarantee. Simulation output is for testing and engineering discussion; the precise boundaries are listed in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
@@ -39,10 +41,12 @@
 | Control room | AI decision trail |
 | --- | --- |
 | ![](docs/screenshots/01-overview.jpg) | ![](docs/screenshots/03-decision.jpg) |
-| **Flowsheet editor** | **Mobile** |
-| ![](docs/screenshots/07-editor.jpg) | ![](docs/screenshots/09-mobile.jpg) |
+| **Operational scorecard** | **Flowsheet editor** |
+| ![](docs/screenshots/11-scorecard.jpg) | ![](docs/screenshots/07-editor.jpg) |
+| **Mobile** | **Alarms and health** |
+| ![](docs/screenshots/09-mobile.jpg) | ![](docs/screenshots/10-alarms.jpg) |
 
-More views: [AI chat](docs/screenshots/02-chat.jpg) · [scenario injection](docs/screenshots/04-control.jpg) · [alarms](docs/screenshots/10-alarms.jpg) · [replay](docs/screenshots/06-replay.jpg) · [insights](docs/screenshots/05-insights.jpg) · [laptop layout](docs/screenshots/08-laptop.jpg) — or watch `docs/media/demo.mp4` / `demo.gif`.
+More views: [AI chat](docs/screenshots/02-chat.jpg) · [scenario injection](docs/screenshots/04-control.jpg) · [replay](docs/screenshots/06-replay.jpg) · [insights](docs/screenshots/05-insights.jpg) · [laptop layout](docs/screenshots/08-laptop.jpg) — or watch `docs/media/demo.mp4` (656 kB) / `demo.gif` (3 MB).
 
 ## Quick start
 
@@ -58,7 +62,7 @@ Or without Node at all — a self-contained Windows binary:
 
 ```bash
 npm run exe               # → dist/aquapilot.exe (~84 MB, SEA single file)
-distquapilot.exe serve --port 5173
+distquapilot.exe serve --port 5173
 ```
 
 Headless / scripting via the CLI:
@@ -100,7 +104,7 @@ npm run dev               # Vite client on :5174, proxying API/WS to :5173
 Verification (what CI runs):
 
 ```bash
-npm run verify            # typecheck + lint + 1208 tests + build
+npm run verify            # typecheck + lint + 1323 tests + build
 npm run ci                # full 11-step gate: coverage, smoke, secrets, backup, audit
 npm run e2e               # Playwright browser smoke (uses a system Edge/Chromium when present)
 ```
@@ -138,7 +142,7 @@ LLM providers (OpenAI-compatible, Anthropic Messages, Google Gemini) are configu
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Docker, persistence, reverse proxy, mirror layout |
 | [docs/UI-ARCHITECTURE.md](docs/UI-ARCHITECTURE.md) | Frontend module map and data flow |
 | [docs/AGENT-HARNESS.md](docs/AGENT-HARNESS.md) | Agent-protocol research (MCP/A2A) and what shipped from it |
-| [docs/REFERENCE-LEARNING.md](docs/REFERENCE-LEARNING.md) | 14 peer open-source projects studied, and where each lesson landed |
+| [docs/REFERENCE-LEARNING.md](docs/REFERENCE-LEARNING.md) | 20 peer open-source projects studied, and where each lesson landed |
 | [docs/QUALITY-ROADMAP.md](docs/QUALITY-ROADMAP.md) | Known model limitations and the plan for them |
 | [docs/COMPETITIVE-ANALYSIS.md](docs/COMPETITIVE-ANALYSIS.md) | Verified comparison against seven peer projects |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Branches, commit style, the local gate, release steps |

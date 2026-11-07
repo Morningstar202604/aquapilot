@@ -27,7 +27,7 @@ import {
 import { decodeWsTokenSubprotocol } from '../shared/wsToken';
 import { isApiPath, isPublicApiPath, isReadMethod, pathnameOf } from './httpRoutes';
 import { logger, metrics, metricsJson, recordHttp, recordTick, renderPrometheus } from './observability';
-import { buildOperationsReport, decisionsCsv, snapshotsCsv } from './export';
+import { buildOperationsReport, decisionsCsv, reviewsCsv, snapshotsCsv } from './export';
 import { handleMcpRequest, mcpInternalError, mcpToolByName, type McpFacade } from './mcp';
 import { syncCursorToBuffer } from './trendCursor';
 import { APP_VERSION } from '../shared/version';
@@ -51,9 +51,10 @@ import { createLlmChat, errorText } from './llmChat';
 import { createAgentConfigHandler } from './agentConfigHandler';
 import { parseClientMessage } from './messageSchema';
 import { createCalibrationService } from './calibrationService';
-import { parseInfluentCsv, seriesStats } from '../sim/influentSeries';
+import { handleInfluentMessage } from './influentHandler';
+import { adoptTopology } from './topologyRebuild';
+import type { InfluentSeries } from '../sim/influentSeries';
 import { drySolidsToCod } from '../sim/units';
-import { checkQuality } from '../sim/dataQuality';
 import { resolveListenConfig } from './listenConfig';
 import {
   applyEstimate,
@@ -141,7 +142,7 @@ interface Runtime {
    */
   estimator: EstimatorRuntime;
   /** 已解析但尚未应用的进水序列（用户看过质量报告后才会 apply） */
-  pendingInfluent: { series: ReturnType<typeof parseInfluentCsv> } | null;
+  pendingInfluent: { series: InfluentSeries } | null;
 }
 
 const store = new Store();
@@ -523,6 +524,48 @@ function clearRunScopedState(): void {
 }
 
 /**
+ * 拓扑切换后的运行时重建接线。
+ *
+ * 三条入口（切模板 / 回滚版本 / 应用自定义拓扑）共用同一份重建逻辑，
+ * 见 topologyRebuild.ts 的注释：此前三份副本各自演化，漏一行就是一类真实缺陷。
+ */
+const rebuildDeps = {
+  runtime: runtime as unknown as import('./topologyRebuild').TopologyRebuildRuntime,
+  adopt: (topology: ProcessTopology, compiled: CompiledNetwork, net: NetworkSimState) => {
+    runtime.topology = topology;
+    runtime.compiled = compiled;
+    runtime.net = net;
+  },
+  persist: (topology: ProcessTopology, revision: number, note: string) => topologyStore.save(topology, revision, note),
+  clearRunScopedState,
+  rebuildShadow: (topology: ProcessTopology, net: NetworkSimState) => {
+    runtime.shadow = createShadowPlant(topology, net.seed, net.timeMin);
+  },
+  pushTrend: () => pushTrend(runtime.net, runtime.trend),
+  runAiCycle: () => {
+    runAiCycle(true);
+  },
+};
+
+/**
+ * 人工裁决落库。
+ *
+ * 唯一写入点：任何路径要记录「人怎么处置了建议」都必须走这里，
+ * 避免将来出现「有的入口记得、有的入口忘了」的半套审计。
+ * 持久化关闭时 store 自己 no-op，调用方不需要判断。
+ */
+function recordReview(verdict: 'approve' | 'reject' | 'auto', actor: string, action: string, reason: string): void {
+  store.recordReview({
+    runId: RUN_ID,
+    atMin: runtime.net.timeMin,
+    verdict,
+    actor,
+    action,
+    reason,
+  });
+}
+
+/**
  * 运行自检：每 10 秒跑一次确定性检查，变化时广播给所有客户端。
  *
  * 「派 AI 全程盯着日志」在这里落成了一个可复核的机制：
@@ -627,6 +670,8 @@ function runAiCycle(force = false): Recommendation {
   if (runtime.net.controls.aiEnabled && !needsApproval && (rec.action !== 'hold' || force)) {
     runtime.net.controls = rec.chosens.controls;
     runtime.net.controls.aiEnabled = true;
+    // 自动执行也写一条裁决：审计链上「机器自己动的」与人批的必须可区分
+    recordReview('auto', 'ai', rec.action, '');
     broadcast({
       type: 'notice',
       level: rec.severity === 'critical' ? 'warn' : 'info',
@@ -1022,9 +1067,39 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
     case 'applyRecommendation': {
       if (!runtime.recommendation) return;
       if (rateLimited(ws, 'snapshot')) break;
-      runtime.net.controls = { ...runtime.recommendation.chosens.controls, aiEnabled: runtime.net.controls.aiEnabled };
+      const adopted = runtime.recommendation;
+      runtime.net.controls = { ...adopted.chosens.controls, aiEnabled: runtime.net.controls.aiEnabled };
+      recordReview('approve', senderRole, adopted.action, '');
       broadcast({ type: 'notice', level: 'info', text: '已采纳 AI 建议，控制参数已更新。' });
       broadcastSnapshot();
+      break;
+    }
+    case 'dismissRecommendation': {
+      /**
+       * 拒绝建议与采纳同等留痕。
+       *
+       * 此前只有「采纳」这一个正向事件，拒绝完全无声：事后复盘看到
+       * 一条 AI 建议后面没有任何动作，无法区分「人拒绝了」与「系统丢了消息」。
+       * 竞品 waterworks-ai 的审计日志对 approve/deny 用同等保真度记录，
+       * 这里补齐同一口径。
+       */
+      if (!runtime.recommendation) {
+        ws.send(
+          JSON.stringify({ type: 'notice', level: 'info', text: '当前没有可拒绝的建议。' } satisfies ServerMessage),
+        );
+        break;
+      }
+      if (rateLimited(ws, 'snapshot')) break;
+      const dismissed = runtime.recommendation;
+      const reason = typeof msg.reason === 'string' ? msg.reason.trim().slice(0, 300) : '';
+      recordReview('reject', senderRole, dismissed.action, reason);
+      ws.send(
+        JSON.stringify({
+          type: 'notice',
+          level: 'info',
+          text: reason ? `已拒绝该建议（原因：${reason}）。` : '已拒绝该建议。',
+        } satisfies ServerMessage),
+      );
       break;
     }
     case 'scenario': {
@@ -1164,18 +1239,14 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
         );
         break;
       }
-      runtime.net = rt.net;
-      runtime.compiled = rt.compiled;
-      runtime.topology = candidate;
-      runtime.topologyRevision += 1;
-      const saved = topologyStore.save(runtime.topology, runtime.topologyRevision, `切换模板：${preset.name}`);
-      clearRunScopedState();
-      runtime.activePresetId = preset.id;
-      runtime.recommendation = null;
-      runtime.trend = [];
-      runtime.shadow = createShadowPlant(runtime.topology, runtime.net.seed, runtime.net.timeMin);
-      pushTrend(runtime.net, runtime.trend);
-      runAiCycle(true);
+      const { saved } = adoptTopology(
+        candidate,
+        rt.compiled,
+        rt.net,
+        `切换模板：${preset.name}`,
+        preset.id,
+        rebuildDeps,
+      );
       broadcast({
         type: 'notice',
         level: 'info',
@@ -1267,18 +1338,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
           );
           break;
         }
-        runtime.net = rt.net;
-        runtime.compiled = rt.compiled;
-        runtime.topology = target;
-        runtime.topologyRevision += 1;
-        const saved = topologyStore.save(runtime.topology, runtime.topologyRevision, `回滚到 v${revision}`);
-        clearRunScopedState();
-        runtime.activePresetId = null;
-        runtime.recommendation = null;
-        runtime.trend = [];
-        runtime.shadow = createShadowPlant(runtime.topology, runtime.net.seed, runtime.net.timeMin);
-        pushTrend(runtime.net, runtime.trend);
-        runAiCycle(true);
+        const { saved } = adoptTopology(target, rt.compiled, rt.net, `回滚到 v${revision}`, null, rebuildDeps);
         broadcast({
           type: 'notice',
           level: 'info',
@@ -1352,18 +1412,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
           break;
         }
         // applyTopology 内部会重建 net，必须把新状态接回来，否则只是改了拓扑对象
-        runtime.net = rt.net;
-        runtime.compiled = rt.compiled;
-        runtime.topology = sanitized.topology;
-        runtime.topologyRevision += 1;
-        const saved = topologyStore.save(runtime.topology, runtime.topologyRevision, '应用自定义拓扑');
-        clearRunScopedState();
-        runtime.activePresetId = null;
-        runtime.recommendation = null;
-        runtime.trend = [];
-        runtime.shadow = createShadowPlant(runtime.topology, runtime.net.seed, runtime.net.timeMin);
-        pushTrend(runtime.net, runtime.trend);
-        runAiCycle(true);
+        const { saved } = adoptTopology(sanitized.topology, rt.compiled, rt.net, '应用自定义拓扑', null, rebuildDeps);
         broadcast({
           type: 'notice',
           level: 'info',
@@ -1390,100 +1439,19 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       break;
     }
     case 'influent': {
-      const requestId = msg.requestId;
-      const reply = (payload: ServerMessage) => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
-      };
-      const reportOf = (series: ReturnType<typeof parseInfluentCsv> | null, applied: boolean): ServerMessage => {
-        const stats = series ? seriesStats(series) : null;
-        return {
-          type: 'influent',
-          action: 'report',
-          requestId,
-          summary: stats
-            ? {
-                name: series!.name,
-                points: stats.points,
-                days: stats.days,
-                flowMean: stats.flowMean,
-                flowPeak: stats.flowPeak,
-                codMean: stats.codMean,
-                codPeak: stats.codPeak,
-                temperatureRange: stats.temperatureRange,
-              }
-            : null,
-          quality: series ? checkQuality(series) : { score: 0, usable: false, issues: [], perMetric: {} },
-          applied,
-        };
-      };
-
-      if (msg.action === 'get') {
-        reply(
-          reportOf(
-            runtime.net.influentSeries ?? null,
-            runtime.net.influentSeries !== null && runtime.net.influentSeries !== undefined,
-          ),
-        );
-        break;
-      }
-      if (msg.action === 'clear') {
-        runtime.net.influentSeries = null;
-        runtime.pendingInfluent = null;
-        reply(reportOf(null, false));
-        broadcast({ type: 'notice', level: 'info', text: '已恢复合成进水模型（昼夜节律 + 噪声）。' });
-        break;
-      }
-      if (msg.action === 'apply') {
-        const pending = runtime.pendingInfluent;
-        if (!pending) {
-          reply({ type: 'influent', action: 'error', requestId, error: '没有待应用的进水序列' });
-          break;
-        }
-        /**
-         * 有 error 级质量问题时拒绝应用。
-         *
-         * 越界读数（如 COD 999999）被引擎夹紧后不会崩，但会让仿真结果
-         * 完全失真——用户看到的是「模型算出来就这样」，而真正的原因
-         * 是数据错了。这种情况下拒绝比放行更负责任。
-         */
-        const quality = checkQuality(pending.series);
-        if (!quality.usable) {
-          reply({
-            type: 'influent',
-            action: 'error',
-            requestId,
-            error: `数据质量不通过（${quality.issues.filter((i) => i.severity === 'error').length} 项错误），请先修正`,
-          });
-          break;
-        }
-        runtime.net.influentSeries = pending.series;
-        runtime.pendingInfluent = null;
-        reply(reportOf(pending.series, true));
-        broadcast({
-          type: 'notice',
-          level: 'info',
-          text: `已应用进水序列「${pending.series.name}」（${pending.series.samples.length} 点）。`,
-        });
-        break;
-      }
-      // load
-      const MAX_CSV = 2 * 1024 * 1024;
-      if (typeof msg.csv !== 'string' || msg.csv.length > MAX_CSV) {
-        reply({ type: 'influent', action: 'error', requestId, error: 'CSV 超过 2 MB 上限' });
-        break;
-      }
-      const series = parseInfluentCsv(msg.csv, typeof msg.name === 'string' ? msg.name.slice(0, 80) : '自定义进水');
-      if (series.samples.length === 0) {
-        reply({
-          type: 'influent',
-          action: 'error',
-          requestId,
-          error: series.warnings[0] ?? 'CSV 中没有可用数据',
-        });
-        break;
-      }
-      runtime.pendingInfluent = { series };
-      reply(reportOf(series, false));
+      handleInfluentMessage(msg as Extract<ClientMessage, { type: 'influent' }>, {
+        state: () => ({ series: runtime.net.influentSeries ?? null, pending: runtime.pendingInfluent?.series ?? null }),
+        update: (patch) => {
+          if ('series' in patch) runtime.net.influentSeries = patch.series;
+          if ('pending' in patch) {
+            runtime.pendingInfluent = patch.pending ? { series: patch.pending } : null;
+          }
+        },
+        send: (payload) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+        },
+        notice: (level, text) => broadcast({ type: 'notice', level, text }),
+      });
       break;
     }
     case 'calibration': {
@@ -2045,6 +2013,20 @@ async function main(): Promise<void> {
       res.end(JSON.stringify({ enabled: store.enabled, decisions: store.recentDecisions(100) }));
       return;
     }
+    if (pathname === '/api/history/reviews') {
+      /**
+       * 人工裁决审计。
+       *
+       * 与 /api/history/decisions 并列：一个答「AI 想做什么」，
+       * 一个答「人（或机器）怎么处置了它」。两者都要有，复盘才闭环。
+       */
+      const url = queryOf(req);
+      const limit = Math.min(500, Math.max(1, Math.trunc(Number(url.get('limit') ?? 100) || 100)));
+      const runId = url.get('runId') ?? undefined;
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ enabled: store.enabled, reviews: store.recentReviews(limit, runId) }));
+      return;
+    }
     if (pathname === '/api/history/alarms') {
       const url = queryOf(req);
       const limit = Math.min(500, Math.max(1, Math.trunc(Number(url.get('limit') ?? 100) || 100)));
@@ -2111,6 +2093,16 @@ async function main(): Promise<void> {
       res.writeHead(200, {
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': 'attachment; filename="aquapilot-decisions.csv"',
+        'Cache-Control': 'no-store',
+      });
+      res.end(body);
+      return;
+    }
+    if (pathname === '/api/export/reviews.csv') {
+      const body = reviewsCsv(store.recentReviews(1000));
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="aquapilot-reviews.csv"',
         'Cache-Control': 'no-store',
       });
       res.end(body);

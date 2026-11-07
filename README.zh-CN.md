@@ -8,7 +8,7 @@
 [![CodeQL](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12-339933)](package.json)
 [![许可证](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![测试](https://img.shields.io/badge/测试-1286%20通过-2ea44f)](docs/BENCHMARKS.md)
+[![测试](https://img.shields.io/badge/测试-1323%20通过-2ea44f)](docs/BENCHMARKS.md)
 
 ![AquaPilot 总览](docs/screenshots/01-overview.jpg)
 
@@ -19,9 +19,11 @@
 - **把自己的 reasoning 摊开的 AI 值守员。** 滚动 4 小时预测对候选控制动作按达标、成本、稳定性排序，在硬边界内执行，并解释每个动作——包括它**没动**的动作和原因。被护栏挡住的调节会如实说「被挡住」；没有任何一条日志会在控制量真的没动的情况下写「已执行」。
 - **分析内建。** 参数灵敏度（中心差分）、达标-成本 Pareto 前沿、覆盖四路去向（出水 / 排泥 / 曝气氧化 / 系统内库存变化）的全厂 COD 质量平衡审计。
 - **可以拿去争论的评分卡。** 每次运行按四个加权维度打分——出水达标（40）、能效（20）、生物稳定（20）、危机处置（20）——分数由引擎复算，不由 AI 自报（参考基准实测 AI 自评会把分数高估 20 分）。每个维度列出扣分依据，评分卡同时写明按哪套排放口径判读：GB 18918-2002 一级 A、一级 B 或 IWA BSM1 基准。`aquapilot scorecard` 用标准 30 天危机脚本（暴雨 / 高负荷 / 毒性 / 低温 / 鼓风机故障 / 药剂短缺）跑完整流程，不到 1 秒。
+- **人的处置也留痕。** 采纳建议、拒绝建议（可带理由）、AI 自动执行，是三种不同的审计记录——`GET /api/history/reviews` 与 `reviews.csv` 把它们和决策日志并列导出。一条没人跟进的建议，从此不再与被操作员明确否决的建议混为一谈。
 - **证据，不是话术。** AI 与固定策略影子双跑共享 seed、进水与初始状态；效益页展示的是真实差值。参数校准与六维 EKF 作为实验性工具随仓库交付，边界写明。
 - **说 MCP 协议。** `POST /mcp` 把仿真器接入整个 agent 生态（LangGraph、OpenAI Agents SDK、CrewAI、Vercel AI SDK、Mastra——都只要一个 Streamable HTTP URL）：11 个带 JSON Schema 输入的工具、分级令牌鉴权、限流与 Origin 校验。agent 可以读厂、注暴雨、用纯计算的 `simulate_headless` 问「DO 提到 3 会怎样」。
 - **CLI 与单文件 exe。** `aquapilot simulate --days 7 --scenario storm` 离线仿真并输出 GB-18918 达标汇总；`bench` 对照 BSM1 Table 6 基准；`report` 输出 Markdown 报告；`serve` 启动完整服务。`npm run exe` 打出 ~84 MB 的独立 `aquapilot.exe`——无需安装 Node。
+- **键盘与读屏可用。** 侧栏 11 个页签遵循 WAI-ARIA Tabs 规范：roving tabindex、方向键与 Home/End 导航、每个页签带 `aria-controls`、每个视图有带标签的 `tabpanel`。浏览器冒烟测试里断言，不只写在单测里。
 - **运维级卫生。** 三档令牌访问（`viewer` / `operator` / `admin`）、出站请求 SSRF 防护、SQLite 历史 + 备份恢复、Prometheus 指标、带数据质量拒绝的 CSV 进水回放，以及一条本地 11 步 CI 门禁，在 GitHub Actions、GitCode、Gitee 三端等价执行。
 
 **它不是**：设计级模拟器、现场控制系统、合规保证。仿真输出只用于测试与工程讨论；精确边界见 [docs/BENCHMARKS.md](docs/BENCHMARKS.md)。
@@ -31,10 +33,12 @@
 | 控制室 | AI 决策链 |
 | --- | --- |
 | ![](docs/screenshots/01-overview.jpg) | ![](docs/screenshots/03-decision.jpg) |
-| **工艺编排** | **移动端** |
-| ![](docs/screenshots/07-editor.jpg) | ![](docs/screenshots/09-mobile.jpg) |
+| **运营评分卡** | **工艺编排** |
+| ![](docs/screenshots/11-scorecard.jpg) | ![](docs/screenshots/07-editor.jpg) |
+| **移动端** | **告警与健康度** |
+| ![](docs/screenshots/09-mobile.jpg) | ![](docs/screenshots/10-alarms.jpg) |
 
-更多视图：[AI 对话](docs/screenshots/02-chat.jpg) · [工况注入](docs/screenshots/04-control.jpg) · [告警](docs/screenshots/10-alarms.jpg) · [回放](docs/screenshots/06-replay.jpg) · [效益](docs/screenshots/05-insights.jpg) · [笔记本布局](docs/screenshots/08-laptop.jpg)，演示视频见 `docs/media/demo.mp4` / `demo.gif`。
+更多视图：[AI 对话](docs/screenshots/02-chat.jpg) · [工况注入](docs/screenshots/04-control.jpg) · [回放](docs/screenshots/06-replay.jpg) · [效益](docs/screenshots/05-insights.jpg) · [笔记本布局](docs/screenshots/08-laptop.jpg)，演示视频见 `docs/media/demo.mp4`（656 kB）/ `demo.gif`（3 MB）。
 
 ## 快速开始
 
@@ -50,7 +54,7 @@ npm start                 # → http://127.0.0.1:5173
 
 ```bash
 npm run exe               # → dist/aquapilot.exe（~84 MB，Node SEA 单文件）
-distquapilot.exe serve --port 5173
+distquapilot.exe serve --port 5173
 ```
 
 脚本化 / 无头场景用 CLI：
@@ -92,7 +96,7 @@ npm run dev               # Vite 客户端 :5174，API/WS 代理到 :5173
 验证（CI 同款）：
 
 ```bash
-npm run verify            # 类型检查 + lint + 1208 项测试 + 构建
+npm run verify            # 类型检查 + lint + 1323 项测试 + 构建
 npm run ci                # 完整 11 步门禁：覆盖率、冒烟、密钥扫描、备份、审计
 npm run e2e               # Playwright 浏览器冒烟（优先用本机 Edge/Chromium）
 ```

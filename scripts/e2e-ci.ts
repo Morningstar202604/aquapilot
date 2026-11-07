@@ -22,7 +22,9 @@ function fail(msg: string): never {
    * 把平台、字体可用性一并打出来，下次不用靠猜。
    */
   console.error(`E2E FAIL: ${msg}`);
-  console.error(`  platform=${process.platform} node=${process.version} browser=${process.env.AQUAPILOT_BROWSER_PATH ?? '(auto)'}`);
+  console.error(
+    `  platform=${process.platform} node=${process.version} browser=${process.env.AQUAPILOT_BROWSER_PATH ?? '(auto)'}`,
+  );
   process.exit(1);
 }
 
@@ -111,16 +113,53 @@ try {
 
   await page.screenshot({ path: `${OUT}/ci-plant.png` });
 
-  for (const tab of ['AI 对话', '决策解释', '控制与工况', '告警', '效益', '回放']) {
+  /**
+   * 页签切换必须真的换面板。
+   *
+   * 旧断言取 `.scroll-panel, .side-body` 的第一个可见元素——`.side-body`
+   * 永远存在且永远可见，所以任意页签点下去都能「通过」。这是典型的假绿：
+   * 面板渲染崩掉也不会红。改为断言 tabpanel 的数量恰为 1、
+   * aria-labelledby 指向当前选中的页签、且面板内确实有该页签的标志元素。
+   */
+  const PANEL_MARKERS: Record<string, string> = {
+    'AI 对话': '.chat-log',
+    决策解释: '.decision-body, .scroll-panel',
+    控制与工况: '.control-body, .scroll-panel',
+    告警: '.health-block',
+    效益: '.scroll-panel',
+    回放: '.scroll-panel',
+  };
+  for (const tab of Object.keys(PANEL_MARKERS)) {
     await page.locator('.side-tab', { hasText: tab }).click();
     await page.waitForTimeout(600);
-    const panel = await page.locator('.scroll-panel, .side-body').first().isVisible();
-    if (!panel) fail(`tab "${tab}" produced no visible panel`);
+    const panels = page.locator('[role="tabpanel"]');
+    const panelCount = await panels.count();
+    if (panelCount !== 1) fail(`tab "${tab}" rendered ${panelCount} tabpanels, expected exactly 1`);
+    const labelledBy = await panels.first().getAttribute('aria-labelledby');
+    const activeTabId = await page.locator('.side-tab[aria-selected="true"]').first().getAttribute('id');
+    if (!labelledBy || labelledBy !== activeTabId) {
+      fail(`tab "${tab}" panel labelledby=${labelledBy} does not match active tab ${activeTabId}`);
+    }
+    const markerVisible = await page.locator(PANEL_MARKERS[tab]).first().isVisible();
+    if (!markerVisible) fail(`tab "${tab}" panel content marker not visible`);
     if (tab === '告警') {
       const parts = await page.locator('.health-part').count();
       if (parts !== 5) fail(`alarm panel should show 5 health parts, got ${parts}`);
     }
   }
+
+  /**
+   * 键盘导航：roving tabindex + 方向键。
+   * 读屏/纯键盘用户只能靠这个在 11 个页签间移动，回归了就是可用性缺陷。
+   */
+  await page.locator('.side-tab[aria-selected="true"]').focus();
+  const tabInSequence = await page.locator('.side-tab[tabindex="0"]').count();
+  if (tabInSequence !== 1) fail(`expected exactly 1 tab in the Tab sequence, got ${tabInSequence}`);
+  const beforeKey = await page.locator('.side-tab[aria-selected="true"]').innerText();
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(300);
+  const afterKey = await page.locator('.side-tab[aria-selected="true"]').innerText();
+  if (beforeKey === afterKey) fail('ArrowRight did not move the active tab');
   await page.screenshot({ path: `${OUT}/ci-replay.png` });
 
   /**

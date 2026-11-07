@@ -875,6 +875,20 @@ button {
   flex-direction: column;
 }
 
+/* 页签面板：role="tabpanel" 的包装层。它接管原先直接挂在 .side-body
+   下的「撑满 + 不溢出」职责，面板内部（.scroll-panel / .chat-log）
+   仍按原规则工作，视觉不变。 */
+.tab-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-panel > * {
+  min-height: 0;
+}
+
 /* AI 对话 */
 .chat-log {
   flex: 1;
@@ -1304,6 +1318,25 @@ button {
 }
 
 /* 校准页的两个按钮同理 */
+.dismiss-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.dismiss-hint {
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+/* 拒绝理由复用 .chip 的视觉，但更小一号：它是可选的快捷入口，不该抢按钮的视觉权重 */
+.dismiss-reasons .chip {
+  padding: 3px 8px;
+  font-size: 10.5px;
+}
+
 .calibration-actions {
   display: flex;
   gap: 8px;

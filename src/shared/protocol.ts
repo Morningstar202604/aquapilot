@@ -219,6 +219,14 @@ export type ClientMessage =
   | { type: 'control'; patch: Partial<ControlSettings> }
   | { type: 'aiEnabled'; enabled: boolean }
   | { type: 'applyRecommendation' }
+  /**
+   * 拒绝当前建议。
+   *
+   * 与采纳同等对待：两者都写审计（reviews 表），因为「没做」也是决策。
+   * reason 可选——强制填写会让人随手写「无」，反而降低数据质量；
+   * 界面提供快捷理由，愿意写就写。
+   */
+  | { type: 'dismissRecommendation'; reason?: string }
   | { type: 'scenario'; kind: 'start'; scenario: ScenarioSpec['type']; durationMin?: number; magnitude?: number }
   | { type: 'scenario'; kind: 'clear' }
   | { type: 'sim'; action: 'pause' | 'resume' | 'reset' }

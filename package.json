@@ -1,6 +1,6 @@
 {
   "name": "aquapilot",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "allowScripts": {
     "esbuild": true
@@ -90,5 +90,8 @@
   },
   "bin": {
     "aquapilot": "./dist/cli.mjs"
+  },
+  "overrides": {
+    "minimatch": "11.0.5"
   }
 }

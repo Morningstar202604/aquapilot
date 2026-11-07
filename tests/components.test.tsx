@@ -500,3 +500,62 @@ describe('反馈体验（pending / refreshing）', () => {
     expect(btn.disabled).toBe(false);
   });
 });
+
+describe('决策面板 · 拒绝审计', () => {
+  /**
+   * 「拒绝」与「采纳」必须同等可操作。
+   *
+   * 只有采纳按钮时，用户不想执行唯一能做的就是什么都不点——
+   * 审计里留下一条没有下文的建议，事后无法区分「人拒绝了」与「消息丢了」。
+   */
+  it('AI 仅建议模式下同时提供采纳与拒绝', () => {
+    const onApply = vi.fn();
+    const onDismiss = vi.fn();
+    render(
+      <DecisionPanel
+        snap={makeSnapshot()}
+        rec={recommendation}
+        onApply={onApply}
+        onDismiss={onDismiss}
+        onRefresh={() => {}}
+        aiEnabled={false}
+        onToggleAi={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '拒绝并记录' }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('快捷理由把原因传给回调（写进审计）', () => {
+    const onDismiss = vi.fn();
+    render(
+      <DecisionPanel
+        snap={makeSnapshot()}
+        rec={recommendation}
+        onApply={() => {}}
+        onDismiss={onDismiss}
+        onRefresh={() => {}}
+        aiEnabled={false}
+        onToggleAi={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '成本不划算' }));
+    expect(onDismiss).toHaveBeenCalledWith('成本不划算');
+  });
+
+  it('AI 自动执行时不显示拒绝入口（人没有裁决对象）', () => {
+    render(
+      <DecisionPanel
+        snap={makeSnapshot()}
+        rec={recommendation}
+        onApply={() => {}}
+        onDismiss={() => {}}
+        onRefresh={() => {}}
+        aiEnabled
+        onToggleAi={() => {}}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: '拒绝并记录' })).toBeNull();
+  });
+});

@@ -153,9 +153,21 @@ Persisted alarms (newest first, `limit` truncated to an integer and clamped to
 scoped to one run. The server records an alarm row the first time each code
 becomes active, so the shutdown timeline can be reconstructed after the fact.
 
+### `GET /api/history/reviews?limit=<n>&runId=<id>`
+
+Operator verdicts on AI recommendations — `approve`, `reject` and `auto` (the
+agent executed on its own). Each row carries the simulated minute, the acting
+role (`viewer` / `operator` / `admin`, or `ai` for automatic execution), the
+action type and the optional rejection reason.
+
+This endpoint exists because a recommendation log alone cannot explain an
+outcome: a decision with no follow-up is indistinguishable from a decision the
+operator deliberately declined. Approvals and rejections are recorded with the
+same fidelity.
+
 ### `GET /api/history/stats`
 
-Row counts for decisions, alarms and snapshots.
+Row counts for decisions, alarms, snapshots and reviews.
 
 ### `GET /api/presets`
 
@@ -179,6 +191,12 @@ window rules as `GET /api/history/snapshots`: at most 7 simulated days and
 ### `GET /api/export/decisions.csv`
 
 The last 1000 persisted decisions as CSV, including the summary and the tweak JSON.
+
+### `GET /api/export/reviews.csv`
+
+The last 1000 operator verdicts as CSV (`run_id, at_min, verdict, actor, action,
+reason`). Pair it with `decisions.csv`: one answers "what did the agent propose",
+the other "who acted on it, and why".
 
 ### `GET /api/export/report.md`
 
@@ -249,6 +267,8 @@ Frames are JSON objects with a `type`. Client → server:
 | `scenario`            | Inject or clear a scenario                                                      |
 | `sim`                 | `pause` / `resume` / `reset`                                                    |
 | `speed`               | Simulation speed, 0.25–8 (fractional minutes are carried between frames, so 0.25× really runs at a quarter of 1×) |
+| `applyRecommendation` | adopt the current recommendation (operator) |
+| `dismissRecommendation` | decline it, optionally with `reason` (operator); recorded in the review log |
 | `topology`            | `get` / `apply` / `history` / `revert` a flowsheet (mutations limited to one per 5 s) |
 | `preset`              | Apply a shipped template by id (rebuilds and warms up the plant; shares the 5 s topology limit) |
 | `refreshDecision`     | Recompute the recommendation immediately                                        |

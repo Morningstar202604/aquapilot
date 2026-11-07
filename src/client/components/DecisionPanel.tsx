@@ -8,6 +8,8 @@ interface Props {
   snap: PlantSnapshot;
   rec: Recommendation | null;
   onApply: () => void;
+  /** 拒绝当前建议；理由写进审计（可选） */
+  onDismiss?: (reason: string) => void;
   onRefresh: () => void;
   /** 重新推演已发出、尚未收到新决策帧：按钮显示进行中并防重复点击 */
   refreshing?: boolean;
@@ -21,7 +23,24 @@ const SEV_LABEL: Record<string, string> = {
   critical: '应急干预',
 };
 
-export function DecisionPanel({ snap, rec, onApply, onRefresh, refreshing = false, aiEnabled, onToggleAi }: Props) {
+/**
+ * 拒绝建议时的快捷理由。
+ *
+ * 不给自由输入框：现场是「随手点一下」的场景，长表单会被跳过，
+ * 反而留下空白审计。预设理由覆盖绝大多数真实原因，另设「其他」兜底。
+ */
+const DISMISS_REASONS = ['工艺条件不同', '成本不划算', '稍后手动处理', '建议本身有问题'] as const;
+
+export function DecisionPanel({
+  snap,
+  rec,
+  onApply,
+  onDismiss,
+  onRefresh,
+  refreshing = false,
+  aiEnabled,
+  onToggleAi,
+}: Props) {
   if (!rec) {
     return (
       <div className="scroll-panel">
@@ -75,10 +94,25 @@ export function DecisionPanel({ snap, rec, onApply, onRefresh, refreshing = fals
             <button className="btn btn-primary" onClick={onApply} disabled={aiEnabled && rec.action === 'hold'}>
               {aiEnabled ? 'AI 已自动执行' : '采纳建议'}
             </button>
+            {!aiEnabled && onDismiss && rec.action !== 'hold' && (
+              <button className="btn" onClick={() => onDismiss('')} title="拒绝后会被记入审计日志，可在回放页查看">
+                拒绝并记录
+              </button>
+            )}
             <button className="btn" onClick={onRefresh} disabled={refreshing}>
               {refreshing ? '推演中…' : '重新推演'}
             </button>
           </div>
+          {!aiEnabled && onDismiss && rec.action !== 'hold' && (
+            <div className="dismiss-reasons">
+              <span className="dismiss-hint">拒绝理由（记录到审计）：</span>
+              {DISMISS_REASONS.map((r) => (
+                <button key={r} className="chip" onClick={() => onDismiss(r)}>
+                  {r}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="control-row" style={{ paddingBottom: 0 }}>
             <div className="control-top">
