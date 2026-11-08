@@ -383,8 +383,10 @@ export function ProcessEditor({
      * 键在静态分析里仍是一个「计算出来的字符串」。这里改成先展开旧表、再明确
      * 写入这一条，键的来源在语法层面就固定了。
      */
-    const nextPositions: Record<string, { x: number; y: number }> = { ...(topology.positions ?? {}) };
-    nextPositions[newId] = { x: pos.x + 40, y: pos.y + 40 };
+    const nextPositions = Object.fromEntries([
+      ...Object.entries(topology.positions ?? {}),
+      [newId, { x: pos.x + 40, y: pos.y + 40 }],
+    ]);
     onChange({
       ...topology,
       units: [...topology.units, unit],

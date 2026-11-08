@@ -105,3 +105,36 @@ anything reaches the console.
   a product decision recorded in `docs/COMPETITIVE-ANALYSIS.md`, not a bug.
 - **No OPC UA / Modbus.** Out of scope; requires an industrial security assessment.
 - **`delete next.routes`.** A static property name, not a remote key.
+
+## 6. 0.9.0 复审：CodeQL 21 → 0 open
+
+第二轮复核把 21 条 open 告警逐条走完。结果分两类，两类都留下了可复查的依据。
+
+### 6.1 结构性修复（代码真的改了）
+
+| 规则 | 位置 | 处理 |
+|---|---|---|
+| `js/path-injection` | `staticFiles.ts` | 改为 `resolveStaticPath()`：按段白名单重建路径，点段与非 `[A-Za-z0-9._~-]` 字符直接判为不可服务。不存在"拼好再判断"的窗口。 |
+| `js/file-system-race` | `staticFiles.ts` | `lstat` 先拒符号链接与非常规文件，再用单一句柄 `fstat + readFile`；句柄关闭在 `finally`。 |
+| `js/remote-property-injection` | `topologyEdit.ts` | `deleteUnits` / `setRoute` 改用 `Object.fromEntries` 重建，不再 `delete obj[dynamicKey]`。 |
+| `js/remote-property-injection` | `useSimulation.ts` | `llmPending` 由普通对象改为 `Map`，动态删除不接触原型链。 |
+| `js/remote-property-injection` | `UnitInspector.tsx` | 迭代方向反转：遍历编译期常量表 `CONTROL_BOUNDS`，用单元声明的清单过滤。 |
+| `js/remote-property-injection` | `ProcessEditor.tsx` | `positions` 用 `Object.fromEntries` 追加，不再对动态键赋值。 |
+| `js/log-injection` | `e2e-topology-live.ts` | 脚本不再打印任何服务端字符串：只输出计数与固定小数位数值。 |
+| `js/user-controlled-bypass` | `index.ts` | 鉴权改为默认拒绝结构 `isApiPath(pathname) && !isPublicApiPath(pathname)`；`isPublicApiPath` 是两条常量集合，大小写统一。 |
+
+### 6.2 判定为误报（已在平台上以理由关闭）
+
+关闭时逐条写明依据，不是静默忽略：
+
+- **`user-controlled-bypass` ×3**：`pathnameOf()` 折叠重复斜杠、解析点段、夹住根目录；`isApiPath()` 大小写不敏感；公开端点是两条常量。用真实服务验证：无令牌访问 `/api/snapshot`、`//api/snapshot`、`/API/snapshot` 均为 401，带令牌均为 200。
+- **`file-system-race`**：路径由白名单重建 + `realpath` + `lstat` 三重约束，读用已打开句柄；`tests/staticFiles.test.ts` 覆盖穿越、软链逃逸与畸形编码。
+- **`log-injection`**：该行只插值数字（计数与字符长度合计），所有服务端文本已在 0.9.0 移除。
+- **`remote-property-injection`**：`newId` 由 `nextId()` 本地生成（`kind` + 递增整数），且已改为 `Object.fromEntries` 构造。
+
+### 6.3 反证记录
+
+- 软链逃逸：临时禁用 `realpath` 校验后，测试能读到根目录外的 `TOP SECRET`；启用后返回 403。
+- 原型污染：把 `isSafeId` 换回旧的长度校验，3 条测试变红；恢复后全绿。
+- 状态写入：把 mutator 换回「直接改 state 快照」，`controlHandler` 测试变红。
+- 文档门禁：注入 BEL 字符后 `node scripts/check-docs.mjs` 退出码 1。
