@@ -8,7 +8,7 @@
 [![CodeQL](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12-339933)](package.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![tests](https://img.shields.io/badge/tests-1371%20passing-2ea44f)](docs/BENCHMARKS.md)
+[![tests](https://img.shields.io/badge/tests-1376%20passing-2ea44f)](docs/BENCHMARKS.md)
 
 ![AquaPilot overview](docs/screenshots/01-overview.jpg)
 
@@ -104,7 +104,7 @@ npm run dev               # Vite client on :5174, proxying API/WS to :5173
 Verification (what CI runs):
 
 ```bash
-npm run verify            # typecheck + lint + 1371 tests + build
+npm run verify            # typecheck + lint + 1376 tests + build
 npm run ci                # full 11-step gate: coverage, smoke, secrets, backup, audit
 npm run e2e               # Playwright browser smoke (uses a system Edge/Chromium when present)
 ```

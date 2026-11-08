@@ -8,7 +8,7 @@
 [![CodeQL](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12-339933)](package.json)
 [![许可证](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![测试](https://img.shields.io/badge/测试-1371%20通过-2ea44f)](docs/BENCHMARKS.md)
+[![测试](https://img.shields.io/badge/测试-1376%20通过-2ea44f)](docs/BENCHMARKS.md)
 
 ![AquaPilot 总览](docs/screenshots/01-overview.jpg)
 
@@ -96,7 +96,7 @@ npm run dev               # Vite 客户端 :5174，API/WS 代理到 :5173
 验证（CI 同款）：
 
 ```bash
-npm run verify            # 类型检查 + lint + 1371 项测试 + 构建
+npm run verify            # 类型检查 + lint + 1376 项测试 + 构建
 npm run ci                # 完整 11 步门禁：覆盖率、冒烟、密钥扫描、备份、审计
 npm run e2e               # Playwright 浏览器冒烟（优先用本机 Edge/Chromium）
 ```

@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { gzipFor, queryOf, resetStaticCache, serveStatic } from '../src/server/staticFiles';
+import { gzipFor, queryOf, resetStaticCache, resolveStaticPath, serveStatic } from '../src/server/staticFiles';
 
 /**
  * 静态资源服务。
@@ -198,5 +198,41 @@ describe('符号链接逃逸（realpath 守卫）', () => {
 
     rmSync(outside, { force: true });
     rmSync(linkPath, { force: true });
+  });
+});
+
+describe('resolveStaticPath 白名单解析', () => {
+  /**
+   * 越界不是「拼出来再判断」，而是「拆开逐段校验、只拼白名单段」。
+   * 这样就不存在一个「已经拼好的、可能越界的路径」需要事后识别。
+   */
+  const root = join(tmpdir(), 'aquapilot-root');
+
+  it('普通静态资源解析到根目录下', () => {
+    expect(resolveStaticPath(root, '/assets/app-abc123.js')).toBe(join(root, 'assets', 'app-abc123.js'));
+  });
+
+  it('根路径映射到 index.html', () => {
+    expect(resolveStaticPath(root, '/')).toBe(join(root, 'index.html'));
+    expect(resolveStaticPath(root, '')).toBe(join(root, 'index.html'));
+  });
+
+  it('点段一律拒绝（含编码前的 .. 与 .）', () => {
+    for (const p of ['/../etc/passwd', '/a/../../b', '/./x', '/..', '/a/..']) {
+      expect(resolveStaticPath(root, p)).toBeNull();
+    }
+  });
+
+  it('含非白名单字符的段被拒（分隔符、反斜杠、通配符等）', () => {
+    for (const p of ['/a\b', '/a*b', '/a?b', '/a:b', '/a|b', '/a b']) {
+      expect(resolveStaticPath(root, p)).toBeNull();
+    }
+  });
+
+  it('绝对路径不会被当成根目录', () => {
+    // 前导斜杠产生的空段被跳过，剩余段仍在根之下
+    const got = resolveStaticPath(root, '//etc/passwd');
+    expect(got).toBe(join(root, 'etc', 'passwd'));
+    expect(got!.startsWith(root)).toBe(true);
   });
 });

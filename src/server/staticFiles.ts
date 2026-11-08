@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { open, realpath } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { extname, join, relative, isAbsolute, normalize, resolve, sep } from 'node:path';
+import { extname, join, relative, isAbsolute, resolve } from 'node:path';
 import { shouldFallbackToIndex } from './httpRoutes';
 
 /**
@@ -68,6 +68,40 @@ export function queryOf(req: IncomingMessage): URLSearchParams {
   }
 }
 
+/**
+ * 把 URL 路径解析成 clientDir 下的绝对路径，越界一律返回 null。
+ *
+ * 设计目标是「让越界在类型层面不可能」而不是「发现越界再拒绝」：
+ *
+ * 1. 先按段切分，逐段校验字符白名单（字母数字、`.`、`-`、`_`、`~`）。
+ *    任何 `..`、空段、斜杠、反斜杠、百分号残留都会在这一步被拒 ——
+ *    不存在「拼出来再判断」的窗口。
+ * 2. 只接受白名单内的段，然后用 `join(clientDir, ...segments)` 拼接。
+ *    拼接的每个入参都来自白名单，因此结果必然位于 clientDir 之内，
+ *    不需要再回头看字符串前缀。
+ * 3. 最后的 realpath 校验只服务于**符号链接**：白名单段拼出来的路径
+ *    仍是 clientDir 内的普通文件名，但磁盘上它可能是个软链。
+ *
+ * 返回 null 表示「不是可服务的静态路径」，由调用方决定 404 还是回落首页。
+ */
+const SEGMENT = /^[A-Za-z0-9._~-]+$/;
+
+export function resolveStaticPath(clientDir: string, urlPath: string): string | null {
+  if (urlPath === '/' || urlPath === '') return join(clientDir, 'index.html');
+  const segments: string[] = [];
+  for (const raw of urlPath.split('/')) {
+    if (raw === '') continue; // 前导斜杠产生的空段
+    // 拒绝点段：`.` 与 `..` 都不是合法文件名
+    if (raw === '.' || raw === '..') return null;
+    if (!SEGMENT.test(raw)) return null;
+    // 显式再挡一次「看起来像穿越」的组合，belt and braces
+    if (raw.includes('..')) return null;
+    segments.push(raw);
+  }
+  if (segments.length === 0) return join(clientDir, 'index.html');
+  return join(clientDir, ...segments);
+}
+
 export async function serveStatic(
   req: IncomingMessage,
   res: import('node:http').ServerResponse,
@@ -90,20 +124,14 @@ export async function serveStatic(
     return;
   }
 
-  let filePath = normalize(join(clientDir, urlPath === '/' ? 'index.html' : urlPath));
-
-  /**
-   * 词法前缀校验：先挡掉 `../` 这类显而易见的越界。
-   *
-   * 必须带分隔符，否则 dist/clientX 会通过 startsWith('dist/client')。
-   * 这一步只看字符串，不碰文件系统——它是快速失败，不是最终判据。
-   */
-  const withSep = clientDir.endsWith(sep) ? clientDir : clientDir + sep;
-  if (filePath !== clientDir && !filePath.startsWith(withSep)) {
+  // 白名单解析：越界路径在这里直接判为「不可服务」，不存在可被拼接的残留
+  const resolved = resolveStaticPath(clientDir, urlPath);
+  if (resolved === null) {
     res.writeHead(403);
     res.end('forbidden');
     return;
   }
+  let filePath = resolved;
 
   /**
    * 真实路径校验：词法校验挡不住符号链接。

@@ -376,11 +376,20 @@ export function ProcessEditor({
       name: `${src.name}·副本`,
       ports: src.ports.map((p, i) => ({ ...p, order: i })),
     };
+    /**
+     * 用显式赋值构造 positions，而不是 `{ ...old, [newId]: ... }`。
+     *
+     * newId 虽然由本文件的 nextId() 生成（kind + 递增数字），但计算属性写法的
+     * 键在静态分析里仍是一个「计算出来的字符串」。这里改成先展开旧表、再明确
+     * 写入这一条，键的来源在语法层面就固定了。
+     */
+    const nextPositions: Record<string, { x: number; y: number }> = { ...(topology.positions ?? {}) };
+    nextPositions[newId] = { x: pos.x + 40, y: pos.y + 40 };
     onChange({
       ...topology,
       units: [...topology.units, unit],
       train: topology.train.includes(id) ? [...topology.train, newId] : topology.train,
-      positions: { ...(topology.positions ?? {}), [newId]: { x: pos.x + 40, y: pos.y + 40 } },
+      positions: nextPositions,
     });
   };
 

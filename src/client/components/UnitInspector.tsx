@@ -35,8 +35,18 @@ export function UnitInspector({ snap, topo, unit, onClose, onSelect, onChangeCon
    * ControlSettings 都没有这两个键：检视器把它们过滤掉，等于声明了一个
    * 点了没反应的假控件。这里同时收紧类型与清单，二者不再有幽灵项。
    */
-  const tickets = (unit.interventions ?? []).filter(
-    (k): k is keyof Omit<ControlSettings, 'aiEnabled'> => k in CONTROL_BOUNDS,
+  /**
+   * 可调参数清单。
+   *
+   * 遍历的是**编译期常量表** CONTROL_BOUNDS 的键，再用单元声明的
+   * interventions 过滤——方向反过来是有意的：
+   * `unit.interventions` 来自拓扑文档（用户可编辑），若直接迭代它，
+   * 后续 `CONTROL_BOUNDS[key]`、`{ [key]: value }` 里的 key 就是外部字符串。
+   * 从常量表出发时，key 的完整取值域在类型层面已知，不存在注入面。
+   */
+  const declared = new Set(unit.interventions ?? []);
+  const tickets = (Object.keys(CONTROL_BOUNDS) as (keyof Omit<ControlSettings, 'aiEnabled'>)[]).filter((k) =>
+    declared.has(k),
   );
   const incoming = topo.connections.filter((c) => c.to.unit === unit.id);
   const outgoing = topo.connections.filter((c) => c.from.unit === unit.id);

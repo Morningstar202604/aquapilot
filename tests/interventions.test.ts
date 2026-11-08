@@ -38,11 +38,20 @@ describe('干预清单', () => {
     for (const kind of UNIT_KINDS) expect(UNIT_META[kind], kind).toBeTruthy();
   });
 
-  it('检视器不再需要按名字排除幽灵键', async () => {
+  it('检视器按白名单取键，不直接迭代单元声明的清单', async () => {
     const fs = await import('node:fs');
     const src = fs.readFileSync('src/client/components/UnitInspector.tsx', 'utf8');
-    // 允许注释里提到历史包袱，但不能存在 `k !== 'xxx'` 这种按名排除的运行时过滤
+    // 不能再有按名字排除的运行时过滤（幽灵键的历史包袱）
     expect(src).not.toMatch(/!==\s*'(aerationOn|pumpSpeed)'/);
-    expect(src).toMatch(/k in CONTROL_BOUNDS/);
+    /**
+     * 断言实现方向而不是具体写法。
+     *
+     * 旧断言要求源码里出现 `k in CONTROL_BOUNDS`，重构把过滤方向反转为
+     * 「遍历 CONTROL_BOUNDS 再用 declared 过滤」后它就失效了——测的是
+     * 某个写法，不是行为。这里改为断言「以常量表为迭代起点」：
+     * 只要 Object.keys(CONTROL_BOUNDS) 出现在组件源码里，键的取值域
+     * 就在编译期确定，外部清单只作过滤条件。
+     */
+    expect(src).toMatch(/Object\.keys\(\s*CONTROL_BOUNDS\s*\)/);
   });
 });
