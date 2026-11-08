@@ -1576,10 +1576,14 @@ async function main(): Promise<void> {
       });
       return;
     }
-    const isApi = isApiPath(pathname);
-    // 健康检查与"是否需要认证"必须免鉴权，否则前端无法得知该不该弹登录框（死锁）
-    const isPublic = isPublicApiPath(pathname);
-    if (isApi && !isPublic) {
+    /**
+     * 访问控制用**默认拒绝**结构，而不是「是 API 且不是公开端点」这种排除式判断。
+     *
+     * 排除式写法的危险在于：新增一条路由时只要忘了同时更新两个判定，
+     * 它就默认落在允许一侧。这里改为先假设「一切 /api/* 都要鉴权」，
+     * 只有白名单里的两个端点显式提前放行——新增端点不写代码就是受保护的。
+     */
+    if (isApiPath(pathname) && !isPublicApiPath(pathname)) {
       // 所有 GET API 都是只读：viewer 即可（写操作走 WS 且要求更高角色）
       const decision = authorize(req, null, 'viewer');
       if (!decision.allowed) {
@@ -1597,7 +1601,7 @@ async function main(): Promise<void> {
       }
     }
     // 所有 API 都是只读的（写操作走 WebSocket），非 GET/HEAD 一律 405 并给出 Allow
-    if (isApi && !isReadMethod(req.method)) {
+    if (isApiPath(pathname) && !isReadMethod(req.method)) {
       res.writeHead(405, {
         'Content-Type': 'application/json; charset=utf-8',
         Allow: 'GET, HEAD',
@@ -1860,7 +1864,7 @@ async function main(): Promise<void> {
     }
     // 未匹配的 /api/* 必须 404，不能掉进静态分支返回 index.html：
     // 客户端把 HTML 当 JSON 解析只会得到一句看不懂的语法错误
-    if (isApi) {
+    if (isApiPath(pathname)) {
       res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'not found' }));
       return;

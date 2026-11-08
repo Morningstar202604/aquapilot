@@ -1,7 +1,7 @@
 import type { IncomingMessage } from 'node:http';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
-import { open, realpath } from 'node:fs/promises';
+import { lstat, open, realpath } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { extname, join, relative, isAbsolute, resolve } from 'node:path';
 import { shouldFallbackToIndex } from './httpRoutes';
@@ -177,10 +177,22 @@ export async function serveStatic(
      * 目录、FIFO 或指向别处的符号链接，随后 readFile 会按新目标读取。
      * 这里用同一个句柄完成「确认类型 + 读内容」，句柄在 close 之前不会改指。
      */
+    /**
+     * 打开前先确认它是一个普通文件、且不是符号链接。
+     *
+     * 前一步的 realpath 已经把越界软链拒掉了，这一步是纵深防御：
+     * 即使有人把 clientDir 内部的文件换成 FIFO（会让 readFile 永久阻塞）
+     * 或指向目录的链接，也在打开之前拦下，而不是打开后才发现类型不对。
+     * `lstat` 不跟随链接，因此链接本身会被识别为 isSymbolicLink。
+     */
+    const linkInfo = await lstat(filePath);
+    if (linkInfo.isSymbolicLink() || !linkInfo.isFile()) throw new Error('not a regular file');
+
     const handle = await open(filePath, 'r');
     let raw: Buffer;
     let info: Awaited<ReturnType<typeof handle.stat>>;
     try {
+      // 句柄上的 fstat 是最终判据：确认打开的就是刚才 lstat 的那类对象
       info = await handle.stat();
       if (!info.isFile()) throw new Error('not a file');
       raw = await handle.readFile();

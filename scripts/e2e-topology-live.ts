@@ -95,9 +95,9 @@ async function main() {
       .map((t: any) => num(t.volume, 0))
       .join('/')} | 出水 NH₄ ${num(after.effluent?.nh)} | 评分 ${num(after.score, 1)}`,
   );
-  console.log(
-    `反应器数量：${count(after.tanks)}；名称长度合计：${after.tanks.reduce((n: number, t: any) => n + String(t.name ?? '').length, 0)}`,
-  );
+  // 只打印数值：任何来自服务端的字符串都不进终端（避免转义序列伪造输出）
+  const nameChars = after.tanks.reduce((n: number, t: any) => n + String(t.name ?? '').length, 0);
+  console.log(`反应器数量：${count(after.tanks)}；名称长度合计：${nameChars}`);
   console.log(`通知条数：${noticeText.length}`);
 
   const ok = after.reactorCount === 6 && after.tanks.some((t: any) => t.id === 'aerobic4');
