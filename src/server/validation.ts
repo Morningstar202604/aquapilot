@@ -1,4 +1,5 @@
 import { CONTROL_BOUNDS, ControlSettings } from '../sim/config';
+import { SCENARIOS, SCENARIO_ORDER } from '../sim/scenarios';
 
 /**
  * 运行时输入校验。
@@ -67,35 +68,19 @@ export function sanitizeChatText(value: unknown, maxLen = 2000): string | null {
 }
 
 /** 场景类型白名单 */
-export const VALID_SCENARIOS = new Set([
-  'storm',
-  'shock_load',
-  'toxic',
-  'blower_failure',
-  'ras_failure',
-  'power_outage',
-  'winter',
-  'chemical_shortage',
-]);
+export const VALID_SCENARIOS: ReadonlySet<string> = new Set(SCENARIO_ORDER);
 
 /**
  * 各场景 magnitude 的合法区间。
  *
  * magnitude 的语义按场景不同：暴雨/冲击是「倍数」，鼓风机故障是
- * 「剩余供气能力 0–1」，冬季是「目标水温 ℃」，回流故障/停电/药剂短缺不用它。
- * 统一按 0–30 放行会让 winter 的 0 把水温压到 0 ℃（再被 clamp 到 8 ℃），
- * 也让用户无法判断输入是否有效。这里给出按类型的真实区间。
+ * 「剩余供气能力 0–1」，冬季是「目标水温 ℃」。统一按 0–30 放行会让
+ * winter 的 0 把水温压到 0 ℃，也让用户无法判断输入是否有效。
+ * 区间定义在 scenarios.ts 的同一个场景元数据里，这里只做派生。
  */
-export const SCENARIO_MAGNITUDE_RANGE: Record<string, { min: number; max: number }> = {
-  storm: { min: 0.2, max: 3 },
-  shock_load: { min: 0.2, max: 3 },
-  toxic: { min: 0.2, max: 2 },
-  blower_failure: { min: 0, max: 1 },
-  ras_failure: { min: 0, max: 1 },
-  power_outage: { min: 0, max: 1 },
-  winter: { min: 8, max: 25 },
-  chemical_shortage: { min: 0, max: 1 },
-};
+export const SCENARIO_MAGNITUDE_RANGE: Record<string, { min: number; max: number }> = Object.fromEntries(
+  SCENARIO_ORDER.map((type) => [type, SCENARIOS[type].magnitudeRange]),
+);
 
 /** 校验数值在合理区间（用于场景时长、幅度） */
 export function sanitizeRange(value: unknown, min: number, max: number, fallback: number): number {

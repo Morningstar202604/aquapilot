@@ -1,4 +1,7 @@
-import { CONTROL_BOUNDS, type ControlSettings } from '../sim/config';
+import * as v from 'valibot';
+import { CONTROL_BOUNDS, CONTROL_KEYS, type ControlKey, type ControlSettings } from '../sim/config';
+export { CONTROL_KEYS } from '../sim/config';
+export type { ControlKey } from '../sim/config';
 
 /**
  * Agent 配置的共享 schema。
@@ -14,7 +17,6 @@ import { CONTROL_BOUNDS, type ControlSettings } from '../sim/config';
  */
 
 export type PermissionLevel = 'readonly' | 'standard' | 'open';
-export type ControlKey = keyof Omit<ControlSettings, 'aiEnabled'>;
 
 export interface PromptBlock {
   id: string;
@@ -116,8 +118,6 @@ export const CORE_PROTECTED = [
 
 /** 尝试写入这些顶层字段一律被忽略并告警 */
 export const CORE_FIELD_NAMES = ['limits', 'safety', 'auth', 'secrets', 'core', 'kinetics', 'guardrails'] as const;
-
-export const CONTROL_KEYS = Object.keys(CONTROL_BOUNDS) as ControlKey[];
 
 export const AGENT_LIMITS = {
   maxPrompts: 20,
@@ -276,10 +276,98 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
   return Math.min(max, Math.max(min, value));
 }
 
-function cleanText(value: unknown, maxLen: number): string {
-  if (typeof value !== 'string') return '';
-  return value.trim().slice(0, maxLen);
+/** 文本字段的统一口径：去首尾空白、截断；非字符串回退空串 */
+function textSchema(maxLen: number) {
+  return v.fallback(
+    v.pipe(
+      v.string(),
+      v.transform((s) => s.trim().slice(0, maxLen)),
+    ),
+    '',
+  );
 }
+
+function finiteNumber() {
+  return v.fallback(v.nullable(v.pipe(v.number(), v.finite())), null);
+}
+
+/**
+ * 配置结构用 valibot 描述，业务规则（去重、跨字段引用、正则派生 id）留在下面。
+ *
+ * 这里刻意让每个字段自带 fallback，而不是整份 schema 失败就回退默认：
+ * 用户手改 JSON 时写错一个 tone 不应该把全部提示词和技能一起清空。
+ * 这也是原实现「非法字段丢弃 + 回退默认」语义的显式化。
+ */
+const PersonaSchema = v.object({
+  name: v.optional(textSchema(AGENT_LIMITS.maxNameChars), ''),
+  role: v.optional(textSchema(200), ''),
+  tone: v.optional(v.fallback(v.nullable(v.picklist(['专业简洁', '严谨详实', '亲和解释'] as const)), null), null),
+  language: v.optional(v.fallback(v.nullable(v.picklist(['zh', 'en'] as const)), null), null),
+});
+
+const ConstraintsSchema = v.object({
+  allowedControls: v.optional(v.fallback(v.array(v.unknown()), []), []),
+  maxStepPct: v.optional(finiteNumber(), null),
+  requireHumanApproval: v.optional(v.fallback(v.boolean(), false), false),
+  forbiddenTopics: v.optional(v.fallback(v.array(v.unknown()), []), []),
+  maxAnswerChars: v.optional(finiteNumber(), null),
+});
+
+const PromptSchema = v.object({
+  id: textSchema(80),
+  title: textSchema(AGENT_LIMITS.maxNameChars),
+  body: textSchema(AGENT_LIMITS.maxPromptChars),
+  enabled: v.fallback(v.boolean(), true),
+});
+
+const SkillSchema = v.object({
+  id: textSchema(80),
+  name: textSchema(AGENT_LIMITS.maxNameChars),
+  description: textSchema(200),
+  triggers: v.fallback(v.array(v.unknown()), []),
+  content: textSchema(AGENT_LIMITS.maxSkillChars),
+  enabled: v.fallback(v.boolean(), true),
+  source: v.fallback(v.picklist(['builtin', 'custom', 'remote'] as const), 'custom'),
+  url: textSchema(500),
+});
+
+const HookSchema = v.object({
+  id: textSchema(80),
+  name: textSchema(AGENT_LIMITS.maxNameChars),
+  event: v.optional(v.picklist(['alarm', 'decision', 'chat', 'config'] as const)),
+  match: textSchema(120),
+  action: v.optional(v.picklist(['notice', 'log', 'webhook', 'skill'] as const)),
+  target: textSchema(500),
+  level: v.fallback(v.picklist(['info', 'warn', 'error'] as const), 'info'),
+  enabled: v.fallback(v.boolean(), true),
+  cooldownMin: finiteNumber(),
+  failures: finiteNumber(),
+});
+
+const ConfigSchema = v.object({
+  permission: v.optional(v.fallback(v.nullable(v.picklist(['readonly', 'standard', 'open'] as const)), null), null),
+  persona: v.optional(v.fallback(PersonaSchema, { name: '', role: '', tone: null, language: null }), {
+    name: '',
+    role: '',
+    tone: null,
+    language: null,
+  }),
+  prompts: v.optional(v.fallback(v.array(v.unknown()), []), []),
+  constraints: v.optional(
+    v.fallback(ConstraintsSchema, {
+      allowedControls: [],
+      maxStepPct: null,
+      requireHumanApproval: false,
+      forbiddenTopics: [],
+      maxAnswerChars: null,
+    }),
+    { allowedControls: [], maxStepPct: null, requireHumanApproval: false, forbiddenTopics: [], maxAnswerChars: null },
+  ),
+  skills: v.optional(v.fallback(v.array(v.unknown()), []), []),
+  hooks: v.optional(v.fallback(v.array(v.unknown()), []), []),
+  updatedAt: v.optional(textSchema(80), ''),
+  updatedBy: v.optional(v.fallback(v.picklist(['default', 'ui', 'chat', 'cli', 'file'] as const), 'file'), 'file'),
+});
 
 function slugId(prefix: string, name: string, index: number): string {
   const base = name
@@ -290,11 +378,10 @@ function slugId(prefix: string, name: string, index: number): string {
   return `${prefix}-${base || index}-${index}`;
 }
 
-function normalizeTriggers(raw: unknown, fallback: string): string[] {
-  const list = Array.isArray(raw) ? raw : [];
+function normalizeTriggers(raw: unknown[], fallback: string): string[] {
   const out: string[] = [];
-  for (const item of list) {
-    const t = cleanText(item, 24);
+  for (const item of raw) {
+    const t = typeof item === 'string' ? item.trim().slice(0, 24) : '';
     if (t && !out.includes(t)) out.push(t);
     if (out.length >= AGENT_LIMITS.maxTriggers) break;
   }
@@ -319,52 +406,48 @@ export function normalizeAgentConfig(raw: unknown): NormalizeResult {
     if (key in src) warnings.push(`核心字段 ${key} 不可修改，已忽略`);
   }
 
-  const permission = (['readonly', 'standard', 'open'] as const).includes(src.permission as PermissionLevel)
-    ? (src.permission as PermissionLevel)
-    : base.permission;
+  const parsed = v.safeParse(ConfigSchema, src);
+  if (!parsed.success) {
+    return { config: base, warnings: ['配置结构无法解析，已回退默认值'] };
+  }
+  const input = parsed.output;
 
-  const personaRaw = (src.persona ?? {}) as Record<string, unknown>;
+  const permission: PermissionLevel = input.permission ?? base.permission;
+
   const persona: AgentPersona = {
-    name: cleanText(personaRaw.name, AGENT_LIMITS.maxNameChars) || base.persona.name,
-    role: cleanText(personaRaw.role, 200) || base.persona.role,
-    tone: (['专业简洁', '严谨详实', '亲和解释'] as const).includes(personaRaw.tone as AgentPersona['tone'])
-      ? (personaRaw.tone as AgentPersona['tone'])
-      : base.persona.tone,
-    language: personaRaw.language === 'en' ? 'en' : 'zh',
+    name: input.persona.name || base.persona.name,
+    role: input.persona.role || base.persona.role,
+    tone: input.persona.tone ?? base.persona.tone,
+    language: input.persona.language ?? 'zh',
   };
 
   const prompts: PromptBlock[] = [];
-  const promptSrc = Array.isArray(src.prompts) ? src.prompts : [];
-  promptSrc.slice(0, AGENT_LIMITS.maxPrompts).forEach((item, i) => {
-    if (!item || typeof item !== 'object') return;
-    const p = item as Record<string, unknown>;
-    const title = cleanText(p.title, AGENT_LIMITS.maxNameChars);
-    const body = cleanText(p.body, AGENT_LIMITS.maxPromptChars);
-    if (!title || !body) return;
-    const id = cleanText(p.id, 80) || slugId('p', title, i);
+  input.prompts.slice(0, AGENT_LIMITS.maxPrompts).forEach((item, i) => {
+    const p = v.safeParse(PromptSchema, item);
+    if (!p.success || !p.output.title || !p.output.body) return;
+    const prompt = p.output;
+    const id = prompt.id || slugId('p', prompt.title, i);
     if (prompts.some((x) => x.id === id)) return;
-    prompts.push({ id, title, body, enabled: p.enabled !== false });
+    prompts.push({ id, title: prompt.title, body: prompt.body, enabled: prompt.enabled });
   });
   if (prompts.length === 0) prompts.push(...base.prompts);
 
-  const constraintRaw = (src.constraints ?? {}) as Record<string, unknown>;
-  const allowed = Array.isArray(constraintRaw.allowedControls) ? constraintRaw.allowedControls : [];
+  const allowed = input.constraints.allowedControls;
   const allowedControls = CONTROL_KEYS.filter((k) => allowed.includes(k));
-  const topicsRaw = Array.isArray(constraintRaw.forbiddenTopics) ? constraintRaw.forbiddenTopics : [];
   const forbiddenTopics: string[] = [];
-  for (const t of topicsRaw) {
-    const topic = cleanText(t, 40);
+  for (const t of input.constraints.forbiddenTopics) {
+    const topic = typeof t === 'string' ? t.trim().slice(0, 40) : '';
     if (topic && !forbiddenTopics.includes(topic)) forbiddenTopics.push(topic);
     if (forbiddenTopics.length >= AGENT_LIMITS.maxForbiddenTopics) break;
   }
   const constraints: AgentConstraints = {
     allowedControls: allowedControls.length > 0 ? allowedControls : [...CONTROL_KEYS],
-    maxStepPct: clampNumber(constraintRaw.maxStepPct, 5, 100, base.constraints.maxStepPct),
-    requireHumanApproval: constraintRaw.requireHumanApproval === true,
+    maxStepPct: clampNumber(input.constraints.maxStepPct, 5, 100, base.constraints.maxStepPct),
+    requireHumanApproval: input.constraints.requireHumanApproval,
     forbiddenTopics,
     maxAnswerChars: Math.round(
       clampNumber(
-        constraintRaw.maxAnswerChars,
+        input.constraints.maxAnswerChars,
         AGENT_LIMITS.minAnswerChars,
         AGENT_LIMITS.maxAnswerChars,
         base.constraints.maxAnswerChars,
@@ -373,60 +456,46 @@ export function normalizeAgentConfig(raw: unknown): NormalizeResult {
   };
 
   const skills: SkillSpec[] = [];
-  const skillSrc = Array.isArray(src.skills) ? src.skills : [];
-  skillSrc.slice(0, AGENT_LIMITS.maxSkills).forEach((item, i) => {
-    if (!item || typeof item !== 'object') return;
-    const s = item as Record<string, unknown>;
-    const name = cleanText(s.name, AGENT_LIMITS.maxNameChars);
-    const content = cleanText(s.content, AGENT_LIMITS.maxSkillChars);
-    if (!name || !content) return;
-    const id = cleanText(s.id, 80) || slugId('s', name, i);
+  input.skills.slice(0, AGENT_LIMITS.maxSkills).forEach((item, i) => {
+    const p = v.safeParse(SkillSchema, item);
+    if (!p.success || !p.output.name || !p.output.content) return;
+    const skill = p.output;
+    const id = skill.id || slugId('s', skill.name, i);
     if (skills.some((x) => x.id === id)) return;
-    const source = (['builtin', 'custom', 'remote'] as const).includes(s.source as SkillSource)
-      ? (s.source as SkillSource)
-      : 'custom';
     skills.push({
       id,
-      name,
-      description: cleanText(s.description, 200),
-      triggers: normalizeTriggers(s.triggers, name),
-      content,
-      enabled: s.enabled !== false,
-      source,
-      url: cleanText(s.url, 500) || undefined,
+      name: skill.name,
+      description: skill.description,
+      triggers: normalizeTriggers(skill.triggers, skill.name),
+      content: skill.content,
+      enabled: skill.enabled,
+      source: skill.source,
+      url: skill.url || undefined,
     });
   });
   if (skills.length === 0) skills.push(...base.skills);
 
   const hooks: HookSpec[] = [];
-  const hookSrc = Array.isArray(src.hooks) ? src.hooks : [];
-  hookSrc.slice(0, AGENT_LIMITS.maxHooks).forEach((item, i) => {
-    if (!item || typeof item !== 'object') return;
-    const h = item as Record<string, unknown>;
-    const name = cleanText(h.name, AGENT_LIMITS.maxNameChars);
-    if (!name) return;
-    const event = (['alarm', 'decision', 'chat', 'config'] as const).includes(h.event as HookEvent)
-      ? (h.event as HookEvent)
-      : null;
-    const action = (['notice', 'log', 'webhook', 'skill'] as const).includes(h.action as HookAction)
-      ? (h.action as HookAction)
-      : null;
-    if (!event || !action) return;
-    const id = cleanText(h.id, 80) || slugId('h', name, i);
+  input.hooks.slice(0, AGENT_LIMITS.maxHooks).forEach((item, i) => {
+    const p = v.safeParse(HookSchema, item);
+    if (!p.success) return;
+    const hook = p.output;
+    const event = hook.event;
+    const action = hook.action;
+    if (!hook.name || !event || !action) return;
+    const id = hook.id || slugId('h', hook.name, i);
     if (hooks.some((x) => x.id === id)) return;
     hooks.push({
       id,
-      name,
+      name: hook.name,
       event,
-      match: cleanText(h.match, 120),
+      match: hook.match,
       action,
-      target: cleanText(h.target, 500),
-      level: (['info', 'warn', 'error'] as const).includes(h.level as HookSpec['level'])
-        ? (h.level as HookSpec['level'])
-        : 'info',
-      enabled: h.enabled !== false,
-      cooldownMin: Math.round(clampNumber(h.cooldownMin, 0, 1440, 5)),
-      failures: Math.round(clampNumber(h.failures, 0, 9999, 0)),
+      target: hook.target,
+      level: hook.level,
+      enabled: hook.enabled,
+      cooldownMin: Math.round(clampNumber(hook.cooldownMin, 0, 1440, 5)),
+      failures: Math.round(clampNumber(hook.failures, 0, 9999, 0)),
     });
   });
   if (hooks.length === 0) hooks.push(...base.hooks);
@@ -440,10 +509,8 @@ export function normalizeAgentConfig(raw: unknown): NormalizeResult {
       constraints,
       skills,
       hooks,
-      updatedAt: typeof src.updatedAt === 'string' ? src.updatedAt : new Date(0).toISOString(),
-      updatedBy: (['default', 'ui', 'chat', 'cli', 'file'] as const).includes(src.updatedBy as ConfigWriter)
-        ? (src.updatedBy as ConfigWriter)
-        : 'file',
+      updatedAt: input.updatedAt || new Date(0).toISOString(),
+      updatedBy: input.updatedBy,
     },
     warnings,
   };

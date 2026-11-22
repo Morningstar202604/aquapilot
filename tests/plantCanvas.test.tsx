@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { PlantCanvas } from '../src/client/components/PlantCanvas';
@@ -41,8 +41,11 @@ describe('PlantCanvas 渲染', () => {
     );
     expect(container.querySelectorAll('[data-unit-node]')).toHaveLength(PLANT_TOPOLOGY.units.length);
     expect(container.querySelectorAll('.plant-node')).toHaveLength(PLANT_TOPOLOGY.units.length);
-    // 每条连接一条 path（含动画副本，所以只校验 ≥ 连接数）
-    expect(container.querySelectorAll('path').length).toBeGreaterThanOrEqual(PLANT_TOPOLOGY.connections.length);
+    // React Flow 在 happy-dom 中拿不到节点尺寸，边要等真实布局后才画；
+    // 这里校验边数据已经全部喂给画布，像素路径由浏览器端负责。
+    expect(Number(container.querySelector('.canvas-wrap')?.getAttribute('data-flow-edges'))).toBe(
+      PLANT_TOPOLOGY.connections.length,
+    );
   });
 
   it('监视模式不画端口圆点（只读视图保持干净）', () => {
@@ -66,7 +69,7 @@ describe('PlantCanvas 渲染', () => {
     );
     const dots = Array.from(container.querySelectorAll('.port-dot')) as SVGCircleElement[];
     const air = dots.find((d) => d.getAttribute('data-stream') === 'air');
-    expect(air?.style.stroke).toBe('#38a8c9');
+    expect(air?.style.stroke).toMatch(/#38a8c9|rgb\(56, 168, 201\)/);
     // 不同物流的端口不能同色（否则靠颜色区分水位/回流就失效了）
     const grey = dots.find((d) => d.getAttribute('data-stream') === 'influent');
     expect(grey?.style.stroke).toBe('#3d7fd9');
@@ -132,9 +135,22 @@ describe('PlantCanvas 渲染', () => {
     }
   });
 
-  it('全览模式标题按节点宽度收缩，长名字不越界', () => {
+  it('桌面常规缩放下用 11.5px 标题，不切换到会溢出标题栏的大标题', () => {
+    /**
+     * 这里不模拟 fitView（happy-dom 里没有真实视口），默认 zoom=1 已经
+     * 覆盖了桌面 1:1 与约 83% 全览两类常见缩放。大标题只应出现在
+     * explicit compact 或真正缩到 62% 以下时。
+     */
     const { container } = render(
       <PlantCanvas snap={makeSnapshot()} topo={PLANT_TOPOLOGY} selected={null} onSelect={vi.fn()} />,
+    );
+    expect(container.querySelectorAll('.unit-title')).toHaveLength(PLANT_TOPOLOGY.units.length);
+    expect(container.querySelectorAll('.unit-title-lg')).toHaveLength(0);
+  });
+
+  it('紧凑模式标题按节点宽度收缩，长名字不越界且仍在 30px 标题栏内', () => {
+    const { container } = render(
+      <PlantCanvas compact snap={makeSnapshot()} topo={PLANT_TOPOLOGY} selected={null} onSelect={vi.fn()} />,
     );
     const titles = [...container.querySelectorAll('.unit-title-lg')] as SVGTextElement[];
     expect(titles.length).toBe(PLANT_TOPOLOGY.units.length);
@@ -142,5 +158,7 @@ describe('PlantCanvas 渲染', () => {
     const thickener = titles.find((t) => t.textContent === '污泥浓缩池');
     expect(thickener).toBeTruthy();
     expect(Number(thickener!.style.fontSize.replace('px', ''))).toBeLessThan(24);
+    // 基线在 30px 标题栏底边上方，避免和标题下分隔线/正文相撞
+    expect(Number(thickener!.getAttribute('y'))).toBeLessThanOrEqual(21);
   });
 });

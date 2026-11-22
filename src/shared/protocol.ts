@@ -9,14 +9,31 @@ import type {
 } from '../sim/plantTypes';
 import type { ControlSettings, Limits } from '../sim/config';
 import type { ScenarioSpec } from '../sim/scenarios';
-import type { Answer, Recommendation } from '../ai/agent';
+import type { Answer, Recommendation } from './aiTypes';
 import type { EnsembleForecast } from '../sim/ensemble';
 import type { AlarmAttribution, PlantHealth } from '../sim/alarmAttribution';
 import type { ProcessTopology } from '../model/topology';
+import type { KineticModel } from '../sim/networkTypes';
 import type { DiscoveredModel, LlmDraft, LlmProtocol, LlmPublicConfig, LlmTestResult } from './llm';
 import type { AgentConfig, AgentSummary } from './agentConfig';
 import type { AnalysisSnapshot } from '../sim/analysis';
 import type { CalibrationProgress, IdentifiabilityRow } from '../sim/calibration';
+import type { HydraulicSnapshot } from '../sim/hydraulics';
+import type { PlantBoundarySnapshot } from '../sim/plantBoundary';
+import type { instrumentationView } from '../sim/instruments';
+import type { controlLayerView } from '../sim/controlLayer';
+import type { groupAvailability } from '../sim/assets';
+
+/** WP4 仪表快照：测点测量值/真值对照/质量码（视图类型镜像 sim/instruments） */
+export type InstrumentationSnapshot = ReturnType<typeof instrumentationView>;
+/** WP4 控制层快照：回路输出、联锁、ESD、审计（视图类型镜像 sim/controlLayer） */
+export type ControlLayerSnapshot = ReturnType<typeof controlLayerView>;
+/** WP7 资产快照：分组可用性、ESD 状态、设备台数 */
+export interface AssetSnapshot {
+  count: number;
+  esd: { active: boolean; unitId: string | null };
+  groups: ReturnType<typeof groupAvailability>;
+}
 
 /** 数据质量报告（结构镜像 sim/dataQuality 的 QualityReport，避免循环依赖） */
 export interface QualityReportPayload {
@@ -151,8 +168,8 @@ export interface PlantSnapshot {
   simulatedAt: string;
   speed: number;
   paused: boolean;
-  /** 当前求解模型：'simple' 经验动力学 / 'asm1' 活性污泥模型（影响 TP 等组分口径） */
-  modelMode: 'simple' | 'asm1';
+  /** 当前求解模型：'simple' 经验动力学 / 'asm1' 活性污泥模型 / 'asm2d' 生物除磷模型 */
+  modelMode: 'simple' | 'asm1' | 'asm2d';
   influent: InfluentState;
   effluent: EffluentState;
   tanks: (TankState & { mlssSource?: 'plant-average' | 'reactor' })[];
@@ -211,6 +228,16 @@ export interface PlantSnapshot {
   };
   stormStorageM3: number;
   reactorCount: number;
+  /** WP3 水力学视图：管渠输运、泵/阀/堰、分流、示踪剂 RTD（缺省 = 该子系统未启用） */
+  hydraulics?: HydraulicSnapshot;
+  /** WP2 全厂边界视图：三本账、泥线、沼气、沼液回流（缺省 = 未启用） */
+  plant?: PlantBoundarySnapshot;
+  /** WP4 仪表视图：测点测量值、真值对照、质量码（缺省 = 该子系统未启用） */
+  instruments?: InstrumentationSnapshot;
+  /** WP4 控制层视图：PID 回路、联锁/ESD、被拒指令审计 */
+  controlLayer?: ControlLayerSnapshot;
+  /** WP7 资产视图：分组可用性因子、ESD 状态 */
+  assets?: AssetSnapshot;
 }
 
 export type ClientMessage =
@@ -231,6 +258,8 @@ export type ClientMessage =
   | { type: 'scenario'; kind: 'clear' }
   | { type: 'sim'; action: 'pause' | 'resume' | 'reset' }
   | { type: 'speed'; value: number }
+  /** 切换求解模型：simple（快速）| asm1（13 组分 ASM1） */
+  | { type: 'model'; model: KineticModel }
   | { type: 'refreshDecision' }
   | { type: 'preset'; id: string }
   | { type: 'topology'; action: 'get' }
@@ -393,6 +422,16 @@ export interface SnapshotPatch {
    * 暴雨或故障期间分数不动——这不是"没更新"，是"看起来没发生"。
    */
   scorecard: import('../sim/scorecard').Scorecard;
+  /** WP3 水力学视图：与全量帧同名字段，增量帧同样下发，避免界面冻结在连接时刻 */
+  hydraulics?: HydraulicSnapshot;
+  /** WP2 全厂边界视图：与全量帧同名字段，增量帧同样下发 */
+  plant?: PlantBoundarySnapshot;
+  /** WP4 仪表视图：与全量帧同名字段，增量帧同样下发 */
+  instruments?: InstrumentationSnapshot;
+  /** WP4 控制层视图：与全量帧同名字段，增量帧同样下发 */
+  controlLayer?: ControlLayerSnapshot;
+  /** WP7 资产视图：与全量帧同名字段，增量帧同样下发 */
+  assets?: AssetSnapshot;
 }
 
 export type ServerMessage =

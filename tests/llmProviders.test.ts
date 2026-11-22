@@ -764,7 +764,7 @@ describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
           resolvePublicFetchAddress(
             'http://model-alias.example/v1',
             async () => [
-              { address: '203.0.113.10', family: 4 },
+              { address: '8.8.8.8', family: 4 },
               { address, family: 6 },
             ],
             undefined,
@@ -805,7 +805,7 @@ describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
   it('DNS 解析结果含私网地址时拒绝整个目标', async () => {
     await expect(
       resolvePublicFetchAddress('https://public.example.com/doc.md', async () => [
-        { address: '203.0.113.10', family: 4 },
+        { address: '8.8.8.8', family: 4 },
         { address: '192.168.1.10', family: 4 },
       ]),
     ).rejects.toThrow(/解析到了内网/);
@@ -818,7 +818,7 @@ describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
   it('204/205/304 响应不构造非法 body', async () => {
     for (const status of [204, 205, 304]) {
       const response = await fetchPublicUrl('http://public.example.com/no-body', {
-        lookup: async () => [{ address: '203.0.113.10', family: 4 }],
+        lookup: async () => [{ address: '8.8.8.8', family: 4 }],
         requestImpl: fakeRequest('', status),
       });
       expect(response.status).toBe(status);
@@ -830,7 +830,7 @@ describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
     const result = await fetchPublicUrl('http://public.example.com/doc.md', {
       method: 'POST',
       body: 'payload',
-      lookup: async () => [{ address: '203.0.113.10', family: 4 }],
+      lookup: async () => [{ address: '8.8.8.8', family: 4 }],
       requestImpl: fakeRequest('ok'),
     });
     await expect(result.text()).resolves.toBe('ok');
@@ -841,7 +841,7 @@ describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
     await expect(
       fetchPublicUrl('http://public.example.com/doc.md', {
         maxBytes: 1,
-        lookup: async () => [{ address: '203.0.113.10', family: 4 }],
+        lookup: async () => [{ address: '8.8.8.8', family: 4 }],
         requestImpl: fakeRequest('too large'),
       }),
     ).rejects.toThrow(/响应体过大/);
@@ -852,7 +852,7 @@ describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
     await expect(
       fetchPublicUrl('http://public.example.com/drip', {
         timeoutMs: 40,
-        lookup: async () => [{ address: '203.0.113.10', family: 4 }],
+        lookup: async () => [{ address: '8.8.8.8', family: 4 }],
         requestImpl: dripRequest(),
       }),
     ).rejects.toThrow(/超时/);
@@ -879,8 +879,8 @@ describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
   });
 
   it('直接公网 IP 不需要 DNS lookup', async () => {
-    await expect(resolvePublicFetchAddress('https://203.0.113.10/doc.md', async () => [])).resolves.toMatchObject({
-      address: '203.0.113.10',
+    await expect(resolvePublicFetchAddress('https://8.8.8.8/doc.md', async () => [])).resolves.toMatchObject({
+      address: '8.8.8.8',
     });
   });
 
@@ -890,7 +890,7 @@ describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
     await expect(
       resolvePublicFetchAddress(
         'https://public.example.com/cancelled',
-        async () => [{ address: '203.0.113.10', family: 4 }],
+        async () => [{ address: '8.8.8.8', family: 4 }],
         controller.signal,
       ),
     ).rejects.toThrow(/超时/);
@@ -905,8 +905,8 @@ describe('抓取类 SSRF 守卫（技能导入 / webhook）', () => {
     await expect(
       resolvePublicFetchAddress('https://public.example.com/doc.md', async (host) => {
         expect(host).toBe('public.example.com');
-        return [{ address: '203.0.113.10', family: 4 }];
+        return [{ address: '8.8.8.8', family: 4 }];
       }),
-    ).resolves.toMatchObject({ address: '203.0.113.10' });
+    ).resolves.toMatchObject({ address: '8.8.8.8' });
   });
 });

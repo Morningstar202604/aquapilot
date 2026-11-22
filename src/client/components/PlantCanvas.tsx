@@ -1,18 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { layoutTopology, portAnchors, PlacedEdge, PlacedNode } from '../../model/layout';
 import {
-  STREAM_META,
-  STREAM_LEGEND_ORDER,
-  streamColor,
-  streamLabel,
-  streamShort,
-  unitKindIcon,
-} from '../../shared/streamMeta';
-import { moveNodes, nodesInRect, nextSelection } from '../hooks/editorSelection';
-import { fitCompactTitle } from './labels';
-import { PLANT_TOPOLOGY, UnitKind, ProcessTopology, type StreamKind } from '../../model/topology';
+  Background,
+  BackgroundVariant,
+  MarkerType,
+  MiniMap,
+  ReactFlow,
+  ReactFlowProvider,
+  SelectionMode,
+  ViewportPortal,
+  useNodesState,
+  useReactFlow,
+  type Connection,
+  type Viewport,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import { layoutTopology, portAnchors, type Layout } from '../../model/layout';
+import { STREAM_LEGEND_ORDER, STREAM_META, streamColor, streamLabel } from '../../shared/streamMeta';
+import { PLANT_TOPOLOGY, type ProcessTopology, type StreamKind } from '../../model/topology';
 import type { PlantSnapshot } from '../../shared/protocol';
 import type { ControlSettings } from '../../sim/config';
+import { PlantEdge, type PlantFlowEdge } from './PlantEdge';
+import { PlantNode, type PlantFlowNode, type TankHistoryPoint } from './PlantNode';
+
+export type { TankHistoryPoint } from './PlantNode';
 
 interface Props {
   snap: PlantSnapshot;
@@ -44,7 +54,23 @@ interface Props {
   onRouteChange?: (connectionId: string, points: { x: number; y: number }[] | null) => void;
 }
 
-export function PlantCanvas({
+const nodeTypes = { plant: PlantNode };
+const edgeTypes = { plant: PlantEdge };
+
+export function PlantCanvas(props: Props) {
+  return (
+    <ReactFlowProvider>
+      <FlowCanvas {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+/** 顺序敏感的 id 集合比较；选择集合很小，不做 Set 分配 */
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
+function FlowCanvas({
   snap,
   topo = PLANT_TOPOLOGY,
   selected,
@@ -64,428 +90,249 @@ export function PlantCanvas({
   onRouteChange,
   tankHistory,
 }: Props) {
-  const selectionIds = selection ?? (selected ? [selected] : []);
-  const pick = (ids: string[]) => {
-    if (onSelectionChange) onSelectionChange(ids);
-    else onSelect(ids[0] ?? null);
-  };
-  const [zoom, setZoom] = useState(1);
+  const selectionIds = useMemo(() => selection ?? (selected ? [selected] : []), [selection, selected]);
+  const rf = useReactFlow<PlantFlowNode, PlantFlowEdge>();
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
+  const [fitToWindow, setFitToWindow] = useState(() =>
+    typeof window === 'undefined' ? true : window.innerWidth > 900,
+  );
+  const [snapTarget, setSnapTarget] = useState<{ unitId: string; portId: string } | null>(null);
   /**
-   * 节点拖动状态。
+   * 大标题只属于「真正缩得很小」的全览，而不是 fitToWindow 这个模式标记。
    *
-   * 只记录「拖了谁、从哪开始、原始位置」，位移在 pointermove 里换算成图纸
-   * 坐标（除以当前缩放比），松手才提交一次——这样撤销栈里是"一次拖拽"，
-   * 而不是每帧一条历史。
+   * 桌面 1920 宽下 fitView 的实际缩放约 0.8–0.9；此时 24px 标题会顶出
+   * 22px 的卡片标题栏，盖住下面的 role/流量。按实际缩放判断后，1:1、
+   * 83% 全览都用正常 11.5px 标题，只有缩到 62% 以下才切换成大标题。
    */
-  const [drag, setDrag] = useState<{
-    ids: string[];
-    startX: number;
-    startY: number;
-    /** 拖动开始时的坐标基准：移动只按「基准 + 总位移」算，避免每帧叠加 */
-    origins: Record<string, { x: number; y: number }>;
-  } | null>(null);
-  /**
-   * 连线折点拖动。
-   *
-   * 与节点拖动同一套思路：记住按下时的折点坐标与指针位置，移动时只算总位移，
-   * 否则每帧 +14px 会把折点越推越远（节点拖动此前就有这个缺陷）。
-   */
-  const [routeDrag, setRouteDrag] = useState<{
-    connectionId: string;
-    index: number;
-    origin: { x: number; y: number };
-    startX: number;
-    startY: number;
-  } | null>(null);
-  /**
-   * 框选。
-   *
-   * 两个真相：`marqueeRef` 存最新矩形（pointerup 里必须读到本次拖拽的最终值，
-   * 用 state 会因为异步更新读到上一帧甚至 null），`marquee` state 只负责画。
-   */
-  const marqueeRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
-  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
-  /**
-   * 拖拽连线。
-   *
-   * 与"点出口再点入口"并存：拖拽更符合流程模拟器的肌肉记忆，点击仍是
-   * 触屏与键盘用户的可靠退路。拖动中的橡皮筋用 SVG 线画在端口层下面。
-   *
-   * 拖动时计算最近的入口端口做吸附（snap）：指针进入吸附半径后，目标端口
-   * 高亮、橡皮筋端点贴到锚点上，松手即连接——命中判定不再依赖
-   * elementFromPoint 的像素级精确，"拖到大概位置"就能连上。
-   */
-  const [portDrag, setPortDrag] = useState<{
+  const compactView = compact === true || viewport.zoom < 0.62;
+
+  const adaptiveLaneGap = compact ? 76 : 96;
+  const layout = useMemo(
+    () => layoutTopology(topo, { compact, laneGap: adaptiveLaneGap, maxRowWidth: undefined }),
+    [topo, compact, adaptiveLaneGap],
+  );
+  const visibleEdges = useMemo(
+    () => layout.edges.filter((e) => showRecycle || !e.connection.recycle),
+    [layout.edges, showRecycle],
+  );
+
+  const suppressPortClick = useRef(false);
+  const portDragRef = useRef<{
     from: { unitId: string; portId: string };
-    x0: number;
-    y0: number;
     x: number;
     y: number;
     moved: boolean;
-    /** 当前吸附到的入口端口（半径内取最近，找不到为 null） */
-    snap: { unitId: string; portId: string; x: number; y: number } | null;
+    snap: { unitId: string; portId: string } | null;
   } | null>(null);
-  /** 吸附半径（图纸 px）：约端口圆点半径的 3 倍，手感与 Aspen/Visio 相当 */
-  const PORT_SNAP_RADIUS = 16;
-  /** 拖完会紧跟一次 click，用它把这次 click 吞掉，避免又进入点击连线模式 */
-  const suppressPortClick = useRef(false);
-  /**
-   * 默认全览（含编排视图）。
-   *
-   * 首屏的第一诉求是"知道全厂长什么样"，而不是"读清某个池的数字"。
-   * 三段历史注释对应三个历史决定；实测用户反馈「打开只看到前几个池子」
-   * 之后统一为：所有视图默认全览，1:1 保留为细读/细编手段（点「1:1」，
-   * 配合右下角小地图定位）。窄屏仍 1:1 + 横向滑动（全览压到 19% 不可读）。
-   */
-  const [fitToWindow, setFitToWindow] = useState(() => {
-    return typeof window === 'undefined' ? true : window.innerWidth > 900;
+
+  const handlePortClick = (unitId: string, portId: string, kind: 'in' | 'out') => {
+    if (suppressPortClick.current) {
+      suppressPortClick.current = false;
+      return;
+    }
+    onPortClick?.(unitId, portId, kind);
+  };
+
+  const startPortDrag = (unitId: string, portId: string, e: React.PointerEvent<HTMLDivElement>) => {
+    portDragRef.current = { from: { unitId, portId }, x: e.clientX, y: e.clientY, moved: false, snap: null };
+  };
+
+  /** 选择集合与父层/上次同步值一致时不回写，避免受控 selection 自激循环 */
+  const syncSelection = (next: string[]): void => {
+    if (!onSelectionChange) return;
+    if (sameIds(next, selectionIds) || sameIds(next, lastEmittedSelection.current)) return;
+    lastEmittedSelection.current = next;
+    onSelectionChange(next);
+  };
+
+  const pick = (id: string, additive: boolean) => {
+    if (!editable) {
+      onSelect(selected === id ? null : id);
+      return;
+    }
+    let next: string[];
+    if (additive) next = selectionIds.includes(id) ? selectionIds.filter((x) => x !== id) : [...selectionIds, id];
+    else next = selectionIds.length > 1 && selectionIds.includes(id) ? selectionIds : [id];
+    if (onSelectionChange) syncSelection(next);
+    else onSelect(next[0] ?? null);
+  };
+
+  const dataRef = useRef({
+    snap,
+    selectionIds,
+    showLabels,
+    compactView,
+    editable,
+    connectFrom,
+    snapTarget,
+    tankHistory,
+    onPick: pick,
+    onPortClick: handlePortClick,
+    onPortDragStart: startPortDrag,
   });
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const [wrapSize, setWrapSize] = useState({ w: 0, h: 0 });
-  /** 连线模式下光标的图纸坐标：画橡皮筋虚线（从源端口到光标） */
-  const [connectCursor, setConnectCursor] = useState<{ x: number; y: number } | null>(null);
-  /**
-   * 拖拽平移。
-   *
-   * 全览模式下图装得下，没有滚动余量；1:1 / 放大后才需要拖。
-   * 这里用 pointer 事件手写平移而不是依赖浏览器默认行为：
-   * SVG 内部节点自身有点击选中，pointerdown 只在不落在节点上时启动平移，
-   * 否则会与「点选单元」冲突。
-   */
-  const [panning, setPanning] = useState(false);
-  const panState = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
-
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    const target = e.target as Element;
-    // 节点自身与端口圆点都不启动画布平移：
-    // 端口点击要能穿透到 circle 上，否则 pointer capture 会把 click 的
-    // 目标改写成画布容器，"点端口进入连线模式"永远不会触发（实测踩到）。
-    if (target.closest('[data-unit-node]') || target.closest('.port-dot')) return;
-    const wrap = wrapRef.current;
-    if (!wrap) return;
-    /**
-     * 空白处左键拖动：编排模式画框选，其它模式平移画布。
-     * 与 Simulink/Aspen 一致——左键永远是"选择"，看远处靠滚动条与缩放。
-     */
-    if (editable && onSelectionChange && svgRef.current) {
-      const rect = svgRef.current.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / effectiveZoom;
-      const y = (e.clientY - rect.top) / effectiveZoom;
-      marqueeRef.current = { x0: x, y0: y, x1: x, y1: y };
-      setMarquee(marqueeRef.current);
-      // setPointerCapture 对无效 pointerId 会抛 NotFoundError（合成事件、触屏边缘都会遇到），
-      // 捕获失败不影响框选本身，不能让它中断 handler。
-      try {
-        wrap.setPointerCapture?.(e.pointerId);
-      } catch {
-        /* 指针已释放 */
-      }
-      return;
-    }
-    // 全览且无滚动余量时不需要拖拽，保持普通点击语义
-    if (wrap.scrollWidth <= wrap.clientWidth && wrap.scrollHeight <= wrap.clientHeight) return;
-    panState.current = { x: e.clientX, y: e.clientY, left: wrap.scrollLeft, top: wrap.scrollTop };
-    setPanning(true);
-    try {
-      wrap.setPointerCapture?.(e.pointerId);
-    } catch {
-      /* 指针已释放 */
-    }
+  dataRef.current = {
+    snap,
+    selectionIds,
+    showLabels,
+    compactView,
+    editable,
+    connectFrom,
+    snapTarget,
+    tankHistory,
+    onPick: pick,
+    onPortClick: handlePortClick,
+    onPortDragStart: startPortDrag,
   };
 
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (connectFrom && svgRef.current) {
-      const rect = svgRef.current.getBoundingClientRect();
-      setConnectCursor({ x: (e.clientX - rect.left) / effectiveZoom, y: (e.clientY - rect.top) / effectiveZoom });
-    } else if (connectCursor) {
-      setConnectCursor(null);
-    }
-    if (updatePortDrag(e.clientX, e.clientY)) return;
-    if (marqueeRef.current && svgRef.current) {
-      const rect = svgRef.current.getBoundingClientRect();
-      const x = Math.max(0, (e.clientX - rect.left) / effectiveZoom);
-      const y = Math.max(0, (e.clientY - rect.top) / effectiveZoom);
-      marqueeRef.current = { ...marqueeRef.current, x1: x, y1: y };
-      setMarquee(marqueeRef.current);
-      return;
-    }
-    const pan = panState.current;
-    const wrap = wrapRef.current;
-    if (!pan || !wrap) return;
-    wrap.scrollLeft = pan.left - (e.clientX - pan.x);
-    wrap.scrollTop = pan.top - (e.clientY - pan.y);
-  };
-
-  const endPan = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (finishPortDrag(e.clientX, e.clientY)) return;
-    const box = marqueeRef.current;
-    if (box) {
-      const rect = {
-        x: Math.min(box.x0, box.x1),
-        y: Math.min(box.y0, box.y1),
-        w: Math.abs(box.x1 - box.x0),
-        h: Math.abs(box.y1 - box.y0),
-      };
-      // 小于 6px 视为误触（点击空白清除选择）
-      if (rect.w > 6 && rect.h > 6) pick(nodesInRect(layout.nodes, rect));
-      else pick([]);
-      marqueeRef.current = null;
-      setMarquee(null);
-      wrapRef.current?.releasePointerCapture?.(e.pointerId);
-      return;
-    }
-    if (!panState.current) return;
-    panState.current = null;
-    setPanning(false);
-    wrapRef.current?.releasePointerCapture?.(e.pointerId);
-  };
-
-  /**
-   * 拖拽连线：按下出口圆点后由画布容器接管移动与松手。
-   *
-   * 不用 setPointerCapture：SVG 圆点在某些浏览器/合成事件下捕获会失败，
-   * 而失败时指针一离开圆点、pointermove 就改派给别的元素，`moved` 永远是
-   * false——浏览器实测拖拽完全无反应（jsdom 里事件都派给同一元素，反而
-   * "通过"，属于假绿灯）。改为在容器上监听，命中逻辑与点击路径一致。
-   */
-  const beginPortDrag = (unitId: string, portId: string, e: React.PointerEvent<SVGCircleElement>) => {
-    if (!editable || !onPortDragConnect) return;
-    e.stopPropagation();
-    const svg = svgRef.current;
-    if (!svg) return;
-    const rect = svg.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / effectiveZoom;
-    const y = (e.clientY - rect.top) / effectiveZoom;
-    suppressPortClick.current = false;
-    setPortDrag({ from: { unitId, portId }, x0: x, y0: y, x, y, moved: false, snap: null });
-  };
-
-  /**
-   * 吸附目标：半径内最近的入口端口。
-   *
-   * 只考虑「其他单元」的入口——起点单元自己的入口不吸附，否则一条边
-   * 可以从出口拖回同一个池，与点击连线的拒绝规则不一致。
-   * 距离比较在图纸坐标系里做，缩放不改变手感（半径也按图纸 px 定义）。
-   */
-  const nearestInPort = (
-    x: number,
-    y: number,
-    fromUnitId: string,
-  ): { unitId: string; portId: string; x: number; y: number } | null => {
-    let best: { unitId: string; portId: string; x: number; y: number } | null = null;
-    let bestDist = PORT_SNAP_RADIUS;
-    for (const node of layout.nodes) {
-      if (node.unit.id === fromUnitId) continue;
-      for (const anchor of portAnchors(node)) {
-        if (anchor.kind !== 'in') continue;
-        const d = Math.hypot(anchor.x - x, anchor.y - y);
-        if (d < bestDist) {
-          bestDist = d;
-          best = { unitId: node.unit.id, portId: anchor.port.id, x: anchor.x, y: anchor.y };
-        }
-      }
-    }
-    return best;
-  };
-
-  /** 拖拽中：更新橡皮筋端点、吸附目标与「是否真的拖动过」 */
-  const updatePortDrag = (clientX: number, clientY: number): boolean => {
-    const svg = svgRef.current;
-    if (!svg || !portDrag) return false;
-    const rect = svg.getBoundingClientRect();
-    const x = (clientX - rect.left) / effectiveZoom;
-    const y = (clientY - rect.top) / effectiveZoom;
-    const moved = portDrag.moved || Math.hypot(x - portDrag.x0, y - portDrag.y0) > 6;
-    const snap = moved ? nearestInPort(x, y, portDrag.from.unitId) : null;
-    setPortDrag({ ...portDrag, x, y, moved, snap });
-    return true;
-  };
-
-  /** 拖拽结束：优先用吸附目标完成连线，没有吸附时退回命中检测 */
-  const finishPortDrag = (clientX: number, clientY: number): boolean => {
-    const drag = portDrag;
-    if (!drag) return false;
-    setPortDrag(null);
-    if (!drag.moved || !onPortDragConnect) return true;
-    suppressPortClick.current = true;
-    if (drag.snap) {
-      onPortDragConnect(drag.from, { unitId: drag.snap.unitId, portId: drag.snap.portId });
-      return true;
-    }
-    const hit = document.elementFromPoint(clientX, clientY)?.closest('.port-dot');
-    if (!hit || hit.getAttribute('data-kind') !== 'in') return true;
-    const layer = hit.closest('.port-layer');
-    const targetUnit = layer?.getAttribute('data-unit');
-    const targetPort = hit.getAttribute('data-port');
-    if (!targetUnit || !targetPort || targetUnit === drag.from.unitId) return true;
-    onPortDragConnect(drag.from, { unitId: targetUnit, portId: targetPort });
-    return true;
-  };
-
-  /** 图纸坐标 = 屏幕位移 / 缩放比 */
-  const onNodePointerDown = (e: React.PointerEvent<SVGGElement>, node: PlacedNode) => {
-    if (!editable) return;
-    e.stopPropagation();
-    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
-    const id = node.unit.id;
-    // 点未选中的单元 → 先选中它；点已选中的 → 保持整组多选再拖
-    const ids = nextSelection(selectionIds, id, additive);
-    if (ids.join() !== selectionIds.join()) pick(ids);
-    if (!ids.includes(id)) return;
-    try {
-      (e.currentTarget as SVGGElement).setPointerCapture?.(e.pointerId);
-    } catch {
-      /* 指针已释放 */
-    }
-    /**
-     * 基准坐标必须取「本帧渲染出来的坐标」，不能用 positions 里存的。
-     * 自动布局的单元 positions 为空，按 {0,0} 起算会瞬移到左上角；
-     * 而每帧都用最新布局叠加位移，同样的 14px 会被重复累加（实测 2 格变 3 格）。
-     */
-    const origins: Record<string, { x: number; y: number }> = {};
-    for (const n of layout.nodes) if (ids.includes(n.unit.id)) origins[n.unit.id] = { x: n.x, y: n.y };
-    setDrag({ ids, startX: e.clientX, startY: e.clientY, origins });
-  };
-
-  const onNodePointerMove = (e: React.PointerEvent<SVGGElement>) => {
-    if (!drag) return;
-    e.stopPropagation();
-    const dx = (e.clientX - drag.startX) / effectiveZoom;
-    const dy = (e.clientY - drag.startY) / effectiveZoom;
-    const snappedDx = Math.round(dx / 14) * 14;
-    const snappedDy = Math.round(dy / 14) * 14;
-    if (drag.ids.length > 1 && onMoveUnits) {
-      const moves = moveNodes(layout.nodes, drag.ids, dx, dy, 14, drag.origins);
-      if (Object.keys(moves).length > 0) onMoveUnits(moves);
-      return;
-    }
-    const id = drag.ids[0];
-    const origin = drag.origins[id];
-    if (origin) onMoveUnit?.(id, Math.max(0, origin.x + snappedDx), Math.max(0, origin.y + snappedDy));
-  };
-
-  const endNodeDrag = (e: React.PointerEvent<SVGGElement>) => {
-    if (!drag) return;
-    e.stopPropagation();
-    try {
-      (e.currentTarget as SVGGElement).releasePointerCapture?.(e.pointerId);
-    } catch {
-      /* 已释放 */
-    }
-    setDrag(null);
-  };
-
-  /** 折点句柄按下：记住原始折点与指针位置 */
-  const onRoutePointerDown = (
-    e: React.PointerEvent<SVGCircleElement>,
-    connectionId: string,
-    index: number,
-    point: { x: number; y: number },
-  ) => {
-    if (!editable || !onRouteChange) return;
-    e.stopPropagation();
-    e.preventDefault();
-    try {
-      (e.currentTarget as SVGCircleElement).setPointerCapture?.(e.pointerId);
-    } catch {
-      /* 指针已释放 */
-    }
-    setRouteDrag({ connectionId, index, origin: point, startX: e.clientX, startY: e.clientY });
-  };
-
-  const onRoutePointerMove = (e: React.PointerEvent<SVGCircleElement>) => {
-    if (!routeDrag || !onRouteChange) return;
-    e.stopPropagation();
-    const dx = Math.round((e.clientX - routeDrag.startX) / effectiveZoom / 14) * 14;
-    const dy = Math.round((e.clientY - routeDrag.startY) / effectiveZoom / 14) * 14;
-    const next = { x: Math.max(0, routeDrag.origin.x + dx), y: Math.max(0, routeDrag.origin.y + dy) };
-    const existing = topo.routes?.[routeDrag.connectionId] ?? [];
-    const points = existing.length > 0 ? [...existing] : [{ ...routeDrag.origin }];
-    points[routeDrag.index] = next;
-    onRouteChange(routeDrag.connectionId, points);
-  };
-
-  const endRouteDrag = (e: React.PointerEvent<SVGCircleElement>) => {
-    if (!routeDrag) return;
-    e.stopPropagation();
-    try {
-      (e.currentTarget as SVGCircleElement).releasePointerCapture?.(e.pointerId);
-    } catch {
-      /* 已释放 */
-    }
-    setRouteDrag(null);
-  };
-
-  /**
-   * 泳道间距随容器高度自适应。
-   *
-   * 工艺图天然是宽扁的（约 3.2:1），而容器约 2:1，直接放进全览会:
-   * 要么留出大片底部空白，要么把文字压到 5px。
-   * 适当拉开三条泳道的垂直间距，可以让图形更接近容器比例，
-   * 从而在同样的容器里获得更大的有效字号。
-   */
-  const adaptiveLaneGap = useMemo(() => {
-    // 泳道间距压到刚好不重叠：间距越大整图越高，全览时字号越小。
-    // 0.75 版实测 132px 时整图 646 高、缩放只有 44%，文字不可读；
-    // 压到 96px 后整图约 540 高，同样视口下缩放提到 52% 以上。
-    return compact ? 76 : 96;
-  }, [compact]);
-
-  const layout = useMemo(
-    () =>
-      layoutTopology(topo, {
-        compact,
-        laneGap: adaptiveLaneGap,
-        // 不折行：折行后跨行连线会横穿整张图，比裁切更难读（实测对比后放弃）。
-        maxRowWidth: undefined,
-      }),
-    [topo, compact, adaptiveLaneGap],
-  );
+  const [nodes, setNodes, onNodesChange] = useNodesState<PlantFlowNode>([]);
+  /** 上一次已同步给父层的选择：防止 React Flow 的受控回写触发循环 */
+  const lastEmittedSelection = useRef<string[]>([]);
 
   useEffect(() => {
-    const node = wrapRef.current;
-    if (!node) return;
-    const ro = new ResizeObserver(() => {
-      setWrapSize({ w: node.clientWidth, h: node.clientHeight });
-    });
-    ro.observe(node);
-    setWrapSize({ w: node.clientWidth, h: node.clientHeight });
-    return () => ro.disconnect();
-  }, []);
+    const current = dataRef.current;
+    const unitState = Object.fromEntries(current.snap.tanks.map((t) => [t.id, t]));
+    setNodes(
+      layout.nodes.map((node) => ({
+        id: node.unit.id,
+        type: 'plant' as const,
+        position: { x: node.x, y: node.y },
+        width: node.w,
+        height: node.h,
+        measured: { width: node.w, height: node.h },
+        style: { width: node.w, height: node.h },
+        selected: current.selectionIds.includes(node.unit.id),
+        data: {
+          node,
+          snap: current.snap,
+          selected: current.selectionIds.includes(node.unit.id),
+          multiSelected: current.selectionIds.length > 1 && current.selectionIds.includes(node.unit.id),
+          showLabel: current.showLabels,
+          compactView: current.compactView,
+          editable: current.editable,
+          liveTank: unitState[node.unit.id],
+          history: current.tankHistory?.[node.unit.id],
+          connectFrom: current.connectFrom,
+          snapTarget: current.snapTarget,
+          onPick: current.onPick,
+          onPortClick: current.onPortClick,
+          onPortDragStart: current.onPortDragStart,
+        },
+      })),
+    );
+  }, [layout, setNodes]);
 
-  /**
-   * 全览必须严格装进容器：加下限会让图形超出边界，右侧排放口与底部污泥线被裁掉。
-   * 可读性靠节点字号解决（compact 模式用 22/28px 字号，缩放后仍有 13–16px）。
-   */
-  const fitScale =
-    wrapSize.w > 0 && wrapSize.h > 0 ? Math.min(wrapSize.w / layout.width, wrapSize.h / layout.height, 1) : 1;
-  const effectiveZoom = fitToWindow ? fitScale : zoom;
-  const unitState = useMemo(() => Object.fromEntries(snap.tanks.map((t) => [t.id, t])), [snap.tanks]);
+  useEffect(() => {
+    const current = dataRef.current;
+    const unitState = Object.fromEntries(current.snap.tanks.map((t) => [t.id, t]));
+    setNodes((prev) =>
+      prev.map((node) => ({
+        ...node,
+        selected: current.selectionIds.includes(node.id),
+        data: {
+          ...node.data,
+          snap: current.snap,
+          selected: current.selectionIds.includes(node.id),
+          multiSelected: current.selectionIds.length > 1 && current.selectionIds.includes(node.id),
+          showLabel: current.showLabels,
+          compactView: current.compactView,
+          editable: current.editable,
+          liveTank: unitState[node.id],
+          history: current.tankHistory?.[node.id],
+          connectFrom: current.connectFrom,
+          snapTarget: current.snapTarget,
+          onPick: current.onPick,
+          onPortClick: current.onPortClick,
+          onPortDragStart: current.onPortDragStart,
+        },
+      })),
+    );
+  }, [snap, selectionIds, showLabels, compactView, editable, connectFrom, snapTarget, tankHistory, setNodes]);
 
-  const visibleEdges = layout.edges.filter((e) => showRecycle || !e.connection.recycle);
-  const animate = !snap.paused;
+  const edges = useMemo(
+    () =>
+      visibleEdges.map((edge): PlantFlowEdge => {
+        const meta = STREAM_META[edge.connection.stream];
+        return {
+          id: edge.connection.id,
+          source: edge.connection.from.unit,
+          target: edge.connection.to.unit,
+          sourceHandle: `out:${edge.connection.from.port}`,
+          targetHandle: `in:${edge.connection.to.port}`,
+          type: 'plant',
+          data: {
+            stream: edge.connection.stream,
+            straight: edge.straight,
+            points: topo.routes?.[edge.connection.id] ?? [],
+            animate: !snap.paused,
+            showLabel: showLabels,
+            duration: pulseDuration(edge.connection.stream, snap.controls),
+            obstacles: layout.nodes.map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h })),
+          },
+          style: {
+            stroke: meta.color,
+            strokeWidth: meta.width,
+            strokeDasharray: meta.dash,
+          },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: meta.color,
+            width: 12,
+            height: 12,
+          },
+        };
+      }),
+    [visibleEdges, topo.routes, snap.paused, snap.controls, showLabels, layout.nodes],
+  );
+
+  const onConnect = (connection: Connection) => {
+    const fromPort = connection.sourceHandle?.replace(/^out:/, '');
+    const toPort = connection.targetHandle?.replace(/^in:/, '');
+    if (!fromPort || !toPort) return;
+    onPortDragConnect?.({ unitId: connection.source, portId: fromPort }, { unitId: connection.target, portId: toPort });
+  };
+
+  const onDragStop = () => {
+    const selectedNodes = rf.getNodes().filter((n) => n.selected || selectionIds.includes(n.id));
+    const moves = Object.fromEntries(
+      selectedNodes.map((n) => [n.id, { x: Math.round(n.position.x), y: Math.round(n.position.y) }]),
+    );
+    if (Object.keys(moves).length === 0) return;
+    if (onMoveUnits) onMoveUnits(moves);
+    else if (onMoveUnit) {
+      for (const [id, p] of Object.entries(moves)) onMoveUnit(id, p.x, p.y);
+    }
+  };
+
+  const updateViewport = (vp: Viewport) => {
+    setViewport(vp);
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    wrap.setAttribute('data-x', `${Math.round(vp.x)}`);
+    wrap.setAttribute('data-y', `${Math.round(vp.y)}`);
+    wrap.setAttribute('data-zoom', `${vp.zoom}`);
+  };
 
   return (
-    <div className="canvas-viewport">
-      {fit === 'flow' && !fitToWindow && (
-        <MiniMap layout={layout} wrapRef={wrapRef} wrapSize={wrapSize} zoom={effectiveZoom} />
-      )}
+    <div
+      className={`canvas-viewport flow-canvas${editable ? ' flow-editor-canvas' : ''}`}
+      data-fit={fitToWindow ? 'true' : 'false'}
+    >
       <div className="canvas-zoom-controls" role="group" aria-label="画布缩放">
         <button
           onClick={() => {
             setFitToWindow(false);
-            setZoom((z) => Math.max(0.5, Number((z - 0.1).toFixed(2))));
+            void rf.zoomOut({ duration: 120 });
           }}
           aria-label="缩小"
         >
           −
         </button>
-        <span>{Math.round(effectiveZoom * 100)}%</span>
+        <span>{Math.round(viewport.zoom * 100)}%</span>
         <button
           onClick={() => {
             setFitToWindow(false);
-            setZoom((z) => Math.min(2, Number((z + 0.1).toFixed(2))));
+            void rf.zoomIn({ duration: 120 });
           }}
           aria-label="放大"
         >
@@ -494,7 +341,7 @@ export function PlantCanvas({
         <button
           onClick={() => {
             setFitToWindow(false);
-            setZoom(1);
+            void rf.zoomTo(1, { duration: 120 });
           }}
           aria-label="实际尺寸"
           data-active={!fitToWindow}
@@ -504,7 +351,7 @@ export function PlantCanvas({
         <button
           onClick={() => {
             setFitToWindow(true);
-            setZoom(1);
+            void rf.fitView({ padding: 0.12, duration: 160 });
           }}
           aria-label="适应窗口"
           data-active={fitToWindow}
@@ -512,11 +359,6 @@ export function PlantCanvas({
           全览
         </button>
       </div>
-      {/**
-       * 图例必须放在缩放容器外面。
-       * canvas-scaler 带 transform，会成为绝对定位元素的包含块，
-       * 1:1 模式下图例就被钉到 646px 图纸底部（屏幕外）而看不见。
-       */}
       <div className={fit === 'flow' ? 'canvas-legend canvas-legend-flow' : 'canvas-legend'}>
         <span className="canvas-legend-title">物流图例</span>
         {STREAM_LEGEND_ORDER.map((st) => (
@@ -540,216 +382,260 @@ export function PlantCanvas({
         className="canvas-wrap"
         ref={wrapRef}
         data-fit={fitToWindow ? 'true' : 'false'}
-        data-panning={panning}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endPan}
-        onPointerCancel={endPan}
-        onPointerLeave={endPan}
+        data-flow-edges={edges.length}
+        onPointerMove={(e) => {
+          const drag = portDragRef.current;
+          if (!drag) return;
+          if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) >= 6) drag.moved = true;
+          const rect = wrapRef.current?.getBoundingClientRect();
+          const zoom = viewport.zoom || 1;
+          const fx = (e.clientX - (rect?.left ?? 0) - viewport.x) / zoom;
+          const fy = (e.clientY - (rect?.top ?? 0) - viewport.y) / zoom;
+          let nearest: { unitId: string; portId: string; d: number } | null = null;
+          for (const node of layout.nodes) {
+            for (const a of portAnchors(node)) {
+              if (a.kind !== 'in' || (a.port.id === drag.from.portId && node.unit.id === drag.from.unitId)) continue;
+              const d = Math.hypot(a.x - fx, a.y - fy);
+              if (d <= 16 && (!nearest || d < nearest.d)) nearest = { unitId: node.unit.id, portId: a.port.id, d };
+            }
+          }
+          drag.snap = nearest ? { unitId: nearest.unitId, portId: nearest.portId } : null;
+          setSnapTarget(drag.snap);
+        }}
+        onPointerUp={(e) => {
+          const drag = portDragRef.current;
+          if (!drag) return;
+          portDragRef.current = null;
+          setSnapTarget(null);
+          if (!drag.moved) return;
+          const hit = document.elementFromPoint?.(e.clientX, e.clientY) ?? null;
+          const dot = hit instanceof Element ? hit.closest('.port-dot[data-kind="in"]') : null;
+          const unitId = drag.snap?.unitId ?? dot?.getAttribute('data-unit');
+          const portId = drag.snap?.portId ?? dot?.getAttribute('data-port');
+          if (!unitId || !portId || unitId === drag.from.unitId) return;
+          suppressPortClick.current = true;
+          onPortDragConnect?.(drag.from, { unitId, portId });
+        }}
+        onPointerCancel={() => {
+          portDragRef.current = null;
+          setSnapTarget(null);
+        }}
       >
-        <div
-          className="canvas-scaler"
-          style={{
-            transform: `scale(${effectiveZoom})`,
-            transformOrigin: 'top left',
-            width: layout.width,
-            height: layout.height,
-            // 缩放后占位尺寸随之变化，滚动区域才能正确覆盖整张图
-            marginRight: `${(effectiveZoom - 1) * layout.width}px`,
-            marginBottom: `${(effectiveZoom - 1) * layout.height}px`,
+        <ReactFlow<PlantFlowNode, PlantFlowEdge>
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodesChange={onNodesChange}
+          onConnect={onConnect}
+          onNodeClick={(e, node) => {
+            if (!editable) return;
+            pick(node.id, e.shiftKey);
           }}
+          onSelectionEnd={() => {
+            // 只在框选结束时回写，不在每次受控 setNodes 后回写：后者会与
+            // React Flow 的受控 store 形成 setState 自激循环（实测 React #185）。
+            if (!editable) return;
+            syncSelection(
+              rf
+                .getNodes()
+                .filter((n) => n.selected)
+                .map((n) => n.id),
+            );
+          }}
+          onNodeDragStop={onDragStop}
+          onPaneClick={() => {
+            if (!editable) return;
+            if (onSelectionChange) syncSelection([]);
+            else onSelect(null);
+          }}
+          onMove={(_, vp) => updateViewport(vp)}
+          onInit={(instance) => {
+            if (fit === 'fill' || (typeof window !== 'undefined' && window.innerWidth > 900)) {
+              void instance.fitView({ padding: 0.12, duration: 0 });
+            } else {
+              void instance.setViewport({ x: 0, y: 0, zoom: 1 });
+            }
+          }}
+          nodesDraggable={editable}
+          nodesConnectable={editable}
+          elementsSelectable={editable}
+          panOnDrag={editable ? [1, 2] : true}
+          selectionOnDrag={editable}
+          selectionMode={SelectionMode.Partial}
+          multiSelectionKeyCode="Shift"
+          deleteKeyCode={null}
+          minZoom={0.35}
+          maxZoom={2}
+          proOptions={{ hideAttribution: true }}
+          className={fit === 'flow' ? 'plant-canvas-flow' : undefined}
         >
-          <svg
-            ref={svgRef}
-            className={`${fit === 'flow' ? 'plant-canvas plant-canvas-flow' : 'plant-canvas'}${connectFrom ? ' connecting' : ''}`}
-            width={fit === 'flow' ? layout.width : undefined}
-            height={fit === 'flow' ? layout.height : undefined}
-            viewBox={`0 0 ${layout.width} ${layout.height}`}
-            /**
-             * 全览模式贴顶对齐：图形按宽度缩放后会留出上下空白，
-             * 贴顶能把这部分空白推到下方（视觉上更接近"图在上、字在下"的阅读习惯），
-             * 同时避免内容被垂直居中后与图例/缩放控件重叠。
-             */
-            preserveAspectRatio={fitToWindow ? 'xMidYMin meet' : 'xMinYMin meet'}
-            /**
-             * 不能用 role="img"：ARIA 里 img 是叶子角色，
-             * 会把内部每个 `role="button" tabIndex={0}` 的工艺单元从可访问性树里抹掉，
-             * 屏幕阅读器只念一句总述，键盘用户也无法定位单元。
-             * 用 group 保留子树语义，总述由 aria-label 提供。
-             */
-            role="group"
-            aria-label={`${topo.name} 工艺流程实时图，共 ${topo.units.length} 个工艺单元、${topo.connections.length} 条物流连接`}
-          >
-            <defs>
-              {Object.entries(STREAM_META).map(([stream, meta]) => (
-                <marker
-                  key={stream}
-                  id={`arrow-${stream}`}
-                  viewBox="0 0 10 10"
-                  refX="9"
-                  refY="5"
-                  markerWidth="5"
-                  markerHeight="5"
-                  orient="auto-start-reverse"
-                >
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill={meta.color} opacity={0.9} />
-                </marker>
-              ))}
-              <filter id="nodeGlow" x="-50%" y="-50%" width="200%" height="200%">
-                <feGaussianBlur stdDeviation="3" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-
-            {layout.lanes.map((lane) => (
-              <g key={lane.layer}>
-                <line
-                  x1={0}
-                  y1={lane.y - 14}
-                  x2={layout.width}
-                  y2={lane.y - 14}
-                  stroke="var(--line-soft)"
-                  strokeWidth="1"
-                  strokeDasharray="2 8"
-                />
-                <text x={6} y={lane.y - 20} className="lane-label">
-                  {lane.label}
-                </text>
-              </g>
-            ))}
-
-            {visibleEdges.map((edge) => (
-              <Edge
-                key={edge.connection.id}
-                edge={edge}
-                animate={animate}
-                showLabel={showLabels}
-                duration={pulseDuration(edge.connection.stream, snap.controls)}
-              />
-            ))}
-
-            {/**
-             * 折点句柄必须画在边的上层、节点的下层：它落在连线中点上，
-             * 被节点盖住就点不到。
-             */}
-            {editable && onRouteChange && (
-              <RouteHandles
-                edges={visibleEdges}
-                routes={topo.routes}
-                dragging={routeDrag}
-                onPointerDown={onRoutePointerDown}
-                onPointerMove={onRoutePointerMove}
-                onPointerUp={endRouteDrag}
-                onRemove={(id) => onRouteChange(id, null)}
-              />
-            )}
-
-            {[...layout.nodes]
-              .sort(
-                (a, b) =>
-                  Number(drag?.ids.includes(b.unit.id) ?? false) - Number(drag?.ids.includes(a.unit.id) ?? false),
-              )
-              .map((node) => (
-                <Node
-                  key={node.unit.id}
-                  node={node}
-                  snap={snap}
-                  selected={selectionIds.includes(node.unit.id)}
-                  multiSelected={selectionIds.length > 1 && selectionIds.includes(node.unit.id)}
-                  onSelect={onSelect}
-                  showLabel={showLabels}
-                  liveTank={unitState[node.unit.id]}
-                  history={tankHistory?.[node.unit.id]}
-                  compactView={fitToWindow || compact === true}
-                  editable={editable}
-                  dragging={Boolean(drag?.ids.includes(node.unit.id))}
-                  onPointerDownNode={onNodePointerDown}
-                  onPointerMoveNode={onNodePointerMove}
-                  onPointerUpNode={endNodeDrag}
-                />
-              ))}
-            {/**
-             * 端口必须画在节点之后（上层）：端口锚点正好落在节点边界上，
-             * 画在下层时圆点有一半被节点矩形盖住，点中心实际点到的是节点。
-             */}
-            {connectFrom &&
-              connectCursor &&
-              (() => {
-                const srcNode = layout.nodes.find((n) => n.unit.id === connectFrom.unitId);
-                if (!srcNode) return null;
-                const anchor = portAnchors(srcNode).find((a) => a.port.id === connectFrom.portId);
-                if (!anchor) return null;
-                return (
-                  <g className="connect-rubber" aria-hidden="true">
-                    <line
-                      x1={anchor.x}
-                      y1={anchor.y}
-                      x2={connectCursor.x}
-                      y2={connectCursor.y}
-                      stroke="var(--water)"
-                      strokeWidth="2"
-                      strokeDasharray="7 5"
-                      opacity="0.85"
-                    />
-                    <circle cx={connectCursor.x} cy={connectCursor.y} r="4.5" fill="var(--water)" opacity="0.9" />
-                  </g>
-                );
-              })()}
-            {portDrag?.moved && (
-              <line
-                className="port-drag-line"
-                x1={portDrag.x0}
-                y1={portDrag.y0}
-                x2={portDrag.snap ? portDrag.snap.x : portDrag.x}
-                y2={portDrag.snap ? portDrag.snap.y : portDrag.y}
-                data-from={`${portDrag.from.unitId}.${portDrag.from.portId}`}
-                data-snap={portDrag.snap ? `${portDrag.snap.unitId}.${portDrag.snap.portId}` : undefined}
-              />
-            )}
-            {editable &&
-              layout.nodes.map((node) => (
-                <PortDots
-                  key={`ports-${node.unit.id}`}
-                  node={node}
-                  connectFrom={connectFrom}
-                  snapTarget={portDrag?.moved ? portDrag.snap : null}
-                  onPortClick={(unitId, portId, kind) => {
-                    if (suppressPortClick.current) {
-                      suppressPortClick.current = false;
-                      return;
-                    }
-                    onPortClick?.(unitId, portId, kind);
+          <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="var(--line-soft)" />
+          {layout.lanes.length > 0 && (
+            <ViewportPortal>
+              {layout.lanes.map((lane, i) => (
+                <div
+                  key={lane.layer}
+                  className="canvas-lane"
+                  style={{
+                    left: 18,
+                    top: lane.y - 16,
+                    width: Math.max(320, layout.width - 36),
+                    borderTopStyle: i === 0 ? 'solid' : 'dashed',
                   }}
-                  onPortPointerDown={beginPortDrag}
-                />
+                >
+                  <span className="canvas-lane-label">{lane.label}</span>
+                </div>
               ))}
-            {marquee && (
-              <rect
-                className="marquee-rect"
-                x={Math.min(marquee.x0, marquee.x1)}
-                y={Math.min(marquee.y0, marquee.y1)}
-                width={Math.abs(marquee.x1 - marquee.x0)}
-                height={Math.abs(marquee.y1 - marquee.y0)}
-              />
-            )}
-          </svg>
-        </div>
+            </ViewportPortal>
+          )}
+          {fit === 'flow' && !fitToWindow && (
+            <MiniMap
+              pannable
+              zoomable
+              nodeColor="#0c9d7e"
+              maskColor="rgba(12,30,26,0.12)"
+              style={{ width: 148, height: 74 }}
+            />
+          )}
+        </ReactFlow>
+        {editable && onRouteChange && (
+          <RouteHandles
+            layout={layout}
+            edges={visibleEdges}
+            routes={topo.routes}
+            viewport={viewport}
+            onRouteChange={onRouteChange}
+          />
+        )}
       </div>
     </div>
   );
 }
 
+function RouteHandles({
+  layout,
+  edges,
+  routes,
+  viewport,
+  onRouteChange,
+}: {
+  layout: Layout;
+  edges: Layout['edges'];
+  routes?: Record<string, { x: number; y: number }[]>;
+  viewport: Viewport;
+  onRouteChange: (connectionId: string, points: { x: number; y: number }[] | null) => void;
+}) {
+  return (
+    <div className="flow-route-overlay" aria-hidden="true">
+      {edges.map((edge) => {
+        const points = routes?.[edge.connection.id] ?? [];
+        const source = layout.nodes.find((n) => n.unit.id === edge.connection.from.unit);
+        const target = layout.nodes.find((n) => n.unit.id === edge.connection.to.unit);
+        const fallback =
+          source && target
+            ? { x: (source.x + source.w + target.x) / 2, y: (source.y + source.h / 2 + target.y + target.h / 2) / 2 }
+            : { x: 0, y: 0 };
+        return (
+          <RouteHandle
+            key={edge.connection.id}
+            connectionId={edge.connection.id}
+            point={points[0] ?? fallback}
+            hasRoute={points.length > 0}
+            viewport={viewport}
+            onRouteChange={onRouteChange}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function RouteHandle({
+  connectionId,
+  point,
+  hasRoute,
+  viewport,
+  onRouteChange,
+}: {
+  connectionId: string;
+  point: { x: number; y: number };
+  hasRoute: boolean;
+  viewport: Viewport;
+  onRouteChange: (connectionId: string, points: { x: number; y: number }[] | null) => void;
+}) {
+  const dragRef = useRef<{ x: number; y: number; origin: { x: number; y: number } } | null>(null);
+  const [preview, setPreview] = useState<{ x: number; y: number } | null>(null);
+  const shown = preview ?? point;
+  const screen = { x: shown.x * viewport.zoom + viewport.x, y: shown.y * viewport.zoom + viewport.y };
+
+  return (
+    <div className="route-layer">
+      <div
+        className="route-handle"
+        data-connection={connectionId}
+        data-index="0"
+        title={hasRoute ? '拖动调整折点' : '拖动生成折点'}
+        style={{ transform: `translate(-50%, -50%) translate(${screen.x}px, ${screen.y}px)` }}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          dragRef.current = { x: e.clientX, y: e.clientY, origin: point };
+          setPreview(point);
+          try {
+            e.currentTarget.setPointerCapture(e.pointerId);
+          } catch {
+            /* happy-dom 没有指针捕获 */
+          }
+        }}
+        onPointerMove={(e) => {
+          const drag = dragRef.current;
+          if (!drag) return;
+          setPreview({
+            x: Math.round(drag.origin.x + (e.clientX - drag.x) / (viewport.zoom || 1)),
+            y: Math.round(drag.origin.y + (e.clientY - drag.y) / (viewport.zoom || 1)),
+          });
+        }}
+        onPointerUp={(e) => {
+          const drag = dragRef.current;
+          if (!drag) return;
+          dragRef.current = null;
+          onRouteChange(connectionId, [
+            {
+              x: Math.round(drag.origin.x + (e.clientX - drag.x) / (viewport.zoom || 1)),
+              y: Math.round(drag.origin.y + (e.clientY - drag.y) / (viewport.zoom || 1)),
+            },
+          ]);
+          setPreview(null);
+        }}
+        onPointerCancel={() => {
+          dragRef.current = null;
+          setPreview(null);
+        }}
+      />
+      {hasRoute && (
+        <div
+          className="route-reset"
+          title="恢复自动走线"
+          style={{ transform: `translate(-50%, -50%) translate(${screen.x + 10}px, ${screen.y - 10}px)` }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRouteChange(connectionId, null);
+          }}
+        >
+          ×
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
- * 流速感应：回流/加药管线的流速由对应控制量决定，动画周期随之变化——
- * 提高内回流比能「看见」内回流加速。流量为零时压到最慢（接近停滞）。
+ * 流速感应：回流/加药管线的流速由对应控制量决定，动画周期随之变化。
  * 基准周期 2.4s；scale>1 更快、<1 更慢，钳制在 0.9–4s。
  */
 function pulseDuration(stream: StreamKind, controls: ControlSettings): number {
   const base = 2.4;
-  let scale = 1;
+  let scale: number;
   switch (stream) {
     case 'return_activated_sludge':
       scale = Math.max(0.2, controls.rasRatio / 0.8);
@@ -770,759 +656,4 @@ function pulseDuration(stream: StreamKind, controls: ControlSettings): number {
       scale = 1;
   }
   return Math.min(4, Math.max(0.9, base / scale));
-}
-
-function Edge({
-  edge,
-  animate,
-  showLabel,
-  duration,
-}: {
-  edge: PlacedEdge;
-  animate: boolean;
-  showLabel: boolean;
-  /** 流速感应的动画周期（秒）：由物流类型与当前控制量换算 */
-  duration: number;
-}) {
-  if (!edge.path) return null;
-  const stream = edge.connection.stream;
-  const meta = STREAM_META[stream];
-  const color = meta.color;
-  const width = meta.width;
-  const dash = meta.dash;
-  const dur = duration;
-
-  return (
-    <g>
-      <path d={edge.path} fill="none" stroke={color} strokeWidth={width * 2.4} opacity={0.1} strokeLinecap="round" />
-      <path
-        d={edge.path}
-        fill="none"
-        stroke={color}
-        strokeWidth={width}
-        strokeDasharray={dash}
-        opacity={0.85}
-        markerEnd={`url(#arrow-${stream})`}
-        strokeLinecap="round"
-      />
-      {animate && (
-        /**
-         * 流动指示必须用 CSS 动画，不能用 SVG <animate>（SMIL）。
-         *
-         * 实测 22 条 SMIL 动画会长期占用主线程 90%+，把仿真页拖成幻灯片；
-         * `.flow-pulse` 的 stroke-dashoffset 关键帧走合成线程，实测降到 16%，
-         * 且 prefers-reduced-motion 能一键关掉。
-         */
-        <path
-          d={edge.path}
-          fill="none"
-          stroke="rgba(16,49,43,0.5)"
-          strokeWidth={Math.max(1, width * 0.45)}
-          strokeDasharray="3 34"
-          opacity={0.5}
-          strokeLinecap="round"
-          className="flow-pulse"
-          style={{ animationDuration: `${dur}s` }}
-        />
-      )}
-      {showLabel && stream !== 'air' && edge.straight && Math.abs(edge.labelX - pipeStartX(edge)) > 90 && (
-        <text x={edge.labelX} y={edge.labelY} className="edge-label" textAnchor="middle">
-          {streamLabel(stream)}
-        </text>
-      )}
-    </g>
-  );
-}
-
-/** 直连边的起点 x：短距离（相邻池之间）不值得标名字，标了反而糊成一片 */
-function pipeStartX(edge: PlacedEdge): number {
-  const m = edge.path.match(/^M\s+(-?\d+(\.\d+)?)/);
-  return m ? Number(m[1]) : 0;
-}
-
-/**
- * 连线折点句柄。
- *
- * 没有折点的连线只给一个「中点手柄」：点它即在该处插入第一个折点；
- * 已有折点的连线为每个折点画一个可拖动手柄，并在中点给一个「×」用于
- * 恢复自动走线。这是流程模拟器里调整管线的常规做法（Aspen 的 route
- * 与 Visio 的连接点编辑）。
- */
-function RouteHandles({
-  edges,
-  routes,
-  dragging,
-  onPointerDown,
-  onPointerMove,
-  onPointerUp,
-  onRemove,
-}: {
-  edges: PlacedEdge[];
-  routes?: Record<string, { x: number; y: number }[]>;
-  dragging: { connectionId: string; index: number } | null;
-  onPointerDown: (
-    e: React.PointerEvent<SVGCircleElement>,
-    connectionId: string,
-    index: number,
-    point: { x: number; y: number },
-  ) => void;
-  onPointerMove: (e: React.PointerEvent<SVGCircleElement>) => void;
-  onPointerUp: (e: React.PointerEvent<SVGCircleElement>) => void;
-  onRemove: (connectionId: string) => void;
-}) {
-  return (
-    <g className="route-layer">
-      {edges.map((edge) => {
-        if (!edge.path) return null;
-        const existing = routes?.[edge.connection.id] ?? [];
-        const mid = pathMidpoint(edge.path);
-        if (!mid) return null;
-        const active = dragging?.connectionId === edge.connection.id;
-        return (
-          <g key={`route-${edge.connection.id}`}>
-            {(existing.length > 0 ? existing : [mid]).map((point, index) => (
-              <circle
-                key={`${edge.connection.id}-${index}`}
-                cx={point.x}
-                cy={point.y}
-                r={active && dragging?.index === index ? 6 : 4}
-                className="route-handle"
-                data-connection={edge.connection.id}
-                data-index={index}
-                onPointerDown={(e) => onPointerDown(e, edge.connection.id, index, point)}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
-                onPointerCancel={onPointerUp}
-              >
-                <title>{existing.length > 0 ? '拖动调整折点' : '拖动生成折点'}</title>
-              </circle>
-            ))}
-            {existing.length > 0 && (
-              <g
-                className="route-reset"
-                transform={`translate(${mid.x + 10} ${mid.y - 10})`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemove(edge.connection.id);
-                }}
-              >
-                <circle r="6" />
-                <text textAnchor="middle" y="3.5">
-                  ×
-                </text>
-                <title>恢复自动走线</title>
-              </g>
-            )}
-          </g>
-        );
-      })}
-    </g>
-  );
-}
-
-/** 折线路径的中点（按命令序列取中段端点，不依赖浏览器测量） */
-function pathMidpoint(path: string): { x: number; y: number } | null {
-  const cmds = path.match(/[MHV][^MHV]*/g) ?? [];
-  if (cmds.length === 0) return null;
-  const points: { x: number; y: number }[] = [];
-  let x = 0;
-  let y = 0;
-  for (const cmd of cmds) {
-    const nums = (cmd.slice(1).match(/-?\d+(\.\d+)?/g) ?? []).map(Number);
-    if (cmd[0] === 'M') {
-      x = nums[0];
-      y = nums[1];
-    } else if (cmd[0] === 'H') {
-      x = nums[0];
-    } else {
-      y = nums[0];
-    }
-    points.push({ x, y });
-  }
-  if (points.length === 2) return { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 };
-  return points[Math.floor(points.length / 2)];
-}
-
-function PortDots({
-  node,
-  connectFrom,
-  snapTarget,
-  onPortClick,
-  onPortPointerDown,
-}: {
-  node: PlacedNode;
-  connectFrom: { unitId: string; portId: string } | null;
-  /** 拖拽连线时被吸附的入口端口：高亮显示，提示松手即连接 */
-  snapTarget?: { unitId: string; portId: string; x: number; y: number } | null;
-  onPortClick?: (unitId: string, portId: string, kind: 'in' | 'out') => void;
-  onPortPointerDown?: (unitId: string, portId: string, e: React.PointerEvent<SVGCircleElement>) => void;
-}) {
-  return (
-    // data-unit 让端口可被定位与断言：此前圆点与所属单元没有 DOM 关联，
-    // 端到端测试只能按渲染顺序猜，辅助技术也无法说明"这是哪个设备的端口"
-    <g className="port-layer" data-unit={node.unit.id} role="group" aria-label={`${node.unit.name} 端口`}>
-      {portAnchors(node).map(({ port, kind, x, y }) => {
-        const active = connectFrom?.unitId === node.unit.id && connectFrom.portId === port.id;
-        const snapped = snapTarget?.unitId === node.unit.id && snapTarget.portId === port.id;
-        return (
-          <g key={`${node.unit.id}-${port.id}-${kind}`}>
-            {/* 端口颜色 = 物流颜色：一眼看出这个口接的是进水、混合液还是空气 */}
-            <circle
-              cx={x}
-              cy={y}
-              r={active ? 6.5 : snapped ? 7.5 : 4.5}
-              className="port-dot"
-              data-kind={kind}
-              data-active={active}
-              data-snap={snapped}
-              data-stream={port.stream}
-              data-port={port.id}
-              style={{ stroke: streamColor(port.stream) }}
-              onClick={(e) => {
-                e.stopPropagation();
-                onPortClick?.(node.unit.id, port.id, kind);
-              }}
-              onPointerDown={(e) => {
-                if (kind === 'out') onPortPointerDown?.(node.unit.id, port.id, e);
-              }}
-            >
-              <title>
-                {kind === 'in' ? '入口' : '出口'} {port.id} · {streamLabel(port.stream)}
-                {connectFrom ? '（点击完成连线）' : kind === 'out' ? '（点击开始连线）' : ''}
-                {snapped ? '（松手连接）' : ''}
-              </title>
-            </circle>
-            {/* 悬停放大并显示物流名：小圆点单靠颜色不够，名字直接给出 */}
-            <text
-              x={kind === 'in' ? x - 9 : x + 9}
-              y={y + 3.5}
-              className="port-label"
-              textAnchor={kind === 'in' ? 'end' : 'start'}
-            >
-              {streamShort(port.stream)}
-            </text>
-          </g>
-        );
-      })}
-    </g>
-  );
-}
-
-function Node({
-  node,
-  snap,
-  selected,
-  multiSelected = false,
-  onSelect,
-  showLabel,
-  liveTank,
-  history,
-  compactView,
-  editable = false,
-  dragging = false,
-  onPointerDownNode,
-  onPointerMoveNode,
-  onPointerUpNode,
-}: {
-  node: PlacedNode;
-  snap: PlantSnapshot;
-  selected: boolean;
-  multiSelected?: boolean;
-  onSelect: (id: string | null) => void;
-  showLabel: boolean;
-  liveTank?: {
-    do: number;
-    mlss: number;
-    cod: number;
-    nh: number;
-    no3: number;
-    tp: number;
-    alkalinity: number;
-    kind: string;
-  };
-  /** 本单元的滚动历史：画在单元框底部的迷你趋势线 */
-  history?: TankHistoryPoint[];
-  compactView: boolean;
-  editable?: boolean;
-  dragging?: boolean;
-  onPointerDownNode?: (e: React.PointerEvent<SVGGElement>, node: PlacedNode) => void;
-  onPointerMoveNode?: (e: React.PointerEvent<SVGGElement>) => void;
-  onPointerUpNode?: (e: React.PointerEvent<SVGGElement>) => void;
-}) {
-  const { unit, x, y, w, h } = node;
-  const bad = isUnitAlarming(unit.kind, unit.id, snap);
-  const stroke = selected ? 'var(--water)' : bad ? 'var(--alarm)' : 'var(--line)';
-  const strokeWidth = selected ? 1.8 : 1;
-  /** 紧凑标题按节点宽度选字号：长名字不能压到相邻单元（截图实测过） */
-  const compactTitle = compactView ? fitCompactTitle(unit.name, w) : { text: unit.name, fontSize: 24 };
-
-  return (
-    <g
-      className="plant-node"
-      data-unit-node={unit.id}
-      data-editable={editable}
-      data-dragging={dragging}
-      data-multi={multiSelected}
-      /**
-       * 编排模式下选择由 pointerdown 负责（要支持 Shift 加选与整组拖动）；
-       * 这里再调 onSelect 会把多选立刻塌成单选，实测踩到过。
-       */
-      onClick={() => {
-        if (editable) return;
-        onSelect(selected ? null : unit.id);
-      }}
-      onPointerDown={(e) => onPointerDownNode?.(e, node)}
-      onPointerMove={(e) => onPointerMoveNode?.(e)}
-      onPointerUp={(e) => onPointerUpNode?.(e)}
-      onPointerCancel={(e) => onPointerUpNode?.(e)}
-      role="button"
-      tabIndex={0}
-      aria-label={`${unit.name}，${unit.role}${bad ? '，存在告警' : ''}`}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSelect(selected ? null : unit.id);
-        }
-      }}
-    >
-      <rect
-        x={x}
-        y={y}
-        width={w}
-        height={h}
-        rx="2"
-        fill={fillFor(unit.kind, liveTank, editable)}
-        stroke={stroke}
-        strokeWidth={strokeWidth}
-      />
-      <rect x={x} y={y} width={w} height="20" rx="2" fill="rgba(255,255,255,0.78)" />
-      {/**
-       * 全览模式不画图标：24px 字号的标题才是读图主线，图标只占宽度。
-       * 标题从 x+8 起算，配合 fitCompactTitle 的宽度估算，长名字不会压到邻居。
-       */}
-      {!compactView && (
-        <text x={x + 6} y={y + 14.5} className="unit-icon" aria-hidden="true">
-          {unitKindIcon(unit.kind) ?? '▢'}
-        </text>
-      )}
-      {compactView ? (
-        <text x={x + 8} y={y + 15} className="unit-title-lg" style={{ fontSize: `${compactTitle.fontSize}px` }}>
-          {compactTitle.text}
-        </text>
-      ) : (
-        <text x={x + 20} y={y + 15} className="unit-title">
-          {unit.name}
-        </text>
-      )}
-
-      {showLabel && (
-        <UnitBody
-          unit={unit}
-          x={x}
-          y={y}
-          w={w}
-          h={h}
-          snap={snap}
-          liveTank={liveTank}
-          history={history}
-          compact={compactView}
-          editable={editable}
-        />
-      )}
-
-      {bad && <circle cx={x + w - 9} cy={y + 10} r="3.4" fill="var(--alarm)" />}
-    </g>
-  );
-}
-
-function fillFor(kind: UnitKind, tank: { do: number; kind: string } | undefined, opaque?: boolean): string {
-  // 编排模式用不透明填充：连线从框下走、不透出来，块与块才有"积木"的边界感
-  if (opaque) {
-    if (kind === 'aerobic') return '#eef7f5';
-    if (kind === 'anaerobic' || kind === 'anoxic') return '#f2f7f4';
-    if (kind === 'clarifier' || kind === 'thickener') return '#f0f6f4';
-    if (kind === 'storage') return '#eef5f8';
-    return '#f6f9f8';
-  }
-  if (kind === 'aerobic' && tank) {
-    const a = 0.06 + Math.min(0.2, Math.max(0, tank.do) * 0.06);
-    return `rgba(13,127,150,${a})`;
-  }
-  if (kind === 'anaerobic' || kind === 'anoxic') return 'rgba(12,157,126,0.07)';
-  if (kind === 'clarifier') return 'rgba(12,157,126,0.09)';
-  if (kind === 'storage') return 'rgba(13,127,150,0.07)';
-  return 'rgba(12,157,126,0.06)';
-}
-
-export interface TankHistoryPoint {
-  do: number;
-  mlss: number;
-  nh: number;
-}
-
-/**
- * 单元框内的迷你趋势线：好氧池画 DO、厌氧/缺氧池画 NH₄（各自最关心的量），
- * 归一化到历史窗口内的最大值，带渐变面积填充。
- */
-function TankSparkline({
-  history,
-  metric,
-  x,
-  y,
-  width,
-  height,
-}: {
-  history: TankHistoryPoint[];
-  metric: 'do' | 'nh';
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}) {
-  const vals = history.map((pt) => Math.max(0, pt[metric]));
-  const max = Math.max(metric === 'do' ? 2 : 1, ...vals);
-  const step = width / (history.length - 1);
-  const pts = history
-    .map(
-      (pt, i) => `${(i * step).toFixed(1)},${(height - (Math.max(0, pt[metric]) / max) * (height - 2) - 1).toFixed(1)}`,
-    )
-    .join(' ');
-  const color = metric === 'do' ? 'var(--water)' : 'var(--amber)';
-  return (
-    <g transform={`translate(${x}, ${y})`} aria-hidden="true">
-      <polygon points={`0,${height} ${pts} ${width},${height}`} fill={color} opacity="0.16" />
-      <polyline
-        points={pts}
-        fill="none"
-        stroke={color}
-        strokeWidth="1.6"
-        opacity="0.95"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-      <line x1={0} y1={height} x2={width} y2={height} stroke="var(--line)" strokeWidth="1" />
-    </g>
-  );
-}
-
-/**
- * 编排画布小地图：1:1 / 放大模式下显示在左下角。
- * 灰块 = 单元，亮框 = 当前视口；点击或拖动直接跳到对应区域。
- */
-function MiniMap({
-  layout,
-  wrapRef,
-  wrapSize,
-  zoom,
-}: {
-  layout: { width: number; height: number; nodes: PlacedNode[] };
-  wrapRef: React.RefObject<HTMLDivElement | null>;
-  wrapSize: { w: number; h: number };
-  zoom: number;
-}) {
-  const W = 148;
-  const H = Math.max(40, Math.min(64, (W * layout.height) / layout.width));
-  const scale = W / layout.width;
-  const [scroll, setScroll] = useState({ x: 0, y: 0 });
-  const draggingRef = useRef(false);
-
-  useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const onScroll = () => setScroll({ x: el.scrollLeft, y: el.scrollTop });
-    el.addEventListener('scroll', onScroll, { passive: true });
-    onScroll();
-    return () => el.removeEventListener('scroll', onScroll);
-  }, [wrapRef]);
-
-  const jump = (clientX: number, clientY: number, target: SVGSVGElement) => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const rect = target.getBoundingClientRect();
-    el.scrollLeft = ((clientX - rect.left) / rect.width) * el.scrollWidth - el.clientWidth / 2;
-    el.scrollTop = ((clientY - rect.top) / rect.height) * el.scrollHeight - el.clientHeight / 2;
-  };
-
-  // 视口亮框：滚动位置换算到小地图坐标；1:1 下再除以 zoom 得图纸坐标
-  const vx = (scroll.x / zoom) * scale;
-  const vy = (scroll.y / zoom) * scale;
-  const vw = Math.min(W - vx, (wrapSize.w / zoom) * scale);
-  const vh = Math.min(H - vy, (wrapSize.h / zoom) * scale);
-
-  return (
-    <svg
-      className="canvas-minimap"
-      width={W}
-      height={H}
-      onPointerDown={(e) => {
-        draggingRef.current = true;
-        e.currentTarget.setPointerCapture(e.pointerId);
-        jump(e.clientX, e.clientY, e.currentTarget);
-      }}
-      onPointerMove={(e) => {
-        if (draggingRef.current) jump(e.clientX, e.clientY, e.currentTarget);
-      }}
-      onPointerUp={() => {
-        draggingRef.current = false;
-      }}
-      onPointerCancel={() => {
-        draggingRef.current = false;
-      }}
-      role="img"
-      aria-label="画布小地图：点击或拖动定位到对应区域"
-    >
-      <rect x={0} y={0} width={W} height={H} className="minimap-bg" />
-      {layout.nodes.map((n) => (
-        <rect
-          key={n.unit.id}
-          x={n.x * scale}
-          y={n.y * scale}
-          width={Math.max(2, n.w * scale)}
-          height={Math.max(1.5, n.h * scale)}
-          className="minimap-node"
-        />
-      ))}
-      <rect x={vx} y={vy} width={Math.max(4, vw)} height={Math.max(3, vh)} className="minimap-viewport" />
-    </svg>
-  );
-}
-
-function UnitBody({
-  unit,
-  x,
-  y,
-  w,
-  h,
-  snap,
-  liveTank,
-  history,
-  compact,
-  editable,
-}: {
-  unit: UnitSpecOnNode;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  snap: PlantSnapshot;
-  liveTank?: { do: number; mlss: number; cod: number; nh: number; no3: number; tp: number; alkalinity: number };
-  history?: TankHistoryPoint[];
-  /** 全览模式：只画最重要的一项数值，字号更大，保证缩小时仍可辨认 */
-  compact?: boolean;
-  /** 编排模式：渲染"积木块"——只画结构与设计参数，不画遥测数值 */
-  editable?: boolean;
-}) {
-  const lx = x + 7;
-  let ly = y + 36;
-  const line = (text: string, cls = 'unit-sub') => {
-    const el = (
-      <text key={`${unit.id}-${ly}`} x={lx} y={ly} className={cls}>
-        {text}
-      </text>
-    );
-    ly += 14;
-    return el;
-  };
-  if (editable) {
-    // 编排模式 = 搭积木：遥测数字在这里全是噪音，且窄框里必然截断溢出。
-    // 只留工艺角色与设计参数，让用户看到的是"块"，不是仪表。
-    const detail =
-      unit.volume !== undefined ? `容积 ${unit.volume} m³` : unit.area !== undefined ? `面积 ${unit.area} m²` : null;
-    return (
-      <g>
-        {line(unit.role)}
-        {detail && line(detail, 'unit-structural')}
-      </g>
-    );
-  }
-
-  if (liveTank) {
-    if (compact) {
-      return (
-        <g>
-          <text x={lx} y={y + 58} className="unit-value-lg">
-            {unit.kind === 'aerobic' ? `DO ${liveTank.do.toFixed(1)}` : `NH₄ ${liveTank.nh.toFixed(0)}`}
-          </text>
-          <text x={lx} y={y + 88} className="unit-sub-lg">
-            MLSS {Math.round(liveTank.mlss)}
-          </text>
-        </g>
-      );
-    }
-    return (
-      <g>
-        {line(unit.role)}
-        {line(`DO ${liveTank.do.toFixed(2)} · MLSS ${Math.round(liveTank.mlss)}`, 'unit-value')}
-        {line(`NH₄ ${liveTank.nh.toFixed(1)} · NO₃ ${liveTank.no3.toFixed(1)}`)}
-        {history && history.length > 3 && (
-          <TankSparkline
-            history={history}
-            metric={unit.kind === 'aerobic' ? 'do' : 'nh'}
-            x={x + 8}
-            y={y + h - 22}
-            width={w - 16}
-            height={14}
-          />
-        )}
-      </g>
-    );
-  }
-
-  switch (unit.kind) {
-    case 'inlet':
-      return (
-        <g>
-          {line(unit.role)}
-          {line(`${snap.influent.flow.toFixed(0)} m³/h`, 'unit-value')}
-          {line(`COD ${snap.influent.cod.toFixed(0)} · NH₄ ${snap.influent.nh.toFixed(1)}`)}
-        </g>
-      );
-    case 'outlet':
-      return (
-        <g>
-          {line(unit.role)}
-          {line(`${snap.effluent.flow.toFixed(0)} m³/h`, 'unit-value')}
-          {line(`COD ${snap.effluent.cod.toFixed(1)}`)}
-        </g>
-      );
-    case 'clarifier':
-      return <ClarifierBody unit={unit} x={x} y={y} w={w} h={h} snap={snap} />;
-    case 'blower':
-      return (
-        <g>
-          {line(unit.role)}
-          {line(`${snap.energy.blowerKw.toFixed(0)} kW`, 'unit-value')}
-          {line(`氧设定 ${snap.controls.doSetpoint.toFixed(1)}`)}
-        </g>
-      );
-    case 'chemical':
-      return (
-        <g>
-          {line(unit.role)}
-          {line(`PAC ${snap.controls.pacDose.toFixed(0)} mg/L`, 'unit-value')}
-          {line(`碳源 ${snap.controls.carbonDose.toFixed(0)} · 碱度 ${snap.controls.alkDose.toFixed(0)}`)}
-        </g>
-      );
-    case 'storage':
-      return (
-        <g>
-          {line(unit.role)}
-          {line(`${(snap.stormStorageM3 / 1000).toFixed(1)} 千 m³`, 'unit-value')}
-          <rect x={x + 8} y={y + h - 12} width={w - 16} height="3" fill="var(--line-soft)" />
-          <rect
-            x={x + 8}
-            y={y + h - 12}
-            width={(w - 16) * Math.min(1, snap.stormStorageM3 / 16000)}
-            height="3"
-            fill="var(--cyan)"
-          />
-        </g>
-      );
-    case 'thickener':
-      return (
-        <g>
-          {line(unit.role)}
-          {line(`${((snap.controls.wasRatio * snap.influent.flow * 24) / 1000).toFixed(1)} 千 m³/d`, 'unit-value')}
-          {line('含水率 97%')}
-        </g>
-      );
-    case 'dewatering':
-      return (
-        <g>
-          {line(unit.role)}
-          {line(`${(snap.controls.wasRatio * snap.influent.flow * 24 * 24.9).toFixed(0)} kg/d`, 'unit-value')}
-          {line('泥饼 60%')}
-        </g>
-      );
-    case 'screening':
-    case 'grit':
-    case 'primary':
-      return (
-        <g>
-          {line(unit.role)}
-          {line(`${snap.influent.flow.toFixed(0)} m³/h`, 'unit-value')}
-          {line('运行')}
-        </g>
-      );
-    case 'disinfection':
-      return (
-        <g>
-          {line(unit.role)}
-          {line(`${snap.effluent.flow.toFixed(0)} m³/h`, 'unit-value')}
-          {line('紫外 40 mJ/cm²')}
-        </g>
-      );
-    default:
-      return <g>{line(unit.role)}</g>;
-  }
-}
-
-type UnitSpecOnNode = PlacedNode['unit'];
-
-function ClarifierBody({
-  unit,
-  x,
-  y,
-  w,
-  h,
-  snap,
-}: {
-  unit: UnitSpecOnNode;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  snap: PlantSnapshot;
-}) {
-  const depth = unit.depth ?? 4.5;
-  const fx = x + 6;
-  const fw = w - 12;
-  const fy = y + 26;
-  const fh = h - 34;
-  const bh = Math.min(fh, (snap.clarifier.blanketM / depth) * fh);
-  const over = snap.clarifier.blanketM > depth - 0.4;
-
-  return (
-    <g>
-      <rect x={fx} y={fy} width={fw} height={fh} fill="rgba(255,255,255,0.5)" />
-      <rect
-        x={fx}
-        y={fy + fh - bh}
-        width={fw}
-        height={bh}
-        fill={over ? 'rgba(210,71,47,0.32)' : 'rgba(176,119,14,0.28)'}
-      />
-      <line
-        x1={fx}
-        y1={fy + fh - bh}
-        x2={fx + fw}
-        y2={fy + fh - bh}
-        stroke={over ? 'var(--alarm)' : 'var(--amber)'}
-        strokeWidth="1.2"
-        strokeDasharray="4 3"
-      />
-      <text x={fx + 4} y={fy + 12} className="unit-sub">
-        出水 SS {snap.effluent.ss.toFixed(1)}
-      </text>
-      <text x={fx + 4} y={fy + 26} className="unit-value">
-        泥位 {snap.clarifier.blanketM.toFixed(2)} m
-      </text>
-      <text x={fx + 4} y={fy + 40} className="unit-sub">
-        SLR {snap.clarifier.slr.toFixed(1)} kg/m²·h
-      </text>
-    </g>
-  );
-}
-
-function isUnitAlarming(kind: UnitKind, id: string, snap: PlantSnapshot): boolean {
-  const live = snap.activeAlarms;
-  if (!live.length) return false;
-  if (kind === 'outlet')
-    return live.some((a) => ['EFF_NH', 'EFF_COD', 'EFF_TP', 'EFF_SS', 'EFF_TN', 'EFF_BOD'].includes(a.code));
-  if (kind === 'clarifier') return live.some((a) => a.code === 'SLUDGE_BLANKET');
-  if (kind === 'aerobic') return live.some((a) => a.code === 'DO_LOW');
-  if (kind === 'blower') return live.some((a) => a.code === 'DO_LOW' || a.code === 'AERATION_LOW');
-  if (kind === 'anaerobic' || kind === 'anoxic') return live.some((a) => a.code === 'SRT_LOW');
-  void id;
-  return false;
 }

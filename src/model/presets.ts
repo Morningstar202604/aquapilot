@@ -1,5 +1,5 @@
 /**
- * 工艺模板：三种可直接运行的厂型。
+ * 工艺模板：四种可直接运行的厂型。
  *
  * 模板不是"画图预设"：每个都必须在服务端通过 checkRunReadiness + compileNetwork
  * + 预热，才允许出现在切换列表里。测试逐个验证（tests/presets.test.ts）。
@@ -22,9 +22,19 @@ export interface Preset {
 
 export const PRESETS: Preset[] = [
   {
+    id: 'design-duty',
+    name: '设计工况（宽二沉池）',
+    description:
+      '二沉池 4 800 m²（设计表面负荷约 0.42 m³/(m²·h)），覆盖日变化峰值。演示默认；标准厂保留 BSM1 基准设置用于对照。',
+    patch: {
+      clarifier: { area: 4800 },
+    },
+  },
+  {
     id: 'a2o-standard',
     name: 'A²/O 标准厂',
-    description: '厌氧 3 000 + 缺氧 4 500 + 好氧 15 000 m³，内回流 2×Q、多点进水 0.3×Q。设计基准。',
+    description:
+      '厌氧 3 000 + 缺氧 4 500 + 好氧 15 000 m³，内回流 2×Q、多点进水 0.3×Q。BSM1 基准设置；严格一级 A 下会因 4 000 m² 二沉池出现结构性 SS 峰值，这是基准边界，不是控制失败。',
     patch: {},
   },
   {

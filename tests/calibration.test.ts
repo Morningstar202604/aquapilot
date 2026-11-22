@@ -36,11 +36,11 @@ function proxyPredict(p: typeof ASM1_PARAMS): EffluentObservation {
 const proxyTruth = proxyPredict({ ...ASM1_PARAMS, ...TRUTH });
 
 describe('目标函数', () => {
-  it('完美拟合时为零', () => {
+  it('完美拟合时为零', async () => {
     expect(objective({ observed: proxyTruth }, proxyTruth)).toBeCloseTo(0, 10);
   });
 
-  it('按相对误差归一化：小量级指标不会被大量级淹没', () => {
+  it('按相对误差归一化：小量级指标不会被大量级淹没', async () => {
     // NH 从 1.5 偏到 3.0（+100%），COD 从 30 偏到 33（+10%）
     const target = { observed: { cod: 30, ss: 8, nh: 1.5, tn: 10 } };
     const nhOnly = objective(target, { cod: 30, ss: 8, nh: 3.0, tn: 10 });
@@ -49,12 +49,12 @@ describe('目标函数', () => {
     expect(nhOnly).toBeCloseTo(1, 1); // (3-1.5)/1.5 = 1，平方 = 1
   });
 
-  it('非有限预测返回无穷大而不是静默通过', () => {
+  it('非有限预测返回无穷大而不是静默通过', async () => {
     const target = { observed: { cod: 30, ss: 8, nh: 1.5, tn: 10 } };
     expect(objective(target, { cod: Number.NaN, ss: 8, nh: 1.5, tn: 10 })).toBe(Number.POSITIVE_INFINITY);
   });
 
-  it('权重可以放大某个指标的影响', () => {
+  it('权重可以放大某个指标的影响', async () => {
     const target = { observed: { cod: 30, ss: 8, nh: 1.5, tn: 10 }, weights: { nh: 100 } };
     const withWeight = objective(target, { cod: 30, ss: 8, nh: 1.6, tn: 10 });
     const without = objective({ observed: target.observed }, { cod: 30, ss: 8, nh: 1.6, tn: 10 });
@@ -63,8 +63,8 @@ describe('目标函数', () => {
 });
 
 describe('可辨识性', () => {
-  it('对结果有影响且方向正确的参数被判定可辨识', () => {
-    const rows = identifiability(proxyPredict as Predictor, { observed: proxyTruth }, ASM1_PARAMS, 0.02);
+  it('对结果有影响且方向正确的参数被判定可辨识', async () => {
+    const rows = await identifiability(proxyPredict as Predictor, { observed: proxyTruth }, ASM1_PARAMS, 0.02);
     const byParam = new Map(rows.map((r) => [r.param, r]));
     expect(byParam.get('mu_A')?.identifiable).toBe(true);
     expect(byParam.get('K_NH')?.identifiable).toBe(true);
@@ -72,15 +72,15 @@ describe('可辨识性', () => {
     expect(byParam.get('k_a')?.identifiable).toBe(false);
   });
 
-  it('按灵敏度降序排列', () => {
-    const rows = identifiability(proxyPredict as Predictor, { observed: proxyTruth }, ASM1_PARAMS, 0.02);
+  it('按灵敏度降序排列', async () => {
+    const rows = await identifiability(proxyPredict as Predictor, { observed: proxyTruth }, ASM1_PARAMS, 0.02);
     for (let i = 1; i < rows.length; i++) {
       expect(rows[i - 1].relativeSensitivity).toBeGreaterThanOrEqual(rows[i].relativeSensitivity);
     }
   });
 
-  it('每个参数都有物理边界与建议文案', () => {
-    const rows = identifiability(proxyPredict as Predictor, { observed: proxyTruth }, ASM1_PARAMS, 0.02);
+  it('每个参数都有物理边界与建议文案', async () => {
+    const rows = await identifiability(proxyPredict as Predictor, { observed: proxyTruth }, ASM1_PARAMS, 0.02);
     expect(rows).toHaveLength(CALIBRATABLE_PARAMS.length);
     for (const r of rows) {
       expect(PARAM_BOUNDS[r.param].min).toBeLessThan(PARAM_BOUNDS[r.param].max);
@@ -88,18 +88,18 @@ describe('可辨识性', () => {
     }
   });
 
-  it('边界处不越界取值', () => {
+  it('边界处不越界取值', async () => {
     const atMin = { ...ASM1_PARAMS, mu_A: PARAM_BOUNDS.mu_A.min };
-    const rows = identifiability(proxyPredict as Predictor, { observed: proxyTruth }, atMin, 0.5);
+    const rows = await identifiability(proxyPredict as Predictor, { observed: proxyTruth }, atMin, 0.5);
     // 不抛错即说明夹紧生效（否则 mu_A 会变成负数）
     expect(rows.find((r) => r.param === 'mu_A')!.relativeSensitivity).toBeGreaterThanOrEqual(0);
   });
 });
 
 describe('标定', () => {
-  it('能从偏离的初值向真值收敛，目标函数显著下降', () => {
+  it('能从偏离的初值向真值收敛，目标函数显著下降', async () => {
     const start = { ...ASM1_PARAMS, mu_A: 0.5, K_NH: 0.5, b_H: 0.9 };
-    const result = calibrate(
+    const result = await calibrate(
       proxyPredict as Predictor,
       { observed: proxyTruth },
       { baseParams: start, maxIterations: 3 },
@@ -110,9 +110,9 @@ describe('标定', () => {
     expect(Math.abs(result.params.mu_A - TRUTH.mu_A)).toBeLessThan(Math.abs(start.mu_A - TRUTH.mu_A));
   });
 
-  it('只拟合可辨识参数，不可辨识参数保持文献值', () => {
+  it('只拟合可辨识参数，不可辨识参数保持文献值', async () => {
     const start = { ...ASM1_PARAMS, mu_A: 0.5 };
-    const result = calibrate(
+    const result = await calibrate(
       proxyPredict as Predictor,
       { observed: proxyTruth },
       { baseParams: start, maxIterations: 2 },
@@ -122,9 +122,9 @@ describe('标定', () => {
     expect(result.params.k_a).toBe(start.k_a);
   });
 
-  it('所有参数始终落在物理边界内', () => {
+  it('所有参数始终落在物理边界内', async () => {
     const start = { ...ASM1_PARAMS, mu_A: 0.15, K_S: 75, k_h: 9 };
-    const result = calibrate(
+    const result = await calibrate(
       proxyPredict as Predictor,
       { observed: proxyTruth },
       { baseParams: start, maxIterations: 3 },
@@ -135,18 +135,18 @@ describe('标定', () => {
     }
   });
 
-  it('记录收敛轨迹，且目标函数单调不增', () => {
-    const result = calibrate(proxyPredict as Predictor, { observed: proxyTruth }, { maxIterations: 2 });
+  it('记录收敛轨迹，且目标函数单调不增', async () => {
+    const result = await calibrate(proxyPredict as Predictor, { observed: proxyTruth }, { maxIterations: 2 });
     expect(result.trace.length).toBeGreaterThan(1);
     for (let i = 1; i < result.trace.length; i++) {
       expect(result.trace[i].objective).toBeLessThanOrEqual(result.trace[i - 1].objective + 1e-12);
     }
   });
 
-  it('完美数据上不产生虚假改善（避免过拟合噪声）', () => {
+  it('完美数据上不产生虚假改善（避免过拟合噪声）', async () => {
     // 用真参数构造目标 → 起点已最优，改善应接近 0
     const truthParams = { ...ASM1_PARAMS, ...TRUTH };
-    const result = calibrate(
+    const result = await calibrate(
       proxyPredict as Predictor,
       { observed: proxyTruth },
       { baseParams: truthParams, maxIterations: 2 },
@@ -157,7 +157,7 @@ describe('标定', () => {
 });
 
 describe('BSM1 合成目标', () => {
-  it('从官方 Table 6 稳态值构造，量级合理', () => {
+  it('从官方 Table 6 稳态值构造，量级合理', async () => {
     const t = bsm1SyntheticTarget();
     expect(t.observed.nh).toBeGreaterThan(0);
     expect(t.observed.nh).toBeLessThan(10);
@@ -190,7 +190,7 @@ describe('校准服务的异步分批', () => {
 
   it('summarise 只输出可展示字段，参数变化带百分比', async () => {
     const { summarise } = await import('../src/server/calibrationService');
-    const result = calibrate(proxyPredict as Predictor, { observed: proxyTruth }, { maxIterations: 1 });
+    const result = await calibrate(proxyPredict as Predictor, { observed: proxyTruth }, { maxIterations: 1 });
     const summary = summarise(result);
     expect(summary.fitted.length).toBeGreaterThan(0);
     for (const c of summary.changes) {
@@ -206,14 +206,16 @@ describe('校准服务的取消与并发保护', async () => {
   it('runIdentifiability 形式存在且可调用（防 API 漂移）', async () => {
     const mod = await import('../src/server/calibrationService');
     expect(typeof mod.summarise).toBe('function');
-    const summary = mod.summarise(calibrate(proxyPredict as Predictor, { observed: proxyTruth }, { maxIterations: 1 }));
+    const summary = mod.summarise(
+      await calibrate(proxyPredict as Predictor, { observed: proxyTruth }, { maxIterations: 1 }),
+    );
     expect(summary.improvementPct).toBeGreaterThanOrEqual(0);
     expect(Array.isArray(summary.fixed)).toBe(true);
   });
 
-  it('calibrate 在 onProgress 上报 identifiability 与 fitting 两个阶段', () => {
+  it('calibrate 在 onProgress 上报 identifiability 与 fitting 两个阶段', async () => {
     const phases: string[] = [];
-    calibrate(
+    await calibrate(
       proxyPredict as Predictor,
       { observed: proxyTruth },
       {
@@ -227,8 +229,8 @@ describe('校准服务的取消与并发保护', async () => {
     expect(phases).toContain('fitting');
   });
 
-  it('identifiability 对空权重与缺省指标稳健', () => {
-    const rows = identifiability(
+  it('identifiability 对空权重与缺省指标稳健', async () => {
+    const rows = await identifiability(
       proxyPredict as Predictor,
       {
         observed: { cod: proxyTruth.cod, ss: proxyTruth.ss, nh: proxyTruth.nh, tn: proxyTruth.tn },

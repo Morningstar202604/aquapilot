@@ -20,7 +20,7 @@ interface Props {
 const SEV_LABEL: Record<string, string> = {
   normal: '常态运行',
   watch: '趋势预警',
-  critical: '应急干预',
+  critical: '预测超标风险',
 };
 
 /**
@@ -55,7 +55,9 @@ export function DecisionPanel({
   return (
     <div className="scroll-panel">
       <div>
-        <div className="section-label">本轮决策 · 仿真 {formatClock(rec.generatedAt)}</div>
+        <div className="section-label">
+          本轮决策 · 预测未来 {rec.horizonMin} 分钟 · 仿真 {formatClock(rec.generatedAt)}
+        </div>
         <div className="decision-card" data-sev={rec.severity}>
           <div className="decision-top">
             <span className="sev-tag" data-sev={rec.severity}>

@@ -1,54 +1,11 @@
-import { CONTROL_BOUNDS, ControlSettings, LIMITS } from '../sim/config';
+import { CONTROL_BOUNDS, CONTROL_KEYS, ControlSettings } from '../sim/config';
 import type { EffluentState } from '../sim/plantTypes';
-import { qualityScore, clampControls } from '../sim/metrics';
+import { qualityScore, clampControls, estimateMargin, worstRatio as worstRatioOf } from '../sim/metrics';
 import { PlantModel, PlantSnapshotForAi } from '../sim/plantModel';
 import { ScenarioType } from '../sim/scenarios';
 import { forecastEnsemble, type EnsembleForecast } from '../sim/ensemble';
-
-export interface ScoredCandidate extends DecisionCandidate {
-  predictedEffluent: EffluentState;
-  endSrt: number;
-  endBlanket: number;
-}
-
-export interface DecisionCandidate {
-  label: string;
-  /** 模型输出非有限（NaN/Inf）时标记；这类候选不参与排序，也不得被执行 */
-  invalid?: boolean;
-  controls: ControlSettings;
-  score: number;
-  violations: number;
-  worstRatio: number;
-  cost: number;
-  energyPeak: number;
-  quality: number;
-  /** 参数扰动样本中出现超标的比例；未评估时为 null */
-  exceedanceProbability: number | null;
-}
-
-export interface Recommendation {
-  action: 'hold' | 'adjust' | 'emergency';
-  severity: 'normal' | 'watch' | 'critical';
-  summary: string;
-  rationale: string[];
-  chosens: DecisionCandidate;
-  alternatives: DecisionCandidate[];
-  predictedEffluent: EffluentState;
-  predictedScore: number;
-  horizonMin: number;
-  /** 候选区分度 0–1（启发式，非概率） */
-  separation: number;
-  risks: string[];
-  tweaks: { key: keyof Omit<ControlSettings, 'aiEnabled'>; from: number; to: number; reason: string }[];
-  generatedAt: number;
-  /**
-   * 选中方案的集合预测（P10/P50/P90）与超限概率。
-   * 未启用鲁棒评估时为 null——界面必须显示"未评估"，不能显示 0%。
-   */
-  ensemble: EnsembleForecast | null;
-  /** 本次决策是否真的跑了扰动样本 */
-  robustEvaluated: boolean;
-}
+import type { Answer, DecisionCandidate, Recommendation, ScoredCandidate } from '../shared/aiTypes';
+export type { Answer, DecisionCandidate, Recommendation, ScoredCandidate } from '../shared/aiTypes';
 
 export interface DecisionContext {
   model: PlantModel;
@@ -60,17 +17,7 @@ export interface DecisionContext {
   robustTopN?: number;
 }
 
-const KEY_ORDER: (keyof Omit<ControlSettings, 'aiEnabled'>)[] = [
-  'doSetpoint',
-  'internalRecirc',
-  'rasRatio',
-  'wasRatio',
-  'pacDose',
-  'carbonDose',
-  'alkDose',
-  'stormStore',
-  'stepFeed',
-];
+const KEY_ORDER = CONTROL_KEYS;
 
 interface Guardrails {
   doMin: number;
@@ -161,18 +108,6 @@ function perturb(base: ControlSettings, key: keyof Omit<ControlSettings, 'aiEnab
   return clampControls({ ...base, [key]: round(value, key) });
 }
 
-function limitsForEffluent(e: EffluentState): number {
-  const ratios = [
-    e.cod / LIMITS.cod,
-    e.bod / LIMITS.bod,
-    e.ss / LIMITS.ss,
-    e.nh / LIMITS.nh,
-    e.tn / LIMITS.tn,
-    e.tp / LIMITS.tp,
-  ];
-  return Math.max(...ratios);
-}
-
 function scoreCandidate(
   state: PlantSnapshotForAi,
   model: PlantModel,
@@ -182,7 +117,7 @@ function scoreCandidate(
 ): ScoredCandidate {
   const result = model.predict(controls, horizonMin, 30);
   const last = result.points[result.points.length - 1];
-  const worstRatio = last ? limitsForEffluent(last.effluent) : 1;
+  const worstRatio = last ? worstRatioOf(last.effluent) : 1;
   const quality = last ? last.score : 0;
   const violationCount = result.violations.length;
 
@@ -508,13 +443,15 @@ export function decide(context: DecisionContext): Recommendation {
       ? suppressed
         ? `AI 判定当前工况稳定：最优候选仅比维持现状高 ${gain.toFixed(0)} 分（死区 ${AI_HOLD_DEADBAND} 分），不做无意义调节。`
         : 'AI 判定当前工况稳定，维持现有控制，继续滚动监视。'
-      : severity === 'critical'
-        ? `预测到 ${best.violations > 0 ? '出水超标风险' : '逼近限值'}，立即执行应急调节：${effectiveTweaks
-            .map((t) => `${CONTROL_BOUNDS[t.key].label} ${formatNum(t.from, t.key)}→${formatNum(t.to, t.key)}`)
-            .join('，')}。`
-        : `建议微调 ${effectiveTweaks.length} 项：${effectiveTweaks
-            .map((t) => `${CONTROL_BOUNDS[t.key].label} ${formatNum(t.from, t.key)}→${formatNum(t.to, t.key)}`)
-            .join('，')}。`;
+      : severity === 'critical' && effectiveTweaks.length === 0
+        ? `预测到 ${best.violations > 0 ? '出水超标风险' : '逼近限值'}，但模型本轮没有找到优于维持现状的控制组合；保持当前控制并升级人工确认。`
+        : severity === 'critical'
+          ? `预测到 ${best.violations > 0 ? '出水超标风险' : '逼近限值'}，立即执行应急调节：${effectiveTweaks
+              .map((t) => `${CONTROL_BOUNDS[t.key].label} ${formatNum(t.from, t.key)}→${formatNum(t.to, t.key)}`)
+              .join('，')}。`
+          : `建议微调 ${effectiveTweaks.length} 项：${effectiveTweaks
+              .map((t) => `${CONTROL_BOUNDS[t.key].label} ${formatNum(t.from, t.key)}→${formatNum(t.to, t.key)}`)
+              .join('，')}。`;
 
   const rationale = [
     ...buildRationale(state, best, hold, horizonMin),
@@ -614,7 +551,7 @@ function buildRationale(
   hold: DecisionCandidate,
   horizonMin: number,
 ): string[] {
-  const margins = marginsOf(state.effluent);
+  const margins = estimateMargin(state.effluent);
   const tight = margins[0];
   const lines: string[] = [];
   lines.push(
@@ -663,42 +600,17 @@ function computeDecisionSeparation(best: DecisionCandidate, candidates: Decision
   return Math.round(Math.min(0.97, Math.max(0.35, conf)) * 100) / 100;
 }
 
-function marginsOf(e: PlantSnapshotForAi['effluent']) {
-  return [
-    { metric: 'COD', ratio: e.cod / LIMITS.cod, value: e.cod, limit: LIMITS.cod },
-    { metric: 'BOD₅', ratio: e.bod / LIMITS.bod, value: e.bod, limit: LIMITS.bod },
-    { metric: 'SS', ratio: e.ss / LIMITS.ss, value: e.ss, limit: LIMITS.ss },
-    { metric: 'NH₃-N', ratio: e.nh / LIMITS.nh, value: e.nh, limit: LIMITS.nh },
-    { metric: 'TN', ratio: e.tn / LIMITS.tn, value: e.tn, limit: LIMITS.tn },
-    { metric: 'TP', ratio: e.tp / LIMITS.tp, value: e.tp, limit: LIMITS.tp },
-  ].sort((a, b) => b.ratio - a.ratio);
-}
-
 export interface AnswerContext {
   question: string;
   model: PlantModel;
   recommendation: Recommendation | null;
 }
 
-export interface Answer {
-  title: string;
-  body: string;
-  bullets: string[];
-  confidence: number;
-  kind: 'status' | 'why' | 'whatif' | 'plan' | 'explain' | 'editor' | 'unknown';
-  /** 回答来源：规则引擎或 LLM（失败降级时仍为 rule） */
-  source?: 'rule' | 'llm';
-  /** 生成该回答的 AI 角色名（来自 Agent 配置） */
-  persona?: string;
-  /** 本轮命中的技能名 */
-  matchedSkills?: string[];
-}
-
 export function answer(question: string, model: PlantModel, recommendation: Recommendation | null): Answer {
   const state = model.snapshot();
   const q = question.trim();
   const intent = detectIntent(q);
-  const margins = marginsOf(state.effluent);
+  const margins = estimateMargin(state.effluent);
   const tight = margins[0];
 
   if (intent === 'status') {
@@ -767,13 +679,7 @@ export function answer(question: string, model: PlantModel, recommendation: Reco
     }
     const worst = fc.points.reduce(
       (acc, p) => {
-        const r = Math.max(
-          p.effluent.cod / LIMITS.cod,
-          p.effluent.nh / LIMITS.nh,
-          p.effluent.tp / LIMITS.tp,
-          p.effluent.ss / LIMITS.ss,
-          p.effluent.tn / LIMITS.tn,
-        );
+        const r = worstRatioOf(p.effluent);
         return r > acc.ratio ? { ratio: r, minute: p.minute, e: p.effluent } : acc;
       },
       { ratio: 0, minute: 0, e: state.effluent },

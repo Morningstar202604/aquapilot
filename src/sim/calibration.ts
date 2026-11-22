@@ -19,9 +19,10 @@ import { particulateToTss } from './units';
  *      坐标下降比通用梯度法更稳，也不会因步长发散）。
  *
  * 设计边界（如实标注）：
- * - 只用出水常规指标（COD/SS/NH/TN）做目标，不用池内剖面；
- *   真实水厂能测到的就是这些，用剖面标定属于「用不可测量的数据拟合」。
- * - 不假设噪声分布，因此不给置信区间，只给「参数相对变化量」。
+ * - 出水常规指标与池内剖面（DO/NH/NO3/MLSS）都可进入目标函数；
+ *   剖面缺测的旧调用路径行为不变。
+ * - 本模块只给点估计；置信区间、参数相关、可辨识性判定与蒙特卡洛
+ *   预测不确定性见 `./uncertainty.ts`。
  */
 
 /** 可标定的动力学参数（化学计量参数通常由文献固定，不参与拟合） */
@@ -72,6 +73,8 @@ export interface EffluentObservation {
   tp?: number;
 }
 
+export type EffluentMetricKey = 'cod' | 'ss' | 'nh' | 'tn' | 'tp';
+
 export interface CalibrationTarget {
   /** 观测到的出水 */
   observed: EffluentObservation;
@@ -79,30 +82,190 @@ export interface CalibrationTarget {
   weights?: Partial<Record<keyof EffluentObservation, number>>;
 }
 
-/** 模型在给定参数下的出水预测 */
+/**
+ * 池内剖面观测（WP5 新增）。
+ *
+ * 旧版标定只拟合出水 4 项，池内 DO/NH/NO3/MLSS 完全没参与——参数可以
+ * 把出水拟合得很漂亮，池内过程却是错的。剖面测点挂在反应器 id 下，
+ * 字段全部可选：现场测到几项就用几项，缺测不补零。
+ */
+export interface ProfileObservation {
+  reactorId: string;
+  do?: number;
+  nh?: number;
+  no3?: number;
+  mlss?: number;
+  tp?: number;
+  po4?: number;
+}
+
+export type ProfileMetricKey = 'do' | 'nh' | 'no3' | 'mlss' | 'tp' | 'po4';
+
+/** 标定数据集：出水 + 可选剖面 + 权重 + 采样时标 */
+export interface CalibrationDataset {
+  effluent: EffluentObservation;
+  profiles?: ProfileObservation[];
+  weights?: Partial<Record<EffluentMetricKey | ProfileMetricKey, number>>;
+  /** 采样时标（min）；仅用于审计展示，缺省视为单点 */
+  timestampsMin?: number[];
+}
+
+/** 模型在给定参数下的出水预测（旧接口，保持不变） */
 export type Predictor = (params: Asm1Params) => EffluentObservation;
 
+/** 模型在给定参数下的全量预测（出水 + 剖面） */
+export interface DatasetPrediction {
+  effluent: EffluentObservation;
+  profiles?: ProfileObservation[];
+}
+
+export type DatasetPredictor = (params: Asm1Params) => DatasetPrediction;
+
+/** 旧版单出水预测器包装成全量预测器；旧调用路径行为不变 */
+export function normalizePredictor(p: Predictor | DatasetPredictor): DatasetPredictor {
+  return (params) => {
+    const out = p(params);
+    return 'effluent' in out ? out : { effluent: out };
+  };
+}
+
+/** 旧 CalibrationTarget 适配成新 CalibrationDataset */
+export function datasetFromTarget(target: CalibrationTarget): CalibrationDataset {
+  return { effluent: target.observed, weights: target.weights ?? undefined };
+}
+
 /**
- * 归一化残差平方和。
+ * 池内剖面指标的参考量程（mg/L）。
+ *
+ * 量程归一化是必须的：NH 约 1–5 mg/L、MLSS 约 2000–4000 mg/L，
+ * 直接相加会让 MLSS 的残差独占目标函数，氨氮怎么拟合都不影响总误差。
+ * 分母用参考量程而不是观测值：剖面里某个指标观测值可能接近 0，
+ * 相对误差会被放大成数值噪声。
+ */
+export const PROFILE_REFERENCE_RANGE: Record<ProfileMetricKey, number> = {
+  do: 4,
+  nh: 5,
+  no3: 10,
+  mlss: 3000,
+  tp: 2,
+  po4: 2,
+};
+
+/** 单行归一化残差（出水或剖面） */
+export interface ResidualRow {
+  group: 'effluent' | 'profile';
+  /** 剖面测点所在反应器；出水流为空 */
+  reactorId?: string;
+  metric: string;
+  observed: number;
+  predicted: number;
+  /** 归一化残差（无量纲）：出水为相对误差，剖面为量程归一化误差 */
+  normalized: number;
+  weight: number;
+}
+
+export interface ObjectiveBreakdown {
+  rows: ResidualRow[];
+  /** 出水部分目标值 */
+  effluentObjective: number;
+  /** 剖面部分目标值 */
+  profileObjective: number;
+  total: number;
+}
+
+const EFFLUENT_METRICS: EffluentMetricKey[] = ['cod', 'ss', 'nh', 'tn', 'tp'];
+const PROFILE_METRICS: ProfileMetricKey[] = ['do', 'nh', 'no3', 'mlss', 'tp', 'po4'];
+
+function toDataset(target: CalibrationTarget | CalibrationDataset): CalibrationDataset {
+  return 'observed' in target ? datasetFromTarget(target) : target;
+}
+
+/**
+ * 分组目标函数：出水与剖面的残差分开列出，能直接看出
+ * 「出水拟合好、池内拟合差」这类结构性偏差。
+ *
+ * 出水部分沿用相对误差归一化（观测值做分母，保留旧标定口径）；
+ * 剖面部分按参考量程归一化，避免 MLSS 量级压过 DO/NH。
+ * 任一非有限观测或预测都返回 Infinity，不允许静默通过。
+ */
+export function objectiveBreakdown(
+  target: CalibrationTarget | CalibrationDataset,
+  predicted: EffluentObservation | DatasetPrediction,
+): ObjectiveBreakdown {
+  const dataset = toDataset(target);
+  const pred: DatasetPrediction = 'effluent' in predicted ? predicted : { effluent: predicted };
+  const rows: ResidualRow[] = [];
+  let effluentObjective = 0;
+  let profileObjective = 0;
+
+  const effObs = dataset.effluent;
+  const effPred = pred.effluent;
+  for (const m of EFFLUENT_METRICS) {
+    const obs = effObs[m];
+    const predVal = effPred[m];
+    if (obs === undefined || predVal === undefined) continue;
+    if (!Number.isFinite(obs) || !Number.isFinite(predVal)) {
+      return {
+        rows: [],
+        effluentObjective: Number.POSITIVE_INFINITY,
+        profileObjective: Number.POSITIVE_INFINITY,
+        total: Number.POSITIVE_INFINITY,
+      };
+    }
+    const weight = dataset.weights?.[m] ?? 1;
+    const denom = Math.max(Math.abs(obs), 1e-3);
+    const normalized = (predVal - obs) / denom;
+    effluentObjective += weight * normalized * normalized;
+    rows.push({ group: 'effluent', metric: m, observed: obs, predicted: predVal, normalized, weight });
+  }
+
+  const profiles = dataset.profiles ?? [];
+  const predProfiles = pred.profiles ?? [];
+  for (let i = 0; i < profiles.length; i += 1) {
+    const obsProf = profiles[i];
+    const predProf = predProfiles.find((p) => p.reactorId === obsProf.reactorId);
+    for (const m of PROFILE_METRICS) {
+      const obs = obsProf[m];
+      const predVal = predProf?.[m];
+      if (obs === undefined || predVal === undefined) continue;
+      if (!Number.isFinite(obs) || !Number.isFinite(predVal)) {
+        return {
+          rows: [],
+          effluentObjective: Number.POSITIVE_INFINITY,
+          profileObjective: Number.POSITIVE_INFINITY,
+          total: Number.POSITIVE_INFINITY,
+        };
+      }
+      const weight = dataset.weights?.[m] ?? 1;
+      const normalized = (predVal - obs) / PROFILE_REFERENCE_RANGE[m];
+      profileObjective += weight * normalized * normalized;
+      rows.push({
+        group: 'profile',
+        reactorId: obsProf.reactorId,
+        metric: m,
+        observed: obs,
+        predicted: predVal,
+        normalized,
+        weight,
+      });
+    }
+  }
+
+  return { rows, effluentObjective, profileObjective, total: effluentObjective + profileObjective };
+}
+
+/**
+ * 归一化残差平方和（旧签名保持兼容）。
  *
  * 归一化是必须的：COD 的量级是 30、SS 是 8、NH 是 1，直接相加会让
  * COD 的残差完全主导目标函数，氨氮怎么拟合都不影响总误差。
  * 用观测值的平方做分母（相对误差），再按权重加权。
  */
-export function objective(target: CalibrationTarget, predicted: EffluentObservation): number {
-  const metrics: (keyof EffluentObservation)[] = ['cod', 'ss', 'nh', 'tn'];
-  let sum = 0;
-  for (const m of metrics) {
-    const obs = target.observed[m];
-    const pred = predicted[m];
-    if (obs === undefined || pred === undefined) continue;
-    if (!Number.isFinite(obs) || !Number.isFinite(pred)) return Number.POSITIVE_INFINITY;
-    const weight = target.weights?.[m] ?? 1;
-    // 相对误差 + 小量防止除零；分母用观测值，符合「相对误差」的工程直觉
-    const denom = Math.max(Math.abs(obs), 1e-3);
-    sum += weight * ((pred - obs) / denom) ** 2;
-  }
-  return sum;
+export function objective(
+  target: CalibrationTarget | CalibrationDataset,
+  predicted: EffluentObservation | DatasetPrediction,
+): number {
+  return objectiveBreakdown(target, predicted).total;
 }
 
 /**
@@ -123,24 +286,36 @@ export interface IdentifiabilityRow {
   advice: string;
 }
 
-export function identifiability(
-  predict: Predictor,
-  target: CalibrationTarget,
+export interface CalibrationHooks {
+  /** 每次目标函数求值前的 await 点；同步 CLI 不传，异步服务传 setImmediate */
+  beforeEvaluate?: () => Promise<void> | void;
+  /** 返回 true 时尽早结束（已算出的行保留） */
+  shouldCancel?: () => boolean;
+}
+
+export async function identifiability(
+  predict: Predictor | DatasetPredictor,
+  target: CalibrationTarget | CalibrationDataset,
   baseParams: Asm1Params = ASM1_PARAMS,
   stepPct = 0.05,
-): IdentifiabilityRow[] {
-  const basePred = predict(baseParams);
+  hooks: CalibrationHooks = {},
+): Promise<IdentifiabilityRow[]> {
+  const predictor = normalizePredictor(predict);
+  const basePred = predictor(baseParams);
   const baseJ = objective(target, basePred);
   const rows: IdentifiabilityRow[] = [];
 
   for (const param of CALIBRATABLE_PARAMS) {
+    if (hooks.shouldCancel?.()) break;
     const b = PARAM_BOUNDS[param];
     const v = baseParams[param];
     const delta = Math.max(v * stepPct, 1e-6);
     const up = Math.min(b.max, v + delta);
     const down = Math.max(b.min, v - delta);
-    const jUp = objective(target, predict({ ...baseParams, [param]: up }));
-    const jDown = objective(target, predict({ ...baseParams, [param]: down }));
+    await hooks.beforeEvaluate?.();
+    const jUp = objective(target, predictor({ ...baseParams, [param]: up }));
+    await hooks.beforeEvaluate?.();
+    const jDown = objective(target, predictor({ ...baseParams, [param]: down }));
     const actualDelta = up - down;
     // 目标函数的中心差分；除以基准 J 做归一化（J 可能为 0，用下限保护）
     const dJ = (jUp - jDown) / Math.max(actualDelta, 1e-9);
@@ -204,24 +379,33 @@ export interface CalibrationProgress {
   total: number;
 }
 
-export function calibrate(
-  predict: Predictor,
-  target: CalibrationTarget,
-  options: {
-    baseParams?: Asm1Params;
-    maxIterations?: number;
-    onlyIdentifiable?: boolean;
-    stepPct?: number;
-    onProgress?: (p: CalibrationProgress) => void;
-  } = {},
-): CalibrationResult {
+export interface CalibrationOptions {
+  baseParams?: Asm1Params;
+  maxIterations?: number;
+  onlyIdentifiable?: boolean;
+  stepPct?: number;
+  onProgress?: (p: CalibrationProgress) => void;
+  beforeEvaluate?: () => Promise<void> | void;
+  shouldCancel?: () => boolean;
+}
+
+export async function calibrate(
+  predict: Predictor | DatasetPredictor,
+  target: CalibrationTarget | CalibrationDataset,
+  options: CalibrationOptions = {},
+): Promise<CalibrationResult> {
+  const predictor = normalizePredictor(predict);
   const baseParams = options.baseParams ?? ASM1_PARAMS;
   const onlyIdentifiable = options.onlyIdentifiable !== false;
   const maxIterations = options.maxIterations ?? 4;
   const stepPct = options.stepPct ?? 0.05;
+  const cancelled = () => options.shouldCancel?.() === true;
 
   options.onProgress?.({ phase: 'identifiability', done: 0, total: CALIBRATABLE_PARAMS.length });
-  const rows = identifiability(predict, target, baseParams, stepPct);
+  const rows = await identifiability(predictor, target, baseParams, stepPct, {
+    beforeEvaluate: options.beforeEvaluate,
+    shouldCancel: options.shouldCancel,
+  });
   options.onProgress?.({
     phase: 'identifiability',
     done: CALIBRATABLE_PARAMS.length,
@@ -233,7 +417,7 @@ export function calibrate(
   const fixed = CALIBRATABLE_PARAMS.filter((p) => !candidates.includes(p));
 
   let current = { ...baseParams };
-  let currentJ = objective(target, predict(current));
+  let currentJ = objective(target, predictor(current));
   const objectiveBefore = currentJ;
   const trace: CalibrationResult['trace'] = [{ iteration: 0, objective: currentJ, changed: null }];
 
@@ -241,12 +425,13 @@ export function calibrate(
   let converged = false;
   let stagnant = 0;
 
-  while (iteration < maxIterations && !converged) {
+  while (iteration < maxIterations && !converged && !cancelled()) {
     iteration += 1;
     let improvedThisRound = false;
 
     let paramIndex = 0;
     for (const param of candidates) {
+      if (cancelled()) break;
       paramIndex += 1;
       options.onProgress?.({ phase: 'fitting', done: paramIndex, total: candidates.length });
       const bounds = PARAM_BOUNDS[param];
@@ -258,9 +443,11 @@ export function calibrate(
 
       // 在当前值周围做 5 点搜索（含中心），比单纯二分更抗噪声
       for (const factor of [-2, -1, 0, 1, 2]) {
+        if (cancelled()) break;
         const candidate = Math.min(bounds.max, Math.max(bounds.min, v + v * scale * factor));
         if (candidate === v) continue;
-        const j = objective(target, predict({ ...current, [param]: candidate }));
+        await options.beforeEvaluate?.();
+        const j = objective(target, predictor({ ...current, [param]: candidate }));
         if (j < bestJ - 1e-12) {
           bestJ = j;
           best = candidate;
@@ -295,13 +482,6 @@ export function calibrate(
   };
 }
 
-/**
- * 用 BSM1 官方 Table 6 稳态值构造一个「合成观测」。
- *
- * 这是没有真实水厂数据时的标准做法：把权威基准当成"真值"，
- * 检验标定流程能否从初始参数收敛回权威参数附近。
- * 它验证的是**流程正确性**，不是参数真实性——两者必须区分。
- */
 export function bsm1SyntheticTarget(): CalibrationTarget {
   const t = BSM1_TABLE6_EFFLUENT;
   return {

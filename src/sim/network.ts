@@ -1,4 +1,6 @@
 import { ProcessTopology, StreamKind, UnitSpec, findUnit } from '../model/topology';
+import { PLANT } from './config';
+import { deriveEdgeGeometry, splitByResistance, type EdgeGeometry, type SplitBranch } from './hydraulics';
 
 /**
  * 拓扑 → 可求解网络的编译器。
@@ -36,15 +38,36 @@ export interface CompiledEdge {
    * 流量分流必须按此语义确定，不能依赖边的声明顺序。
    */
   flowRef?: string;
+  /** 所属系列（train）id；单系列拓扑为空串 */
+  trainId?: string;
+  /** 边几何/设备参数（WP3 水力学） */
+  geometry: EdgeGeometry;
+}
+
+/** 一条完整系列：自己的反应器链 + 二沉池 + 独立 RAS/WAS 回流 */
+export interface CompiledTrain {
+  id: string;
+  reactorIds: string[];
+  clarifierId: string;
+}
+
+export interface CompiledClarifier {
+  id: string;
+  area: number;
+  depth: number;
 }
 
 export interface CompiledNetwork {
   topologyId: string;
   reactors: CompiledReactor[];
   edges: CompiledEdge[];
-  /** 主序列最后一个反应器 → 二沉池 */
+  /** 主序列最后一个反应器 → 二沉池（向后兼容：第一条系列） */
   clarifierFrom: string;
   clarifierId: string;
+  /** 全部二沉池（多系列） */
+  clarifiers: CompiledClarifier[];
+  /** 全部系列 */
+  trains: CompiledTrain[];
   bioVolume: number;
   aerobicVolume: number;
   anoxicVolume: number;
@@ -111,9 +134,11 @@ export function compileNetwork(topo: ProcessTopology): CompiledNetwork {
     });
   }
 
-  const clarifier = topo.units.find((u) => u.kind === 'clarifier');
-  if (!clarifier) problems.push('缺少二沉池');
+  const clarifierUnits = topo.units.filter((u) => u.kind === 'clarifier');
+  if (clarifierUnits.length === 0) problems.push('缺少二沉池');
   if (reactors.length === 0) problems.push('主序列没有可求解的反应器');
+
+  const unitById = new Map(topo.units.map((u) => [u.id, u]));
 
   // 边：只保留与反应器相关的连接
   const edges: CompiledEdge[] = [];
@@ -123,6 +148,8 @@ export function compileNetwork(topo: ProcessTopology): CompiledNetwork {
     if (!fromReactor && !toReactor) continue;
     const recycleKind = recycleKindOf(conn.stream);
     const recycle = Boolean(recycleKind) || Boolean(conn.recycle);
+    const fromUnit = unitById.get(conn.from.unit);
+    const toUnit = unitById.get(conn.to.unit);
     edges.push({
       id: conn.id,
       from: conn.from.unit,
@@ -133,6 +160,7 @@ export function compileNetwork(topo: ProcessTopology): CompiledNetwork {
       recycle,
       recycleKind,
       flowRef: conn.flowRef,
+      geometry: deriveEdgeGeometry(fromUnit?.meta, toUnit?.meta),
     });
   }
 
@@ -148,6 +176,43 @@ export function compileNetwork(topo: ProcessTopology): CompiledNetwork {
   }
   const orderIndex = new Map(order.map((id, i) => [id, i]));
   for (const r of reactors) r.order = orderIndex.get(r.id) ?? reactors.length;
+
+  // ── 多系列识别：每个二沉池向上回溯自己的反应器链 ──
+  // 前向反应器间边（非回流）用于回溯；系列内的边与回流边打上 trainId。
+  const forwardReactorEdges = edges.filter(
+    (e) => e.recycleKind === undefined && reactorIds.has(e.from) && reactorIds.has(e.to),
+  );
+  const clarifiers: CompiledClarifier[] = clarifierUnits.map((u) => ({
+    id: u.id,
+    area: u.area ?? PLANT.clarifier.area,
+    depth: u.depth ?? PLANT.clarifier.depth,
+  }));
+
+  const trains: CompiledTrain[] = clarifierUnits.map((clarUnit, trainIdx) => {
+    const seedReactors = edges.filter((e) => e.to === clarUnit.id && reactorIds.has(e.from)).map((e) => e.from);
+    const chain = new Set<string>(seedReactors);
+    const queue = [...seedReactors];
+    while (queue.length) {
+      const cur = queue.shift()!;
+      for (const prev of forwardReactorEdges.filter((e) => e.to === cur)) {
+        if (!chain.has(prev.from)) {
+          chain.add(prev.from);
+          queue.push(prev.from);
+        }
+      }
+    }
+    const reactorIdsInChain = reactors
+      .filter((r) => chain.has(r.id))
+      .sort((a, b) => a.order - b.order)
+      .map((r) => r.id);
+    const trainId = trainIdx === 0 ? clarUnit.id : `train-${clarUnit.id}`;
+    // 系列内前向边 + 该二沉池引出的回流边归属本系列
+    for (const e of edges) {
+      if (chain.has(e.from) || chain.has(e.to)) e.trainId = trainId;
+      if (e.recycleKind && e.from === clarUnit.id) e.trainId = trainId;
+    }
+    return { id: trainId, reactorIds: reactorIdsInChain, clarifierId: clarUnit.id };
+  });
 
   // 二沉池的来水：主序列里最靠后的反应器（没有前向出边的那个）
   let lastReactor = reactors[0];
@@ -173,7 +238,9 @@ export function compileNetwork(topo: ProcessTopology): CompiledNetwork {
     reactors,
     edges,
     clarifierFrom,
-    clarifierId: clarifier?.id ?? 'clarifier',
+    clarifierId: clarifiers[0]?.id ?? 'clarifier',
+    clarifiers,
+    trains,
     bioVolume,
     aerobicVolume,
     anoxicVolume,
@@ -208,26 +275,41 @@ function topologicalOrder(ids: string[], forwardEdges: CompiledEdge[]): string[]
   return out;
 }
 
+/** 单条支路在分流求解时的阻力描述（由水力学层按边几何给出） */
+export interface FlowBranchHydraulics {
+  resistance: number;
+  closed: boolean;
+  capacityM3h: number;
+}
+
 /**
  * 求每条边在给定控制量下的流量（m³/h）。
  *
  * 规则：
  * - 回流边流量由控制变量决定：RAS = ras×Q，IR = ir×Q，WAS = was×Q
- * - 前向边：节点入流减去被抽走的回流，按出边平分
+ * - 前向边：节点入流减去被抽走的回流，按**支路阻力**分配（等阻力时退化为均分）
  * - 若某反应器没有入流但有进水干管进入，则按 Q 计
+ *
+ * `branchHydraulics` 缺省时所有支路阻力相同，保持旧的均分语义；
+ * 传入后按 Qᵢ ∝ 1/√Rᵢ 阻力分流，总量守恒。
  */
 export function resolveFlows(
   network: CompiledNetwork,
   inflow: number,
   controls: { ras: number; ir: number; was: number; stepFeed?: number },
-): { edgeFlow: Map<string, number>; reactorInflow: Map<string, number>; reactorOutflow: Map<string, number> } {
+  branchHydraulics?: Map<string, FlowBranchHydraulics>,
+): {
+  edgeFlow: Map<string, number>;
+  reactorInflow: Map<string, number>;
+  reactorOutflow: Map<string, number>;
+  splitStatus: Map<string, 'ok' | 'unsolvable'>;
+} {
   const edgeFlow = new Map<string, number>();
   const reactorInflow = new Map<string, number>();
   const reactorOutflow = new Map<string, number>();
+  const splitStatus = new Map<string, 'ok' | 'unsolvable'>();
 
-  const Qr = inflow * controls.ras;
   const Qir = inflow * controls.ir;
-  const Qw = inflow * controls.was;
 
   const reactorIds = new Set(network.reactors.map((r) => r.id));
   const ordered = [...network.reactors].sort((a, b) => a.order - b.order);
@@ -238,20 +320,51 @@ export function resolveFlows(
   const hydraulicOut = (id: string) =>
     (network.outgoingByReactor[id] ?? []).filter((e) => e.stream !== 'air' && e.stream !== 'chemical');
 
-  // 1. 回流边先定流量（由控制量决定，不参与前向平衡）
+  // 1. 厂外来水分配（全图一次）。
+  // 支持多点进水：直接进入缺氧池的那条支线（flowRef='stepFeedFraction'）
+  // 按 stepFeed 比例分走一部分原水，其余原水进主进水边。
+  const stepFeedShare = Math.min(0.5, Math.max(0, controls.stepFeed ?? 0));
+  const stepFeedEdges = network.edges.filter(
+    (x) => x.flowRef === 'stepFeedFraction' && !reactorIds.has(x.from) && !x.recycle,
+  );
+  const stepFeedFlow = stepFeedEdges.length > 0 ? inflow * stepFeedShare : 0;
+  for (const se of stepFeedEdges) {
+    edgeFlow.set(se.id, stepFeedFlow / stepFeedEdges.length);
+  }
+
+  // 主进水边：外部进水边中带 'influentFlow' 语义的那些；没有则退化为第一条（确定性兜底）。
+  // 多系列拓扑可有多个主进水头，剩余原水在主进水边间均分。
+  const externalInfluent = network.edges.filter(
+    (x) => !reactorIds.has(x.from) && !x.recycle && x.stream === 'influent',
+  );
+  const mainEdges = externalInfluent.filter((x) => x.flowRef === 'influentFlow');
+  const mainList = mainEdges.length > 0 ? mainEdges : externalInfluent.filter((x) => !stepFeedEdges.includes(x));
+  const mainFlow = inflow - stepFeedFlow;
+  for (const x of externalInfluent) {
+    if (!edgeFlow.has(x.id)) edgeFlow.set(x.id, 0);
+  }
+  if (mainList.length > 0) {
+    for (const me of mainList) edgeFlow.set(me.id, mainFlow / mainList.length);
+  }
+
+  // 2. 回流边按系列定值：RAS/WAS = 本系列进水总量（主进水 + 多点进水）× 控制比；
+  // 内回流按全厂流量。单系列进水总量 = 全厂进水，与旧口径一致（RAS = ras×Q）。
+  const trainFeed = new Map<string, number>();
+  for (const x of externalInfluent) {
+    const t = x.trainId ?? network.trains[0]?.id ?? '';
+    trainFeed.set(t, (trainFeed.get(t) ?? 0) + (edgeFlow.get(x.id) ?? 0));
+  }
+  const legacyFeed = mainList.length > 0 ? mainFlow : inflow;
+  const feedOf = (e: CompiledEdge) => trainFeed.get(e.trainId ?? '') ?? legacyFeed;
+
   for (const e of network.edges) {
-    if (e.recycleKind === 'ras') edgeFlow.set(e.id, Qr);
+    if (e.recycleKind === 'ras') edgeFlow.set(e.id, feedOf(e) * controls.ras);
     else if (e.recycleKind === 'internal') edgeFlow.set(e.id, Qir);
-    else if (e.recycleKind === 'was') edgeFlow.set(e.id, Qw);
+    else if (e.recycleKind === 'was') edgeFlow.set(e.id, feedOf(e) * controls.was);
     else if (e.stream === 'air' || e.stream === 'chemical') edgeFlow.set(e.id, 0);
   }
 
-  // 2. 按拓扑序做一次水力传播。每个节点的入流只由「已确定的上游出流」+「回流」+「厂外来水」组成。
-  // 厂外来水的主进水分配整张拓扑只执行一次：若每个反应器各自分配，第二个带外部边的反应器
-  // 会再凭空拿走一份 (inflow - stepFeedFlow)，破坏质量守恒（预存缺陷，一并修复）。
-  let externalAssigned = false;
-  let mainEdgeId: string | null = null;
-
+  // 3. 按拓扑序做一次水力传播。每个节点的入流只由「已确定的上游出流」+「回流」+「厂外来水」组成。
   for (const reactor of ordered) {
     let qIn = 0;
 
@@ -265,64 +378,8 @@ export function resolveFlows(
         qIn += edgeFlow.get(e.id) ?? 0;
         continue;
       }
-      if (edgeFlow.has(e.id)) {
-        // 多点进水等已在上游分配过的厂外支线；主进水边的流量在分配处已计入，跳过避免重复
-        if (e.id !== mainEdgeId) qIn += edgeFlow.get(e.id) ?? 0;
-        continue;
-      }
-      /**
-       * 厂外来水分配（全图仅执行一次）。
-       *
-       * 支持多点进水：直接进入缺氧池的那条支线（flowRef='stepFeedFraction'）
-       * 按 stepFeed 比例分走一部分原水，其余原水进主进水边。这样缺氧区才有碳源
-       * 做反硝化，否则内回流会把 COD 稀释到几 mg/L，硝酸盐累积、TN 超标。
-       *
-       * 主进水边按 flowRef='influentFlow' 语义确定，而不是按边的声明顺序：
-       * 早先"第一个被遍历到的外部进水边拿走主流量"，一旦用户在编排器里新画边
-       * （新边追加在数组末尾）或重排边顺序，主流会被静默灌进缺氧池/旁路，
-       * 多点进水比例错乱且难以察觉。
-       */
-      if (!externalAssigned) {
-        const stepFeedEdges = network.edges.filter(
-          (x) => x.flowRef === 'stepFeedFraction' && !reactorIds.has(x.from) && !x.recycle,
-        );
-        const stepFeedShare = Math.min(0.5, Math.max(0, controls.stepFeed ?? 0));
-        const stepFeedFlow = stepFeedEdges.length > 0 ? inflow * stepFeedShare : 0;
-
-        for (const se of stepFeedEdges) {
-          edgeFlow.set(se.id, stepFeedFlow / stepFeedEdges.length);
-        }
-
-        // 主进水边：外部进水边中带 'influentFlow' 语义的那条；没有则退化为第一条（确定性兜底）
-        const extInfluent = hydraulicIn(reactor.id).filter(
-          (x) => !reactorIds.has(x.from) && !x.recycle && x.stream === 'influent',
-        );
-        const mainEdge = extInfluent.find((x) => x.flowRef === 'influentFlow') ?? extInfluent[0];
-        /**
-         * 找不到外部进水边时必须是语义清晰的错误。
-         *
-         * 旧实现直接 `mainEdge.id`，拓扑若有环路或断链会得到
-         * `TypeError: Cannot read properties of undefined (reading 'id')`，
-         * 排查时完全看不出是哪张图、哪个反应器的问题。
-         */
-        if (!mainEdge) {
-          throw new Error(
-            `反应器 ${reactor.id}（${reactor.name}）没有可用的外部进水边：检查 inlet 到该池的连线与 stream 声明`,
-          );
-        }
-        edgeFlow.set(mainEdge.id, inflow - stepFeedFlow);
-        qIn += inflow - stepFeedFlow;
-        mainEdgeId = mainEdge.id;
-        // 其余外部进水边（如调蓄回流）不重复计流量：水量已并入主进水口径，
-        // 这里显式写 0，保证每条边的流入口径都存在（否则前端会显示 undefined）
-        for (const x of extInfluent) {
-          if (!edgeFlow.has(x.id)) edgeFlow.set(x.id, 0);
-        }
-        externalAssigned = true;
-      } else {
-        edgeFlow.set(e.id, edgeFlow.get(e.id) ?? 0);
-        qIn += edgeFlow.get(e.id) ?? 0;
-      }
+      // 厂外来水（主进水 / 多点进水 / 调蓄回流）已在第 2 步定值
+      qIn += edgeFlow.get(e.id) ?? 0;
     }
 
     reactorInflow.set(reactor.id, qIn);
@@ -335,10 +392,21 @@ export function resolveFlows(
     reactorOutflow.set(reactor.id, available);
 
     if (forwardOut.length > 0) {
-      const each = available / forwardOut.length;
-      for (const e of forwardOut) edgeFlow.set(e.id, each);
+      const branches: SplitBranch[] = forwardOut.map((e) => {
+        const h = branchHydraulics?.get(e.id);
+        return {
+          edgeId: e.id,
+          resistance: h?.resistance ?? 1,
+          closed: h?.closed ?? false,
+          capacityM3h: h?.capacityM3h ?? Number.POSITIVE_INFINITY,
+        };
+      });
+      // 阻力分流：等阻力 → 均分（旧语义）；阻力不同 → Qᵢ ∝ 1/√Rᵢ
+      const outcome = splitByResistance(available, branches);
+      splitStatus.set(reactor.id, outcome.status);
+      forwardOut.forEach((e, i) => edgeFlow.set(e.id, Math.max(0, outcome.flows[i])));
     }
   }
 
-  return { edgeFlow, reactorInflow, reactorOutflow };
+  return { edgeFlow, reactorInflow, reactorOutflow, splitStatus };
 }

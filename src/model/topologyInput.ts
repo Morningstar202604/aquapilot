@@ -1,4 +1,13 @@
-import { UNIT_KINDS, type Connection, type ProcessTopology, type UnitSpec, validateTopology } from './topology';
+import * as v from 'valibot';
+import {
+  INTERVENTION_KEYS,
+  STREAM_KINDS,
+  UNIT_KINDS,
+  type Connection,
+  type ProcessTopology,
+  type UnitSpec,
+  validateTopology,
+} from './topology';
 import { MAX_COORD, MAX_ROUTE_POINTS } from './topologyEdit';
 
 /**
@@ -6,10 +15,10 @@ import { MAX_COORD, MAX_ROUTE_POINTS } from './topologyEdit';
  *
  * 界面传来的 topology 是任意 JSON：`as ProcessTopology` 只是骗编译器。
  * 一个 null 单元、NaN 容积或 100 万个节点都会进入引擎，轻则每 tick 抛错，
- * 重则把服务拖死。所有入口（WebSocket apply / 未来的导入）必须先过这里。
+ * 重则把服务拖死。所有入口（WebSocket apply / 导入 / 落盘恢复）必须先过这里。
  *
- * 设计取舍：只做「结构 + 上限」校验，不做工艺合理性判断——那由
- * validateTopology 与 checkRunReadiness 负责，两者职责分开。
+ * 结构校验交给 valibot schema，跨引用（端口存在、单元存在、train 去重）继续
+ * 在这里做——这两类规则依赖整棵树，不是单字段 validator 能表达的。
  */
 
 export type TopologySanitizeResult = { ok: true; topology: ProcessTopology } | { ok: false; error: string };
@@ -18,19 +27,6 @@ const MAX_UNITS = 80;
 const MAX_CONNECTIONS = 240;
 const MAX_ID_LEN = 64;
 const MAX_TEXT_LEN = 120;
-
-const KNOWN_KINDS = new Set<string>(UNIT_KINDS);
-const STREAMS = new Set([
-  'influent',
-  'mixed_liquor',
-  'return_activated_sludge',
-  'waste_sludge',
-  'internal_recycle',
-  'effluent',
-  'air',
-  'chemical',
-  'sludge_cake',
-]);
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return Boolean(v) && typeof v === 'object' && !Array.isArray(v);
@@ -70,91 +66,107 @@ const MAX_VOLUME = 1e6;
 const MAX_AREA = 1e5;
 const MAX_DEPTH = 30;
 
-function boundedPositive(v: unknown, max: number): number | undefined | false {
-  if (v === undefined) return undefined;
-  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0 || v > max) return false;
-  return v;
+const Positive = (max: number) =>
+  v.pipe(
+    v.number(),
+    v.finite(),
+    v.check((n) => n > 0 && n <= max, '必需是有限正数且不超过工程上限'),
+  );
+
+const PortSchema = v.object({
+  id: v.pipe(
+    v.string(),
+    v.check((s) => isSafeId(s), '端口 id 不合法'),
+  ),
+  kind: v.picklist(['in', 'out'] as const),
+  stream: v.picklist(STREAM_KINDS),
+});
+
+const UnitSchema = v.object({
+  id: v.pipe(
+    v.string(),
+    v.check((s) => isSafeId(s), '单元 id 不合法'),
+  ),
+  kind: v.picklist(UNIT_KINDS),
+  name: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(MAX_TEXT_LEN)),
+  role: v.optional(v.pipe(v.string(), v.maxLength(MAX_TEXT_LEN)), ''),
+  volume: v.optional(Positive(MAX_VOLUME)),
+  area: v.optional(Positive(MAX_AREA)),
+  depth: v.optional(Positive(MAX_DEPTH)),
+  ports: v.pipe(
+    v.array(PortSchema),
+    v.minLength(1),
+    v.maxLength(24),
+    v.check((ports) => new Set(ports.map((p) => p.id)).size === ports.length, '端口 id 重复'),
+  ),
+  states: v.optional(v.pipe(v.array(v.string()), v.maxLength(24)), []),
+  interventions: v.optional(
+    v.pipe(
+      v.array(v.string()),
+      v.maxLength(12),
+      v.transform((items) =>
+        items.filter((k): k is (typeof INTERVENTION_KEYS)[number] =>
+          (INTERVENTION_KEYS as readonly string[]).includes(k),
+        ),
+      ),
+    ),
+    [],
+  ),
+  meta: v.optional(v.record(v.string(), v.union([v.string(), v.number()])), {}),
+});
+
+const EndpointSchema = v.object({
+  unit: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(MAX_ID_LEN)),
+  port: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(32)),
+});
+
+const ConnectionSchema = v.object({
+  id: v.pipe(
+    v.string(),
+    v.check((s) => isSafeId(s), '连线 id 不合法'),
+  ),
+  from: EndpointSchema,
+  to: EndpointSchema,
+  stream: v.picklist(STREAM_KINDS),
+  flowRef: v.optional(v.pipe(v.string(), v.maxLength(64))),
+  recycle: v.optional(v.boolean()),
+});
+
+function coord(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.min(MAX_COORD, Math.max(0, Math.round(value)));
 }
 
-function coord(v: unknown): number | null {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
-  return Math.min(MAX_COORD, Math.max(0, Math.round(v)));
-}
+/**
+ * 把 valibot 解析出的 unit 收敛成领域对象，并剔除空字段。
+ *
+ * `states` / `interventions` / `meta` 在原实现里是「尽力保留」而不是硬性拒绝；
+ * schema 负责类型与上限，这里负责不把空数组/空对象写进拓扑，避免导出的 JSON
+ * 多出一堆没意义的 `meta: {}`。
+ */
+function toUnit(parsed: v.InferOutput<typeof UnitSchema>): UnitSpec {
+  const unit: UnitSpec = {
+    id: parsed.id,
+    kind: parsed.kind,
+    name: parsed.name,
+    role: parsed.role ?? '',
+    ports: parsed.ports.map((p) => ({ id: p.id, kind: p.kind, stream: p.stream })),
+  };
+  if (parsed.volume !== undefined) unit.volume = parsed.volume;
+  if (parsed.area !== undefined) unit.area = parsed.area;
+  if (parsed.depth !== undefined) unit.depth = parsed.depth;
+  if (parsed.states && parsed.states.length > 0) unit.states = parsed.states;
+  if (parsed.interventions && parsed.interventions.length > 0) unit.interventions = parsed.interventions;
 
-function sanitizeUnit(raw: unknown): UnitSpec | null {
-  if (!isObject(raw)) return null;
-  const id = isSafeId(raw.id) ? raw.id : null;
-  const kind = typeof raw.kind === 'string' && KNOWN_KINDS.has(raw.kind) ? raw.kind : null;
-  const name = str(raw.name);
-  const role = typeof raw.role === 'string' ? raw.role.slice(0, MAX_TEXT_LEN) : '';
-  if (!id || !kind || !name) return null;
-  if (!Array.isArray(raw.ports) || raw.ports.length === 0 || raw.ports.length > 24) return null;
-
-  const ports: UnitSpec['ports'] = [];
-  const seenPorts = new Set<string>();
-  for (const p of raw.ports) {
-    if (!isObject(p)) return null;
-    const pid = isSafeId(p.id) ? p.id : null;
-    if (!pid || seenPorts.has(pid)) return null;
-    seenPorts.add(pid);
-    if (p.kind !== 'in' && p.kind !== 'out') return null;
-    if (typeof p.stream !== 'string' || !STREAMS.has(p.stream)) return null;
-    ports.push({ id: pid, kind: p.kind, stream: p.stream as UnitSpec['ports'][number]['stream'] });
-  }
-
-  const volume = boundedPositive(raw.volume, MAX_VOLUME);
-  const area = boundedPositive(raw.area, MAX_AREA);
-  const depth = boundedPositive(raw.depth, MAX_DEPTH);
-  if (volume === false || area === false || depth === false) return null;
-
-  const unit: UnitSpec = { id, kind: kind as UnitSpec['kind'], name, role, ports };
-  if (volume !== undefined) unit.volume = volume;
-  if (area !== undefined) unit.area = area;
-  if (depth !== undefined) unit.depth = depth;
-  if (Array.isArray(raw.states))
-    unit.states = raw.states.filter((s): s is string => typeof s === 'string').slice(0, 24);
-  if (Array.isArray(raw.interventions)) {
-    unit.interventions = raw.interventions
-      .filter((s): s is string => typeof s === 'string')
-      .slice(0, 12) as UnitSpec['interventions'];
-  }
-  if (isObject(raw.meta)) {
+  if (parsed.meta) {
     const meta: Record<string, string | number> = {};
-    for (const [k, v] of Object.entries(raw.meta).slice(0, 16)) {
-      if (typeof v === 'string') meta[k.slice(0, 40)] = v.slice(0, 120);
-      else if (typeof v === 'number' && Number.isFinite(v)) meta[k.slice(0, 40)] = v;
+    for (const [k, val] of Object.entries(parsed.meta).slice(0, 16)) {
+      if (typeof val === 'string') meta[k.slice(0, 40)] = val.slice(0, 120);
+      else if (typeof val === 'number' && Number.isFinite(val)) meta[k.slice(0, 40)] = val;
     }
-    unit.meta = meta;
+    if (Object.keys(meta).length > 0) unit.meta = meta;
   }
   return unit;
-}
-
-function sanitizeConnection(
-  raw: unknown,
-  unitIds: Set<string>,
-  portIndex: Map<string, Set<string>>,
-): Connection | null {
-  if (!isObject(raw)) return null;
-  const id = isSafeId(raw.id) ? raw.id : null;
-  if (!id) return null;
-  if (!isObject(raw.from) || !isObject(raw.to)) return null;
-  const fromUnit = str(raw.from.unit, MAX_ID_LEN);
-  const toUnit = str(raw.to.unit, MAX_ID_LEN);
-  const fromPort = str(raw.from.port, 32);
-  const toPort = str(raw.to.port, 32);
-  if (!fromUnit || !toUnit || !fromPort || !toPort) return null;
-  if (!unitIds.has(fromUnit) || !unitIds.has(toUnit)) return null;
-  if (!portIndex.get(fromUnit)?.has(fromPort) || !portIndex.get(toUnit)?.has(toPort)) return null;
-  if (typeof raw.stream !== 'string' || !STREAMS.has(raw.stream)) return null;
-  const conn: Connection = {
-    id,
-    from: { unit: fromUnit, port: fromPort },
-    to: { unit: toUnit, port: toPort },
-    stream: raw.stream as Connection['stream'],
-  };
-  if (typeof raw.flowRef === 'string' && raw.flowRef.length <= 64) conn.flowRef = raw.flowRef;
-  if (typeof raw.recycle === 'boolean') conn.recycle = raw.recycle;
-  return conn;
 }
 
 export function sanitizeTopologyInput(raw: unknown): TopologySanitizeResult {
@@ -168,8 +180,9 @@ export function sanitizeTopologyInput(raw: unknown): TopologySanitizeResult {
   const units: UnitSpec[] = [];
   const ids = new Set<string>();
   for (const rawUnit of raw.units) {
-    const unit = sanitizeUnit(rawUnit);
-    if (!unit) return { ok: false, error: '存在结构不合法的单元（id/类型/端口/容积）' };
+    const parsed = v.safeParse(UnitSchema, rawUnit);
+    if (!parsed.success) return { ok: false, error: '存在结构不合法的单元（id/类型/端口/容积）' };
+    const unit = toUnit(parsed.output);
     if (ids.has(unit.id)) return { ok: false, error: `单元 ID 重复：${unit.id}` };
     ids.add(unit.id);
     units.push(unit);
@@ -181,11 +194,18 @@ export function sanitizeTopologyInput(raw: unknown): TopologySanitizeResult {
   const connections: Connection[] = [];
   const connIds = new Set<string>();
   for (const rawConn of raw.connections) {
-    const conn = sanitizeConnection(rawConn, ids, portIndex);
-    if (!conn) return { ok: false, error: '存在结构不合法的连线（端口/物流/单元引用）' };
+    const parsed = v.safeParse(ConnectionSchema, rawConn);
+    if (!parsed.success) return { ok: false, error: '存在结构不合法的连线（端口/物流/单元引用）' };
+    const conn = parsed.output;
+    if (!ids.has(conn.from.unit) || !ids.has(conn.to.unit)) {
+      return { ok: false, error: '存在结构不合法的连线（端口/物流/单元引用）' };
+    }
+    if (!portIndex.get(conn.from.unit)?.has(conn.from.port) || !portIndex.get(conn.to.unit)?.has(conn.to.port)) {
+      return { ok: false, error: '存在结构不合法的连线（端口/物流/单元引用）' };
+    }
     if (connIds.has(conn.id)) return { ok: false, error: `连线 ID 重复：${conn.id}` };
     connIds.add(conn.id);
-    connections.push(conn);
+    connections.push(conn as Connection);
   }
 
   /**

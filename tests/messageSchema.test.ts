@@ -20,6 +20,7 @@ describe('已知消息类型', () => {
       { type: 'applyRecommendation' },
       { type: 'sim', action: 'pause' },
       { type: 'speed', value: 2 },
+      { type: 'model', model: 'asm1' },
       { type: 'refreshDecision' },
       { type: 'preset', id: 'a2o-standard' },
       { type: 'watchdog', action: 'get' },
@@ -53,6 +54,13 @@ describe('拒绝非法输入（三处真实缺口）', () => {
   it('scenario.kind 必须是 start 或 clear', () => {
     expect(parseClientMessage({ type: 'scenario', kind: 'explode' }).ok).toBe(false);
     expect(parseClientMessage({ type: 'scenario' }).ok).toBe(false);
+  });
+
+  it('model 必须是 simple 或 asm1', () => {
+    expect(parseClientMessage({ type: 'model', model: 'asm1' }).ok).toBe(true);
+    expect(parseClientMessage({ type: 'model', model: 'simple' }).ok).toBe(true);
+    expect(parseClientMessage({ type: 'model', model: 'asm2d' }).ok).toBe(false);
+    expect(parseClientMessage({ type: 'model' }).ok).toBe(false);
   });
 
   it('sim.action 必须是 pause/resume/reset', () => {

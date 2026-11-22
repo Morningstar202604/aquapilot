@@ -11,25 +11,19 @@
 
 import type { ControlSettings } from '../sim/config';
 import { TARIFF } from '../sim/kinetics';
-import type { NetworkSimState } from '../sim/networkEngine';
-import { createNetworkState, spinUpNetwork, stepNetwork } from '../sim/networkEngine';
-import { qualityScore } from '../sim/metrics';
+import type { KineticModel, NetworkSimState } from '../sim/networkEngine';
+import { NETWORK_CONTROL_DEFAULTS, createNetworkState, spinUpNetwork, stepNetwork } from '../sim/networkEngine';
+import { qualityScore, worstRatio } from '../sim/metrics';
 import type { ProcessTopology } from '../model/topology';
 import type { BenchmarkSide, BenchmarkSummary } from '../shared/protocol';
 
-export const MANUAL_BASELINE_CONTROLS: ControlSettings = {
-  doSetpoint: 2.0,
-  internalRecirc: 2.0,
-  rasRatio: 0.8,
-  // 与生产引擎的默认排泥比一致：对比只应体现"控制策略"，不应体现"初始污泥龄"
-  wasRatio: 0.022,
-  pacDose: 40,
-  carbonDose: 0,
-  alkDose: 0,
-  stormStore: 0,
-  stepFeed: 0.3,
-  aiEnabled: false,
-};
+/**
+ * 人工基准策略：只把 AI 关掉，其余控制量与生产引擎同源。
+ *
+ * 以前这里重抄了 9 个数值，网络引擎后来把排泥比改成 0.022 时两边就靠
+ * 注释提醒；现在直接派生，基准侧不会再和引擎默认值漂移。
+ */
+export const MANUAL_BASELINE_CONTROLS: ControlSettings = { ...NETWORK_CONTROL_DEFAULTS, aiEnabled: false };
 
 function emptySide(): BenchmarkSide {
   return {
@@ -60,14 +54,19 @@ export interface ShadowPlant {
   benchmark: ShadowBenchmark;
 }
 
-export function createShadowPlant(topology: ProcessTopology, seed: number, startMin: number): ShadowPlant {
+export function createShadowPlant(
+  topology: ProcessTopology,
+  seed: number,
+  startMin: number,
+  model: KineticModel = 'simple',
+): ShadowPlant {
   /**
    * 初值必须与主厂一致：先用主厂的默认控制策略预热，再切换到固定策略。
    *
    * 早先用固定策略直接预热，等于给"人工"一侧更高的初始 MLSS 和更低的排泥量，
    * 两条链从第一天起就不在同一初始状态——那样的对比会把初始条件差异算到策略头上。
    */
-  const state = createNetworkState(topology, { seed });
+  const state = createNetworkState(topology, { seed, model });
   spinUpNetwork(state, topology, 30);
   state.controls = { ...MANUAL_BASELINE_CONTROLS };
   state.timeMin = startMin;
@@ -76,7 +75,7 @@ export function createShadowPlant(topology: ProcessTopology, seed: number, start
 
 function record(side: BenchmarkSide, state: NetworkSimState, dtMin: number): void {
   const e = state.effluent;
-  const compliant = e.cod <= 50 && e.bod <= 10 && e.ss <= 10 && e.nh <= 5 && e.tn <= 15 && e.tp <= 0.5;
+  const compliant = worstRatio(e) <= 1;
   side.minutes += dtMin;
   if (compliant) side.compliantMinutes += dtMin;
   side.scoreSum += qualityScore(e) * dtMin;

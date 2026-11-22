@@ -1,4 +1,6 @@
 import type { PlantSnapshot, SnapshotPatch } from '../../shared/protocol';
+import { CONTROL_KEYS } from '../../sim/config';
+import { EFFLUENT_METRICS } from '../../sim/metrics';
 
 /**
  * 增量快照合并。
@@ -27,22 +29,11 @@ function hasNumericFields(obj: unknown, keys: readonly string[]): boolean {
   return keys.every((k) => isFiniteNumber(rec[k]));
 }
 
-const EFFLUENT_KEYS = ['flow', 'cod', 'bod', 'ss', 'nh', 'tn', 'tp'] as const;
+const EFFLUENT_KEYS = ['flow', ...EFFLUENT_METRICS.map((m) => m.key)] as const;
 const INFLUENT_KEYS = ['flow', 'cod', 'bod', 'ss', 'nh', 'tn', 'tp', 'temperature', 'alkalinity'] as const;
 const ENERGY_KEYS = ['totalKw', 'specificKwhM3'] as const;
 const TOTALS_KEYS = ['inflowM3', 'energyKwh', 'cost', 'wasteSludgeKg', 'elapsedMin'] as const;
 const HEALTH_KEYS = ['score'] as const;
-const CONTROLS_KEYS = [
-  'doSetpoint',
-  'internalRecirc',
-  'rasRatio',
-  'wasRatio',
-  'pacDose',
-  'carbonDose',
-  'alkDose',
-  'stormStore',
-  'stepFeed',
-] as const;
 
 export function isUsablePatch(patch: unknown): patch is SnapshotPatch {
   if (!patch || typeof patch !== 'object') return false;
@@ -55,7 +46,7 @@ export function isUsablePatch(patch: unknown): patch is SnapshotPatch {
   if (
     !p.controls ||
     typeof p.controls !== 'object' ||
-    !hasNumericFields(p.controls, CONTROLS_KEYS) ||
+    !hasNumericFields(p.controls, CONTROL_KEYS) ||
     typeof (p.controls as Record<string, unknown>).aiEnabled !== 'boolean'
   )
     return false;

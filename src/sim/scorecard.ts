@@ -22,6 +22,7 @@
 
 import type { EffluentState } from '../sim/plantTypes';
 import { DEFAULT_STANDARD, type DischargeLimits, type DischargeStandard } from './standards';
+import { effluentMarginRows } from './metrics';
 
 export interface ScorecardSample {
   /** 仿真分钟 */
@@ -118,19 +119,9 @@ export function violationsOf(
   e: EffluentState,
   limits: DischargeLimits = DEFAULT_STANDARD.limits,
 ): { metric: keyof EffluentState; value: number; limit: number }[] {
-  const pairs: [keyof EffluentState, number, number][] = [
-    ['cod', e.cod, limits.cod],
-    ['bod', e.bod, limits.bod],
-    ['ss', e.ss, limits.ss],
-    ['nh', e.nh, limits.nh],
-    ['tn', e.tn, limits.tn],
-    ['tp', e.tp, limits.tp],
-  ];
-  const out: { metric: keyof EffluentState; value: number; limit: number }[] = [];
-  for (const [metric, value, limit] of pairs) {
-    if (Number.isFinite(value) && value > limit) out.push({ metric, value, limit });
-  }
-  return out;
+  return effluentMarginRows(e, limits)
+    .filter((row) => row.finite && row.ratio > 1)
+    .map((row) => ({ metric: row.key, value: row.value, limit: row.limit }));
 }
 
 /**

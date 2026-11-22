@@ -1,6 +1,8 @@
 import { ASM1_COMPONENTS, ASM1_PARAMS, ASM1_PROCESSES, buildStoichiometry } from './asm1';
 import { asm2dDescriptor as asm2dDescriptorImpl } from './asm2d';
 import { ADM1_COMPONENTS, ADM1_PARAMS, ADM1_PROCESSES, emptyState as emptyAdm1State } from './adm1';
+import type { ModelDescriptor, ConservationRow } from './modelDescriptor';
+export type { ModelDescriptor, ConservationRow } from './modelDescriptor';
 
 /**
  * 模型注册表：用**数据**描述一个生物动力学模型。
@@ -20,41 +22,6 @@ import { ADM1_COMPONENTS, ADM1_PARAMS, ADM1_PROCESSES, emptyState as emptyAdm1St
  * 被低估 16.8 倍、靠 BSM1 对照才发现）。
  */
 
-export interface ModelDescriptor<Comp extends string, Proc extends string> {
-  /** 模型标识 */
-  id: string;
-  /** 展示名 */
-  name: string;
-  /** 组分清单（顺序即状态向量顺序） */
-  components: readonly Comp[];
-  /** 过程清单 */
-  processes: readonly Proc[];
-  /** 化学计量矩阵：每个过程 → 各组分系数 */
-  stoichiometry: Record<Proc, Partial<Record<Comp, number>>>;
-  /**
-   * 守恒校验的维度定义。
-   *
-   * `cod` 与 `n` 是把组分折算成「COD 当量」与「氮当量」的函数。
-   * 每个过程的行向量在这两个度量下的内积必须为 0（闭合），
-   * 否则说明系数抄错或漏了某个产物。
-   */
-  conservation: {
-    cod?: Partial<Record<Comp, number>>;
-    n?: Partial<Record<Comp, number>>;
-    tolerance?: number;
-    exempt?: Partial<Record<Proc, string>>;
-  };
-}
-
-export interface ConservationRow<Proc extends string> {
-  process: Proc;
-  codResidual: number | null;
-  nResidual: number | null;
-  ok: boolean;
-  note?: string;
-}
-
-/** 逐过程守恒校验，返回每个过程的残差而不是一个布尔值 */
 export function checkModelConservation<Comp extends string, Proc extends string>(
   descriptor: ModelDescriptor<Comp, Proc>,
 ): ConservationRow<Proc>[] {

@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { DecisionPanel } from '../src/client/components/DecisionPanel';
@@ -324,6 +324,7 @@ describe('ControlPanel', () => {
         onStartScenario={vi.fn()}
         onClearScenario={vi.fn()}
         onApplyPreset={vi.fn()}
+        onSetModel={vi.fn()}
         aiEnabled
       />,
     );
@@ -341,6 +342,7 @@ describe('ControlPanel', () => {
         onStartScenario={vi.fn()}
         onClearScenario={vi.fn()}
         onApplyPreset={vi.fn()}
+        onSetModel={vi.fn()}
         aiEnabled
       />,
     );
@@ -358,6 +360,7 @@ describe('ControlPanel', () => {
         onStartScenario={onStartScenario}
         onClearScenario={vi.fn()}
         onApplyPreset={vi.fn()}
+        onSetModel={vi.fn()}
         aiEnabled
       />,
     );
@@ -378,6 +381,7 @@ describe('ControlPanel', () => {
         onStartScenario={vi.fn()}
         onClearScenario={onClearScenario}
         onApplyPreset={vi.fn()}
+        onSetModel={vi.fn()}
         aiEnabled
       />,
     );

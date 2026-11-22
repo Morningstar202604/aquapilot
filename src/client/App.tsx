@@ -40,50 +40,22 @@ import { WatchdogPanel } from './components/WatchdogPanel';
 import { UnitInspector } from './components/UnitInspector';
 import { TopbarMenu } from './components/TopbarMenu';
 import { AnalysisPanel } from './components/AnalysisPanel';
+import { IndustrialPanel } from './components/IndustrialPanel';
 import { CalibrationPanel } from './components/CalibrationPanel';
 import { InfluentPanel } from './components/InfluentPanel';
 import { ScorecardPanel } from './components/ScorecardPanel';
 import { Onboarding, HelpButton, hasSeenOnboarding, markOnboarded } from './components/Onboarding';
 import { Collapsible } from './components/Collapsible';
-import { nextTabIndex, tabDomIds, tabIndexFor } from './components/tabNav';
+import { TabPanel } from './components/TabPanel';
+import { SIDE_TAB_ORDER as TAB_ORDER, nextTabIndex, tabDomIds, tabIndexFor, type SideTab } from './components/tabNav';
 import { PLANT } from '../sim/config';
 import { formatClockLong } from '../shared/time';
 
-type Tab =
-  | 'chat'
-  | 'decision'
-  | 'control'
-  | 'alarms'
-  | 'insights'
-  | 'analysis'
-  | 'calibration'
-  | 'influent'
-  | 'replay'
-  | 'health'
-  | 'score';
 type View = 'plant' | 'editor';
-
-/**
- * 页签顺序必须与下方导航渲染一致：roving tabindex 与方向键导航
- * 都按这个数组计算，两处各写一份就会「按右键跳错页签」。
- */
-const TAB_ORDER: { id: Tab; label: string }[] = [
-  { id: 'chat', label: 'AI 对话' },
-  { id: 'decision', label: '决策解释' },
-  { id: 'control', label: '控制与工况' },
-  { id: 'alarms', label: '告警' },
-  { id: 'insights', label: '效益' },
-  { id: 'score', label: '评分' },
-  { id: 'analysis', label: '分析' },
-  { id: 'calibration', label: '校准' },
-  { id: 'influent', label: '进水' },
-  { id: 'replay', label: '回放' },
-  { id: 'health', label: '自检' },
-];
 
 export default function App() {
   const sim = useSimulation();
-  const [tab, setTab] = useState<Tab>('chat');
+  const [tab, setTab] = useState<SideTab>('chat');
   /** 首次访问引导；「?」按钮可随时重开 */
   const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
   const [view, setView] = useState<View>('plant');
@@ -228,6 +200,114 @@ export default function App() {
   }
 
   const kpis = buildKpis(snap);
+  /**
+   * 侧栏面板按页签 id 建表，只渲染当前项。
+   *
+   * 之前是 12 段 `{tab === 'x' && (...)}`，每段都重复 tabpanel id、ARIA
+   * 关联和 ErrorBoundary；漏一处就是读屏指错面板或异常打穿侧栏。
+   * 现在 DOM 契约统一由 TabPanel 负责，这里只声明内容。
+   */
+  const panels = {
+    chat: (
+      <TabPanel tab="chat" label="AI 对话">
+        <ChatPanel
+          chat={sim.chat}
+          pending={sim.chatPending > 0}
+          onAsk={sim.ask}
+          connected={sim.link.connected}
+          snap={snap}
+        />
+      </TabPanel>
+    ),
+    decision: (
+      <TabPanel tab="decision" label="AI 决策">
+        <DecisionPanel
+          snap={snap}
+          rec={sim.recommendation}
+          onApply={sim.applyRecommendation}
+          onDismiss={sim.dismissRecommendation}
+          onRefresh={sim.refreshDecision}
+          refreshing={sim.decisionRefreshing}
+          aiEnabled={aiEnabled}
+          onToggleAi={sim.setAiEnabled}
+        />
+      </TabPanel>
+    ),
+    control: (
+      <TabPanel tab="control" label="控制面板">
+        <ControlPanel
+          snap={snap}
+          onChange={sim.setControls}
+          onStartScenario={sim.startScenario}
+          onClearScenario={sim.clearScenario}
+          onApplyPreset={sim.applyPreset}
+          onSetModel={sim.setModel}
+          aiEnabled={aiEnabled}
+        />
+      </TabPanel>
+    ),
+    alarms: (
+      <TabPanel tab="alarms" label="告警面板">
+        <AlarmsPanel snap={snap} />
+      </TabPanel>
+    ),
+    insights: (
+      <TabPanel tab="insights" label="收益面板">
+        <InsightsPanel snap={snap} aiEnabled={aiEnabled} />
+      </TabPanel>
+    ),
+    score: (
+      <TabPanel tab="score" label="运营评分">
+        <ScorecardPanel card={snap.scorecard} />
+      </TabPanel>
+    ),
+    analysis: (
+      <TabPanel tab="analysis" label="分析面板">
+        <AnalysisPanel
+          analysis={sim.analysis}
+          loading={sim.analysisLoading}
+          error={sim.analysisError}
+          onRun={() => sim.runAnalysis()}
+        />
+      </TabPanel>
+    ),
+    industrial: (
+      <TabPanel tab="industrial" label="工业">
+        <IndustrialPanel timeMin={snap.timeMin} />
+      </TabPanel>
+    ),
+    calibration: (
+      <TabPanel tab="calibration" label="校准面板">
+        <CalibrationPanel
+          state={sim.calibration}
+          onIdentify={sim.identifyCalibration}
+          onStart={() => sim.startCalibration(2)}
+          onCancel={sim.cancelCalibration}
+        />
+      </TabPanel>
+    ),
+    influent: (
+      <TabPanel tab="influent" label="进水数据面板">
+        <InfluentPanel
+          state={sim.influent}
+          onLoad={sim.loadInfluent}
+          onApply={sim.applyInfluent}
+          onClear={sim.clearInfluent}
+        />
+      </TabPanel>
+    ),
+    replay: (
+      <TabPanel tab="replay" label="回放面板" fallback="加载回放面板…">
+        <ReplayPanel />
+      </TabPanel>
+    ),
+    health: (
+      <TabPanel tab="health" label="健康检查">
+        <WatchdogPanel report={sim.watchdog} />
+      </TabPanel>
+    ),
+  };
+
   return (
     <div className="app">
       {showOnboarding && (
@@ -529,127 +609,7 @@ export default function App() {
               })}
             </nav>
 
-            {tab === 'chat' && (
-              <div role="tabpanel" id="side-panel-chat" aria-labelledby="side-tab-chat" className="tab-panel">
-                <ErrorBoundary compact label="AI 对话">
-                  <ChatPanel
-                    chat={sim.chat}
-                    pending={sim.chatPending > 0}
-                    onAsk={sim.ask}
-                    connected={sim.link.connected}
-                    snap={snap}
-                  />
-                </ErrorBoundary>
-              </div>
-            )}
-            {tab === 'decision' && (
-              <div role="tabpanel" id="side-panel-decision" aria-labelledby="side-tab-decision" className="tab-panel">
-                <ErrorBoundary compact label="AI 决策">
-                  <DecisionPanel
-                    snap={snap}
-                    rec={sim.recommendation}
-                    onApply={sim.applyRecommendation}
-                    onDismiss={sim.dismissRecommendation}
-                    onRefresh={sim.refreshDecision}
-                    refreshing={sim.decisionRefreshing}
-                    aiEnabled={aiEnabled}
-                    onToggleAi={sim.setAiEnabled}
-                  />
-                </ErrorBoundary>
-              </div>
-            )}
-            {tab === 'control' && (
-              <div role="tabpanel" id="side-panel-control" aria-labelledby="side-tab-control" className="tab-panel">
-                <ErrorBoundary compact label="控制面板">
-                  <ControlPanel
-                    snap={snap}
-                    onChange={sim.setControls}
-                    onStartScenario={sim.startScenario}
-                    onClearScenario={sim.clearScenario}
-                    onApplyPreset={sim.applyPreset}
-                    aiEnabled={aiEnabled}
-                  />
-                </ErrorBoundary>
-              </div>
-            )}
-            {tab === 'alarms' && (
-              <div role="tabpanel" id="side-panel-alarms" aria-labelledby="side-tab-alarms" className="tab-panel">
-                <ErrorBoundary compact label="告警面板">
-                  <AlarmsPanel snap={snap} />
-                </ErrorBoundary>
-              </div>
-            )}
-            {tab === 'insights' && (
-              <div role="tabpanel" id="side-panel-insights" aria-labelledby="side-tab-insights" className="tab-panel">
-                <ErrorBoundary compact label="收益面板">
-                  <InsightsPanel snap={snap} aiEnabled={aiEnabled} />
-                </ErrorBoundary>
-              </div>
-            )}
-            {tab === 'score' && (
-              <div role="tabpanel" id="side-panel-score" aria-labelledby="side-tab-score" className="tab-panel">
-                <ErrorBoundary compact label="运营评分">
-                  <ScorecardPanel card={snap.scorecard} />
-                </ErrorBoundary>
-              </div>
-            )}
-            {tab === 'analysis' && (
-              <div role="tabpanel" id="side-panel-analysis" aria-labelledby="side-tab-analysis" className="tab-panel">
-                <ErrorBoundary compact label="分析面板">
-                  <AnalysisPanel
-                    analysis={sim.analysis}
-                    loading={sim.analysisLoading}
-                    error={sim.analysisError}
-                    onRun={() => sim.runAnalysis()}
-                  />
-                </ErrorBoundary>
-              </div>
-            )}
-            {tab === 'calibration' && (
-              <div
-                role="tabpanel"
-                id="side-panel-calibration"
-                aria-labelledby="side-tab-calibration"
-                className="tab-panel"
-              >
-                <ErrorBoundary compact label="校准面板">
-                  <CalibrationPanel
-                    state={sim.calibration}
-                    onIdentify={sim.identifyCalibration}
-                    onStart={() => sim.startCalibration(2)}
-                    onCancel={sim.cancelCalibration}
-                  />
-                </ErrorBoundary>
-              </div>
-            )}
-            {tab === 'influent' && (
-              <div role="tabpanel" id="side-panel-influent" aria-labelledby="side-tab-influent" className="tab-panel">
-                <ErrorBoundary compact label="进水数据面板">
-                  <InfluentPanel
-                    state={sim.influent}
-                    onLoad={sim.loadInfluent}
-                    onApply={sim.applyInfluent}
-                    onClear={sim.clearInfluent}
-                  />
-                </ErrorBoundary>
-              </div>
-            )}
-            {tab === 'replay' && (
-              <div role="tabpanel" id="side-panel-replay" aria-labelledby="side-tab-replay" className="tab-panel">
-                <ErrorBoundary compact label="回放面板">
-                  <Suspense fallback={<div className="empty-note">加载回放面板…</div>}>
-                    <ReplayPanel />
-                  </Suspense>
-                </ErrorBoundary>
-              </div>
-            )}
-            {tab === 'health' && (
-              <div role="tabpanel" id="side-panel-health" aria-labelledby="side-tab-health" className="tab-panel">
-                <ErrorBoundary compact label="健康检查">
-                  <WatchdogPanel report={sim.watchdog} />
-                </ErrorBoundary>
-              </div>
-            )}
+            {panels[tab]}
           </aside>
         )}
       </div>

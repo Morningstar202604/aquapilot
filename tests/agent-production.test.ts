@@ -172,10 +172,16 @@ describe('决策的极端与边界工况', () => {
     expect(rec.severity).toBeDefined();
   });
 
-  it('毒性场景下提高溶氧以保硝化', () => {
+  it('毒性场景下提高溶氧以保硝化（确定性候选排序）', () => {
     const s = spinUpNetwork(createNetworkState(PLANT_TOPOLOGY, { seed: 23 }), PLANT_TOPOLOGY, 15);
     s.scenario = { type: 'toxic', durationMin: 240, magnitude: 1, startedAt: s.timeMin };
-    const rec = decide({ model: networkModel(PLANT_TOPOLOGY, s), horizonMin: 180 });
+    /**
+     * 这里测的是「毒性 → 提高 DO」的工艺启发式，不是鲁棒集成选择。
+     * 默认 robust 会把维持现状也放进集成评估；当 BOD/COD 同时超标时，
+     * 三条扰动轨迹的最差尾部可能让 hold 胜出，从而掩盖溶氧动作本身。
+     * 集成选择另有 auditPolish 的鲁棒性用例覆盖。
+     */
+    const rec = decide({ model: networkModel(PLANT_TOPOLOGY, s), horizonMin: 180, robust: false });
     expect(rec.chosens.controls.doSetpoint).toBeGreaterThanOrEqual(2.4);
   });
 

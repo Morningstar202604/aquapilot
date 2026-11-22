@@ -1,58 +1,56 @@
 import { createServer, IncomingMessage } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { answer, decide, Recommendation } from '../ai/agent';
+import { answer, decide } from '../ai/agent';
+import type { Recommendation } from '../shared/aiTypes';
 
 import { readLlmConfig } from '../ai/llm';
-import { CONTROL_BOUNDS, LIMITS, PLANT } from '../sim/config';
+import { CONTROL_BOUNDS } from '../sim/config';
 import { SCENARIOS, ScenarioType } from '../sim/scenarios';
 import { NetworkSimState, networkModel, qualityScoreOf, stepNetwork } from '../sim/networkEngine';
 import { aiCycleDue } from './aiCadence';
 import type { ForecastOutcomeX } from '../sim/plantModel';
 import { CompiledNetwork } from '../sim/network';
 import type { ClientMessage, PlantSnapshot, ServerMessage, TrendPoint } from '../shared/protocol';
-import { PLANT_TOPOLOGY, ProcessTopology, validateTopology } from '../model/topology';
+import { ProcessTopology } from '../model/topology';
 import { TopologyStore } from './topologyStore';
-import { PRESETS, buildPreset, presetById } from '../model/presets';
+import { PRESETS, buildPreset } from '../model/presets';
 import { applyTopology, checkRunReadiness, createRuntime } from './topologyRuntime';
 import { Store } from './store';
-import {
-  authRequired,
-  authorize,
-  canEditAgentConfig,
-  requiredRoleFor,
-  roleAtLeast,
-  type Role as ClientRole,
-} from './auth';
+import { authRequired, authorize, requiredRoleFor, roleAtLeast, type Role as ClientRole } from './auth';
 import { decodeWsTokenSubprotocol } from '../shared/wsToken';
-import { isApiPath, isPublicApiPath, isReadMethod, pathnameOf } from './httpRoutes';
-import { logger, metrics, metricsJson, recordHttp, recordTick, renderPrometheus } from './observability';
-import { buildOperationsReport, decisionsCsv, reviewsCsv, snapshotsCsv } from './export';
-import { handleMcpRequest, mcpInternalError, mcpToolByName, type McpFacade } from './mcp';
+import { isApiPath, pathnameOf } from './httpRoutes';
+import { logger, metrics, recordHttp, recordTick, renderPrometheus } from './observability';
+import { buildOperationsReport } from './export';
+import { type McpFacade } from './mcp';
+import { createMcpHttpHandler } from './mcpHttp';
+import { sendJson } from './httpJson';
 import { syncCursorToBuffer } from './trendCursor';
 import { APP_VERSION } from '../shared/version';
 import { createShadowPlant, stepShadow, summarizeBenchmark, type ShadowPlant } from './benchmark';
-import { llmConfigStore, sanitizeDraft } from './llmConfig';
-import { discoverModels, fetchPublicUrl, testConnection } from '../ai/providers';
+import { llmConfigStore } from './llmConfig';
+import { fetchPublicUrl } from '../ai/providers';
 import { agentConfigStore } from './agentConfig';
 import { HookRuntime } from './hooks';
-import { parseAgentCommand } from './agentConfigCommands';
 import { buildReport, type CheckInput } from './watchdog';
-import { runAnalysis } from '../sim/analysis';
-import { DEFAULT_STANDARD, DISCHARGE_STANDARDS } from '../sim/standards';
-import { listModelDescriptors } from '../sim/modelRegistry';
-import { ADAPTER_CAPABILITIES } from '../sim/dataSources';
+
 import { applyGuards } from './aiGuard';
-import { serveStatic, queryOf } from './staticFiles';
-import { boundedWindow, MAX_SNAPSHOT_POINTS } from './queryBounds';
+import { decisionFingerprint, shouldRecordDecision, type DecisionAuditMark } from './decisionAudit';
+import { serveStatic } from './staticFiles';
 import { createSnapshotService } from './snapshotView';
-import { createLlmChat, errorText } from './llmChat';
+import { createLlmChat } from './llmChat';
 import { createAgentConfigHandler } from './agentConfigHandler';
+import { createLlmConfigHandler } from './llmConfigHandler';
+import { createApiHandler } from './apiRoutes';
+import { createComplianceLedger } from './complianceLedger';
 import { parseClientMessage } from './messageSchema';
 import { createCalibrationService } from './calibrationService';
 import { handleInfluentMessage } from './influentHandler';
 import { adoptTopology } from './topologyRebuild';
 import { handleTopologyMessage } from './topologyHandler';
 import { handleControlMessage } from './controlHandler';
+import { handleChatMessage } from './chatHandler';
+import { handleAnalysisMessage } from './analysisHandler';
+import { handleModelMessage, handlePresetMessage } from './topologySwitchHandler';
 import type { InfluentSeries } from '../sim/influentSeries';
 import { drySolidsToCod } from '../sim/units';
 import { resolveListenConfig } from './listenConfig';
@@ -63,15 +61,8 @@ import {
   stepEstimator,
   type EstimatorRuntime,
 } from './estimatorRuntime';
-import {
-  MAX_BUFFERED_BYTES,
-  MAX_LLM_IN_FLIGHT,
-  MAX_WS_CLIENTS,
-  createRateLimiter,
-  freshClientState,
-  type ClientState,
-} from './rateLimit';
-import { VALID_SCENARIOS, sanitizeChatText, sanitizeRange } from './validation';
+import { MAX_BUFFERED_BYTES, MAX_WS_CLIENTS, createRateLimiter, freshClientState, type ClientState } from './rateLimit';
+import { VALID_SCENARIOS } from './validation';
 
 /**
  * 环境变量必须校验后再用。
@@ -109,6 +100,8 @@ interface Runtime {
   simCarryMin: number;
   /** 上次决策的仿真时刻（分钟）：决策节拍按仿真时间而不是 tick 次数 */
   lastDecisionAtMin: number;
+  /** 上一条已落库决策的指纹与时刻（同摘要一小时内去重） */
+  lastAuditMark: DecisionAuditMark | null;
   clients: Set<WebSocket>;
   clientState: Map<WebSocket, ClientState>;
   /** 人工调整后的优先期截止（仿真分钟）；期内 AI 只建议不覆盖 */
@@ -162,20 +155,41 @@ function rotateRunId(): void {
 const topologyStore = new TopologyStore();
 const savedTopology = topologyStore.load();
 
+/**
+ * 演示默认厂：设计工况（宽二沉池），而不是 BSM1 复现厂。
+ *
+ * 标准厂 4 000 m² 二沉池在日峰值下 SS 会结构性越过一级 A；把它当默认，
+ * 用户第一眼看到的就是「AI 每 15 分钟报一次超标」。基准厂仍在模板列表里，
+ * 用于和 IWA 数据对照，但不再冒充产品默认。
+ */
+const DEFAULT_PRESET = PRESETS.find((p) => p.id === 'design-duty') ?? PRESETS[0];
+const DEFAULT_TOPOLOGY = buildPreset(DEFAULT_PRESET);
+
+/**
+ * 默认求解模型：ASM1。README 与 BSM1 校准说的都是 ASM1，浏览器里再悄悄
+ * 跑简化模型就是"文档一套、运行一套"。需要极速启动/低配机器可用
+ * AQUAPILOT_MODEL=simple 显式退回，而不是让默认值替用户做这个决定。
+ */
+const DEFAULT_MODEL = (process.env.AQUAPILOT_MODEL === 'simple' ? 'simple' : 'asm1') satisfies 'simple' | 'asm1';
+
 const boot = (() => {
   if (savedTopology.restored) {
     try {
-      const rt = createRuntime(savedTopology.topology, 20261019);
+      const rt = createRuntime(savedTopology.topology, 20261019, DEFAULT_MODEL);
       return { runtime: rt, topology: savedTopology.topology, restored: true };
     } catch (err) {
       logger.warn('stored topology cannot run, falling back to standard plant', { error: String(err) });
     }
   }
-  return { runtime: createRuntime(PLANT_TOPOLOGY, 20261019), topology: PLANT_TOPOLOGY, restored: false };
+  return {
+    runtime: createRuntime(DEFAULT_TOPOLOGY, 20261019, DEFAULT_MODEL),
+    topology: DEFAULT_TOPOLOGY,
+    restored: false,
+  };
 })();
 const restoredFromDisk = boot.restored;
 // 启动基线入历史：让"回滚到服务启动时的样子"始终可用
-topologyStore.seedBaseline(boot.topology, 1, restoredFromDisk ? '启动恢复' : '标准厂基线');
+topologyStore.seedBaseline(boot.topology, 1, restoredFromDisk ? '启动恢复' : `${DEFAULT_PRESET.name}基线`);
 
 const runtime: Runtime = {
   topology: boot.topology,
@@ -189,12 +203,13 @@ const runtime: Runtime = {
   tick: 0,
   simCarryMin: 0,
   lastDecisionAtMin: 0,
+  lastAuditMark: null,
   clients: new Set(),
   clientState: new Map(),
   manualOverrideUntil: 0,
   forecastCache: { key: null, value: null },
-  activePresetId: restoredFromDisk ? null : 'a2o-standard',
-  shadow: createShadowPlant(boot.topology, 20261019, 0),
+  activePresetId: restoredFromDisk ? null : DEFAULT_PRESET.id,
+  shadow: createShadowPlant(boot.topology, 20261019, 0, boot.runtime.net.modelMode),
   baselineStoredCodKg: 0,
   // 用真实初始状态播种（此时 boot.runtime.net 已就绪）
   estimator: createEstimatorRuntime(measureFromState(boot.runtime.net), {
@@ -236,6 +251,15 @@ const snapshots = createSnapshotService({
 
 const buildSnapshot = (): PlantSnapshot => snapshots.buildSnapshot();
 const currentAlarms = (s: NetworkSimState) => snapshots.currentAlarms(s);
+
+/**
+ * 合规采样账本。
+ *
+ * 40 天窗口，和 720 点（12 h）趋势缓冲分开：日混合样、月滚动均值、95 分位
+ * 都需要跨天数据，趋势缓冲根本不够用。账本只存分钟读数，加权/删失/QA 口径
+ * 全部留在 `src/sim/sampling.ts` 与 `src/sim/compliance.ts`，避免出现第二套统计算法。
+ */
+const complianceLedger = createComplianceLedger();
 
 function pushTrend(state: NetworkSimState, trend: TrendPoint[]): void {
   const last = state.reactors[state.reactors.length - 1];
@@ -510,6 +534,7 @@ const seenAlarmCodes = new Set<string>();
  */
 function clearRunScopedState(): void {
   runtime.manualOverrideUntil = 0;
+  runtime.lastAuditMark = null;
   seenAlarmCodes.clear();
   runtime.forecastCache.key = null;
   runtime.forecastCache.value = null;
@@ -531,7 +556,7 @@ const rebuildDeps = {
   persist: (topology: ProcessTopology, revision: number, note: string) => topologyStore.save(topology, revision, note),
   clearRunScopedState,
   rebuildShadow: (topology: ProcessTopology, net: NetworkSimState) => {
-    runtime.shadow = createShadowPlant(topology, net.seed, net.timeMin);
+    runtime.shadow = createShadowPlant(topology, net.seed, net.timeMin, net.modelMode);
   },
   pushTrend: () => pushTrend(runtime.net, runtime.trend),
   runAiCycle: () => {
@@ -564,12 +589,13 @@ function recordReview(verdict: 'approve' | 'reject' | 'auto', actor: string, act
  * 此前两处各抄一份，MCP 那份漏了 runId 轮换 —— 重置后的快照会写进上一条
  * 运行的时间轴，回放曲线出现锯齿。
  */
-function resetRuntime(): void {
+function resetRuntime(model: typeof runtime.net.modelMode = runtime.net.modelMode): void {
   rotateRunId();
-  runtime.net = createRuntime(runtime.topology, 20261019).net;
-  runtime.shadow = createShadowPlant(runtime.topology, 20261019, 0);
+  runtime.net = createRuntime(runtime.topology, 20261019, model).net;
+  runtime.shadow = createShadowPlant(runtime.topology, 20261019, 0, model);
   runtime.baselineStoredCodKg = particulateCodKg(runtime.net);
   runtime.trend = [];
+  complianceLedger.clear();
   runtime.recommendation = null;
   runtime.tick = 0;
   runtime.simCarryMin = 0;
@@ -695,16 +721,23 @@ function runAiCycle(force = false): Recommendation {
   }
   broadcast({ type: 'decision', data: rec });
 
-  store.recordDecision({
-    runId: RUN_ID,
-    atMin: runtime.net.timeMin,
-    action: rec.action,
-    severity: rec.severity,
-    summary: rec.summary,
-    tweaks: JSON.stringify(rec.tweaks),
-    predictedScore: rec.predictedScore,
-    separation: rec.separation,
-  });
+  /**
+   * 同一条结构性结论一小时内只落一次库。广播仍然每轮照发：界面需要
+   * 知道「当前建议仍是这条」，但审计历史只该记录状态变化。
+   */
+  if (shouldRecordDecision(runtime.lastAuditMark, rec, runtime.net.timeMin, { force })) {
+    store.recordDecision({
+      runId: RUN_ID,
+      atMin: runtime.net.timeMin,
+      action: rec.action,
+      severity: rec.severity,
+      summary: rec.summary,
+      tweaks: JSON.stringify(rec.tweaks),
+      predictedScore: rec.predictedScore,
+      separation: rec.separation,
+    });
+    runtime.lastAuditMark = { key: decisionFingerprint(rec), atMin: runtime.net.timeMin };
+  }
 
   return rec;
 }
@@ -725,6 +758,25 @@ function advance(): void {
   for (let i = 0; i < steps; i++) {
     stepNetwork(s, runtime.topology, 1);
     runtime.tick += 1;
+    /**
+     * 合规账本按仿真分钟逐点记录。
+     *
+     * 不能复用每 10 分钟一次的趋势点：流量比例混合样要求按水量加权，
+     * 10 min 抽样会把日内峰谷抹平；1 min 粒度下 40 天约 5.8 万条，
+     * 对内存与单步耗时都可忽略。
+     */
+    complianceLedger.push({
+      minute: s.timeMin,
+      flowM3h: s.influent.flow,
+      values: {
+        cod: s.effluent.cod,
+        bod: s.effluent.bod,
+        ss: s.effluent.ss,
+        nh: s.effluent.nh,
+        tn: s.effluent.tn,
+        tp: s.effluent.tp,
+      },
+    });
     /**
      * 在线状态估计（默认关闭）。
      *
@@ -872,135 +924,33 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       break;
     }
     case 'chat': {
-      const text = sanitizeChatText((msg as { text?: unknown }).text);
-      if (text === null) {
-        ws.send(
-          JSON.stringify({
-            type: 'notice',
-            level: 'error',
-            text: '问题为空或过长（上限 2000 字）',
-          } satisfies ServerMessage),
-        );
-        break;
-      }
-      /**
-       * 聊天限流：每条消息最多触发 4 次长超时出站 LLM 请求
-       * （两套请求预算 × 数字校验失败后的整轮重试，推理模型单次 60 s）。
-       * 不限流时一条连接即可堆满内存与第三方配额。
-       */
-      if (rateLimited(ws, 'chat')) {
-        throttledNotice(ws, 'chat', '提问过于频繁，请稍后再试');
-        break;
-      }
-      const chatState = runtime.clientState.get(ws) ?? freshClientState();
-      if (chatState.llmInFlight >= MAX_LLM_IN_FLIGHT) {
-        metrics.rateLimited += 1;
-        ws.send(
-          JSON.stringify({
-            type: 'notice',
-            level: 'warn',
-            text: '上一条回答仍在生成，请等它完成',
-          } satisfies ServerMessage),
-        );
-        break;
-      }
-      // 对话式配置：命令先于规则引擎处理，命中即回执并不再走问答
-      const agentCfgForChat = agentConfigStore.get();
-      const cmd = parseAgentCommand(text, agentCfgForChat);
-      if (cmd.handled) {
-        if (cmd.next && !canEditAgentConfig(senderRole)) {
-          ws.send(
-            JSON.stringify({
-              type: 'chat',
-              question: text,
-              answer: {
-                title: '配置未生效',
-                body: '当前令牌无权修改 Agent 配置，需要 admin 权限。',
-                bullets: [],
-                confidence: 0.95,
-                kind: 'editor',
-                source: 'rule',
-              },
-            } satisfies ServerMessage),
-          );
-          break;
-        }
-        if (cmd.next) {
-          const outcome = agentConfigStore.save(cmd.next, { writer: 'chat' });
-          if (!outcome.ok) {
-            ws.send(
-              JSON.stringify({
-                type: 'chat',
-                question: text,
-                answer: {
-                  title: '配置未生效',
-                  body: outcome.error ?? '保存失败',
-                  bullets: [],
-                  confidence: 0.9,
-                  kind: 'editor',
-                  source: 'rule',
-                },
-              } satisfies ServerMessage),
-            );
-            break;
-          }
-          void hooksRuntime.fire(agentConfigStore.get(), {
-            event: 'config',
-            detail: cmd.command ?? 'chat',
-            key: cmd.command,
-          });
-          const warn = outcome.warnings.length > 0 ? `\n（${outcome.warnings.join('；')}）` : '';
-          ws.send(
-            JSON.stringify({
-              type: 'chat',
-              question: text,
-              answer: {
-                title: `配置已更新 · ${cmd.command ?? 'chat'}`,
-                body: `${cmd.reply ?? '已完成'}${warn}`,
-                bullets: [],
-                confidence: 0.95,
-                kind: 'editor',
-                source: 'rule',
-              },
-            } satisfies ServerMessage),
-          );
-        } else {
-          ws.send(
-            JSON.stringify({
-              type: 'chat',
-              question: text,
-              answer: {
-                title: cmd.error ? '命令未执行' : `配置查询 · ${cmd.command ?? 'list'}`,
-                body: cmd.reply ?? '',
-                bullets: [],
-                confidence: 0.95,
-                kind: 'editor',
-                source: 'rule',
-              },
-            } satisfies ServerMessage),
-          );
-        }
-        break;
-      }
-
-      const ruleAnswer = answer(text, networkModel(runtime.topology, runtime.net), runtime.recommendation);
-      ws.send(JSON.stringify({ type: 'chat', question: text, answer: ruleAnswer } satisfies ServerMessage));
-
-      /**
-       * LLM 增强（可选，异步）。
-       *
-       * 先发规则答案保证「任何配置下都有回答」，再尝试 LLM 追问一条补充。
-       * 失败只记指标，不打扰用户——用户已经看到可用答案。
-       *
-       * 在途计数必须成对增减：它保证单连接不会堆满长超时出站请求，
-       * 漏掉 finally 会让一次超时永久占掉一个名额（最终把聊天卡死）。
-       */
-      const trackState = runtime.clientState.get(ws) ?? freshClientState();
-      trackState.llmInFlight += 1;
-      runtime.clientState.set(ws, trackState);
-      void enhanceWithLlm(ws, text, ruleAnswer).finally(() => {
-        const cur = runtime.clientState.get(ws);
-        if (cur) cur.llmInFlight = Math.max(0, cur.llmInFlight - 1);
+      handleChatMessage(msg as Extract<ClientMessage, { type: 'chat' }>, {
+        send: (payload) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+        },
+        role: senderRole,
+        rateLimited: (kind) => rateLimited(ws, kind),
+        throttledNotice: (kind, text) => throttledNotice(ws, kind, text),
+        state: () => runtime.clientState.get(ws) ?? freshClientState(),
+        saveState: (state) => runtime.clientState.set(ws, state),
+        hooks: hooksRuntime,
+        ruleAnswer: (text) => answer(text, networkModel(runtime.topology, runtime.net), runtime.recommendation),
+        enhance: (text, ruleAnswer) => enhanceWithLlm(ws, text, ruleAnswer),
+      });
+      break;
+    }
+    case 'model': {
+      handleModelMessage(msg as Extract<ClientMessage, { type: 'model' }>, {
+        currentModel: () => runtime.net.modelMode,
+        resetModel: (model) => resetRuntime(model),
+        rateLimited: () => rateLimited(ws, 'topology'),
+        send: (payload) => {
+          ws.send(JSON.stringify(payload));
+        },
+        broadcast,
+        broadcastSnapshot,
+        paused: () => runtime.paused,
+        speed: () => runtime.speed,
       });
       break;
     }
@@ -1071,63 +1021,36 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       break;
     }
     case 'preset': {
-      /**
-       * 切换模板会重建运行时并预热 30 天（21600 次 stepNetwork，实测 400 ms 级）。
-       * 与拓扑变更同等代价，必须共用同一限流；此前完全没限，连点即打停 tick。
-       */
-      if (rateLimited(ws, 'topology')) {
-        ws.send(
-          JSON.stringify({
-            type: 'notice',
-            level: 'error',
-            text: '工艺切换过于频繁，请稍后再试',
-          } satisfies ServerMessage),
-        );
-        break;
-      }
-      const known = PRESETS.map((p) => p.id);
-      if (typeof msg.id !== 'string' || !known.includes(msg.id)) {
-        ws.send(JSON.stringify({ type: 'notice', level: 'error', text: '未知的工艺模板' } satisfies ServerMessage));
-        break;
-      }
-      const preset = presetById(msg.id);
-      if (!preset) break;
-      const candidate = buildPreset(preset);
-      const rt = {
-        topology: runtime.topology,
-        compiled: runtime.compiled,
-        appliedAt: Date.now(),
-        revision: runtime.topologyRevision,
-        net: runtime.net,
-      };
-      const result = applyTopology(rt, candidate);
-      if (!result.ok) {
-        ws.send(
-          JSON.stringify({
-            type: 'notice',
-            level: 'error',
-            text: `模板无法应用：${result.blockers[0] ?? '未知原因'}`,
-          } satisfies ServerMessage),
-        );
-        break;
-      }
-      const { saved } = adoptTopology(
-        candidate,
-        rt.compiled,
-        rt.net,
-        `切换模板：${preset.name}`,
-        preset.id,
-        rebuildDeps,
-      );
-      broadcast({
-        type: 'notice',
-        level: 'info',
-        text: saved
-          ? `已切换到模板：${preset.name}`
-          : `已切换到模板：${preset.name}（⚠ 写盘失败，重启后会回退到旧拓扑）`,
+      handlePresetMessage(msg as Extract<ClientMessage, { type: 'preset' }>, {
+        apply: (candidate) => {
+          const rt = {
+            topology: runtime.topology,
+            compiled: runtime.compiled,
+            appliedAt: Date.now(),
+            revision: runtime.topologyRevision,
+            net: runtime.net,
+          };
+          const result = applyTopology(rt, candidate);
+          if (result.ok) {
+            runtime.topology = rt.topology;
+            runtime.compiled = rt.compiled;
+            runtime.net = rt.net;
+            runtime.topologyRevision = rt.revision;
+          }
+          return result;
+        },
+        compiled: () => runtime.compiled,
+        net: () => runtime.net,
+        rateLimited: () => rateLimited(ws, 'topology'),
+        send: (payload) => {
+          ws.send(JSON.stringify(payload));
+        },
+        adopt: (topology, compiled, net, note, presetId) =>
+          adoptTopology(topology, compiled, net, note, presetId, rebuildDeps),
+        topologyMessage,
+        broadcast,
+        broadcastSnapshot,
       });
-      broadcast({ ...topologyMessage() } satisfies ServerMessage);
-      broadcastSnapshot();
       break;
     }
     case 'topology': {
@@ -1203,40 +1126,17 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
       break;
     }
     case 'analysis': {
-      /**
-       * 运行分析是重操作（~25 次 4h 预测，实测 300+ ms 同步阻塞），
-       * 因此按需触发、限流，并与「重新推演」共用同一套冷却。
-       */
-      if (rateLimited(ws, 'decision')) {
-        throttledNotice(ws, 'decision', '分析请求过于频繁，请 2 秒后再试');
-        break;
-      }
-      try {
-        const horizon = sanitizeRange(msg.horizonMin, 60, 480, 240);
-        const data = runAnalysis(
-          networkModel(runtime.topology, runtime.net),
-          {
-            totals: runtime.net.totals,
-            effluent: runtime.net.effluent,
-            storedParticulateCodKg: particulateCodKg(runtime.net),
-            baselineStoredCodKg: runtime.baselineStoredCodKg,
-            influentCodAvg: runtime.net.influent.cod,
-            // 两种引擎的取样口径都不构成严格守恒方程，统一按近似判定
-            approximate: true,
-          },
-          horizon,
-        );
-        ws.send(JSON.stringify({ type: 'analysis', requestId: msg.requestId, data } satisfies ServerMessage));
-      } catch (err) {
-        ws.send(
-          JSON.stringify({
-            type: 'analysis',
-            action: 'error',
-            requestId: msg.requestId,
-            error: err instanceof Error ? err.message : '分析失败',
-          } satisfies ServerMessage),
-        );
-      }
+      handleAnalysisMessage(msg as Extract<ClientMessage, { type: 'analysis' }>, {
+        topology: runtime.topology,
+        net: runtime.net,
+        storedParticulateCodKg: particulateCodKg(runtime.net),
+        baselineStoredCodKg: runtime.baselineStoredCodKg,
+        rateLimited: () => rateLimited(ws, 'decision'),
+        throttledNotice: (text) => throttledNotice(ws, 'decision', text),
+        send: (payload) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+        },
+      });
       break;
     }
     default:
@@ -1244,111 +1144,7 @@ function handleClientMessage(ws: WebSocket, raw: string): void {
   }
 }
 
-/**
- * 自定义模型配置（界面驱动）。
- *
- * 全部走 WS 的 request/response，附带 requestId 以便前端丢弃过期响应。
- * 发现与测试是出站网络请求：带超时、限流，失败只回错误文本。
- */
-const LLM_RATE_LIMIT_MS = 800;
-
-async function handleLlmConfig(ws: WebSocket, msg: Extract<ClientMessage, { type: 'llmConfig' }>): Promise<void> {
-  const requestId = 'requestId' in msg ? msg.requestId : undefined;
-  const send = (payload: ServerMessage) => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
-  };
-
-  if (msg.action === 'get') {
-    send({ type: 'llmConfig', action: 'config', requestId, config: llmConfigStore.getPublic() });
-    return;
-  }
-
-  if (msg.action === 'clear') {
-    llmConfigStore.clear();
-    send({ type: 'llmConfig', action: 'saved', requestId: requestId ?? '', ok: true });
-    return;
-  }
-
-  const state = runtime.clientState.get(ws) ?? freshClientState();
-  const now = Date.now();
-  if (now - state.lastLlmAt < LLM_RATE_LIMIT_MS) {
-    send({ type: 'llmConfig', action: 'error', requestId, error: '操作过于频繁，请稍后再试' });
-    return;
-  }
-  state.lastLlmAt = now;
-  runtime.clientState.set(ws, state);
-
-  if (msg.action === 'discover') {
-    if (typeof msg.baseUrl !== 'string' || msg.baseUrl.length > 500) {
-      send({ type: 'llmConfig', action: 'error', requestId: msg.requestId, error: 'Base URL 不合法' });
-      return;
-    }
-    try {
-      if (llmConfigStore.hasKeyForOtherOrigin(msg.baseUrl) && !(typeof msg.apiKey === 'string' && msg.apiKey.trim())) {
-        send({
-          type: 'llmConfig',
-          action: 'error',
-          requestId: msg.requestId,
-          error: '目标地址与已保存配置不同源，请重新填写 API Key（已保存的密钥不会发往新地址）',
-        });
-        return;
-      }
-      const models = await discoverModels({
-        protocol: msg.protocol,
-        baseUrl: msg.baseUrl,
-        apiKey: llmConfigStore.resolveKey(typeof msg.apiKey === 'string' ? msg.apiKey.trim() : '', msg.baseUrl),
-      });
-      send({ type: 'llmConfig', action: 'discovered', requestId: msg.requestId, models });
-    } catch (err) {
-      send({ type: 'llmConfig', action: 'error', requestId: msg.requestId, error: errorText(err) });
-    }
-    return;
-  }
-
-  if (msg.action === 'test') {
-    if (typeof msg.baseUrl !== 'string' || typeof msg.model !== 'string' || !msg.model.trim()) {
-      send({ type: 'llmConfig', action: 'error', requestId: msg.requestId, error: '请先填写地址与模型' });
-      return;
-    }
-    if (llmConfigStore.hasKeyForOtherOrigin(msg.baseUrl) && !(typeof msg.apiKey === 'string' && msg.apiKey.trim())) {
-      send({
-        type: 'llmConfig',
-        action: 'error',
-        requestId: msg.requestId,
-        error: '目标地址与已保存配置不同源，请重新填写 API Key（已保存的密钥不会发往新地址）',
-      });
-      return;
-    }
-    const result = await testConnection({
-      protocol: msg.protocol,
-      baseUrl: msg.baseUrl,
-      apiKey: llmConfigStore.resolveKey(typeof msg.apiKey === 'string' ? msg.apiKey.trim() : '', msg.baseUrl),
-      model: msg.model.trim(),
-      maxOutput: typeof msg.maxOutput === 'number' ? msg.maxOutput : undefined,
-      // 按用户选择的思考档位测试：缺省时测试与保存后的行为一致
-      reasoningEffort: msg.reasoningEffort,
-    });
-    send({ type: 'llmConfig', action: 'tested', requestId: msg.requestId, result });
-    return;
-  }
-
-  if (msg.action === 'save') {
-    const parsed = sanitizeDraft(msg.draft);
-    if (!parsed.ok) {
-      send({ type: 'llmConfig', action: 'saved', requestId: msg.requestId, ok: false, error: parsed.error });
-      return;
-    }
-    const saved = llmConfigStore.save(parsed.draft);
-    if (!saved.ok) {
-      send({ type: 'llmConfig', action: 'saved', requestId: msg.requestId, ok: false, error: saved.error });
-      return;
-    }
-    send({ type: 'llmConfig', action: 'saved', requestId: msg.requestId, ok: true, config: saved.config });
-    return;
-  }
-
-  send({ type: 'llmConfig', action: 'error', requestId, error: '未知的配置动作' });
-}
+const handleLlmConfig = createLlmConfigHandler({ clientState: () => runtime.clientState });
 
 async function main(): Promise<void> {
   // 在开始服务前完成持久化初始化（Node 20 上会自动降级为不持久化）
@@ -1379,8 +1175,7 @@ async function main(): Promise<void> {
        */
       logger.error('http handler failed', { route: pathnameOf(req.url), error: String(err) });
       if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ error: 'internal error' }));
+        sendJson(res, 500, { error: 'internal error' });
       } else {
         res.end();
       }
@@ -1476,76 +1271,28 @@ async function main(): Promise<void> {
     },
   };
 
-  /**
-   * POST /mcp —— MCP Streamable HTTP 端点（无 SSE 保守实现）。
-   * 鉴权沿用 HTTP API 的同一套令牌体系并按工具分级：只读工具 viewer 即可，
-   * 写类工具要求 operator；限流（安全 MUST）用最朴素的 IP 滑窗，
-   * 避免外部 agent 刷爆仿真器。
-   */
-  const mcpRate = new Map<string, { count: number; windowStart: number }>();
-  async function handleMcpHttp(req: IncomingMessage, res: import('node:http').ServerResponse): Promise<void> {
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) chunks.push(chunk as Buffer);
-    let body: unknown = null;
-    try {
-      body = JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null');
-    } catch {
-      body = null; // 让协议层回 -32700/-32600
-    }
-    // 分级鉴权：按请求的工具选择角色（未知工具按 viewer 处理，协议层回 -32602）
-    const requestedTool =
-      body && typeof body === 'object' ? (body as { params?: { name?: unknown } }).params?.name : undefined;
-    const mcpTool = typeof requestedTool === 'string' ? mcpToolByName(requestedTool) : undefined;
-    const requiredRole = mcpTool && !mcpTool.readOnly ? 'operator' : 'viewer';
-    const decision = authorize(req, null, requiredRole);
-    if (!decision.allowed) {
-      metrics.authFailures += 1;
-      logger.warn('mcp auth rejected', { reason: decision.reason, tool: requestedTool ?? null });
-      res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ error: 'unauthorized', requiredRole }));
-      return;
-    }
-    // 限流：60 请求/分钟/IP（工具调用是重操作，足够宽裕）
-    const ip = req.socket.remoteAddress ?? 'unknown';
-    const now = Date.now();
-    const bucket = mcpRate.get(ip);
-    if (!bucket || now - bucket.windowStart > 60_000) {
-      mcpRate.set(ip, { count: 1, windowStart: now });
-    } else if (++bucket.count > 60) {
-      res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ error: 'rate limited (60 req/min)' }));
-      return;
-    }
-    if (mcpRate.size > 1024) mcpRate.clear(); // 防地址欺骗撑爆内存
+  /** MCP HTTP 端点在独立模块里维护鉴权/限流/协议边界 */
+  const handleMcpHttp = createMcpHttpHandler(mcpFacade);
 
-    let out;
-    try {
-      out = handleMcpRequest({
-        httpMethod: req.method ?? 'POST',
-        origin: req.headers.origin ?? null,
-        host: req.headers.host ?? null,
-        protocolVersionHeader: (req.headers['mcp-protocol-version'] as string | undefined) ?? null,
-        body,
-        facade: mcpFacade,
-      });
-    } catch (err) {
-      out = mcpInternalError(err);
-      logger.error('mcp internal error', { error: String(err) });
-    }
-    res.writeHead(out.status, { 'Content-Type': 'application/json; charset=utf-8', ...(out.headers ?? {}) });
-    res.end(out.body === undefined ? undefined : JSON.stringify(out.body));
-  }
+  const handleApi = createApiHandler({
+    runtime: () => runtime,
+    snapshot: buildSnapshot,
+    store,
+    topologyStore,
+    complianceReadings: () => {
+      const span = complianceLedger.span();
+      return span.count === 0 ? [] : complianceLedger.readings(span.fromMin, span.toMin);
+    },
+  });
 
   function handleHttpRequest(req: IncomingMessage, res: import('node:http').ServerResponse): void {
     /**
      * 访问控制只作用于 API 与 WebSocket，不拦静态资源。
      *
-     * 为什么：浏览器导航请求无法携带 Authorization 头。
-     * 早期实现把 `/` 也拦了，导致启用 token 后首页直接 401，
-     * 前端完全无法加载——认证功能"启用即故障"。
-     * 正确做法：页面可加载，页面内的 API/WS 调用再要求令牌。
+     * 浏览器导航请求无法携带 Authorization 头；页面可加载，页面内的
+     * API/WS 调用再要求令牌。否则启用 token 后首页直接 401，认证功能
+     * “启用即故障”。
      */
-    // 基线安全响应头（OWASP A02）
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -1554,22 +1301,13 @@ async function main(): Promise<void> {
       "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:",
     );
 
-    /**
-     * 路由判定的唯一起点。
-     *
-     * `pathnameOf` 已经折叠斜杠、解析点段、统一到前导单斜杠，
-     * 下面所有分支（MCP、鉴权、公开端点、静态回落）都只读这一个值。
-     * 不再有任何地方回头去看 `req.url` —— 两套口径必然产生
-     * 「鉴权认为不是 API、路由认为它是 API」这类绕过。
-     */
     const pathname = pathnameOf(req.url);
-    // MCP 端点：自带鉴权（control 角色）与限流，不走下面的 viewer 只读门
+    // MCP 端点：自带鉴权（control 角色）与限流，不走 viewer 只读门
     if (pathname === '/mcp') {
       void handleMcpHttp(req, res).catch((err) => {
         logger.error('mcp http handler failed', { error: String(err) });
         if (!res.headersSent) {
-          res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify({ error: 'internal error' }));
+          sendJson(res, 500, { error: 'internal error' });
         } else {
           res.end();
         }
@@ -1577,296 +1315,11 @@ async function main(): Promise<void> {
       return;
     }
     /**
-     * 访问控制用**默认拒绝**结构，而不是「是 API 且不是公开端点」这种排除式判断。
-     *
-     * 排除式写法的危险在于：新增一条路由时只要忘了同时更新两个判定，
-     * 它就默认落在允许一侧。这里改为先假设「一切 /api/* 都要鉴权」，
-     * 只有白名单里的两个端点显式提前放行——新增端点不写代码就是受保护的。
+     * 路由判定只读规范化后的 pathname；API 的鉴权、405 与各端点
+     * 全在 apiRoutes.ts，这里只剩「API 还是静态文件」二分。
      */
-    if (isApiPath(pathname) && !isPublicApiPath(pathname)) {
-      // 所有 GET API 都是只读：viewer 即可（写操作走 WS 且要求更高角色）
-      const decision = authorize(req, null, 'viewer');
-      if (!decision.allowed) {
-        metrics.authFailures += 1;
-        logger.warn('auth rejected', {
-          scope: 'http',
-          // 用规范化后的 pathname，不用原始 req.url：后者含换行即可伪造日志行
-          route: pathname,
-          reason: decision.reason,
-          ip: req.socket.remoteAddress,
-        });
-        res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ error: decision.reason, authRequired: true }));
-        return;
-      }
-    }
-    // 所有 API 都是只读的（写操作走 WebSocket），非 GET/HEAD 一律 405 并给出 Allow
-    if (isApiPath(pathname) && !isReadMethod(req.method)) {
-      res.writeHead(405, {
-        'Content-Type': 'application/json; charset=utf-8',
-        Allow: 'GET, HEAD',
-      });
-      res.end(JSON.stringify({ error: 'method not allowed' }));
-      return;
-    }
-
-    if (pathname === '/api/auth-required') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ required: authRequired() }));
-      return;
-    }
-    if (pathname === '/api/health') {
-      /**
-       * 健康检查分两级：
-       * - 默认 /api/health：存活探针，只要进程能响应就是 200（用于 restart 判断）
-       * - ?deep=1：就绪探针，额外检查仿真是否在推进、持久化是否可用
-       *
-       * 早期实现无条件返回 {ok:true}，tick 已经因异常停摆也照样"健康"，
-       * 这对自动重启策略来说是假信号。
-       */
-      const url = queryOf(req);
-      const deep = url.get('deep') === '1';
-      const body: Record<string, unknown> = {
-        ok: true,
-        authRequired: authRequired(),
-        uptimeSeconds: Math.round(process.uptime()),
-      };
-      if (deep) {
-        const stalled = runtime.paused && metrics.tickErrors > 0;
-        const body2 = {
-          ...body,
-          ok: !stalled,
-          paused: runtime.paused,
-          tickErrors: metrics.tickErrors,
-          lastTickMs: Number(metrics.lastTickMs.toFixed(1)),
-          persistence: store.enabled ? 'enabled' : 'disabled',
-          simulationMinutes: Math.round(runtime.net.timeMin),
-        };
-        res.writeHead(stalled ? 503 : 200, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify(body2));
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(body));
-      return;
-    }
-    if (pathname === '/api/metrics') {
-      // Prometheus 抓取默认走文本；?format=json 便于人读与前端展示
-      const url = queryOf(req);
-      if (url.get('format') === 'json') {
-        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify(metricsJson()));
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
-      res.end(renderPrometheus());
-      return;
-    }
-    /**
-     * 模型能力清单。
-     *
-     * 让界面/运维能直接问「这个部署支持哪些模型、各自状态如何」，
-     * 而不是靠读 README 猜。返回注册表里的真实描述符，
-     * 未接入运行的模型标注 `active: false`——避免把「已实现」误读成「已启用」。
-     */
-    /**
-     * 排放标准档案。
-     *
-     * 评分卡必须说明自己是按哪套口径打的，前端也需要能列出可选项。
-     * 三套口径的差异是真实的：BSM1 基准厂出水 TSS ≈ 11.7 mg/L，在
-     * 一级 A 的 SS ≤ 10 下天然吃紧，在基准口径下则正常。
-     */
-    if (pathname === '/api/standards') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(
-        JSON.stringify({
-          standards: DISCHARGE_STANDARDS.map((s) => ({
-            id: s.id,
-            label: s.label,
-            source: s.source,
-            limits: s.limits,
-            note: s.note,
-          })),
-          default: DEFAULT_STANDARD.id,
-        }),
-      );
-      return;
-    }
-    if (pathname === '/api/models') {
-      const list = listModelDescriptors().map((d) => ({
-        id: d.id,
-        name: d.name,
-        components: d.components.length,
-        processes: d.processes.length,
-        /**
-         * 当前主仿真是否直接用该模型。
-         *
-         * 默认的 `simple` 模式是 ASM1 的简化变体（同一份守恒校验），
-         * 因此也只有 asm1 会标 true；显式切换到 asm1 时同样为 true。
-         */
-        active: d.id === 'asm1' && (runtime.net.modelMode === 'asm1' || runtime.net.modelMode === 'simple'),
-        /**
-         * 是否已接入主求解器。
-         *
-         * 目前只有 ASM1 在运行链路里（simple 模式是它的简化变体）；
-         * ASM2d / ADM1 是独立单元，可被 API 查询与单测调用，但不驱动主界面。
-         * 明确区分「已实现」与「已启用」，避免读者误判部署能力。
-         */
-        inRuntime: d.id === 'asm1',
-      }));
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ models: list, influentSources: ADAPTER_CAPABILITIES }));
-      return;
-    }
-    if (pathname === '/api/limits') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ limits: LIMITS, bounds: CONTROL_BOUNDS, plant: PLANT }));
-      return;
-    }
-    if (pathname === '/api/topology/history') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ versions: topologyStore.history() }));
-      return;
-    }
-    if (pathname === '/api/topology') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(
-        JSON.stringify({
-          topology: runtime.topology,
-          revision: runtime.topologyRevision,
-          readiness: checkRunReadiness(runtime.topology),
-          issues: validateTopology(runtime.topology),
-          solved: {
-            reactors: runtime.net.reactors.map((r) => ({ id: r.id, name: r.name, kind: r.kind, volume: r.volume })),
-            bioVolume: runtime.net.volume.bio,
-            aerobicVolume: runtime.net.volume.aerobic,
-            anoxicVolume: runtime.net.volume.anoxic,
-            anaerobicVolume: runtime.net.volume.anaerobic,
-          },
-        }),
-      );
-      return;
-    }
-    if (pathname === '/api/history/decisions') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ enabled: store.enabled, decisions: store.recentDecisions(100) }));
-      return;
-    }
-    if (pathname === '/api/history/reviews') {
-      /**
-       * 人工裁决审计。
-       *
-       * 与 /api/history/decisions 并列：一个答「AI 想做什么」，
-       * 一个答「人（或机器）怎么处置了它」。两者都要有，复盘才闭环。
-       */
-      const url = queryOf(req);
-      const limit = Math.min(500, Math.max(1, Math.trunc(Number(url.get('limit') ?? 100) || 100)));
-      const runId = url.get('runId') ?? undefined;
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ enabled: store.enabled, reviews: store.recentReviews(limit, runId) }));
-      return;
-    }
-    if (pathname === '/api/history/alarms') {
-      const url = queryOf(req);
-      const limit = Math.min(500, Math.max(1, Math.trunc(Number(url.get('limit') ?? 100) || 100)));
-      const runId = url.get('runId') ?? undefined;
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ enabled: store.enabled, alarms: store.recentAlarms(limit, runId ?? undefined) }));
-      return;
-    }
-    if (pathname === '/api/history/snapshots') {
-      const url = queryOf(req);
-      const window = boundedWindow(url);
-      if (!window.ok) {
-        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ error: window.error }));
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(
-        JSON.stringify({
-          enabled: store.enabled,
-          runId: store.latestRunId(),
-          runs: store.listRuns(),
-          snapshots: store.snapshotsBetween(window.from, window.to, undefined, MAX_SNAPSHOT_POINTS),
-          limit: MAX_SNAPSHOT_POINTS,
-        }),
-      );
-      return;
-    }
-    if (pathname === '/api/history/stats') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ enabled: store.enabled, counts: store.count() }));
-      return;
-    }
-    if (pathname === '/api/presets') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(
-        JSON.stringify({
-          presets: PRESETS.map((p) => ({ id: p.id, name: p.name, description: p.description })),
-          activeId: runtime.activePresetId,
-        }),
-      );
-      return;
-    }
-    if (pathname === '/api/export/snapshots.csv') {
-      const url = queryOf(req);
-      const window = boundedWindow(url);
-      if (!window.ok) {
-        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ error: window.error }));
-        return;
-      }
-      const rows = store.snapshotsBetween(window.from, window.to, undefined, MAX_SNAPSHOT_POINTS);
-      const body = snapshotsCsv(rows);
-      res.writeHead(200, {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': 'attachment; filename="aquapilot-snapshots.csv"',
-        'Cache-Control': 'no-store',
-      });
-      res.end(body);
-      return;
-    }
-    if (pathname === '/api/export/decisions.csv') {
-      const body = decisionsCsv(store.recentDecisions(1000));
-      res.writeHead(200, {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': 'attachment; filename="aquapilot-decisions.csv"',
-        'Cache-Control': 'no-store',
-      });
-      res.end(body);
-      return;
-    }
-    if (pathname === '/api/export/reviews.csv') {
-      const body = reviewsCsv(store.recentReviews(1000));
-      res.writeHead(200, {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': 'attachment; filename="aquapilot-reviews.csv"',
-        'Cache-Control': 'no-store',
-      });
-      res.end(body);
-      return;
-    }
-    if (pathname === '/api/export/report.md') {
-      const body = buildOperationsReport(buildSnapshot());
-      res.writeHead(200, {
-        'Content-Type': 'text/markdown; charset=utf-8',
-        'Content-Disposition': 'attachment; filename="aquapilot-report.md"',
-        'Cache-Control': 'no-store',
-      });
-      res.end(body);
-      return;
-    }
-    if (pathname === '/api/snapshot') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(buildSnapshot()));
-      return;
-    }
-    // 未匹配的 /api/* 必须 404，不能掉进静态分支返回 index.html：
-    // 客户端把 HTML 当 JSON 解析只会得到一句看不懂的语法错误
     if (isApiPath(pathname)) {
-      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ error: 'not found' }));
+      handleApi(req, res, pathname);
       return;
     }
 

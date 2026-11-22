@@ -8,15 +8,15 @@
 [![CodeQL](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/codeql.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.12-339933)](package.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![tests](https://img.shields.io/badge/tests-1376%20passing-2ea44f)](docs/BENCHMARKS.md)
+[![tests](https://img.shields.io/badge/tests-1614%20passing-2ea44f)](docs/BENCHMARKS.md)
 
 ![AquaPilot overview](docs/screenshots/01-overview.jpg)
 
 ## What you get
 
 - **A plant you can edit, not a fixed diagram.** The flowsheet is a graph: add a tank, rewire a recycle, load a preset — the solver recompiles the network from the topology and the canvas follows. 17 units, 23 connections in the default A²/O plant, every edge terminating on its declared port anchor.
-- **ASM1 + Takács clarifier, benchmarked.** The water train is checked against the IWA BSM1 Table 6 reference in CI; the worst deviation (TSS, the quantity affected by the Takács non-settling fraction `f_ns`) sits at **+5.1%** against the official value. ASM2d and ADM1 ship as standalone, conservation-checked modules.
-- **An AI operator that shows its work.** A rolling 4-hour forecast ranks candidate control moves on compliance, cost and stability, applies them inside hard bounds, and explains every action — including the moves it *declined* and why. A guard-blocked move is reported as blocked; nothing is logged as "executed" unless a setpoint actually moved.
+- **ASM1 + Takács clarifier, benchmarked.** The water train is checked against the IWA BSM1 Table 6 reference in CI; every gated metric passes; the largest deviation is S_NH at **−10.8%** (inside its 25% gate), and TSS sits at **−7.4%** (the known Takács non-settling-fraction `f_ns` limit). ASM2d ships as an **experimental** plant-wide boundary (real integration, separate sludge line, three ledgers), with its remaining steady-state gaps listed in [docs/PLANT-BOUNDARY.md](docs/PLANT-BOUNDARY.md) rather than hidden.
+- **An AI operator that shows its work.** A rolling 4-hour forecast ranks candidate control moves on compliance, cost and stability, applies them inside hard bounds, and explains every action — including the moves it _declined_ and why. A guard-blocked move is reported as blocked; nothing is logged as "executed" unless a setpoint actually moved.
 - **Analysis built in.** Parameter sensitivity (central differences), a compliance-vs-cost Pareto frontier, and a plant-wide COD mass-balance audit that accounts for all four destinations — effluent, waste sludge, aeration oxidation and in-system inventory.
 - **A scorecard you can argue with.** Every run is scored on four weighted axes —
   effluent compliance (40), energy (20), biological stability (20) and crisis
@@ -31,20 +31,21 @@
 - **Evidence, not marketing.** AI-vs-fixed-strategy shadow runs share seed, influent and initial state; the insights panel shows the real deltas. Parameter calibration and a six-state EKF ship as experimental, clearly-labelled tools.
 - **Speaks MCP.** `POST /mcp` exposes the simulator to the whole agent ecosystem (LangGraph, OpenAI Agents SDK, CrewAI, Vercel AI SDK, Mastra — a Streamable HTTP URL is all they need): eleven tools with JSON-Schema inputs, tiered token auth, rate limiting and origin checks. Point an agent at it and it can read the plant, inject a storm, and ask "what if DO goes to 3?" via the pure-compute `simulate_headless` tool.
 - **CLI and a single-file exe.** `aquapilot simulate --days 7 --scenario storm` runs headless with a GB-18918 compliance summary; `bench` gates against BSM1 Table 6; `report` emits Markdown; `serve` starts the full stack. `npm run exe` packs it into a ~84 MB standalone `aquapilot.exe` — no Node installation required.
-- **Keyboard and screen-reader complete.** The eleven side panels follow the WAI-ARIA Tabs pattern: roving tabindex, arrow/Home/End navigation, `aria-controls` on every tab and a labelled `tabpanel` for each view. Verified in the browser smoke test, not only in unit tests.
+- **Keyboard and screen-reader complete.** The twelve side panels follow the WAI-ARIA Tabs pattern: roving tabindex, arrow/Home/End navigation, `aria-controls` on every tab and a labelled `tabpanel` for each view. Verified in the browser smoke test, not only in unit tests.
+- **An industrial layer you can wire, not just draw.** Hydraulic resistance splitting across parallel trains, tracer RTD, pump/valve/weir characteristics; sensor models with dead time, drift, noise and stuck faults; actuator rate limits and saturation; PID loops, interlocks and ESD that move real physical variables; a permit-style compliance report (daily composite, weighted mean, type-7 95th percentile, QA/QC rejection); asset ledger with health, standby auto-start and work orders; and OPC UA / Modbus / MQTT adapters with 28 mapped tags, quality codes and an audited write boundary. Everything read-only over HTTP, everything visible in the twelfth panel.
 - **Operations-grade hygiene.** Three-tier token access (`viewer`/`operator`/`admin`), SSRF-guarded outbound fetches, SQLite history with backup/restore, Prometheus metrics, CSV replay with data-quality rejection, and an 11-step local CI gate mirrored on GitHub Actions, GitCode and Gitee.
 
 **What it is not:** a design-grade simulator, a field control system, or a compliance guarantee. Simulation output is for testing and engineering discussion; the precise boundaries are listed in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 ## Screenshots
 
-| Control room | AI decision trail |
-| --- | --- |
-| ![](docs/screenshots/01-overview.jpg) | ![](docs/screenshots/03-decision.jpg) |
-| **Operational scorecard** | **Flowsheet editor** |
-| ![](docs/screenshots/11-scorecard.jpg) | ![](docs/screenshots/07-editor.jpg) |
-| **Mobile** | **Alarms and health** |
-| ![](docs/screenshots/09-mobile.jpg) | ![](docs/screenshots/10-alarms.jpg) |
+| Control room                           | AI decision trail                     |
+| -------------------------------------- | ------------------------------------- |
+| ![](docs/screenshots/01-overview.jpg)  | ![](docs/screenshots/03-decision.jpg) |
+| **Operational scorecard**              | **Flowsheet editor**                  |
+| ![](docs/screenshots/11-scorecard.jpg) | ![](docs/screenshots/07-editor.jpg)   |
+| **Mobile**                             | **Alarms and health**                 |
+| ![](docs/screenshots/09-mobile.jpg)    | ![](docs/screenshots/10-alarms.jpg)   |
 
 More views: [AI chat](docs/screenshots/02-chat.jpg) · [scenario injection](docs/screenshots/04-control.jpg) · [replay](docs/screenshots/06-replay.jpg) · [insights](docs/screenshots/05-insights.jpg) · [laptop layout](docs/screenshots/08-laptop.jpg) — or watch `docs/media/demo.mp4` (656 kB) / `demo.gif` (3 MB).
 
@@ -104,7 +105,7 @@ npm run dev               # Vite client on :5174, proxying API/WS to :5173
 Verification (what CI runs):
 
 ```bash
-npm run verify            # typecheck + lint + 1376 tests + build
+npm run verify            # typecheck + lint + 1614 tests + build
 npm run ci                # full 11-step gate: coverage, smoke, secrets, backup, audit
 npm run e2e               # Playwright browser smoke (uses a system Edge/Chromium when present)
 ```
@@ -134,19 +135,19 @@ LLM providers (OpenAI-compatible, Anthropic Messages, Google Gemini) are configu
 
 ## Documentation
 
-| Doc | Contents |
-| --- | --- |
-| [docs/API.md](docs/API.md) | HTTP + WebSocket contracts, message schemas |
-| [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | Every measured claim, with the command that reproduces it |
-| [docs/RUNBOOK.md](docs/RUNBOOK.md) | Operations, backup/restore, troubleshooting |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Docker, persistence, reverse proxy, mirror layout |
-| [docs/UI-ARCHITECTURE.md](docs/UI-ARCHITECTURE.md) | Frontend module map and data flow |
-| [docs/AGENT-HARNESS.md](docs/AGENT-HARNESS.md) | Agent-protocol research (MCP/A2A) and what shipped from it |
-| [docs/REFERENCE-LEARNING.md](docs/REFERENCE-LEARNING.md) | 20 peer open-source projects studied, and where each lesson landed |
-| [docs/SECURITY-HARDENING.md](docs/SECURITY-HARDENING.md) | Closed vulnerabilities, with reproduction and negative controls |
-| [docs/QUALITY-ROADMAP.md](docs/QUALITY-ROADMAP.md) | Known model limitations and the plan for them |
-| [docs/COMPETITIVE-ANALYSIS.md](docs/COMPETITIVE-ANALYSIS.md) | Verified comparison against seven peer projects |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Branches, commit style, the local gate, release steps |
+| Doc                                                          | Contents                                                           |
+| ------------------------------------------------------------ | ------------------------------------------------------------------ |
+| [docs/API.md](docs/API.md)                                   | HTTP + WebSocket contracts, message schemas                        |
+| [docs/BENCHMARKS.md](docs/BENCHMARKS.md)                     | Every measured claim, with the command that reproduces it          |
+| [docs/RUNBOOK.md](docs/RUNBOOK.md)                           | Operations, backup/restore, troubleshooting                        |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)                     | Docker, persistence, reverse proxy, mirror layout                  |
+| [docs/UI-ARCHITECTURE.md](docs/UI-ARCHITECTURE.md)           | Frontend module map and data flow                                  |
+| [docs/AGENT-HARNESS.md](docs/AGENT-HARNESS.md)               | Agent-protocol research (MCP/A2A) and what shipped from it         |
+| [docs/REFERENCE-LEARNING.md](docs/REFERENCE-LEARNING.md)     | 20 peer open-source projects studied, and where each lesson landed |
+| [docs/SECURITY-HARDENING.md](docs/SECURITY-HARDENING.md)     | Closed vulnerabilities, with reproduction and negative controls    |
+| [docs/QUALITY-ROADMAP.md](docs/QUALITY-ROADMAP.md)           | Known model limitations and the plan for them                      |
+| [docs/COMPETITIVE-ANALYSIS.md](docs/COMPETITIVE-ANALYSIS.md) | Verified comparison against seven peer projects                    |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                           | Branches, commit style, the local gate, release steps              |
 
 ## Contributing
 

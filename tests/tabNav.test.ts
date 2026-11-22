@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { nextTabIndex, tabDomIds, tabIndexFor } from '../src/client/components/tabNav';
+import { SIDE_TAB_ORDER, nextTabIndex, tabDomIds, tabIndexFor } from '../src/client/components/tabNav';
 
 /**
  * 页签导航的键位语义。
  *
  * 这些断言对应 WAI-ARIA Authoring Practices 的 Tabs 模式：
  * 方向键循环移动、Home/End 跳首尾、未选中项不进 Tab 序列。
- * 之前的页签栏只有 role 与 aria-selected，键盘用户按 11 次 Tab 才能出去。
+ * 之前的页签栏只有 role 与 aria-selected，键盘用户按 12 次 Tab 才能出去。
  */
 
 describe('nextTabIndex', () => {
@@ -47,6 +47,15 @@ describe('roving tabindex', () => {
   it('只有选中项为 0，其余为 -1', () => {
     expect(tabIndexFor(true)).toBe(0);
     expect(tabIndexFor(false)).toBe(-1);
+  });
+});
+
+describe('侧栏页签顺序', () => {
+  it('id 唯一且首项为 AI 对话', () => {
+    const ids = SIDE_TAB_ORDER.map((t) => t.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids[0]).toBe('chat');
+    expect(SIDE_TAB_ORDER.every((t) => t.label.length > 0)).toBe(true);
   });
 });
 

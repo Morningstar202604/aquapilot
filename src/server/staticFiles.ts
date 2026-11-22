@@ -145,7 +145,7 @@ export async function serveStatic(
    * 此时保持词法校验结果，交给下面的 existsSync/404 分支处理。
    */
   const rootReal = await realpath(clientDir).catch(() => clientDir);
-  let realFile: string | null = null;
+  let realFile: string | null;
   try {
     realFile = await realpath(filePath);
   } catch {

@@ -13,9 +13,8 @@ import { PLANT_TOPOLOGY } from '../src/model/topology';
 /**
  * 稳态统一用生产引擎（拓扑求解）构造。
  *
- * 本文件此前跑在固定五池参考引擎上：生产路径早已是 networkEngine，
- * 用已淘汰的引擎做「稳态是否达标」的门禁，等于给一条不再运行的路径发合格证。
- * 参考引擎现只保留在 cross-engine 的一致性测试里。
+ * 生产路径只有 networkEngine，门禁也只看它。早先的固定五池参考引擎
+ * 已删除：它只被测试引用，留着等于给一条不再运行的路径发合格证。
  */
 function steadyState(seed = 7) {
   return spinUpNetwork(createNetworkState(PLANT_TOPOLOGY, { seed }), PLANT_TOPOLOGY, 30);

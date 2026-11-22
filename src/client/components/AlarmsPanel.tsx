@@ -35,7 +35,7 @@ export function AlarmsPanel({ snap }: Props) {
       </div>
 
       <div>
-        <div className="section-label">当前活跃（{active.length}）</div>
+        <div className="section-label">当前越限告警（{active.length}）</div>
         {active.length === 0 ? (
           /**
            * 「无告警」不等于「一切正常」。
@@ -90,7 +90,7 @@ export function AlarmsPanel({ snap }: Props) {
       </div>
 
       <div>
-        <div className="section-label">历史记录（{history.length}）</div>
+        <div className="section-label">越限历史（{history.length}）</div>
         {history.length === 0 ? (
           <div className="empty-note">本次运行尚未触发告警。</div>
         ) : (

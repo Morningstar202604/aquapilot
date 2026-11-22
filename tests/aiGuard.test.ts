@@ -89,6 +89,31 @@ describe('护栏后处理：空动作降级（回归）', () => {
     expect(recommendation.severity).toBe('critical');
   });
 
+  it('AI 自己没给出位移时，不能误诊成「单步限幅/允许项受限」', () => {
+    const current = baseControls();
+    const input = rec({
+      chosens: { controls: { ...current } },
+      tweaks: [],
+    });
+    const { recommendation } = applyGuards(input, current, DEFAULT_AGENT_CONFIG.constraints);
+    expect(recommendation.summary).toMatch(/未找到优于维持现状/);
+    expect(recommendation.summary).toMatch(/工艺能力/);
+    expect(recommendation.summary).not.toMatch(/放宽护栏/);
+  });
+
+  it('允许项挡住了全部位移时，指出具体控制项并给出正确处置', () => {
+    const current = baseControls();
+    const constraints = { ...DEFAULT_AGENT_CONFIG.constraints, allowedControls: ['doSetpoint' as const] };
+    const input = rec({
+      chosens: { controls: { ...current, internalRecirc: 2.8 } },
+      tweaks: [{ key: 'internalRecirc', from: current.internalRecirc, to: 2.8, reason: '提高内回流' }],
+    });
+    const { recommendation } = applyGuards(input, current, constraints);
+    expect(recommendation.summary).toMatch(/不在当前允许调整项内/);
+    expect(recommendation.summary).toMatch(/Agent 设置/);
+    expect(recommendation.summary).not.toMatch(/放宽护栏/);
+  });
+
   it('人工确认模式会体现在降级原因里', () => {
     const current = baseControls();
     const constraints = {

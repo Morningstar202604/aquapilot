@@ -4,6 +4,7 @@ import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
 import { createGunzip, createInflate, createBrotliDecompress } from 'node:zlib';
 import type { Transform } from 'node:stream';
+import ipaddr from 'ipaddr.js';
 import type { DiscoveredModel, LlmDiscoverInput, LlmProtocol, LlmTestInput, LlmTestResult } from '../shared/llm';
 import { isChatModel } from '../shared/llm';
 
@@ -53,61 +54,38 @@ function canonicalHost(hostname: string): string {
     .replace(/^\[|\]$/g, '');
 }
 
+/** 解析 IP 字面量；域名返回 null（由 DNS 层另行校验） */
+function parseIp(host: string): ipaddr.IPv4 | ipaddr.IPv6 | null {
+  try {
+    return ipaddr.parse(canonicalHost(host));
+  } catch {
+    return null;
+  }
+}
+
+function ipv6Of(host: string): ipaddr.IPv6 | null {
+  const addr = parseIp(host);
+  return addr && addr.kind() === 'ipv6' ? (addr as ipaddr.IPv6) : null;
+}
+
 /**
- * IPv6 地址段判定（只覆盖与 SSRF 相关的危险段）。
+ * IPv6 危险段判定。
  *
- * `URL.hostname` 会把 IPv4-mapped 地址归一成 `[::ffff:a9fe:a9fe]` 这种形式，
- * 正则匹配 `169.254.` 永远命中不了——必须按 IPv6 段单独判定，
- * 否则 `http://[::ffff:169.254.169.254]/` 可直达云元数据。
- *
- * 同一台机器上 IPv4 还能以 IPv4-compatible（`::a.b.c.d`）、NAT64（`64:ff9b::/96`）
- * 和 6to4（`2002:AABB:CCDD::/48`）三种形式嵌进 IPv6。只认 `::ffff:` 会让
- * `http://[::a9fe:a9fe]/` 一类写法绕过字面量黑名单，所以统一解析后按八段判定。
+ * 以前这里手写 IPv6 压缩展开、IPv4-mapped/NAT64/6to4 内嵌解析，最容易
+ * 在 `::` 压缩和 zone id 上出错。现在用 ipaddr.js 解析，按区间分类；
+ * 内嵌 IPv4 仍单独取出，因为它可能指向 169.254 元数据地址。
  */
 function isDangerousIpv6(host: string): boolean {
   if (!host.includes(':')) return false;
-  const parts = parseIpv6(host);
-  if (!parts) return true;
-  if (parts[0] === 0x64 && parts[1] === 0xff9b && parts[2] === 1) return true;
-  const embedded = embeddedIpv4(parts);
-  if (embedded && isDangerousIpv4(embedded)) return true;
-  // 链路本地 fe80::/10、唯一本地 fc00::/7（AWS IMDS IPv6 fd00:ec2::254 落在 ULA 内）
-  if ((parts[0] & 0xffc0) === 0xfe80) return true;
-  if ((parts[0] & 0xfe00) === 0xfc00) return true;
-  // 未指定地址；回环 ::1 由调用方的严格公网策略单独处理
-  if (parts.every((part) => part === 0)) return true;
-  return false;
-}
-
-/** 把 IPv6 文本解析成 8 个 16 位段；无法解析返回 null（调用方按危险处理） */
-function parseIpv6(host: string): number[] | null {
-  const lower = canonicalHost(host);
-  if (!lower.includes(':') || lower.includes('%')) return null;
-  const halves = lower.split('::');
-  if (halves.length > 2) return null;
-  const toParts = (text: string): number[] | null => {
-    const out: number[] = [];
-    for (const piece of text.split(':').filter((p) => p !== '')) {
-      if (piece.includes('.')) {
-        const octets = piece.split('.').map(Number);
-        if (octets.length !== 4 || octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
-        out.push((octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]);
-        continue;
-      }
-      if (!/^[0-9a-f]{1,4}$/.test(piece)) return null;
-      out.push(parseInt(piece, 16));
-    }
-    return out;
-  };
-  const head = toParts(halves[0] ?? '');
-  const tail = halves.length === 2 ? toParts(halves[1] ?? '') : [];
-  if (!head || !tail) return null;
-  if (halves.length === 2) {
-    const fill = 8 - head.length - tail.length;
-    if (fill < 0) return null;
-    return [...head, ...Array<number>(fill).fill(0), ...tail];
-  }
-  return head.length === 8 ? head : null;
+  const addr = ipv6Of(host);
+  if (!addr) return true;
+  const range = addr.range();
+  // RFC8215 本地 NAT64 /48（64:ff9b:1::/48）整体不可信，不只看内嵌 IPv4
+  if (addr.parts[0] === 0x64 && addr.parts[1] === 0xff9b && addr.parts[2] === 1) return true;
+  // 链路本地、唯一本地（AWS IMDS IPv6 落在 fd00:ec2::254）、未指定地址
+  if (range === 'linkLocal' || range === 'uniqueLocal' || range === 'unspecified') return true;
+  const embedded = embeddedIpv4(addr.parts);
+  return embedded !== null && isDangerousIpv4(embedded);
 }
 
 /**
@@ -116,7 +94,7 @@ function parseIpv6(host: string): number[] | null {
  * 覆盖四种把 IPv4 塞进 IPv6 的写法，任何一种漏判都能绕过链路本地检查：
  * - IPv4-mapped `::ffff:a.b.c.d`（`::ffff:0:0/96`）
  * - IPv4-compatible `::a.b.c.d`（`::/96`，已废弃但部分栈仍接受）
- * - IPv4-translated `::ffff:0:a.b.c.d`（`::ffff:0:0/96`，SIIT）
+ * - IPv4-translated `::ffff:0:a.b.c.d`（SIIT）
  * - NAT64：RFC 6052 的 `64:ff9b::/96`
  * - 6to4 `2002:AABB:CCDD::/48`
  */
@@ -140,22 +118,28 @@ function isDangerousIpv4(host: string): boolean {
   return false;
 }
 
+/**
+ * 非公网 IPv4：回环、私网、链路本地、CGNAT、组播、保留与测试段。
+ *
+ * 用 ipaddr.js 的 SpecialRanges 而不是手写 octet 比较；192.0.0.0/16
+ * 仍是本项目额外的保守口径（库只把 /24 标成 reserved）。
+ */
 function isNonPublicIpv4(host: string): boolean {
-  const octets = host.split('.').map(Number);
-  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  const [a, b] = octets;
+  const addr = parseIp(host);
+  if (!addr || addr.kind() !== 'ipv4') return false;
+  const octets = (addr as ipaddr.IPv4).octets;
+  const range = addr.range();
   return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 0) ||
-    (a === 192 && b === 168) ||
-    (a === 198 && b >= 18 && b <= 19) ||
-    a === 224 ||
-    a >= 225
+    range === 'unspecified' ||
+    range === 'broadcast' ||
+    range === 'multicast' ||
+    range === 'linkLocal' ||
+    range === 'loopback' ||
+    range === 'carrierGradeNat' ||
+    range === 'private' ||
+    range === 'reserved' ||
+    (octets[0] === 192 && octets[1] === 0) ||
+    octets[0] >= 225
   );
 }
 
@@ -210,8 +194,8 @@ const PRIVATE_HOST_PATTERNS = [
 ];
 
 function isPrivateFetchHost(host: string): boolean {
-  const parts = host.includes(':') ? parseIpv6(host) : null;
-  const embedded = parts ? embeddedIpv4(parts) : null;
+  const v6 = host.includes(':') ? ipv6Of(host) : null;
+  const embedded = v6 ? embeddedIpv4(v6.parts) : null;
   return (
     PRIVATE_HOST_PATTERNS.some((re) => re.test(host)) ||
     isNonPublicIpv4(host) ||

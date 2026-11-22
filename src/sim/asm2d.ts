@@ -1,4 +1,5 @@
 import type { ModelDescriptor } from './modelRegistry';
+import { COD_PER_VSS } from './units';
 
 /**
  * ASM2d：IWA 活性污泥模型 2d（含生物除磷与反硝化除磷）。
@@ -227,20 +228,23 @@ export function buildAsm2dStoichiometry(
     hydrolysis_XS: {
       X_S: -1,
       S_F: 1,
-      // 水解把 X_S 的全部氮/磷释放到溶解态（S_F 的惰性含氮/含磷另计）
-      S_NH4: p.i_N_XS,
+      // 水解把 X_S 含氮量中 S_F 带走 i_N_SI 之外的差额释放为氨氮；S_F 携带的结合氮
+      // 由氨化过程按 i_N_SI 系数释放，避免把 1 gCOD 的 S_F 当成 1 gN 释放（曾放大约 10 倍）。
+      S_NH4: p.i_N_XS - p.i_N_SI,
       S_PO4: p.i_P_XS,
     },
     /**
      * 氨化：溶解性有机氮 → 氨氮。
      *
-     * ASM2d 没有独立的溶解性有机氮组分，氨化被并入 S_F 的转化。
+     * ASM2d 没有独立的溶解性有机氮组分，氨化被并入 S_F 的转化。每 1 gCOD 的 S_F 携带
+     * i_N_SI g 结合氮，氨化按此系数释放氨氮（不是 1 gN/gCOD）。
      * **COD 不守恒**是正常的：氨化只搬运氮，不氧化有机物。
-     * 因此该过程在 COD 账上标注豁免，只校验氮账（+1 g N）。
+     * 因此该过程在 COD 账上标注豁免，只校验氮账（按 i_N_SI 系数平衡）。
      */
     ammonification: {
       S_F: -1,
-      S_NH4: 1,
+      S_NH4: p.i_N_SI,
+      // 碱度仍是骨架基线的酸碱代理系数（不随氮分数缩放）；厌氧储磷过程对 S_ALK 有 monod 门控。
       S_ALK: 1 / 14,
     },
     // 厌氧 PHA 储存：吸收 S_A 合成 PHA，同时释放磷酸盐（生物除磷的关键）
@@ -279,16 +283,28 @@ export function buildAsm2dStoichiometry(
      * 异养菌溶解：生物量 COD 转成颗粒性基质，氮按「X_S 带走 i_N_XS + 其余释放为氨氮」分配。
      * 漏掉释放项会让氮账差 −0.03 gN/gCOD（校验器已抓到）。
      */
-    lysis_XH: { X_H: -1, X_S: 1, X_I: 0, S_NH4: p.i_N_BM - p.i_N_XS },
+    lysis_XH: {
+      X_H: -1,
+      X_S: 1,
+      X_I: 0,
+      S_NH4: p.i_N_BM - p.i_N_XS,
+      // 生物量含磷 i_P_BM 与慢速基质含磷 i_P_XS 的差额释放为正磷
+      S_PO4: p.i_P_BM - p.i_P_XS,
+    },
     lysis_PAO: {
       X_PAO: -1,
       X_S: 1,
       // 胞内聚磷随溶解全部释放为磷酸盐
       X_PP: -p.i_P_PP,
-      S_PO4: p.i_P_PP,
+      S_PO4: p.i_P_PP + (p.i_P_BM - p.i_P_XS),
       S_NH4: p.i_N_BM - p.i_N_XS,
     },
-    lysis_AUT: { X_AUT: -1, X_S: 1, S_NH4: p.i_N_BM - p.i_N_XS },
+    lysis_AUT: {
+      X_AUT: -1,
+      X_S: 1,
+      S_NH4: p.i_N_BM - p.i_N_XS,
+      S_PO4: p.i_P_BM - p.i_P_XS,
+    },
     hydrolysis_PP: { X_PP: -1, S_PO4: 1, S_ALK: 0 },
     hydrolysis_PHA: { X_PHA: -1, S_A: 1 },
     // 化学沉淀（以 Fe/Al 或 Ca 计，这里用简化的一级速率）
@@ -333,6 +349,7 @@ export function asm2dDescriptor(): ModelDescriptor<Asm2dComponent, Asm2dProcess>
         S_NH4: 1,
         S_NO3: 1,
         S_N2: 1,
+        S_F: p.i_N_SI,
         X_S: p.i_N_XS,
         X_H: p.i_N_BM,
         X_PAO: p.i_N_BM,
@@ -358,7 +375,7 @@ export function asm2dDescriptor(): ModelDescriptor<Asm2dComponent, Asm2dProcess>
         precipitation_PO4: '化学沉淀不参与 COD 账',
         redissolution_PO4: '沉淀再溶解不参与 COD 账',
         aerobic_growth_MEOH: '甲醇外加碳源：本实现不投加，过程留空占位',
-        anoxic_growth_MEOH: '同上',
+        anoxic_growth_MEOH: '甲醇外加碳源：本实现不投加，过程留空占位（同好氧甲醇过程）',
       },
     },
   };
@@ -469,9 +486,113 @@ export function stepAsm2dCstr(
       if (!coeff) continue;
       reaction += coeff * rates[proc](state);
     }
-    // 稀释项：(influent − state)/τ；反应项按 dtH 积分
+    // 稀释项：(influent − state)/τ；反应项按 dtH 积分。
+    // 速率骨架口径为 g COD/m³/h（参数表 d⁻¹ 系数在 buildAsm2dRates 内近似工程化），
+    // 与既有单测的时间尺度一致；不在这里再除 24，避免反应通量被放慢 24 倍。
     const value = state[comp] + (influent[comp] - state[comp]) * Math.min(1, dilution) + reaction * dtHours;
     next[comp] = Math.max(0, value);
   }
   return next;
+}
+
+/**
+ * 聚合量 → ASM2d（初始化反应器 / 进水映射）。
+ *
+ * COD 拆分口径与 ASM1 映射一致：溶解惰性 8%、易降解 18%、颗粒惰性 20%，
+ * 剩余在慢速基质与生物量之间分配；生物量按 70% 异养 / 15% PAO / 15% 自养拆分，
+ * PAO 胞内 PP/PHA 给初始库存。无 MLSS（进水）时不凭空加活性污泥。
+ */
+export function toAsm2d(input: {
+  cod: number;
+  nh: number;
+  no3: number;
+  tp: number;
+  doLevel: number;
+  alkalinity: number;
+  mlss: number;
+}): Asm2dState {
+  const totalCod = Math.max(1, input.cod);
+  const inertSoluble = totalCod * 0.08;
+  const solubleReadily = totalCod * 0.18;
+  const inertParticulate = totalCod * 0.2;
+  const remaining = totalCod * 0.54;
+  const biomassFromMlss = input.mlss > 0 ? input.mlss * 0.75 * COD_PER_VSS : 0;
+  const biomass = Math.min(remaining, biomassFromMlss);
+  const slowlyBiodegradable = Math.max(0, remaining - biomass);
+
+  return emptyAsm2dState({
+    S_I: inertSoluble,
+    // 易降解基质按 S_F（发酵性）/ S_A（VFA）≈ 45/55 分配：缺氧反硝化与 PAO
+    // 厌氧储存都依赖 S_A，份额过低会让异养菌与 PAO 在网络级饿死（单测不暴露）。
+    S_F: solubleReadily * 0.45,
+    S_A: solubleReadily * 0.55,
+    X_I: inertParticulate,
+    X_S: slowlyBiodegradable,
+    X_H: biomass * 0.7,
+    X_PAO: biomass * 0.15,
+    X_AUT: biomass * 0.15,
+    X_PP: biomass * 0.15 * 0.25,
+    X_PHA: biomass * 0.15 * 0.15,
+    S_NH4: Math.max(0, input.nh),
+    S_NO3: Math.max(0, input.no3),
+    S_PO4: Math.max(0, input.tp),
+    S_O: Math.max(0, input.doLevel),
+    S_ALK: Math.max(0, input.alkalinity / 50),
+  });
+}
+
+/**
+ * 进水聚合量 → ASM2d（生物量为 0）。
+ *
+ * COD 分馏按 BSM2 城市污水典型量级（非现场实测标定）：
+ * S_A(VFA) 0.085、S_F 0.085、S_I 0.09、X_S 0.40、X_I 0.07、X_H 0.02，
+ * 余量并入 X_S。N 中进水 NO₃ 近似为 0（城市原水以氨氮为主），P 全进 S_PO₄，
+ * 碱度按 mmol/L 口径（S_ALK = 碱度 mgCaCO₃/L ÷ 50）。
+ */
+export function influentToAsm2d(influent: {
+  cod: number;
+  nh: number;
+  no3: number;
+  tp: number;
+  ss: number;
+  alkalinity: number;
+}): Asm2dState {
+  const cod = Math.max(1, influent.cod);
+  const f = { sa: 0.085, sf: 0.085, si: 0.09, xs: 0.4, xi: 0.07, xh: 0.02 };
+  const allocated = f.sa + f.sf + f.si + f.xs + f.xi + f.xh;
+  const xsFraction = f.xs + Math.max(0, 1 - allocated);
+  return emptyAsm2dState({
+    S_A: cod * f.sa,
+    S_F: cod * f.sf,
+    S_I: cod * f.si,
+    X_S: cod * xsFraction,
+    X_I: cod * f.xi,
+    X_H: cod * f.xh,
+    S_NH4: Math.max(0, influent.nh),
+    S_NO3: Math.max(0, influent.no3),
+    S_PO4: Math.max(0, influent.tp),
+    S_ALK: Math.max(0, influent.alkalinity / 50),
+  });
+}
+
+/** ASM2d → 聚合量（界面、告警、出水折算共用同一口径） */
+export function fromAsm2d(s: Asm2dState): {
+  cod: number;
+  nh: number;
+  no3: number;
+  tp: number;
+  ss: number;
+  doLevel: number;
+  alkalinity: number;
+} {
+  const particulate = s.X_I + s.X_S + s.X_H + s.X_PAO + s.X_PP + s.X_PHA + s.X_AUT;
+  return {
+    cod: s.S_I + s.S_F + s.S_A + particulate,
+    nh: s.S_NH4,
+    no3: s.S_NO3,
+    tp: s.S_PO4,
+    ss: particulate / COD_PER_VSS,
+    doLevel: s.S_O,
+    alkalinity: s.S_ALK * 50,
+  };
 }

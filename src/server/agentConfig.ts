@@ -99,7 +99,7 @@ export class AgentConfigStore {
 
   /** 文件 mtime 变化即重载；损坏文件保留上一份并告警 */
   private ensureFresh(): void {
-    let mtime = 0;
+    let mtime: number;
     try {
       mtime = existsSync(this.path) ? statSync(this.path).mtimeMs : 0;
     } catch {

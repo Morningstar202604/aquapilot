@@ -1,10 +1,10 @@
-import { CONTROL_BOUNDS, labelOf, precisionOf } from './labels';
-import type { ControlSettings } from '../../sim/config';
+import { CONTROL_BOUNDS, type ControlSettings } from '../../sim/config';
 import type { PlantSnapshot } from '../../shared/protocol';
 import type { ProcessTopology, UnitSpec } from '../../model/topology';
 import { unitKindIcon, unitKindLabel } from '../../shared/streamMeta';
 import { buildTrainProfile, shouldShowTrainProfile } from '../../model/trainProfile';
 import { useThrottledControl } from '../hooks/useThrottledControl';
+import { ControlSlider } from './ControlSlider';
 
 interface Props {
   snap: PlantSnapshot;
@@ -232,40 +232,14 @@ export function UnitInspector({ snap, topo, unit, onClose, onSelect, onChangeCon
             {/* tickets 由 CONTROL_BOUNDS 的键集过滤而来，是编译期常量表，
                 不是外部输入；此处以它作对象键与 DOM id 不构成注入面。 */}
             {tickets.map((key) => {
-              const meta = CONTROL_BOUNDS[key];
-              const value = snap.controls[key] as number;
               return (
-                <div className="control-row" key={key}>
-                  <div className="control-top">
-                    <label className="control-name" htmlFor={`insp-${key}`}>
-                      {labelOf(key)}
-                    </label>
-                    <span className="control-val">
-                      {value.toFixed(precisionOf(key))}
-                      <span>{meta.unit}</span>
-                    </span>
-                  </div>
-                  <div className="range-wrap">
-                    <div
-                      className="range-fill"
-                      style={{ width: `${((value - meta.min) / (meta.max - meta.min)) * 100}%` }}
-                    />
-                    <input
-                      id={`insp-${key}`}
-                      className="range"
-                      type="range"
-                      min={meta.min}
-                      max={meta.max}
-                      step={meta.step}
-                      value={value}
-                      onChange={(e) => commitControls({ [key]: Number(e.target.value) } as Partial<ControlSettings>)}
-                      aria-label={`${labelOf(key)}，当前 ${value.toFixed(precisionOf(key))} ${meta.unit}`}
-                    />
-                  </div>
-                  <div className="control-hint">
-                    范围 {meta.min}–{meta.max} {meta.unit}
-                  </div>
-                </div>
+                <ControlSlider
+                  key={key}
+                  idPrefix="insp"
+                  controlKey={key}
+                  value={snap.controls[key] as number}
+                  onChange={commitControls}
+                />
               );
             })}
           </>

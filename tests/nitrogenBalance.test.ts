@@ -82,14 +82,12 @@ describe('反硝化对工况的响应', () => {
   });
 });
 
-describe('两引擎的硝化产率必须一致', () => {
-  it('旧参考引擎与新引擎都从 KINETICS 取产率，不各自写死', async () => {
+describe('硝化产率必须来自共享常数', () => {
+  it('生产引擎从 KINETICS 取产率，不自己写死', async () => {
     const fs = await import('node:fs');
-    for (const file of ['src/sim/networkEngine.ts', 'src/sim/engine.ts']) {
-      const src = fs.readFileSync(file, 'utf8');
-      expect(src, `${file} 仍写死 0.88`).not.toMatch(/nOxidized \* 0\.88/);
-      expect(src, `${file} 未使用共享常数`).toMatch(/nitrateYieldPerNitrifiedN/);
-    }
+    const src = fs.readFileSync('src/sim/networkEngine.ts', 'utf8');
+    expect(src, 'networkEngine.ts 仍写死 0.88').not.toMatch(/nOxidized \* 0\.88/);
+    expect(src, 'networkEngine.ts 未使用共享常数').toMatch(/nitrateYieldPerNitrifiedN/);
   });
 
   it('KINETICS 里不再有第二份产率常数', async () => {

@@ -1,4 +1,5 @@
 import * as v from 'valibot';
+import { CONTROL_KEYS } from '../sim/config';
 
 /**
  * 客户端消息的 schema 校验（valibot）。
@@ -22,20 +23,11 @@ import * as v from 'valibot';
 const FiniteNumber = v.pipe(v.number(), v.finite());
 const BoundedText = (max: number) => v.pipe(v.string(), v.maxLength(max));
 
-/** 控制量补丁：只允许已知键，值必须是有限数（范围由业务层夹紧） */
-const ControlPatch = v.partial(
-  v.object({
-    doSetpoint: FiniteNumber,
-    internalRecirc: FiniteNumber,
-    rasRatio: FiniteNumber,
-    wasRatio: FiniteNumber,
-    pacDose: FiniteNumber,
-    carbonDose: FiniteNumber,
-    alkDose: FiniteNumber,
-    stormStore: FiniteNumber,
-    stepFeed: FiniteNumber,
-  }),
+/** 控制量补丁：键从 CONTROL_BOUNDS 派生，避免新增控制量时漏改 schema */
+const controlEntries: Record<string, typeof FiniteNumber> = Object.fromEntries(
+  CONTROL_KEYS.map((key) => [key, FiniteNumber]),
 );
+const ControlPatch = v.partial(v.object(controlEntries));
 
 const Protocol = v.picklist(['openai', 'anthropic', 'google']);
 
@@ -58,6 +50,7 @@ export const ClientMessageSchema = v.variant('type', [
     action: v.picklist(['pause', 'resume', 'reset']),
   }),
   v.object({ type: v.literal('speed'), value: FiniteNumber }),
+  v.object({ type: v.literal('model'), model: v.picklist(['simple', 'asm1']) }),
   v.object({ type: v.literal('refreshDecision') }),
   v.object({ type: v.literal('preset'), id: BoundedText(64) }),
   v.variant('action', [

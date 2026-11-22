@@ -79,7 +79,7 @@ function parseAction(raw: string): HookAction | null {
 }
 
 function clone(config: AgentConfig): AgentConfig {
-  return JSON.parse(JSON.stringify(config)) as AgentConfig;
+  return structuredClone(config);
 }
 
 function nextPromptId(config: AgentConfig): string {

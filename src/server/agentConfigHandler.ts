@@ -1,7 +1,7 @@
 import { WebSocket } from 'ws';
 import type { ClientMessage, ServerMessage } from '../shared/protocol';
 import { CORE_PROTECTED, normalizeAgentConfig, type AgentConfig } from '../shared/agentConfig';
-import { agentConfigStore } from './agentConfig';
+import { agentConfigStore, type SaveOutcome } from './agentConfig';
 import { composeSystemPrompt } from '../ai/promptComposer';
 import { fetchPublicUrl } from '../ai/providers';
 import { errorText } from './llmChat';
@@ -62,6 +62,25 @@ export function createAgentConfigHandler(deps: AgentConfigHandlerDeps) {
     const send = (payload: ServerMessage) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
     };
+    /** admin 守卫：reset/importSkill/save 三个分支此前各抄一遍错误响应 */
+    const requireAdmin = (): boolean => {
+      if (role === 'admin') return true;
+      send({ type: 'agentConfig', action: 'error', requestId, error: '需要 admin 权限修改 Agent 配置' });
+      return false;
+    };
+    /** saved 回执形状唯一来源：reset 与 save/patch 共用 */
+    const sendSaved = (outcome: SaveOutcome, replyTo: string): void => {
+      send({
+        type: 'agentConfig',
+        action: 'saved',
+        requestId: replyTo,
+        ok: outcome.ok,
+        config: outcome.config,
+        summary: outcome.summary,
+        warnings: outcome.warnings,
+        error: outcome.error,
+      });
+    };
     try {
       if (msg.action === 'get') {
         send(agentStateMessage(requestId));
@@ -81,21 +100,9 @@ export function createAgentConfigHandler(deps: AgentConfigHandlerDeps) {
         return;
       }
       if (msg.action === 'reset') {
-        if (role !== 'admin') {
-          send({ type: 'agentConfig', action: 'error', requestId, error: '需要 admin 权限修改 Agent 配置' });
-          return;
-        }
+        if (!requireAdmin()) return;
         const outcome = agentConfigStore.reset({ writer: 'ui' });
-        send({
-          type: 'agentConfig',
-          action: 'saved',
-          requestId: msg.requestId,
-          ok: outcome.ok,
-          config: outcome.config,
-          summary: outcome.summary,
-          warnings: outcome.warnings,
-          error: outcome.error,
-        });
+        sendSaved(outcome, msg.requestId);
         if (outcome.ok) {
           broadcastAgentState();
           void deps.hooks.fire(agentConfigStore.get(), { event: 'config', detail: 'reset', key: 'reset' });
@@ -103,33 +110,18 @@ export function createAgentConfigHandler(deps: AgentConfigHandlerDeps) {
         return;
       }
       if (msg.action === 'importSkill') {
-        if (role !== 'admin') {
-          send({ type: 'agentConfig', action: 'error', requestId, error: '需要 admin 权限修改 Agent 配置' });
-          return;
-        }
+        if (!requireAdmin()) return;
         await handleImportSkill(msg, requestId, send, broadcastAgentState);
         return;
       }
       if (msg.action === 'save' || msg.action === 'patch') {
-        if (role !== 'admin') {
-          send({ type: 'agentConfig', action: 'error', requestId, error: '需要 admin 权限修改 Agent 配置' });
-          return;
-        }
+        if (!requireAdmin()) return;
         const payload = msg.action === 'save' ? msg.config : msg.patch;
         const outcome =
           msg.action === 'save'
             ? agentConfigStore.save(payload, { writer: 'ui' })
             : agentConfigStore.patch(payload, { writer: 'ui' });
-        send({
-          type: 'agentConfig',
-          action: 'saved',
-          requestId: msg.requestId,
-          ok: outcome.ok,
-          config: outcome.config,
-          summary: outcome.summary,
-          warnings: outcome.warnings,
-          error: outcome.error,
-        });
+        sendSaved(outcome, msg.requestId);
         if (outcome.ok) {
           broadcastAgentState();
           void deps.hooks.fire(agentConfigStore.get(), { event: 'config', detail: msg.action, key: msg.action });
@@ -149,7 +141,7 @@ export function createAgentConfigHandler(deps: AgentConfigHandlerDeps) {
     broadcastAgentState: () => void,
   ): Promise<void> {
     const status = agentConfigStore.status();
-    const cfg = JSON.parse(JSON.stringify(status.config)) as typeof status.config;
+    const cfg = structuredClone(status.config);
     if (cfg.skills.length >= 30) {
       send({ type: 'agentConfig', action: 'error', requestId, error: '技能最多 30 个' });
       return;

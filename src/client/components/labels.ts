@@ -41,9 +41,10 @@ export function fitCompactTitle(
   const available = Math.max(1, nodeWidth - padding);
   const widthOf = (text: string, size: number) =>
     [...text].reduce((sum, ch) => sum + (/[\u3000-\u9fff\uff00-\uffef]/.test(ch) ? size : size * 0.5), 0);
-  for (const size of [max, 22, 20, 18, 16, min]) {
+  for (let size = max; size > min; size -= 1) {
     if (widthOf(short, size) <= available) return { text: short, fontSize: size };
   }
+  if (widthOf(short, min) <= available) return { text: short, fontSize: min };
   let text = '';
   for (const ch of short) {
     if (widthOf(`${text}${ch}…`, min) > available) break;

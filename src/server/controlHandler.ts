@@ -1,5 +1,5 @@
 import type { ClientMessage, ServerMessage } from '../shared/protocol';
-import { CONTROL_BOUNDS } from '../sim/config';
+import type { RateKind } from './rateLimit';
 import { SCENARIOS, type ScenarioType } from '../sim/scenarios';
 import { checkAllowedControls } from '../shared/agentConfig';
 import {
@@ -10,7 +10,7 @@ import {
   sanitizeRange,
   sanitizeSpeed,
 } from './validation';
-import type { Recommendation } from '../ai/agent';
+import type { Recommendation } from '../shared/aiTypes';
 
 /**
  * 运行态操作处理器：control / aiEnabled / applyRecommendation /
@@ -38,8 +38,6 @@ export interface RuntimeControlState {
   paused: boolean;
   speed: number;
 }
-
-export type RateKind = 'control' | 'topology' | 'decision' | 'chat' | 'snapshot';
 
 export interface ControlHandlerDeps {
   /**
@@ -275,6 +273,3 @@ export function handleControlMessage(
       return false;
   }
 }
-
-/** CONTROL_BOUNDS 的键集，供 allowedControls 默认值使用 */
-export const CONTROL_KEYS = Object.keys(CONTROL_BOUNDS);

@@ -11,7 +11,7 @@ import { composeSystemPrompt } from '../ai/promptComposer';
 import { metrics, logger } from './observability';
 import { estimateMargin } from '../sim/metrics';
 import type { NetworkSimState } from '../sim/networkEngine';
-import type { Recommendation } from '../ai/agent';
+import type { Recommendation } from '../shared/aiTypes';
 import type { ProcessTopology } from '../model/topology';
 
 /**

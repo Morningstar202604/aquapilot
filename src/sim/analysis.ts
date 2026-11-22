@@ -1,6 +1,7 @@
 import { COD_PER_VSS } from './units';
 import type { ControlSettings } from '../sim/config';
-import { CONTROL_BOUNDS, LIMITS } from '../sim/config';
+import { CONTROL_BOUNDS, CONTROL_KEYS, type ControlKey } from '../sim/config';
+import { clamp, worstRatio } from './metrics';
 import type { PlantModel, ForecastOutcomeX, PlantSnapshotForAi } from '../sim/plantModel';
 import type { EffluentStats } from '../sim/networkEngine';
 
@@ -17,18 +18,8 @@ import type { EffluentStats } from '../sim/networkEngine';
  * 不会出现「分析用一套模型、控制用另一套」的漂移。
  */
 
-export type ControlKey = keyof Omit<ControlSettings, 'aiEnabled'>;
-
 /** 只对连续可调量做灵敏度：stormStore/stepFeed 是工况开关，导数没有意义 */
-const SENSITIVITY_KEYS: ControlKey[] = [
-  'doSetpoint',
-  'internalRecirc',
-  'rasRatio',
-  'wasRatio',
-  'pacDose',
-  'carbonDose',
-  'alkDose',
-];
+const SENSITIVITY_KEYS: ControlKey[] = CONTROL_KEYS.filter((key) => key !== 'stormStore' && key !== 'stepFeed');
 
 export interface SensitivityRow {
   key: ControlKey;
@@ -94,36 +85,13 @@ export interface MassBalanceAudit {
   note: string;
 }
 
-const LABELS: Record<ControlKey, { label: string; unit: string }> = {
-  doSetpoint: { label: '溶解氧设定', unit: 'mg/L' },
-  internalRecirc: { label: '内回流比', unit: '×Q' },
-  rasRatio: { label: '污泥回流比', unit: '×Q' },
-  wasRatio: { label: '排泥比', unit: '×Q' },
-  pacDose: { label: 'PAC 投加', unit: 'mg/L' },
-  carbonDose: { label: '碳源投加', unit: 'mg/L' },
-  alkDose: { label: '碱度投加', unit: 'mg/L' },
-  stormStore: { label: '雨水调蓄', unit: '×Q' },
-  stepFeed: { label: '缺氧区进水比', unit: '—' },
-};
-
-function worstRatioOf(e: EffluentStats): number {
-  return Math.max(
-    e.cod / LIMITS.cod,
-    e.bod / LIMITS.bod,
-    e.ss / LIMITS.ss,
-    e.nh / LIMITS.nh,
-    e.tn / LIMITS.tn,
-    e.tp / LIMITS.tp,
-  );
-}
-
 function lastPoint(outcome: ForecastOutcomeX) {
   return outcome.points[outcome.points.length - 1];
 }
 
 function clampControl(key: ControlKey, value: number): number {
   const b = CONTROL_BOUNDS[key];
-  return Math.min(b.max, Math.max(b.min, value));
+  return clamp(value, b.min, b.max);
 }
 
 /**
@@ -136,7 +104,7 @@ function clampControl(key: ControlKey, value: number): number {
 export function sensitivityAnalysis(model: PlantModel, horizonMin = 240): SensitivityRow[] {
   const state = model.snapshot();
   const base = model.predict(state.controls, horizonMin, 30);
-  const baseWorst = lastPoint(base) ? worstRatioOf(lastPoint(base)!.effluent) : 1;
+  const baseWorst = lastPoint(base) ? worstRatio(lastPoint(base)!.effluent) : 1;
 
   const rows: SensitivityRow[] = [];
   for (const key of SENSITIVITY_KEYS) {
@@ -148,14 +116,14 @@ export function sensitivityAnalysis(model: PlantModel, horizonMin = 240): Sensit
     // 靠边时一侧无法移动：用可移动的一侧做单侧差分，并标注方向
     const upOutcome = model.predict({ ...state.controls, [key]: up }, horizonMin, 30);
     const downOutcome = model.predict({ ...state.controls, [key]: down }, horizonMin, 30);
-    const upWorst = lastPoint(upOutcome) ? worstRatioOf(lastPoint(upOutcome)!.effluent) : 1;
-    const downWorst = lastPoint(downOutcome) ? worstRatioOf(lastPoint(downOutcome)!.effluent) : 1;
+    const upWorst = lastPoint(upOutcome) ? worstRatio(lastPoint(upOutcome)!.effluent) : 1;
+    const downWorst = lastPoint(downOutcome) ? worstRatio(lastPoint(downOutcome)!.effluent) : 1;
     const actualDelta = up - down || 1;
     // 最差比值越小越好：导数取负号，正数表示"调大有利"
     const slope = (downWorst - upWorst) / actualDelta;
     const normalized = (slope * span) / 10;
     const actionable = Math.abs(normalized) > 0.005;
-    const meta = LABELS[key];
+    const meta = CONTROL_BOUNDS[key];
     rows.push({
       key,
       label: meta.label,
@@ -192,7 +160,7 @@ export function paretoFrontier(model: PlantModel, horizonMin = 240): ParetoPoint
     const last = lastPoint(outcome);
     candidates.push({
       controls,
-      worstRatio: last ? worstRatioOf(last.effluent) : 1,
+      worstRatio: last ? worstRatio(last.effluent) : 1,
       costDelta: outcome.costDelta,
       score: last?.score ?? 0,
       dominated: false,
@@ -211,7 +179,7 @@ export function paretoFrontier(model: PlantModel, horizonMin = 240): ParetoPoint
         if (Math.abs(v - baseControls[key]) < 1e-9) continue;
         evaluate(
           { ...baseControls, [key]: v },
-          `${LABELS[key].label} ${dir > 0 ? '↑' : '↓'} ${Math.abs(mult * 100).toFixed(0)}%`,
+          `${CONTROL_BOUNDS[key].label} ${dir > 0 ? '↑' : '↓'} ${Math.abs(mult * 100).toFixed(0)}%`,
         );
       }
     }

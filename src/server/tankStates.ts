@@ -30,32 +30,43 @@ function reactorMlss(reactor: ReactorState): number | null {
   return Math.round((a.X_I + a.X_S + a.X_B_H + a.X_B_A + a.X_P) / COD_PER_VSS);
 }
 
+/**
+ * 全量帧与增量帧共享的字段。
+ *
+ * 两帧必须逐字段同源，否则「全量帧显示 3200、增量帧显示 3180」这种
+ * 假实时缺陷会周期性出现。把公共字段收在一个映射里，上面两个调用点
+ * 只负责挑自己要的子集。
+ */
+function tankCommon(r: ReactorState, averageMlss: number) {
+  const own = reactorMlss(r);
+  return {
+    id: r.id,
+    cod: r.cod,
+    nh: r.nh,
+    no3: r.no3,
+    tp: r.tp,
+    alkalinity: r.alkalinity,
+    do: r.doLevel,
+    mlss: own ?? averageMlss,
+    mlssSource: (own === null ? 'plant-average' : 'reactor') as TankStateWithSource['mlssSource'],
+  };
+}
+
 export function buildTankStates(state: NetworkSimState): TankStateWithSource[] {
   if (state.reactors.length === 0) return [];
   const average = plantAverageMlss(state);
-  return state.reactors.map((r) => {
-    const own = reactorMlss(r);
-    return {
-      id: r.id,
-      name: r.name,
-      short: r.name,
-      kind: r.kind,
-      volume: r.volume,
-      cod: r.cod,
-      nh: r.nh,
-      no3: r.no3,
-      tp: r.tp,
-      do: r.doLevel,
-      mlss: own ?? average,
-      mlssSource: own === null ? 'plant-average' : 'reactor',
-      alkalinity: r.alkalinity,
-      temperature: r.temperature,
-      codRemoved: 0,
-      nhRemoved: 0,
-      o2Demand: r.o2Demand,
-      klaUsed: r.kla,
-    };
-  });
+  return state.reactors.map((r) => ({
+    ...tankCommon(r, average),
+    name: r.name,
+    short: r.name,
+    kind: r.kind,
+    volume: r.volume,
+    temperature: r.temperature,
+    codRemoved: 0,
+    nhRemoved: 0,
+    o2Demand: r.o2Demand,
+    klaUsed: r.kla,
+  }));
 }
 
 /**
@@ -66,15 +77,5 @@ export function buildTankStates(state: NetworkSimState): TankStateWithSource[] {
 export function buildTankPatch(state: NetworkSimState) {
   if (state.reactors.length === 0) return [];
   const average = plantAverageMlss(state);
-  return state.reactors.map((r) => ({
-    id: r.id,
-    do: r.doLevel,
-    mlss: reactorMlss(r) ?? average,
-    mlssSource: reactorMlss(r) === null ? ('plant-average' as const) : ('reactor' as const),
-    cod: r.cod,
-    nh: r.nh,
-    no3: r.no3,
-    tp: r.tp,
-    alkalinity: r.alkalinity,
-  }));
+  return state.reactors.map((r) => tankCommon(r, average));
 }

@@ -2,8 +2,7 @@
  * 共享的工艺状态类型。
  *
  * 这些类型描述"界面上要展示什么"，不绑定任何具体引擎。
- * 拓扑求解引擎（networkEngine）与固定五池引擎（engine）都产出这些结构，
- * 协议层只依赖这里，不依赖引擎实现。
+ * 生产引擎 networkEngine 产出这些结构，协议层只依赖这里，不依赖引擎实现。
  */
 
 export interface InfluentState {

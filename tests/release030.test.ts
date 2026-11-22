@@ -7,7 +7,7 @@ import { createNetworkState, networkModel, spinUpNetwork, stepNetwork } from '..
 import { buildPreset, PRESETS } from '../src/model/presets';
 import { compileNetwork } from '../src/sim/network';
 import { checkRunReadiness } from '../src/sim/topologyEngine';
-import { csvEscape, toCsv, snapshotsCsv, decisionsCsv, buildOperationsReport } from '../src/server/export';
+import { toCsv, snapshotsCsv, decisionsCsv, buildOperationsReport } from '../src/server/export';
 import { buildGroundingText, numbersAreGrounded, readLlmConfig, askLlm, SYSTEM_PROMPT } from '../src/ai/llm';
 import { createShadowPlant, MANUAL_BASELINE_CONTROLS, stepShadow, summarizeBenchmark } from '../src/server/benchmark';
 import { decide } from '../src/ai/agent';
@@ -109,6 +109,13 @@ describe('工艺模板', () => {
     }
   });
 
+  it('设计工况模板把二沉池放大到 4 800 m²，且仍可运行', () => {
+    const design = buildPreset(PRESETS.find((p) => p.id === 'design-duty')!);
+    const clarifier = design.units.find((u) => u.kind === 'clarifier')!;
+    expect(clarifier.area).toBe(4800);
+    expect(checkRunReadiness(design).ready).toBe(true);
+  });
+
   it('强化脱氮模板的缺氧池容积真的变大', () => {
     const denit = buildPreset(PRESETS.find((p) => p.id === 'a2o-deep-denit')!);
     const anoxic = denit.units.find((u) => u.id === 'anoxic')!;
@@ -139,11 +146,20 @@ describe('集合预测的降级路径', () => {
 });
 
 describe('CSV 导出', () => {
-  it('逗号、引号、换行都按 RFC 4180 转义', () => {
-    expect(csvEscape('a,b')).toBe('"a,b"');
-    expect(csvEscape('say "hi"')).toBe('"say ""hi"""');
-    expect(csvEscape('line\nbreak')).toBe('"line\nbreak"');
-    expect(csvEscape(3.5)).toBe('3.5');
+  it('逗号、引号、换行与公式注入都由库处理', () => {
+    const csv = toCsv(
+      ['a', 'b'],
+      [
+        ['a,b', 'say "hi"'],
+        ['line\nbreak', '=cmd'],
+        [-3.5, 'plain'],
+      ],
+    );
+    expect(csv).toContain('"a,b"');
+    expect(csv).toContain('"say ""hi"""');
+    expect(csv).toContain('"line\nbreak"');
+    expect(csv).toContain("'=cmd");
+    expect(csv).toContain('-3.5');
   });
 
   it('表头与行数一致，且使用 CRLF', () => {

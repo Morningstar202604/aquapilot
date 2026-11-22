@@ -18,7 +18,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
-    // 大多数是纯计算/服务端测试；需要 DOM 的用例用文件头 `// @vitest-environment jsdom`
+    // 大多数是纯计算/服务端测试；需要 DOM 的用例用文件头 `// @vitest-environment happy-dom`
     environment: 'node',
     testTimeout: 20000,
     coverage: {

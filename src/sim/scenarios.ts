@@ -14,6 +14,8 @@ export interface ScenarioMeta {
   description: string;
   defaultDurationMin: number;
   defaultMagnitude: number;
+  /** magnitude 的合法区间；语义随场景不同（倍数 / 供气能力 / 目标水温） */
+  magnitudeRange: { min: number; max: number };
 }
 
 export const SCENARIOS: Record<ScenarioType, ScenarioMeta> = {
@@ -23,6 +25,7 @@ export const SCENARIOS: Record<ScenarioType, ScenarioMeta> = {
     description: '降雨使进水量升至 1.8 倍，污染物被稀释，水力负荷与二沉池固体通量上升。',
     defaultDurationMin: 360,
     defaultMagnitude: 1,
+    magnitudeRange: { min: 0.2, max: 3 },
   },
   shock_load: {
     type: 'shock_load',
@@ -30,6 +33,7 @@ export const SCENARIOS: Record<ScenarioType, ScenarioMeta> = {
     description: '进水 COD 与氨氮同步升高约 80%，好氧区需氧量骤增。',
     defaultDurationMin: 240,
     defaultMagnitude: 1,
+    magnitudeRange: { min: 0.2, max: 3 },
   },
   toxic: {
     type: 'toxic',
@@ -37,6 +41,7 @@ export const SCENARIOS: Record<ScenarioType, ScenarioMeta> = {
     description: '工业废水混入，异养菌与硝化菌活性受到抑制，出水氨氮存在超标风险。',
     defaultDurationMin: 300,
     defaultMagnitude: 1,
+    magnitudeRange: { min: 0.2, max: 2 },
   },
   blower_failure: {
     type: 'blower_failure',
@@ -44,6 +49,7 @@ export const SCENARIOS: Record<ScenarioType, ScenarioMeta> = {
     description: '一组鼓风机跳停，最大供气能力降至 50%，溶解氧可能失守。',
     defaultDurationMin: 180,
     defaultMagnitude: 0.5,
+    magnitudeRange: { min: 0, max: 1 },
   },
   ras_failure: {
     type: 'ras_failure',
@@ -51,6 +57,7 @@ export const SCENARIOS: Record<ScenarioType, ScenarioMeta> = {
     description: '污泥回流中断，二沉池污泥界面快速上升，存在跑泥风险。',
     defaultDurationMin: 120,
     defaultMagnitude: 0,
+    magnitudeRange: { min: 0, max: 1 },
   },
   power_outage: {
     type: 'power_outage',
@@ -58,6 +65,7 @@ export const SCENARIOS: Record<ScenarioType, ScenarioMeta> = {
     description: '曝气与回流全部停止，溶解氧耗尽，工艺进入恢复期。',
     defaultDurationMin: 45,
     defaultMagnitude: 0,
+    magnitudeRange: { min: 0, max: 1 },
   },
   winter: {
     type: 'winter',
@@ -65,6 +73,7 @@ export const SCENARIOS: Record<ScenarioType, ScenarioMeta> = {
     description: '水温降至 12 ℃，硝化速率显著下降，需提高污泥龄与溶解氧。',
     defaultDurationMin: 1440,
     defaultMagnitude: 12,
+    magnitudeRange: { min: 8, max: 25 },
   },
   chemical_shortage: {
     type: 'chemical_shortage',
@@ -72,16 +81,9 @@ export const SCENARIOS: Record<ScenarioType, ScenarioMeta> = {
     description: 'PAC 库存不足，化学除磷停投，出水总磷需依靠生物除磷维持。',
     defaultDurationMin: 480,
     defaultMagnitude: 0,
+    magnitudeRange: { min: 0, max: 1 },
   },
 };
 
-export const SCENARIO_ORDER: ScenarioType[] = [
-  'storm',
-  'shock_load',
-  'toxic',
-  'blower_failure',
-  'ras_failure',
-  'power_outage',
-  'winter',
-  'chemical_shortage',
-];
+/** 界面顺序与对象声明顺序保持一致，新增场景只改一处 */
+export const SCENARIO_ORDER = Object.keys(SCENARIOS) as ScenarioType[];

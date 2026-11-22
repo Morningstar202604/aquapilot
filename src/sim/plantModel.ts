@@ -1,12 +1,14 @@
 import type { ControlSettings } from './config';
-import type { EffluentStats, NetworkSimState } from './networkEngine';
+import type { EffluentStats, NetworkSimState } from './networkTypes';
 import type { ScenarioType } from './scenarios';
+import { measuredValue } from './instruments';
 
 /**
  * 厂模型抽象：AI 决策只依赖这个接口，不依赖具体引擎。
  *
- * 这样"拓扑求解引擎"和"固定五池引擎"可以互换，而 AI 的预测永远和被控制的
- * 那个引擎一致——避免"改图改了 A 引擎，AI 却在用 B 引擎预测"的假闭环。
+ * 这样“拓扑求解引擎”和“固定五池引擎”可以互换，AI 的预测永远和被控制的
+ * 那个引擎一致——避免“改图改了 A 引擎、AI 却用 B 引擎预测”的假闭环。
+ * 当前只有一个实现：networkEngine。
  */
 
 export interface PlantSnapshotForAi {
@@ -101,7 +103,11 @@ export function networkSnapshot(state: NetworkSimState): PlantSnapshotForAi {
     // 无反应器时不能报设计值：界面会显示一个根本没有的污泥浓度
     mlss: state.reactors.length === 0 ? 0 : Math.round((state.biomassKg * 1000) / Math.max(1, state.volume.bio)),
     reactorCount: state.reactors.length,
-    lastDo: last?.doLevel ?? 0,
+    lastDo: last
+      ? state.instruments
+        ? measuredValue(state.instruments, `${last.id}:do`, last.doLevel)
+        : last.doLevel
+      : 0,
     clarifier: {
       blanketM: state.clarifier.blanketM,
       depth: state.clarifier.depth,

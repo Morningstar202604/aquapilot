@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ProcessEditor } from '../src/client/components/ProcessEditor';
@@ -57,9 +57,30 @@ function Harness({ onChange = vi.fn() }: { onChange?: (t: ProcessTopology) => vo
 }
 
 const versions = [
-  { revision: 3, savedAt: new Date(0).toISOString(), label: '回滚到 v1', name: '澄川 A²/O', units: 17, connections: 23 },
-  { revision: 2, savedAt: new Date(0).toISOString(), label: '切换模板：A²/O 强化脱氮', name: '强化脱氮', units: 17, connections: 23 },
-  { revision: 1, savedAt: new Date(0).toISOString(), label: '应用自定义拓扑', name: '自定义厂', units: 18, connections: 25 },
+  {
+    revision: 3,
+    savedAt: new Date(0).toISOString(),
+    label: '回滚到 v1',
+    name: '澄川 A²/O',
+    units: 17,
+    connections: 23,
+  },
+  {
+    revision: 2,
+    savedAt: new Date(0).toISOString(),
+    label: '切换模板：A²/O 强化脱氮',
+    name: '强化脱氮',
+    units: 17,
+    connections: 23,
+  },
+  {
+    revision: 1,
+    savedAt: new Date(0).toISOString(),
+    label: '应用自定义拓扑',
+    name: '自定义厂',
+    units: 18,
+    connections: 25,
+  },
 ];
 
 describe('拓扑版本页', () => {

@@ -209,6 +209,33 @@ All export endpoints are read-only and sit behind the same auth gate as every ot
 `/api/*` route. The UI downloads them with `fetch` plus an `Authorization` header —
 the token is never placed in a URL.
 
+### Industrial layer (read-only)
+
+These endpoints are read-only mirrors of engine subsystems added in the industrial
+readiness batch. Writes still go over the WebSocket path; the protocol adapter's
+write path is separately audited. Every subsystem degrades to an empty table
+instead of a 500 when it is not assembled.
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/hydraulics` | Edge flows, train/clarifier views, pump/valve/weir state; `?edge=<id>` for one edge (404 `HYDRAULICS_EDGE_UNKNOWN`) |
+| `GET /api/hydraulics/tracer` | Tracer residence-time distribution sampled from the hydraulic model |
+| `GET /api/plant/balance` | COD/N/P ledgers, residuals and `closed` flag, sludge-line state |
+| `GET /api/instruments` | Sensor readings with `measured`, `truth`, quality code and injected fault; `?sensor=<id>` for one point |
+| `GET /api/control/interlocks` | Loop outputs, interlock states (latched/active), ESD state, rejected-command audit; `?condition=<id>` |
+| `GET /api/assets` · `GET /api/assets/<id>` | Asset ledger, health, availability, work orders; unknown id → 404 `ASSET_NOT_FOUND` |
+| `GET /api/compliance/report?from=&to=&format=csv` | Permit report: daily composite, weighted mean, type-7 95th percentile, QA/QC rejection; CSV via download header |
+| `GET /api/compliance/samples?from=&to=` | Accepted/rejected minute samples feeding the report |
+| `GET /api/calibration/uncertainty?param=&from=&to=` | Parameter confidence intervals and P10/P50/P90 bands; 409 `CALIBRATION_INSUFFICIENT_DATA` when no profile dataset exists, 409 `CALIBRATION_NOT_IDENTIFIABLE` when the parameter is not identifiable |
+| `GET /api/protocols/tags` | 28-tag map with OPC UA node id, Modbus register, MQTT topic, scale and access |
+| `GET /api/protocols/status?channel=opcua\|modbus\|mqtt` | Channel state, reconnect attempts, last error |
+| `GET /api/protocols/audit?limit=` | Write audit: actor, role, tag, requested value, result, rejection reason |
+
+Error codes used by these endpoints: `HYDRAULICS_*`, `PLANT_BALANCE_UNCLOSED`,
+`ASM2D_STATE_INVALID`, `SENSOR_*`, `ACTUATOR_*`, `INTERLOCK_TRIPPED`,
+`CALIBRATION_*`, `PERMIT_WINDOW_INVALID`, `COMPLIANCE_NO_SAMPLES`, `ASSET_*`,
+`PROTOCOL_*`.
+
 ## Operational scorecard
 
 Every snapshot carries a `scorecard` object. It is computed by the engine from

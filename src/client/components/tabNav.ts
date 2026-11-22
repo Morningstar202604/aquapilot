@@ -6,8 +6,8 @@
  *
  * 1. 每个页签没有 `aria-controls`，面板没有 `role="tabpanel"` ——
  *    读屏软件念出「选项卡」之后无法告知它控制哪一块内容；
- * 2. 没有 roving tabindex：11 个页签全部落在 Tab 序列里，
- *    键盘用户要按 11 次 Tab 才能越过页签栏（WAI-ARIA 要求只有选中项可 Tab）；
+ * 2. 没有 roving tabindex：12 个页签全部落在 Tab 序列里，
+ *    键盘用户要按 12 次 Tab 才能越过页签栏（WAI-ARIA 要求只有选中项可 Tab）；
  * 3. 没有方向键导航：左右/Home/End 移动焦点并切换（自动激活）。
  *
  * 这里把页签顺序与键位解析做成纯函数，App 只负责渲染与 setTab，
@@ -18,6 +18,30 @@ export interface TabSpec<T extends string> {
   id: T;
   label: string;
 }
+
+/**
+ * 侧栏页签的唯一顺序表。
+ *
+ * 顺序同时决定渲染顺序、方向键导航目标和 `data-tab-index`；此前 App 里
+ * 还另写了一份 `Tab` 联合类型，新增页签要改三处。这里用 `as const` 派生
+ * 联合类型，数组本身即是真相。
+ */
+export const SIDE_TAB_ORDER = [
+  { id: 'chat', label: 'AI 对话' },
+  { id: 'decision', label: '决策解释' },
+  { id: 'control', label: '控制与工况' },
+  { id: 'alarms', label: '告警' },
+  { id: 'insights', label: '效益' },
+  { id: 'score', label: '评分' },
+  { id: 'analysis', label: '分析' },
+  { id: 'industrial', label: '工业' },
+  { id: 'calibration', label: '校准' },
+  { id: 'influent', label: '进水' },
+  { id: 'replay', label: '回放' },
+  { id: 'health', label: '自检' },
+] as const satisfies readonly TabSpec<string>[];
+
+export type SideTab = (typeof SIDE_TAB_ORDER)[number]['id'];
 
 /**
  * 计算方向键导航后的目标页签。

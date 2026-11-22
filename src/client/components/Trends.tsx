@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import * as echarts from 'echarts/core';
 import type { LineSeriesOption } from 'echarts/charts';
 import { LineChart } from 'echarts/charts';
@@ -6,6 +6,7 @@ import { GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent }
 import { CanvasRenderer } from 'echarts/renderers';
 import type { PlantSnapshot } from '../../shared/protocol';
 import { formatClock } from '../../shared/time';
+import { useEChart } from '../hooks/useEChart';
 import {
   RANGE_LABEL,
   RANGE_MINUTES,
@@ -38,8 +39,19 @@ interface ChartSpec {
   /** 该图叠加预测扇区时使用哪个出水指标 */
   bandMetric?: BandMetric;
   series: { name: string; color: string; key: keyof PlantSnapshot['trends'][number] }[];
-  limits: { value: number; label: string }[];
-  yMax?: number;
+}
+
+/**
+ * 参考线的上限只取决于当前排放标准，不能把一级 A 的 50/5 写死在图表里。
+ *
+ * 之前 SPECS 里硬编码了 COD 50、SS 10、NH 5、TP 0.5，切到一级 B 或
+ * BSM1 基准口径后 KPI 卡会变、趋势图参考线却停在旧值，同一屏出现
+ * 两套互相矛盾的标准。
+ */
+function limitMaxOf(spec: ChartSpec, limits: PlantSnapshot['limits']): number {
+  if (spec.key === 'water') return Math.max(limits.cod, limits.ss);
+  if (spec.key === 'nitrogen') return Math.max(limits.nh, limits.tp);
+  return 1;
 }
 
 const SPECS: ChartSpec[] = [
@@ -53,11 +65,6 @@ const SPECS: ChartSpec[] = [
       { name: '出水 SS', color: '#b0770e', key: 'effluentSs' },
       { name: '进水 COD', color: '#4b6f68', key: 'influentCod' },
     ],
-    limits: [
-      { value: 50, label: 'COD 限值' },
-      { value: 10, label: 'SS 限值' },
-    ],
-    yMax: 120,
   },
   {
     key: 'nitrogen',
@@ -69,11 +76,6 @@ const SPECS: ChartSpec[] = [
       { name: '出水 TN', color: '#7c5cd6', key: 'effluentTn' },
       { name: '出水 TP', color: '#b0770e', key: 'effluentTp' },
     ],
-    limits: [
-      { value: 5, label: 'NH₃-N 限值' },
-      { value: 0.5, label: 'TP 限值' },
-    ],
-    yMax: 20,
   },
   {
     key: 'energy',
@@ -83,7 +85,6 @@ const SPECS: ChartSpec[] = [
       { name: '总能耗', color: '#b0770e', key: 'energyKw' },
       { name: '溶解氧', color: '#0d7f96', key: 'do' },
     ],
-    limits: [{ value: 1, label: 'DO 下限' }],
   },
 ];
 
@@ -94,27 +95,8 @@ function withAlpha(hex: string, alpha: number): string {
 }
 
 function Chart({ spec, snap, range = 'all' }: { spec: ChartSpec; snap: PlantSnapshot; range?: TrendRange }) {
-  const el = useRef<HTMLDivElement | null>(null);
-  const chart = useRef<echarts.ECharts | null>(null);
-
-  useEffect(() => {
-    if (!el.current) return;
-    const instance = echarts.init(el.current, undefined, { renderer: 'canvas' });
-    // 多图联动（ECharts 官方 group + connect）：三张图共享时间范围后，
-    // 十字线与 tooltip 也应同步——操作员横向对照「同一时刻」的出水与能耗时，
-    // 不该在三张图上分别找同一时刻。
-    instance.group = 'aquapilot-trends';
-    echarts.connect('aquapilot-trends');
-    chart.current = instance;
-    const onResize = () => instance.resize();
-    const ro = new ResizeObserver(onResize);
-    ro.observe(el.current);
-    return () => {
-      ro.disconnect();
-      instance.dispose();
-      chart.current = null;
-    };
-  }, []);
+  // 多图联动：三张图共享时间范围后，十字线与 tooltip 也应同步
+  const { containerRef: el, chart } = useEChart({ group: 'aquapilot-trends' });
 
   useEffect(() => {
     const instance = chart.current;
@@ -229,7 +211,7 @@ function Chart({ spec, snap, range = 'all' }: { spec: ChartSpec; snap: PlantSnap
         symbol: 'none',
         label: { show: false },
         lineStyle: { color: 'rgba(210,71,47,0.55)', type: 'dashed', width: 1 },
-        data: [{ yAxis: 50 }],
+        data: [{ yAxis: snap.limits.cod }],
       };
     }
     if (spec.key === 'nitrogen') {
@@ -238,7 +220,7 @@ function Chart({ spec, snap, range = 'all' }: { spec: ChartSpec; snap: PlantSnap
         symbol: 'none',
         label: { show: false },
         lineStyle: { color: 'rgba(210,71,47,0.55)', type: 'dashed', width: 1 },
-        data: [{ yAxis: 5 }],
+        data: [{ yAxis: snap.limits.nh }],
       };
     }
     if (spec.key === 'energy') {
@@ -252,7 +234,7 @@ function Chart({ spec, snap, range = 'all' }: { spec: ChartSpec; snap: PlantSnap
     }
 
     const tracked = spec.series.filter((s) => (s.key as string) !== 'influentCod');
-    const limitMax = Math.max(...spec.limits.map((l) => l.value));
+    const limitMax = limitMaxOf(spec, snap.limits);
     // autoYMax 抽到纯函数里：同一套留白规则被三张图与单测共用
     const yMax = autoYMax(
       trend.flatMap((p) => tracked.map((s) => p[s.key] as number)),
@@ -347,7 +329,7 @@ function Chart({ spec, snap, range = 'all' }: { spec: ChartSpec; snap: PlantSnap
       },
       { notMerge: false, lazyUpdate: true },
     );
-  }, [snap, spec, range]);
+  }, [snap, spec, range, chart]);
 
   const last = snap.trends[snap.trends.length - 1];
   const readout = spec.series

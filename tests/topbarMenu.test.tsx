@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { TopbarMenu } from '../src/client/components/TopbarMenu';
@@ -59,6 +59,15 @@ describe('TopbarMenu', () => {
     expect(screen.getByRole('menu')).toBeTruthy();
     fireEvent.pointerDown(screen.getByTestId('outside'));
     expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('菜单挂到 body，避免被顶栏 overflow 裁掉', () => {
+    render(<TopbarMenu label="设置" items={items()} />);
+    fireEvent.click(screen.getByRole('button', { name: /设置/ }));
+    const menu = screen.getByRole('menu');
+    // portal 到 body 后，topbar 的 overflow: clip 不再裁切弹层
+    expect(menu.parentElement).toBe(document.body);
+    expect((menu as HTMLElement).style.position).toBe('fixed');
   });
 
   it('aria-expanded 跟随开合', () => {

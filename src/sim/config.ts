@@ -1,3 +1,5 @@
+import { GB18918_1A } from './standards';
+
 export type TankKind = 'anaerobic' | 'anoxic' | 'aerobic';
 
 export interface TankConfig {
@@ -19,13 +21,15 @@ export interface Limits {
   phMax: number;
 }
 
+/**
+ * 默认排放限值。
+ *
+ * 六项水质指标必须与 `standards.ts` 的默认档案同源：此前 LIMITS 与
+ * GB18918_1A.limits 各写一份 50/10/10/5/15/0.5，改标准只改一处就会让
+ * 告警、评分卡、AI 护栏出现三套口径。这里只额外补 pH 区间。
+ */
 export const LIMITS: Limits = {
-  cod: 50,
-  bod: 10,
-  ss: 10,
-  nh: 5,
-  tn: 15,
-  tp: 0.5,
+  ...GB18918_1A.limits,
   phMin: 6,
   phMax: 9,
 };
@@ -35,7 +39,7 @@ export const LIMITS: Limits = {
  *
  * 注意：池数与池容不在这里——它们是拓扑（`model/topology.ts`）的一部分，
  * 服务端按用户编排的拓扑求解。这里只保留与结构无关的厂级参数，
- * 以及没有拓扑时（参考引擎/脚本）使用的兜底几何。
+ * 以及没有拓扑时（CLI/脚本）使用的兜底几何。
  */
 export const PLANT = {
   name: '澄川再生水厂',
@@ -88,6 +92,15 @@ export const CONTROL_BOUNDS: Record<
   stormStore: { min: 0, max: 1, step: 0.1, unit: '', label: '雨水调蓄分流', precision: 1 },
   stepFeed: { min: 0, max: 0.5, step: 0.05, unit: '×Q', label: '缺氧区多点进水', precision: 2 },
 };
+
+/**
+ * 连续控制量的唯一键集。
+ *
+ * 从 CONTROL_BOUNDS 推导，不再让 agentConfig / analysis / controlHandler / mcp
+ * 各抄一份。新增控制量只要加进 CONTROL_BOUNDS，四处自动同步。
+ */
+export type ControlKey = keyof typeof CONTROL_BOUNDS;
+export const CONTROL_KEYS = Object.keys(CONTROL_BOUNDS) as ControlKey[];
 
 export const INFLUENT_DESIGN = {
   flow: 2000,

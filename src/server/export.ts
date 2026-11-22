@@ -12,18 +12,24 @@
 import type { DecisionReviewRow, DecisionRow, SnapshotRow } from './store';
 import type { PlantSnapshot } from '../shared/protocol';
 import { formatClock, formatTimeOfDay, simClock } from '../shared/time';
+import { stringify } from 'csv-stringify/sync';
 
-export function csvEscape(value: unknown): string {
-  const s = value === null || value === undefined ? '' : String(value);
-  if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
-
+/**
+ * 表头 + 行 → CSV。
+ *
+ * 用 csv-stringify 而不是手工拼：引号、CRLF、公式注入都由库处理。
+ * `escape_formulas` 会把以 = + - @ 开头的单元格前缀单引号，防止
+ * 审计理由/技能名称这类用户输入在 Excel 里被当成公式执行。
+ */
 export function toCsv(headers: string[], rows: unknown[][]): string {
-  const lines = [headers.map(csvEscape).join(',')];
-  for (const row of rows) lines.push(row.map(csvEscape).join(','));
-  // 显式 \r\n：RFC 4180 与 Excel 的默认行为一致
-  return `${lines.join('\r\n')}\r\n`;
+  return stringify(rows, {
+    header: true,
+    columns: headers,
+    eof: true,
+    record_delimiter: 'windows',
+    escape_formulas: true,
+    quoted_match: [/[",\r\n]/],
+  });
 }
 
 export function snapshotsCsv(rows: SnapshotRow[]): string {

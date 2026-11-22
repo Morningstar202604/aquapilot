@@ -97,6 +97,14 @@ describe('拓扑运行时的辅助接口', () => {
     expect(rt.net.timeMin).toBe(before + 2);
   });
 
+  it('createRuntime 可按 ASM1 启动，拓扑变更保留该模型', () => {
+    const rt = createRuntime(PLANT_TOPOLOGY, 7, 'asm1');
+    expect(rt.net.modelMode).toBe('asm1');
+    const result = applyTopology(rt, PLANT_TOPOLOGY);
+    expect(result.ok).toBe(true);
+    expect(rt.net.modelMode).toBe('asm1');
+  });
+
   it('runtimeQuality 返回 0–100 的分数', () => {
     const rt = createRuntime(PLANT_TOPOLOGY, 7);
     const q = runtimeQuality(rt);

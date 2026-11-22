@@ -51,16 +51,25 @@ export const UNIT_KINDS = [
   'splitter',
 ] as const satisfies readonly UnitKind[];
 
-export type StreamKind =
-  | 'influent'
-  | 'mixed_liquor'
-  | 'return_activated_sludge'
-  | 'waste_sludge'
-  | 'internal_recycle'
-  | 'effluent'
-  | 'air'
-  | 'chemical'
-  | 'sludge_cake';
+/**
+ * 物流类型的运行时清单。
+ *
+ * 之前 topologyInput 又手写了一遍同样的字符串集合；新增物流类型时两处必须
+ * 同时改，否则合法拓扑会被当成脏数据拒绝。这里用清单反推类型，只留一份。
+ */
+export const STREAM_KINDS = [
+  'influent',
+  'mixed_liquor',
+  'return_activated_sludge',
+  'waste_sludge',
+  'internal_recycle',
+  'effluent',
+  'air',
+  'chemical',
+  'sludge_cake',
+] as const;
+
+export type StreamKind = (typeof STREAM_KINDS)[number];
 
 export interface Port {
   id: string;
@@ -87,16 +96,25 @@ export interface UnitSpec {
   meta?: Record<string, string | number>;
 }
 
-export type InterventionKey =
-  | 'doSetpoint'
-  | 'internalRecirc'
-  | 'rasRatio'
-  | 'wasRatio'
-  | 'pacDose'
-  | 'carbonDose'
-  | 'alkDose'
-  | 'stormStore'
-  | 'stepFeed';
+/**
+ * 允许的人工干预键。
+ *
+ * 类型与运行时白名单同源：sanitize 不再把任意字符串 `as InterventionKey`，
+ * 拼错的干预项会在这里被丢掉，而不是等到引擎里查不到控制量才静默失效。
+ */
+export const INTERVENTION_KEYS = [
+  'doSetpoint',
+  'internalRecirc',
+  'rasRatio',
+  'wasRatio',
+  'pacDose',
+  'carbonDose',
+  'alkDose',
+  'stormStore',
+  'stepFeed',
+] as const;
+
+export type InterventionKey = (typeof INTERVENTION_KEYS)[number];
 
 export interface Connection {
   id: string;

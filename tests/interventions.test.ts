@@ -22,7 +22,7 @@ describe('干预清单', () => {
     }
   });
 
-  it('三个模板的干预清单同样只含可写键', () => {
+  it('全部模板的干预清单同样只含可写键', () => {
     const writable = new Set(Object.keys(CONTROL_BOUNDS));
     for (const preset of PRESETS) {
       for (const unit of buildPreset(preset).units) {

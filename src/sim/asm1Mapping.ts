@@ -118,8 +118,8 @@ export function influentToAsm1(influent: {
  */
 export const ASM1_LIMITATIONS = {
   phosphorus: 'ASM1 不含磷组分；出水 TP 必须由化学除磷（PAC）单独建模',
-  temperature: '当前使用 20 ℃ 参数集，未做 Arrhenius 温度修正',
-  inhibition: '毒性抑制通过缩放 mu_H / mu_A 实现，未建模具体的抑制机理',
+  temperature: '速率常数按反应器实际水温做 Arrhenius 修正（buildRates 第二参数）；未做水温对饱和溶解氧的压力修正',
+  inhibition: '毒性抑制通过缩放 mu_H / mu_A 实现；pH 与游离氨抑制为工程近似，未建模具体抑制机理',
 } as const;
 
 export { ASM1_PARAMS };

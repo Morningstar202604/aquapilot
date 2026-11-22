@@ -11,9 +11,10 @@
  */
 
 import type { ControlSettings } from './config';
-import { LIMITS } from './config';
+import { quantile } from './quantile';
 import type { EffluentStats } from './networkEngine';
 import type { ForecastOutcomeX, UncertaintyFactor } from './plantModel';
+import { worstRatio as worstRatioOf } from './metrics';
 
 export type { UncertaintyFactor };
 
@@ -55,16 +56,6 @@ export interface EnsembleForecast {
   samples: number;
 }
 
-function quantile(sorted: number[], q: number): number {
-  if (sorted.length === 0) return 0;
-  if (sorted.length === 1) return sorted[0];
-  const pos = (sorted.length - 1) * q;
-  const lo = Math.floor(pos);
-  const hi = Math.ceil(pos);
-  if (lo === hi) return sorted[lo];
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
-}
-
 function band(values: number[]): Band {
   const s = [...values].sort((a, b) => a - b);
   return { p10: quantile(s, 0.1), p50: quantile(s, 0.5), p90: quantile(s, 0.9) };
@@ -73,17 +64,6 @@ function band(values: number[]): Band {
 /** 单条轨迹是否出现任何出水指标超限 */
 export function violated(forecast: Pick<ForecastOutcomeX, 'violations'>): boolean {
   return forecast.violations.length > 0;
-}
-
-function metricRatio(e: EffluentStats): number {
-  return Math.max(
-    e.cod / LIMITS.cod,
-    e.bod / LIMITS.bod,
-    e.ss / LIMITS.ss,
-    e.nh / LIMITS.nh,
-    e.tn / LIMITS.tn,
-    e.tp / LIMITS.tp,
-  );
 }
 
 export function buildEnsemble(
@@ -101,7 +81,7 @@ export function buildEnsemble(
   let worstRatio = 0;
   for (let i = 0; i < minutes; i++) {
     const effluents = runs.map((r) => r.points[i].effluent);
-    for (const e of effluents) worstRatio = Math.max(worstRatio, metricRatio(e));
+    for (const e of effluents) worstRatio = Math.max(worstRatio, worstRatioOf(e));
     points.push({
       minute: (i + 1) * sampleEveryMin,
       cod: band(effluents.map((e) => e.cod)),

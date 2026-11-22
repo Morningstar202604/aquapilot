@@ -103,4 +103,11 @@ describe('拓扑输入校验', () => {
     t.units[0].ports[0].kind = 'sideways';
     expect(sanitizeTopologyInput(t).ok).toBe(false);
   });
+
+  it('未知干预项被丢弃，合法项保留', () => {
+    const t = clone();
+    t.units.find((u: { id: string }) => u.id === 'aerobic1').interventions = ['doSetpoint', 'ghost', 'stepFeed'];
+    const topo = ok(t);
+    expect(topo.units.find((u) => u.id === 'aerobic1')?.interventions).toEqual(['doSetpoint', 'stepFeed']);
+  });
 });

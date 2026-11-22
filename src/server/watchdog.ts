@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
+import type { WatchdogReport } from '../shared/protocol';
 
 /**
  * 运行自检（watchdog）。
@@ -56,12 +57,6 @@ export interface CheckResult {
   severity: CheckSeverity;
   detail: string;
   action: string;
-}
-
-export interface WatchdogReport {
-  at: string;
-  severity: CheckSeverity;
-  checks: CheckResult[];
 }
 
 /** 纯函数：给定观测值输出自检结论 */

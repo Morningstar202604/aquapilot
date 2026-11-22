@@ -1,12 +1,15 @@
-import { ControlSettings, DEFAULT_CONTROLS, INFLUENT_DESIGN, LIMITS, PLANT } from './config';
+import { ControlSettings, DEFAULT_CONTROLS, INFLUENT_DESIGN, PLANT } from './config';
+
 import { mulberry32 } from './rng';
-import { sampleAt, type InfluentSeries } from './influentSeries';
+import { sampleAt } from './influentSeries';
 import { ScenarioSpec, SCENARIOS } from './scenarios';
-import { CompiledNetwork, compileNetwork, resolveFlows, type CompiledEdge } from './network';
+import { CompiledNetwork, compileNetwork, resolveFlows, type CompiledEdge, type FlowBranchHydraulics } from './network';
 import { networkSnapshot, PlantModel } from './plantModel';
-import { clampControls, qualityScore } from './metrics';
+import { clampControls, effluentMarginRows, qualityScore } from './metrics';
 import { KINETICS, DESIGN_MLSS, TARIFF } from './kinetics';
-import { BSM1_SETTLER, SettlerState, createSettler, stepSettler } from './takacs';
+import { BSM1_SETTLER, createSettler, stepSettler } from './takacs';
+import type { NetworkSimState, ReactorState, KineticModel } from './networkTypes';
+export type { NetworkSimState, ReactorState, EffluentStats, KineticModel } from './networkTypes';
 import {
   aerationCapacityOf,
   diurnal,
@@ -24,24 +27,78 @@ import {
   buildRates,
   buildStoichiometry,
   emptyAsm1State,
-  reactionRates,
+  phFromAlkalinity,
+  processInhibition,
   type Asm1Component,
   type Asm1State,
 } from './asm1';
 import { fromAsm1, influentToAsm1, toAsm1 } from './asm1Mapping';
+import { stepAsm2dNetwork, asm2dFeedSolids } from './asm2dNetwork';
+import { ASM2D_PARAMS } from './asm2d';
+import { COD_PER_VSS } from './units';
+import {
+  clonePlantBoundary,
+  createPlantBoundary,
+  PLANT_ERRORS,
+  recordPlantError,
+  updatePlantBalance,
+} from './plantBoundary';
+import { stepSludgeLine } from './sludgeLine';
+import { stepAeration, totalBlowerPower } from './aeration';
+import { createInstrumentationState, measure, measuredValue } from './instruments';
+import { createControlLayer, evaluateInterlocks, stepLoop, applyEsdState, interlockActive } from './controlLayer';
+import { createAssetStateFromTopology, tickAssets, capacityFactorFor } from './assets';
+import { createFan, commandActuator } from './actuators';
+import {
+  cloneHydraulics,
+  createHydraulics,
+  refreshRtdMetrics,
+  stepHydraulics,
+  type HydraulicState,
+} from './hydraulics';
+import type { ClarifierState } from './networkTypes';
 
 const STOICH = buildStoichiometry();
-const RATE_FNS = buildRates();
 
-/** 带抑制的 ASM1 速率：自养菌对毒性更敏感（平方），异养菌更耐受（开方） */
-function reactionRatesWithSuppression(s: Asm1State, suppression: number): Asm1State {
-  if (suppression >= 0.999) return reactionRates(s);
-  const autoF = Math.max(0, suppression) ** 2;
-  const heteroF = Math.sqrt(Math.max(0, suppression));
+/**
+ * 温度分档缓存。
+ *
+ * buildRates 会创建 8 个闭包；每池每步重建一次没有必要，而且温度是连续量。
+ * 按 0.1 ℃ 分档缓存，既保留 Arrhenius 的连续效果，又把闭包创建限制在
+ * 有限的温度点上。缓存键只含温度；pH/游离氨抑制在闭包外逐过程乘上去。
+ */
+const RATE_FNS_CACHE = new Map<number, ReturnType<typeof buildRates>>();
+function rateFunctionsAt(temperatureC: number): ReturnType<typeof buildRates> {
+  const key = Math.round(temperatureC * 10) / 10;
+  const cached = RATE_FNS_CACHE.get(key);
+  if (cached) return cached;
+  const built = buildRates(ASM1_PARAMS, key);
+  RATE_FNS_CACHE.set(key, built);
+  return built;
+}
+
+/**
+ * 带抑制的 ASM1 速率。
+ *
+ * 三层因子叠乘：
+ *   1. 外部毒性 suppression（事故注入）；
+ *   2. 自养/异养对毒性的不同敏感度；
+ *   3. pH 与游离氨的过程级抑制（见 asm1.processInhibition）。
+ *
+ * 温度通过 rateFunctionsAt 进入所有 Arrhenius 速率常数，而不是只改显示值。
+ */
+function reactionRatesWithSuppression(s: Asm1State, suppression: number, temperatureC: number, ph: number): Asm1State {
+  const rates = rateFunctionsAt(temperatureC);
   const out = emptyAsm1State();
   for (const proc of ASM1_PROCESSES) {
-    const factor = proc === 'aerobic_growth_autotrophs' || proc === 'decay_autotrophs' ? autoF : heteroF;
-    const rate = RATE_FNS[proc](s) * ASM1_PARAMS.PER_DAY_TO_PER_HOUR * factor;
+    const toxicFactor =
+      suppression >= 0.999
+        ? 1
+        : proc === 'aerobic_growth_autotrophs' || proc === 'decay_autotrophs'
+          ? Math.max(0, suppression) ** 2
+          : Math.sqrt(Math.max(0, suppression));
+    const inhibition = processInhibition(proc, s, ph, temperatureC);
+    const rate = rates[proc](s) * ASM1_PARAMS.PER_DAY_TO_PER_HOUR * toxicFactor * inhibition;
     if (rate <= 0 || !Number.isFinite(rate)) continue;
     for (const [comp, coef] of Object.entries(STOICH[proc]) as [Asm1Component, number][]) {
       out[comp] += coef * rate;
@@ -52,15 +109,31 @@ function reactionRatesWithSuppression(s: Asm1State, suppression: number): Asm1St
 
 import { ProcessTopology } from '../model/topology';
 
+/** 网络引擎控制基准：与参考实现不同的只有排泥比，其余沿用全局默认 */
+export const NETWORK_CONTROL_DEFAULTS: ControlSettings = { ...DEFAULT_CONTROLS, wasRatio: 0.022 };
+
+/** 构造单个二沉池状态（首池与多系列各池同构） */
+function makeClarifier(area: number, depth: number): ClarifierState {
+  return {
+    area,
+    depth,
+    settler: createSettler({ ...BSM1_SETTLER, area, depth }, 3000),
+    blanketM: 1.0,
+    sludgeMassKg: 22000,
+    xRas: 8600,
+    xEff: 4,
+    slr: 3.4,
+  };
+}
+
 /**
  * 拓扑求解引擎（生产路径）。
  *
  * 反应器数量、容积、连接关系全部来自 ProcessTopology；引擎里没有"五个池"的假设。
  * 求解顺序由 network.ts 编译出的拓扑序决定，回流边每步按控制量定流量。
  *
- * 与 engine.ts（固定五池参考实现）的关系：
- * - 动力学常数一致，便于对照
- * - 本文件是服务端、AI 决策、预测的唯一入口
+ * 本文件是服务端、AI 决策、预测的唯一入口。
+ * 早先的固定五池参考引擎已删除：它只被测试引用，留着只会让两套常数分叉。
  */
 
 /**
@@ -70,149 +143,22 @@ import { ProcessTopology } from '../model/topology';
  * 拓扑里加一个缺氧池，这里就多解一个缺氧池，不需要改引擎代码。
  */
 
-export interface ReactorState {
-  id: string;
-  name: string;
-  kind: 'anaerobic' | 'anoxic' | 'aerobic';
-  volume: number;
-  /** ASM1 13 组分状态；仅在 modelMode === 'asm1' 时存在 */
-  asm1?: import('./asm1').Asm1State;
-  cod: number;
-  nh: number;
-  no3: number;
-  tp: number;
-  doLevel: number;
-  alkalinity: number;
-  temperature: number;
-  o2Demand: number;
-  kla: number;
-  inflow: number;
-}
-
-export interface EffluentStats {
-  flow: number;
-  cod: number;
-  bod: number;
-  ss: number;
-  nh: number;
-  tn: number;
-  tp: number;
-  ph: number;
-  temperature: number;
-}
-
-export type KineticModel = 'simple' | 'asm1';
-
-export interface NetworkSimState {
-  timeMin: number;
-  seed: number;
-  rngCount: number;
-  topologyId: string;
-  modelMode: KineticModel;
-  reactors: ReactorState[];
-  order: string[];
-  clarifier: {
-    area: number;
-    depth: number;
-    /** Takács 十层剖面 */
-    settler: SettlerState;
-    blanketM: number;
-    sludgeMassKg: number;
-    xRas: number;
-    xEff: number;
-    slr: number;
-  };
-  influent: {
-    flow: number;
-    cod: number;
-    bod: number;
-    nh: number;
-    tn: number;
-    tp: number;
-    ss: number;
-    temperature: number;
-    alkalinity: number;
-  };
-  effluent: EffluentStats;
-  controls: ControlSettings;
-  scenario: ScenarioSpec | null;
-  biomassKg: number;
-  srtDays: number;
-  /** 食微比 F/M = kg BOD₅/d ÷ kg MLSS */
-  fmRatio: number;
-  inhibition: number;
-  aerationCapacity: number;
-  energy: { blowerKw: number; mixerKw: number; pumpKw: number; totalKw: number };
-  alarms: {
-    id: string;
-    at: number;
-    severity: 'warning' | 'critical';
-    code: string;
-    message: string;
-    metric?: string;
-    value?: number;
-  }[];
-  alarmSeq: number;
-  /** 累计（自预热结束起） */
-  cost: { energy: number; chemical: number; sludge: number; total: number };
-  /** 当个仿真日（跨日清零） */
-  costToday: { energy: number; chemical: number; sludge: number; total: number };
-  /**
-   * 累计物料量：必须按每步流量/功率积分，不能用「当前值 × 已运行时间」外推。
-   * 进水流量、负荷与能耗都是时变量，外推在日内会系统性偏差。
-   */
-  /**
-   * 可选的真实进水序列。
-   *
-   * 设置后，进水由该序列驱动，而不是「昼夜节律 + 噪声」的合成模型。
-   * 这是与 bsm2-python 的 `dyninfluent` 对齐的能力：用历史剖面回答
-   * 「拿上周真实进水跑一遍会怎样」。
-   */
-  influentSeries?: InfluentSeries | null;
-  totals: {
-    inflowM3: number;
-    energyKwh: number;
-    wasteSludgeKg: number;
-    /**
-     * 累计进水 COD 质量（kg）。
-     *
-     * 必须随水量一起积分，而不是用「当前瞬时进水浓度 × 累计水量」：
-     * 后者在启动初期会给出极小分母（累计水量接近 0 而池内已有几十吨库存），
-     * 质量平衡直接算出 -69712% 这种荒谬数字。积分值才是与库存可比的量。
-     */
-    influentCodKg: number;
-    /**
-     * 累计被氧化的 COD 质量（kg）。
-     *
-     * 好氧系统里进水 COD 的最大去向不是出水也不是排泥，而是被氧化成 CO₂。
-     * 不记这一项，任何质量平衡审计都会报出 30%+ 的假差额——
-     * 那不是模型漏了组分，是账本漏了最大的一笔支出。
-     */
-    oxidizedCodKg: number;
-  };
-  lastDay: number;
-  /**
-   * 不确定度因子（仅预测克隆使用）：让集合预测可以在同一状态上做参数扰动，
-   * 生产状态保持 undefined，物理路径不变。
-   */
-  uncertainty?: { flow: number; cod: number; nh: number; tp: number; temperature: number; biomass: number };
-  stormStorageM3: number;
-  volume: { bio: number; aerobic: number; anoxic: number; anaerobic: number };
-  /**
-   * 编译缓存随状态走（而非模块全局）：
-   * - 每个仿真实例持有自己的 topo 引用与编译结果，影子双跑/多实例互不干扰；
-   * - stepNetwork 只按「对象身份」判断是否需要重编译，同一张图不反复编译；
-   * - 彻底消除「同一拓扑对象被就地修改后命中过期编译」这一类隐患。
-   */
-  topo: ProcessTopology;
-  net: CompiledNetwork;
-}
-
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+
+/** i_P_PP：g P / g PP COD（ASM2d 化学计量），PP 库存磷折算用。 */
+const P_PER_PP = 0.19;
 
 export function createNetworkState(
   topo: ProcessTopology,
-  options: { seed?: number; controls?: Partial<ControlSettings>; model?: KineticModel } = {},
+  options: {
+    seed?: number;
+    controls?: Partial<ControlSettings>;
+    model?: KineticModel;
+    /** WP2 泥线/全厂边界是否启用；默认关闭，ASM1 基准路径不变 */
+    plantEnabled?: boolean;
+    /** WP2 生物除磷开关；默认开启，关闭后 PAO 释磷/吸磷不参与，TP 仅靠 PAC */
+    bioPRemoval?: boolean;
+  } = {},
 ): NetworkSimState {
   const net = compileNetwork(topo);
   if (net.problems.length) throw new Error(`拓扑无法编译：${net.problems.join('；')}`);
@@ -227,11 +173,19 @@ export function createNetworkState(
    * 但**必须让调用方传入的所有控制量生效**——早先只采纳 wasRatio，
    * 其余被静默丢弃，导致"改 DO 设定"之类的测试实际测的是默认值（假通过）。
    */
-  const networkDefaults: ControlSettings = { ...DEFAULT_CONTROLS, wasRatio: 0.022 };
-  const controls: ControlSettings = clampControls({ ...networkDefaults, ...options.controls });
-  const clarifier = topo.units.find((u) => u.kind === 'clarifier');
-  const area = clarifier?.area ?? PLANT.clarifier.area;
-  const depth = clarifier?.depth ?? PLANT.clarifier.depth;
+  const controls: ControlSettings = clampControls({ ...NETWORK_CONTROL_DEFAULTS, ...options.controls });
+  const clarifierStates: ClarifierState[] =
+    net.clarifiers.length > 0
+      ? net.clarifiers.map((c) => makeClarifier(c.area, c.depth))
+      : [makeClarifier(PLANT.clarifier.area, PLANT.clarifier.depth)];
+  const clarifier = clarifierStates[0];
+  const hydraulics: HydraulicState = createHydraulics(net, INFLUENT_DESIGN.flow);
+  const plant = createPlantBoundary(Boolean(options.plantEnabled));
+  const instruments = createInstrumentationState(topo, { seed: options.seed ?? 20261019 });
+  const controlLayer = createControlLayer({
+    initialOutputs: { do: 1, ras: controls.rasRatio, was: controls.wasRatio },
+  });
+  const assets = createAssetStateFromTopology(topo, { seed: options.seed ?? 20261123 });
 
   const reactors: ReactorState[] = net.reactors.map((r) => ({
     id: r.id,
@@ -256,18 +210,16 @@ export function createNetworkState(
     rngCount: 0,
     topologyId: topo.id,
     modelMode: options.model ?? 'simple',
+    bioPRemoval: options.bioPRemoval ?? true,
     reactors,
     order: [...net.reactors].sort((a, b) => a.order - b.order).map((r) => r.id),
-    clarifier: {
-      area,
-      depth,
-      settler: createSettler({ ...BSM1_SETTLER, area, depth }, 3000),
-      blanketM: 1.0,
-      sludgeMassKg: 22000,
-      xRas: 8600,
-      xEff: 4,
-      slr: 3.4,
-    },
+    clarifier,
+    clarifiers: clarifierStates,
+    hydraulics,
+    plant,
+    instruments,
+    controlLayer,
+    assets,
     influent: { ...INFLUENT_DESIGN },
     effluent: {
       flow: INFLUENT_DESIGN.flow,
@@ -618,13 +570,59 @@ function solveReactors(ctx: StepContext): {
   codOxidizedKgH: number;
   /** 质量平衡专用：按实际耗氧折算，不受内回流重复计账影响 */
   balancedOxidizedKgH: number;
+  /** 实际传递到水中的氧，用于风机功率（不是需氧量倒推） */
+  o2TransferredKgH: number;
   nhOxidizedKgH: number;
+  /** 反硝化脱氮量 kg N/h（NO3 → N₂，N 账单列） */
+  denitrifiedNKgH: number;
 } {
   const { state, net, dtH, flows, byId, xBiomass, bf, T, thetaH, thetaN, clar, lastReactor, influent, sup } = ctx;
   let o2DemandKgH = 0;
+  let o2TransferredKgH = 0;
   let codOxidizedKgH = 0;
   let nhOxidizedKgH = 0;
+  let denitNKgH = 0;
   const orderedReactorIds = net.order;
+
+  // ── ASM2d：网络级逐池 19 组分 CSTR 积分（asm2dNetwork.ts），不走经验聚合量 ──
+  if (state.modelMode === 'asm2d') {
+    const flux = stepAsm2dNetwork({
+      reactors: state.reactors,
+      byId,
+      net,
+      edgeFlow: flows.edgeFlow,
+      influent,
+      xRas: clar.xRas,
+      xBiomass,
+      temperatureC: T,
+      dtH,
+      bioP: state.bioPRemoval,
+      carbonDose: state.controls.carbonDose,
+      aerationCapacity: state.aerationCapacity,
+      doSetpoint: state.controls.doSetpoint,
+      suppression: sup,
+    });
+    // COD 氧化只计异养/PAO 生长 + 内源呼吸耗氧；自养硝化耗氧（o2Nitro）单独一行，
+    // 不进 COD 账——否则硝化 O₂ 被折算成 COD 氧化，氧化项高估约一倍。
+    const growthOx = Math.max(0, flux.o2HeteroKgH / KINETICS.o2PerCod);
+    // 氧化去向拆两行：生长耗氧折算 COD + 内源呼吸（b_H/b_PAO/b_AUT 溶解）折算 COD
+    const balancedOx = growthOx + flux.endogenousOxKgH;
+    if (flux.clampedCount > 0 && state.plant) {
+      recordPlantError(
+        state.plant,
+        PLANT_ERRORS.ASM2D_STATE_INVALID,
+        `${flux.clampedCount} 个反应器组分越界，已钳制到物理边界`,
+      );
+    }
+    return {
+      o2DemandKgH: flux.o2DemandKgH,
+      codOxidizedKgH: balancedOx,
+      balancedOxidizedKgH: balancedOx,
+      o2TransferredKgH: flux.o2TransferredKgH,
+      nhOxidizedKgH: flux.nhOxidizedKgH,
+      denitrifiedNKgH: flux.denitrifiedNKgH,
+    };
+  }
 
   for (const id of orderedReactorIds) {
     const reactor = byId.get(id);
@@ -666,7 +664,8 @@ function solveReactors(ctx: StepContext): {
 
       const asmIn = aggregateAsm1Inflow(incoming, flows.edgeFlow, byId, lastReactor, clar.xRas, influent, T);
 
-      const r = reactionRatesWithSuppression(reactor.asm1, sup);
+      const ph = phFromAlkalinity(reactor.asm1.S_ALK);
+      const r = reactionRatesWithSuppression(reactor.asm1, sup, T, ph);
       const nextAsm1 = { ...reactor.asm1 };
 
       /**
@@ -716,11 +715,28 @@ function solveReactors(ctx: StepContext): {
       if (externalCarbon > 0) nextAsm1.S_S = Math.max(0, nextAsm1.S_S + dtH * qOverV * externalCarbon);
       nextAsm1.S_ALK = Math.max(0, reactor.asm1.S_ALK + dtH * qOverV * (asmIn.S_ALK - reactor.asm1.S_ALK));
 
-      // 溶解氧：好氧池维持在设定值（供氧能力已由 aerationCapacity 表达）
+      // 溶解氧：不是贴设定值，而是氧传递（KLa）与耗氧平衡的结果。
+      // 设定值只进入 PI 控制器，实际 DO 受鼓风机剩余能力、KLa 速率限制和 OUR 约束。
       if (reactor.kind === 'aerobic' && state.aerationCapacity > 0.02) {
-        nextAsm1.S_O = Math.min(KINETICS.doSat20 * 0.85, state.controls.doSetpoint * state.aerationCapacity);
+        const aeration = stepAeration({
+          volume: reactor.volume,
+          temperatureC: T,
+          doLevel: reactor.asm1.S_O,
+          o2Demand: Math.max(0, -r.S_O),
+          doSetpoint: state.controls.doSetpoint,
+          capacity: state.aerationCapacity,
+          previousKla: reactor.kla ?? 0,
+          previousIntegral: reactor.doIntegral ?? 0,
+          dtH,
+        });
+        nextAsm1.S_O = aeration.doLevel;
+        reactor.kla = aeration.kla;
+        reactor.doIntegral = aeration.integral;
+        o2TransferredKgH += aeration.o2TransferredKgH;
       } else {
-        nextAsm1.S_O = Math.max(0, nextAsm1.S_O - dtH * 3);
+        reactor.kla = 0;
+        reactor.doIntegral = 0;
+        nextAsm1.S_O = Math.max(0, nextAsm1.S_O - dtH * 0.5);
       }
 
       reactor.asm1 = nextAsm1;
@@ -745,15 +761,17 @@ function solveReactors(ctx: StepContext): {
       continue;
     }
 
+    // ── simple 经验动力学分支（ASM2d 已在函数开头由 asm2dNetwork 逐池积分，不走这里）──
+
     const fCod = reactor.cod / (KINETICS.ksCod + reactor.cod);
     const fNh = reactor.nh / (KINETICS.ksNh + reactor.nh);
     const fO2 = reactor.doLevel / (KINETICS.ksO2 + reactor.doLevel);
     const fO2Nit = reactor.doLevel / (KINETICS.ksO2Nit + reactor.doLevel);
 
-    let codRate = 0;
+    let codRate: number;
     let nhRate = 0;
     let no3Rate = 0;
-    let tpRate = 0;
+    let tpRate: number;
     let o2Rate = 0;
 
     if (reactor.kind === 'anaerobic') {
@@ -828,6 +846,7 @@ function solveReactors(ctx: StepContext): {
 
     codOxidizedKgH += (Math.max(0, -codRate) * reactor.volume) / 1000;
     nhOxidizedKgH += (Math.max(0, -nhRate) * reactor.volume) / 1000;
+    denitNKgH += (Math.max(0, -no3Rate) * reactor.volume) / 1000;
   }
 
   /**
@@ -846,29 +865,46 @@ function solveReactors(ctx: StepContext): {
    */
   const balancedOxidizedKgH = Math.max(0, (o2DemandKgH - nhOxidizedKgH * KINETICS.o2PerNh) / KINETICS.o2PerCod);
 
-  return { o2DemandKgH, codOxidizedKgH, balancedOxidizedKgH, nhOxidizedKgH };
+  return {
+    o2DemandKgH,
+    codOxidizedKgH,
+    balancedOxidizedKgH,
+    nhOxidizedKgH,
+    o2TransferredKgH,
+    denitrifiedNKgH: denitNKgH,
+  };
+}
+
+/** WP3 水力学输运：推进管渠分段 CSTR 与示踪剂历史，刷新 RTD 矩。 */
+function stepHydraulicTransport(ctx: StepContext, edgeFlow: Map<string, number>): void {
+  const { state, net, dtMin, xBiomass } = ctx;
+  if (!state.hydraulics) return;
+  const componentFeed = new Map<string, number[]>();
+  for (const reactor of state.reactors) {
+    const outs = (net.outgoingByReactor[reactor.id] ?? []).filter((e) => e.stream !== 'air' && e.stream !== 'chemical');
+    const vector = [reactor.cod, reactor.nh, reactor.no3, reactor.tp, xBiomass];
+    for (const e of outs) componentFeed.set(e.id, vector);
+  }
+  const outletEdgeIds = net.edges.filter((e) => e.stream === 'effluent').map((e) => e.id);
+  stepHydraulics(state.hydraulics, net, {
+    flows: edgeFlow,
+    dtMin,
+    timeMin: state.timeMin,
+    componentFeed,
+    outletEdgeIds,
+  });
+  refreshRtdMetrics(state.hydraulics, dtMin);
 }
 
 /** 阶段 3：二沉池（Takács 十层）。返回进水固体负荷与排泥带走的干固体。 */
 function solveClarifier(ctx: StepContext): { clarifierInflow: number; wasted: number } {
-  const { state, dtMin, dtH, rec, clar, xBiomass, Qw, Qr, Qe, underflow, Q } = ctx;
+  const { state, dtMin, dtH, rec, xBiomass, Qw, Qr, Qe, underflow, Q } = ctx;
   // ── 二沉池：Takács 十层沉降模型 ──
   // 用分层剖面直接给出回流浓度与出水悬浮物，取代原先的经验关联式。
-  // 这是 ASM1 能接入的前提：生物量的截留必须由物理沉降决定，而不是外部指定的系数。
+  // 多系列时每个二沉池独立步进；进料固体暂取全厂末端池口径（系列间固体分配
+  // 属 WP2 全厂物料边界，本包只保证各池独立状态与独立 RAS/WAS 流量标签）。
   const clarifierInflow = Q * (1 + Math.max(rec.ras, 0.3));
-  const settlerCfg = {
-    ...BSM1_SETTLER,
-    area: clar.area,
-    depth: clar.depth,
-  };
 
-  /**
-   * 二沉池进料浓度必须用「末端反应器的实际颗粒浓度」，而不是全局 biomassKg 折算的 xBiomass。
-   *
-   * ASM1 模式下两者会分叉：xBiomass 来自早期简化模型的全局生物量，
-   * 而池内真实颗粒浓度是 X_I+X_S+X_B_H+X_B_A+X_P 之和。
-   * 用错会让 Takács 算出与实际不符的回流浓度，进而破坏 RAS 的生物量补给。
-   */
   const lastReactorForFeed = state.reactors[state.reactors.length - 1];
   const feedSolids = lastReactorForFeed?.asm1
     ? lastReactorForFeed.asm1.X_I +
@@ -876,53 +912,50 @@ function solveClarifier(ctx: StepContext): { clarifierInflow: number; wasted: nu
       lastReactorForFeed.asm1.X_B_H +
       lastReactorForFeed.asm1.X_B_A +
       lastReactorForFeed.asm1.X_P
-    : xBiomass;
+    : lastReactorForFeed?.asm2d
+      ? asm2dFeedSolids(lastReactorForFeed.asm2d)
+      : xBiomass;
 
-  const settlerResult = stepSettler(
-    clar.settler,
-    settlerCfg,
-    { flow: clarifierInflow * 24, concentration: feedSolids }, // m³/d, g/m³
-    { flow: underflow * 24 },
-    dtMin / 1440,
-  );
-  clar.settler = settlerResult.state;
-  clar.slr = settlerResult.solidsLoading;
+  const allClarifiers = state.clarifiers ?? [ctx.clar];
+  for (const clar of allClarifiers) {
+    const settlerCfg = { ...BSM1_SETTLER, area: clar.area, depth: clar.depth };
 
-  // 分层模型的输出直接作为回流与出水浓度
-  clar.xRas = clamp(settlerResult.xUnderflow, 1000, 15000);
-  clar.xEff = clamp(settlerResult.xEffluent, 0.5, 200);
-  /**
-   * 泥层高度：由固体负荷（SLR）与回流强度按工程关联式计算，不用分层剖面数层数。
-   *
-   * 原因：十层模型在小时间步下容易把浓缩区抹平，数层数得到的泥层与存量脱钩。
-   * 而出水 SS 与回流浓度这两个真正进入工艺计算的量，已由分层剖面正确给出。
-   * 泥层仅用于界面显示与跑泥判断，用关联式更稳定。
-   *
-   * 关联式形式参考固体通量理论：泥层随 SLR 上升、随回流比下降。
-   */
-  const slrFactor2 = clamp(settlerResult.solidsLoading / 3.6, 0.15, 3.2);
-  const rasFactor2 = clamp(0.8 / Math.max(0.15, rec.ras), 0.2, 3.0);
-  const blanketTarget = clamp(
-    0.19 * clar.depth * Math.pow(slrFactor2, 1.25) * Math.pow(rasFactor2, 0.6),
-    0.25,
-    clar.depth + 0.8,
-  );
-  clar.blanketM += (blanketTarget - clar.blanketM) * Math.min(1, dtMin / 60 / 0.5);
+    const settlerResult = stepSettler(
+      clar.settler,
+      settlerCfg,
+      { flow: clarifierInflow * 24, concentration: feedSolids }, // m³/d, g/m³
+      { flow: underflow * 24 },
+      dtMin / 1440,
+    );
+    clar.settler = settlerResult.state;
+    clar.slr = settlerResult.solidsLoading;
 
-  // 池内固体存量（供界面显示）
-  const meanX = settlerResult.state.x.reduce((a, b) => a + b, 0) / settlerResult.state.x.length;
-  clar.sludgeMassKg = (meanX * clar.area * clar.depth) / 1000;
+    // 分层模型的输出直接作为回流与出水浓度
+    clar.xRas = clamp(settlerResult.xUnderflow, 1000, 15000);
+    clar.xEff = clamp(settlerResult.xEffluent, 0.5, 200);
 
-  const rasDeficit = clamp(1 - rec.ras / Math.max(0.05, state.controls.rasRatio), 0, 1);
-  void rasDeficit;
+    const slrFactor2 = clamp(settlerResult.solidsLoading / 3.6, 0.15, 3.2);
+    const rasFactor2 = clamp(0.8 / Math.max(0.15, rec.ras), 0.2, 3.0);
+    const blanketTarget = clamp(
+      0.19 * clar.depth * Math.pow(slrFactor2, 1.25) * Math.pow(rasFactor2, 0.6),
+      0.25,
+      clar.depth + 0.8,
+    );
+    clar.blanketM += (blanketTarget - clar.blanketM) * Math.min(1, dtMin / 60 / 0.5);
 
+    // 池内固体存量（供界面显示）
+    const meanX = settlerResult.state.x.reduce((a, b) => a + b, 0) / settlerResult.state.x.length;
+    clar.sludgeMassKg = (meanX * clar.area * clar.depth) / 1000;
+  }
+
+  const first = allClarifiers[0] ?? ctx.clar;
   const solidsIn = (clarifierInflow * xBiomass) / 1000;
-  const solidsOut = ((Qr + Qw) * clar.xRas) / 1000 + (Qe * clar.xEff) / 1000;
+  const solidsOut = ((Qr + Qw) * first.xRas) / 1000 + (Qe * first.xEff) / 1000;
   void solidsIn;
   void solidsOut;
 
   // 排泥带走的干固体（kg）；成本与生物量都依赖它，因此在这一阶段算一次
-  const wasted = ((Qw * clar.xRas) / 1000) * dtH;
+  const wasted = ((Qw * first.xRas) / 1000) * dtH;
   return { clarifierInflow, wasted };
 }
 
@@ -953,6 +986,25 @@ function solveBiomass(
     const meanConc = weighted / Math.max(1, state.volume.bio);
     const wasKgDay = (Qw * 24 * meanConc) / 1000;
     state.srtDays = wasKgDay > 1 ? clamp(state.biomassKg / wasKgDay, 0.5, 60) : 60;
+  } else if (state.modelMode === 'asm2d') {
+    // MLSS 口径为混合液总悬浮固体：活性生物量 + 惰性/慢降解颗粒 + 胞内储存物，
+    // 全部由组分汇总（gCOD/m³ × 池容 ÷ 1.42 折 kg VSS）；SRT 另按活性生物量计。
+    let totalPartCod = 0;
+    let activeCod = 0;
+    let weightedActive = 0;
+    for (const r of state.reactors) {
+      if (!r.asm2d) continue;
+      const a = r.asm2d;
+      const part = a.X_I + a.X_S + a.X_H + a.X_PAO + a.X_AUT + a.X_PP + a.X_PHA;
+      const active = a.X_H + a.X_PAO + a.X_AUT;
+      totalPartCod += (part * r.volume) / 1000;
+      activeCod += (active * r.volume) / 1000;
+      weightedActive += active * r.volume;
+    }
+    state.biomassKg = clamp(totalPartCod / COD_PER_VSS, 1000, 400000);
+    const activeMean = weightedActive / Math.max(1, state.volume.bio) / COD_PER_VSS;
+    const wasKgDay = (Qw * 24 * Math.max(activeMean, clar.xRas * 0.5)) / 1000;
+    state.srtDays = wasKgDay > 5 ? clamp(activeCod / COD_PER_VSS / wasKgDay, 2, 60) : 60;
   } else {
     state.biomassKg = clamp(state.biomassKg + (growth - decay) * dtH - wasted, 5000, 400000);
     const wasKgDay = (Qw * 24 * clar.xRas) / 1000;
@@ -980,7 +1032,11 @@ function solveEffluent(ctx: StepContext): number {
    * 早期直接用 lastReactor.cod 导致出水 COD 被 clamp 到上限 900，
    * 而同一时刻氨氮、总氮都正常，掩盖了这个问题。
    */
-  const effluentSolubleCod = lastReactor.asm1 ? lastReactor.asm1.S_I + lastReactor.asm1.S_S : lastReactor.cod;
+  const effluentSolubleCod = lastReactor.asm1
+    ? lastReactor.asm1.S_I + lastReactor.asm1.S_S
+    : lastReactor.asm2d
+      ? lastReactor.asm2d.S_I + lastReactor.asm2d.S_F + lastReactor.asm2d.S_A
+      : lastReactor.cod;
   const effluentCodValue = clamp(effluentSolubleCod + suspend * 1.3, 4, 900);
 
   state.effluent = {
@@ -1001,15 +1057,16 @@ function solveEffluent(ctx: StepContext): number {
 /** 阶段 6：能耗与成本。 */
 function solveEnergyAndCost(
   ctx: StepContext,
-  o2DemandKgH: number,
+  o2TransferredKgH: number,
   wasted: number,
   pacDose: number,
   codOxidizedKgH: number,
 ): void {
   const { state, dtH, Q, Qr, rec } = ctx;
-  // 能耗
+  // 能耗：按实际传递到水中的氧计算，而不是按需氧量倒推。
+  // 鼓风机故障时传递量下降，功率随之下降；需氧量仍可由 o2DemandKgH 用于报警。
+  const blowerKw = totalBlowerPower(o2TransferredKgH, state.aerationCapacity);
   const anoxicVol = state.volume.anoxic + state.volume.anaerobic;
-  const blowerKw = clamp(o2DemandKgH / KINETICS.saeKgO2PerKwh / 0.7, 5, 900) * (state.aerationCapacity > 0.02 ? 1 : 0);
   const mixerKw = (anoxicVol * 3.4) / 1000;
   const pumpKw = (Q + Qr + Q * rec.ir) * 0.008;
   const totalKw = blowerKw + mixerKw + pumpKw;
@@ -1049,9 +1106,12 @@ function solveEnergyAndCost(
 /** 阶段 7：限值告警。 */
 function raiseLimitAlarms(state: NetworkSimState): void {
   const last = state.reactors[state.reactors.length - 1];
+  // 告警只读仪表测量值；理想仪表下与真值逐位一致，坏探头回退真值避免 NaN
+  const lastDo =
+    state.instruments && last ? measuredValue(state.instruments, `${last.id}:do`, last.doLevel) : (last?.doLevel ?? 0);
   const active = evaluateAlarms({
     effluent: state.effluent,
-    lastDo: last?.doLevel ?? 0,
+    lastDo,
     srtDays: state.srtDays,
     blanketM: state.clarifier.blanketM,
     depth: state.clarifier.depth,
@@ -1084,24 +1144,141 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
 
   const sup = toxicSuppression(state.scenario, state.timeMin);
   state.inhibition = sup;
-  state.aerationCapacity = aerationCapacityOf(state.scenario, state.timeMin);
+
+  // ── WP4/WP7 子系统懒初始化：旧快照缺字段时补默认理想实例，不抛错、不丢字段 ──
+  if (!state.instruments) {
+    state.instruments = createInstrumentationState(state.topo, { seed: state.seed });
+  }
+  if (!state.controlLayer) {
+    state.controlLayer = createControlLayer({
+      initialOutputs: { do: 1, ras: state.controls.rasRatio, was: state.controls.wasRatio },
+    });
+  }
+  if (!state.assets) {
+    state.assets = createAssetStateFromTopology(state.topo, { seed: state.seed });
+  }
+
+  // 资产步进：故障降容/备机自启在此推进；风机组可用性因子折减曝气能力
+  tickAssets(state.assets, dtMin);
+  const blowerFactor = capacityFactorFor(state.assets, 'blower:blower');
+  state.aerationCapacity = aerationCapacityOf(state.scenario, state.timeMin) * blowerFactor;
   const rec = recycleOf(state);
+
+  // ── WP4 测量链：真值 → 仪表读数；控制层/告警只读读数，真值仅留作诊断对照 ──
+  const byIdEarly = new Map(state.reactors.map((r) => [r.id, r]));
+  const lastIdEarly = net.order[net.order.length - 1];
+  const lastReactorEarly = (lastIdEarly ? byIdEarly.get(lastIdEarly) : undefined) ?? state.reactors[0];
+  const xBiomassEarly = clamp((state.biomassKg * 1000) / Math.max(1, state.volume.bio), 300, 14000);
+
+  const truth: Record<string, number> = {};
+  for (const r of state.reactors) {
+    truth[`${r.id}:do`] = r.doLevel;
+    truth[`${r.id}:nh`] = r.nh;
+    truth[`${r.id}:no3`] = r.no3;
+    truth[`${r.id}:mlss`] = xBiomassEarly;
+  }
+  truth['inlet:flow'] = state.influent.flow;
+  truth['inlet:ph'] = 7.2;
+  truth['inlet:temperature'] = state.influent.temperature;
+  truth['outlet:flow'] = state.influent.flow;
+  truth['outlet:nh'] = state.effluent.nh;
+  truth['outlet:tn'] = state.effluent.tn;
+  truth['clarifier:level'] = state.clarifier.blanketM;
+  truth['clarifier:mlss'] = state.clarifier.xRas;
+  truth['blower:pressure'] = state.aerationCapacity;
+  truth['blower:flow'] = state.influent.flow;
+
+  const inst = state.instruments;
+  if (inst) {
+    inst.readings = measure(inst.registry, truth, dtMin);
+    inst.truth = truth;
+  }
+
+  const layer = state.controlLayer;
+  if (layer) {
+    applyEsdState(layer, state.assets!.esd);
+    const doMeas = inst
+      ? measuredValue(inst, `${lastReactorEarly.id}:do`, lastReactorEarly.doLevel)
+      : lastReactorEarly.doLevel;
+    const nhMeas = inst ? measuredValue(inst, `${lastReactorEarly.id}:nh`, lastReactorEarly.nh) : lastReactorEarly.nh;
+    evaluateInterlocks(
+      layer,
+      {
+        do: doMeas,
+        nh: nhMeas,
+        blanket: state.clarifier.blanketM,
+        level: state.clarifier.blanketM,
+        fanFault: blowerFactor <= 0.02,
+        esd: state.assets!.esd.active,
+      },
+      dtMin,
+    );
+
+    stepLoop(layer, 'do', doMeas, dtMin);
+    stepLoop(layer, 'ras', state.controls.rasRatio, dtMin);
+    stepLoop(layer, 'was', state.controls.wasRatio, dtMin);
+    // 控制层每步会被联锁 + 三个回路各推进一次，内部时钟是“步数”不是仿真分钟；
+    // 对外视图必须回到主时钟，否则快照里出现 4 min / 24 min 两条时间轴。
+    layer.timeMin = state.timeMin;
+
+    if (interlockActive(layer, 'rasMax')) rec.ras = layer.outputs.ras;
+    if (layer.esd.active || interlockActive(layer, 'trip')) rec.ras = 0;
+
+    // 风机执行机构：需求负荷经爬坡/容量/资产因子折减；默认速率足够大、因子 1，直通不扰动基线
+    // 联锁 fanMax 拉满曝气；ESD/跳闸进安全位（停机）
+    let fanCommand = state.aerationCapacity;
+    if (layer.esd.active || interlockActive(layer, 'trip')) fanCommand = 0;
+    else if (interlockActive(layer, 'fanMax')) fanCommand = 1;
+    if (!layer.actuators) layer.actuators = {};
+    const fan =
+      layer.actuators.blower ??
+      (layer.actuators.blower = createFan('blower', 'blower', {
+        rateLimitPerMin: 100,
+        deadband: 0,
+        ratedPowerKw: 110,
+        surgeFloor: 0,
+      }));
+    const fanResult = commandActuator(fan, fanCommand, dtMin, blowerFactor);
+    state.aerationCapacity = fanResult.status === 'rejected' ? 0 : fanResult.actual;
+  }
 
   const { influent, Q } = resolveHydraulics(state, dtH);
   state.influent = influent;
 
-  const flows = resolveFlows(net, Q, {
-    ras: rec.ras,
-    ir: rec.ir,
-    was: rec.was,
-    stepFeed: state.controls.stepFeed,
-  });
+  // 阻力分流：泵/阀/堰几何来自编译期 meta；无几何信息时各支路阻力相同，退化为均分
+  const branchH = new Map<string, FlowBranchHydraulics>();
+  if (state.hydraulics) {
+    for (const e of state.hydraulics.edges) {
+      branchH.set(e.id, {
+        resistance: e.resistance,
+        closed: e.status === 'closed',
+        capacityM3h: e.capacityM3h,
+      });
+    }
+  }
+
+  const flows = resolveFlows(
+    net,
+    Q,
+    {
+      ras: rec.ras,
+      // ASM2d 模式下内回流限制在 0.5–1.0 Q：过高的混合液回流会把好氧段 NO₃ 大量
+      // 带回缺氧/厌氧段，抑制 PAO 厌氧储存并抬高反硝化负荷；simple/asm1 口径不变。
+      ir: state.modelMode === 'asm2d' ? Math.min(1.0, Math.max(0.5, rec.ir)) : rec.ir,
+      // ASM2d 模式排泥比限到 0.6%–1.5% Q，对应 SRT 约 12–18 d；默认 2.2% Q 排泥过快，
+      // 30 d 尺度下活性生物量被洗出（MLSS 跌破 2000）。simple/asm1 口径不变。
+      was: state.modelMode === 'asm2d' ? Math.min(0.015, Math.max(0.006, rec.was)) : rec.was,
+      stepFeed: state.controls.stepFeed,
+    },
+    branchH,
+  );
 
   const byId = new Map(state.reactors.map((r) => [r.id, r]));
   const xBiomass = clamp((state.biomassKg * 1000) / Math.max(1, state.volume.bio), 300, 14000);
   const T = influent.temperature;
+  const wasEff = state.modelMode === 'asm2d' ? Math.min(0.015, Math.max(0.006, rec.was)) : rec.was;
   const Qr = Q * rec.ras;
-  const Qw = Q * rec.was;
+  const Qw = Q * wasEff;
   const Qe = Math.max(1, Q - Qw);
   // 最后一个反应器 = 拓扑序最大的那个；单趟取最大值，取代 sort+find 的 O(n²) 写法
   // 末端反应器 = 拓扑序最后一项；编译期已排好，不再每步 sort/扫描
@@ -1133,10 +1310,74 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
   };
 
   const oxidized = solveReactors(ctx);
+  stepHydraulicTransport(ctx, flows.edgeFlow);
   const { wasted } = solveClarifier(ctx);
   solveBiomass(ctx, oxidized, wasted);
   const pacDose = solveEffluent(ctx);
-  solveEnergyAndCost(ctx, oxidized.o2DemandKgH, wasted, pacDose, oxidized.balancedOxidizedKgH);
+  solveEnergyAndCost(ctx, oxidized.o2TransferredKgH, wasted, pacDose, oxidized.balancedOxidizedKgH);
+
+  // ── WP2 泥线：WAS → 浓缩 → 消化 → 脱水；滤液回流到首端，负荷并入进水 ──
+  const rawInfluent = { ...state.influent };
+  if (state.plant?.enabled) {
+    const filtrate = stepSludgeLine(
+      state.plant.sludgeLine,
+      {
+        wasFlowM3h: Qw,
+        feedSsKgM3: ctx.clar.xRas,
+        feedCodKgM3: lastReactor.cod,
+        feedNKgM3: lastReactor.nh + lastReactor.no3,
+        feedPKgM3: lastReactor.tp,
+        ambientTempC: T,
+      },
+      dtH,
+    );
+    if (filtrate.flowM3h > 1e-6 && Q > 1e-6) {
+      state.influent.nh += (filtrate.nh4NKgM3 * filtrate.flowM3h) / Q;
+      state.influent.tn += (filtrate.nh4NKgM3 * filtrate.flowM3h) / Q;
+      state.influent.cod += (filtrate.codKgM3 * filtrate.flowM3h) / Q;
+      state.influent.tp += (filtrate.tpKgM3 * filtrate.flowM3h) / Q;
+    }
+  }
+
+  // ── WP2 全厂三本账：COD / N / P 逐步积分；残差超阈值记诊断，不阻断 ──
+  if (state.plant) {
+    let invCod = 0;
+    let invN = 0;
+    let invP = 0;
+    let invPpP = 0;
+    for (const r of state.reactors) {
+      if (state.modelMode === 'asm2d' && r.asm2d) {
+        const a = r.asm2d;
+        invCod +=
+          ((a.S_I + a.S_F + a.S_A + a.X_I + a.X_S + a.X_H + a.X_PAO + a.X_AUT + a.X_PP + a.X_PHA) * r.volume) / 1000;
+        // 库存氮：溶解态 + 颗粒态结合氮（活体生物量 0.07、慢速基质 X_S 0.04），
+        // 不再只按全局 biomassKg 折算，避免惰性颗粒增长时结合氮漏记、释氮时库存不下降。
+        invN +=
+          ((a.S_NH4 + a.S_NO3 + a.S_N2) * r.volume) / 1000 +
+          ((a.X_H + a.X_PAO + a.X_AUT) * ASM2D_PARAMS.i_N_BM * r.volume) / 1000 +
+          (a.X_S * ASM2D_PARAMS.i_N_XS * r.volume) / 1000;
+        invPpP += (a.X_PP * P_PER_PP * r.volume) / 1000;
+        // 库存磷：溶液态正磷 + 活体生物量结合磷 + X_PP 胞内聚磷
+        invP +=
+          (a.S_PO4 * r.volume) / 1000 + ((a.X_H + a.X_PAO + a.X_AUT) * ASM2D_PARAMS.i_P_BM * r.volume) / 1000 + invPpP;
+      } else {
+        invCod += (r.cod * r.volume) / 1000;
+        invN += ((r.nh + r.no3) * r.volume) / 1000;
+        invP += (r.tp * r.volume) / 1000;
+      }
+    }
+    updatePlantBalance(state.plant, {
+      influent: rawInfluent,
+      effluent: state.effluent,
+      dtH,
+      biomassKg: state.biomassKg,
+      inventory: { codKg: invCod, nKg: invN, pKg: invP, ppPKg: invPpP },
+      oxidizedCodKgH: oxidized.balancedOxidizedKgH,
+      denitrifiedNKgH: oxidized.denitrifiedNKgH,
+      wastedDryKg: wasted,
+    });
+  }
+
   raiseLimitAlarms(state);
 
   return state;
@@ -1152,6 +1393,10 @@ export function spinUpNetwork(state: NetworkSimState, topo: ProcessTopology, day
   state.totals = { inflowM3: 0, energyKwh: 0, wasteSludgeKg: 0, influentCodKg: 0, oxidizedCodKg: 0 };
   state.lastDay = 0;
   state.timeMin = 0;
+  // 子系统时钟必须跟主时钟一起归零：spin-up 期间仪表/控制层各自走满 30 天，
+  // 否则快照上会出现“主时钟 0 min、仪表 43200 min”的错位时间轴。
+  if (state.instruments) state.instruments.registry.timeMin = 0;
+  if (state.controlLayer) state.controlLayer.timeMin = 0;
   return state;
 }
 
@@ -1176,6 +1421,12 @@ export function cloneNetworkState(state: NetworkSimState): NetworkSimState {
     ...state,
     reactors: state.reactors.map((r) => ({ ...r, asm1: r.asm1 ? { ...r.asm1 } : undefined })),
     clarifier: { ...state.clarifier, settler: { x: [...state.clarifier.settler.x] } },
+    clarifiers: state.clarifiers?.map((c) => ({ ...c, settler: { x: [...c.settler.x] } })),
+    hydraulics: state.hydraulics ? cloneHydraulics(state.hydraulics) : undefined,
+    plant: state.plant ? clonePlantBoundary(state.plant) : undefined,
+    instruments: state.instruments ? structuredClone(state.instruments) : undefined,
+    controlLayer: state.controlLayer ? structuredClone(state.controlLayer) : undefined,
+    assets: state.assets ? structuredClone(state.assets) : undefined,
     influent: { ...state.influent },
     effluent: { ...state.effluent },
     controls: { ...state.controls },
@@ -1266,15 +1517,15 @@ function runForecast(
         score: qualityScoreOf(e),
         energyKw: clone.energy.totalKw,
       });
-      const checks: [string, number, number][] = [
-        ['cod', e.cod, LIMITS.cod],
-        ['nh', e.nh, LIMITS.nh],
-        ['tn', e.tn, LIMITS.tn],
-        ['tp', e.tp, LIMITS.tp],
-        ['ss', e.ss, LIMITS.ss],
-      ];
-      for (const [metric, value, limit] of checks) {
-        if (value > limit) violations.push({ metric, minute: m + 1, value, limit });
+      /**
+       * 六个指标一起判，别再漏 BOD₅。
+       *
+       * 旧实现手写五条（cod/nh/tn/tp/ss），BOD 超限不会进入预测违规列表，
+       * 界面会出现「BOD 已超但预测说无违规」。统一走 metrics 的六指标行。
+       */
+      for (const row of effluentMarginRows(e)) {
+        if (row.finite && row.ratio > 1)
+          violations.push({ metric: row.metric, minute: m + 1, value: row.value, limit: row.limit });
       }
     }
   }

@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 import { useState } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -84,7 +84,13 @@ describe('ProcessEditor', () => {
     const onChange = vi.fn();
     render(<Harness onChange={onChange} />);
     fireEvent.pointerDown(nodeOf('aerobic1'), { clientX: 10, clientY: 10, bubbles: true, pointerId: 1 });
-    fireEvent.pointerDown(nodeOf('aerobic2'), { clientX: 20, clientY: 10, shiftKey: true, bubbles: true, pointerId: 1 });
+    fireEvent.pointerDown(nodeOf('aerobic2'), {
+      clientX: 20,
+      clientY: 10,
+      shiftKey: true,
+      bubbles: true,
+      pointerId: 1,
+    });
     fireEvent.click(screen.getByRole('button', { name: '批量删除' }));
     expect(onChange).toHaveBeenCalled();
     const next = onChange.mock.calls.at(-1)![0] as ProcessTopology;

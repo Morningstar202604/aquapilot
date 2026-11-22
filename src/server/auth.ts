@@ -157,6 +157,8 @@ export function requiredRoleFor(messageType: string): Role {
     case 'refreshDecision':
     case 'preset':
       return 'operator';
+    case 'model':
+      return 'admin';
     case 'topology':
     case 'llmConfig':
     case 'agentConfig':

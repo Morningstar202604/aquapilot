@@ -1,9 +1,8 @@
-// @vitest-environment jsdom
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Onboarding, hasSeenOnboarding, markOnboarded, ONBOARDING_STEPS } from '../src/client/components/Onboarding';
+import { SIDE_TAB_ORDER } from '../src/client/components/tabNav';
 
 /**
  * 首次访问引导。
@@ -95,21 +94,16 @@ describe('引导流程', () => {
     expect(seen).toEqual([
       '运行监视 · 顶部',
       'AI 对话 / 决策解释',
-      '控制与工况 / 告警 / 效益',
-      '分析 / 校准 / 进水',
+      '控制与工况 / 告警 / 效益 / 评分',
+      '分析 / 校准 / 进水 / 工业',
       '回放 / 自检 · 工艺编排',
     ]);
   });
 
-  it('引导提到的每个页签都必须在 App.tsx 里真实存在', async () => {
+  it('引导提到的每个页签都必须在 SIDE_TAB_ORDER 里真实存在', async () => {
     // 引导写错名字比不写更糟：用户会去找一个不存在的入口。
-    // 反向核对——把界面应有的页签名拿到 App.tsx 里找，找不到即说明文案漂移。
-    const appSource = readFileSync(join(import.meta.dirname, '..', 'src', 'client', 'App.tsx'), 'utf8');
-    const tabNames = ['AI 对话', '决策解释', '控制与工况', '告警', '效益', '分析', '校准', '进水', '回放', '自检'];
-    for (const name of tabNames) {
-      expect(appSource).toContain(name);
-    }
-    // 引导文案必须覆盖全部页签，不能漏讲
+    // 页签顺序已收口到 tabNav，直接拿运行时清单核对，不再读 App 源码字符串。
+    const tabNames = SIDE_TAB_ORDER.map((t) => t.label);
     const stepText = ONBOARDING_STEPS.map((s) => `${s.tab} ${s.title} ${s.body}`).join(' / ');
     for (const name of tabNames) {
       expect(stepText).toContain(name);

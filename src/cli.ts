@@ -501,7 +501,7 @@ async function main(): Promise<number> {
     case 'calibrate': {
       const { calibrate, bsm1Predictor, bsm1SyntheticTarget } = await import('./sim/calibration');
       console.log('对合成目标运行参数辨识 + 坐标下降校准（BSM1 稳态预测器，带缓存）…');
-      const result = calibrate(bsm1Predictor(), bsm1SyntheticTarget(), {});
+      const result = await calibrate(bsm1Predictor(), bsm1SyntheticTarget(), {});
       console.log('\n拟合参数：');
       for (const k of result.fitted) {
         console.log(`  ${k.padEnd(12)} ${(result.params[k as keyof typeof result.params] as number).toFixed(4)}`);

@@ -1,6 +1,8 @@
-import { CONTROL_BOUNDS, SCENARIO_LABELS, labelOf, precisionOf } from './labels';
+import { SCENARIO_LABELS } from './labels';
+import { CONTROL_KEYS } from '../../sim/config';
 import { useThrottledControl } from '../hooks/useThrottledControl';
 import { Collapsible } from './Collapsible';
+import { ControlSlider } from './ControlSlider';
 import { SCENARIO_ORDER, SCENARIOS } from '../../sim/scenarios';
 import { PRESETS } from '../../model/presets';
 import type { ControlSettings } from '../../sim/config';
@@ -13,21 +15,31 @@ interface Props {
   onStartScenario: (type: ScenarioType) => void;
   onClearScenario: () => void;
   onApplyPreset: (id: string) => void;
+  onSetModel: (model: 'simple' | 'asm1') => void;
   aiEnabled: boolean;
 }
 
-const ORDER: (keyof Omit<ControlSettings, 'aiEnabled'>)[] = [
-  'doSetpoint',
-  'internalRecirc',
-  'rasRatio',
-  'wasRatio',
-  'stepFeed',
-  'pacDose',
-  'carbonDose',
-  'alkDose',
+/** 可选求解模型：一个是快，一个是准。 */
+const MODELS = [
+  { id: 'simple' as const, name: '简化模型', desc: '活性污泥经验式，单步快，适合日常值守' },
+  { id: 'asm1' as const, name: 'ASM1', desc: '13 组分活性污泥模型，更准，单步更慢' },
 ];
 
-export function ControlPanel({ snap, onChange, onStartScenario, onClearScenario, onApplyPreset, aiEnabled }: Props) {
+/**
+ * 连续控制滑块的顺序从 CONTROL_KEYS 派生，新增控制量会自动出现。
+ * stormStore 由暴雨工况驱动，不在这里给手动滑块。
+ */
+const ORDER = CONTROL_KEYS.filter((key) => key !== 'stormStore');
+
+export function ControlPanel({
+  snap,
+  onChange,
+  onStartScenario,
+  onClearScenario,
+  onApplyPreset,
+  onSetModel,
+  aiEnabled,
+}: Props) {
   /**
    * 滑块节流：拖动期间的 60 Hz 事件不能逐条变成 WS 消息。
    * 服务端限流 500 ms/次，逐条发会让绝大多数请求被拒并弹出提示。
@@ -46,6 +58,31 @@ export function ControlPanel({ snap, onChange, onStartScenario, onClearScenario,
        * 8 个滑块 + 8 个工况卡片全展开时一屏放不下，操作员要滚三屏才能找
        * 到 PAC 投加——这是实测反馈里最直接的可用性问题。
        */}
+
+      <Collapsible
+        title="求解模型"
+        summary={snap.modelMode === 'asm1' ? 'ASM1 · 13 组分' : '简化模型 · 快速'}
+        defaultOpen={false}
+      >
+        <div className="model-switch" role="group" aria-label="求解模型切换">
+          {MODELS.map((m) => (
+            <button
+              key={m.id}
+              className="model-choice"
+              data-active={snap.modelMode === m.id}
+              onClick={() => {
+                if (snap.modelMode === m.id) return;
+                const ok = window.confirm('切换求解模型会按当前拓扑重建并预热 30 天，仿真时间归零。继续？');
+                if (ok) onSetModel(m.id);
+              }}
+            >
+              <span className="model-name">{m.name}</span>
+              <span className="model-desc">{m.desc}</span>
+            </button>
+          ))}
+        </div>
+      </Collapsible>
+
       <Collapsible title="工艺模板" summary={`${PRESETS.length} 套 · 切换会重建并预热`} defaultOpen={false}>
         <div className="preset-list">
           {PRESETS.map((p) => (
@@ -67,42 +104,16 @@ export function ControlPanel({ snap, onChange, onStartScenario, onClearScenario,
         }
         defaultOpen
       >
-        {ORDER.map((key) => {
-          const meta = CONTROL_BOUNDS[key];
-          const value = snap.controls[key] as number;
-          const pct = ((value - meta.min) / (meta.max - meta.min)) * 100;
-          return (
-            <div className="control-row" key={key}>
-              <div className="control-top">
-                <label className="control-name" htmlFor={`ctl-${key}`}>
-                  {labelOf(key)}
-                </label>
-                <span className="control-val">
-                  {value.toFixed(precisionOf(key))}
-                  <span>{meta.unit}</span>
-                </span>
-              </div>
-              <div className="range-wrap">
-                <div className="range-fill" style={{ width: `${pct}%` }} />
-                <input
-                  id={`ctl-${key}`}
-                  className="range"
-                  type="range"
-                  min={meta.min}
-                  max={meta.max}
-                  step={meta.step}
-                  value={value}
-                  onChange={(e) => commitControls({ [key]: Number(e.target.value) } as Partial<ControlSettings>)}
-                  aria-label={`${labelOf(key)}，当前 ${value.toFixed(precisionOf(key))} ${meta.unit}`}
-                />
-              </div>
-              <div className="control-hint">
-                范围 {meta.min}–{meta.max} {meta.unit}
-                {aiEnabled ? ' · AI 持权，手动调整会触发重新推演' : ''}
-              </div>
-            </div>
-          );
-        })}
+        {ORDER.map((key) => (
+          <ControlSlider
+            key={key}
+            idPrefix="ctl"
+            controlKey={key}
+            value={snap.controls[key] as number}
+            onChange={commitControls}
+            hintSuffix={aiEnabled ? ' · AI 持权，手动调整会触发重新推演' : ''}
+          />
+        ))}
         {showStorm && (
           <div className="control-row">
             <div className="control-top">

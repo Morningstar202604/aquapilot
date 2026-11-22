@@ -1,7 +1,14 @@
 import { PLANT_TOPOLOGY, ProcessTopology, validateTopology, totalTrainVolume } from '../model/topology';
 import { checkRunReadiness } from '../sim/topologyEngine';
 import { compileNetwork, CompiledNetwork } from '../sim/network';
-import { NetworkSimState, createNetworkState, qualityScoreOf, spinUpNetwork, stepNetwork } from '../sim/networkEngine';
+import {
+  NetworkSimState,
+  KineticModel,
+  createNetworkState,
+  qualityScoreOf,
+  spinUpNetwork,
+  stepNetwork,
+} from '../sim/networkEngine';
 
 /**
  * 拓扑运行时：把一份可执行的工艺拓扑装进服务端。
@@ -26,7 +33,7 @@ export interface ApplyResult {
   derived: { trainUnits: number; bioVolume: number; hrtHours: number; aerobicVolume: number };
 }
 
-export function createRuntime(topo: ProcessTopology, seed = 20261019): TopologyRuntime {
+export function createRuntime(topo: ProcessTopology, seed = 20261019, model: KineticModel = 'simple'): TopologyRuntime {
   const readiness = checkRunReadiness(topo);
   if (!readiness.ready) {
     throw new Error(`拓扑不可运行：${readiness.blockers.join('；')}`);
@@ -36,7 +43,7 @@ export function createRuntime(topo: ProcessTopology, seed = 20261019): TopologyR
     throw new Error(`拓扑无法编译：${compiled.problems.join('；')}`);
   }
 
-  const net = createNetworkState(topo, { seed });
+  const net = createNetworkState(topo, { seed, model });
   spinUpNetwork(net, topo, 30);
 
   return { topology: topo, compiled, appliedAt: Date.now(), revision: 1, net };
@@ -51,7 +58,7 @@ export function applyTopology(runtime: TopologyRuntime, topo: ProcessTopology): 
     return { ok: false, blockers, warnings: readiness.warnings, derived: readiness.derived };
   }
 
-  const next = createRuntime(topo, runtime.net.seed);
+  const next = createRuntime(topo, runtime.net.seed, runtime.net.modelMode);
   runtime.topology = topo;
   runtime.compiled = next.compiled;
   runtime.net = next.net;

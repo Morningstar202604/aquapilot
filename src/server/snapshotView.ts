@@ -6,7 +6,7 @@ import { attributeAlarm, plantHealth, trendSlopes, type AlarmAttribution } from 
 import { LIMITS } from '../sim/config';
 import type { PlantSnapshot, SnapshotPatch, TrendPoint } from '../shared/protocol';
 import type { ProcessTopology } from '../model/topology';
-import type { Recommendation } from '../ai/agent';
+import type { Recommendation } from '../shared/aiTypes';
 import type { ForecastOutcomeX } from '../sim/plantModel';
 import type { BenchmarkSummary } from '../shared/protocol';
 import type { ShadowBenchmark } from './benchmark';
@@ -14,6 +14,11 @@ import { buildTankPatch, buildTankStates } from './tankStates';
 import { takeNewPoints, type TrendCursor } from './trendCursor';
 import { scorecardFromTrend } from '../sim/scorecard';
 import { DEFAULT_STANDARD } from '../sim/standards';
+import { hydraulicView } from '../sim/hydraulics';
+import { plantView } from '../sim/plantBoundary';
+import { instrumentationView, measuredValue } from '../sim/instruments';
+import { controlLayerView } from '../sim/controlLayer';
+import { groupAvailability, type AssetPlantState } from '../sim/assets';
 
 /**
  * 快照视图：把仿真状态投影成「浏览器要看的形状」。
@@ -65,6 +70,83 @@ function totalsOf(s: NetworkSimState): PlantSnapshot['totals'] {
   };
 }
 
+/** 当日/累计成本是两帧共用的口径，避免全量帧与增量帧字段名漂移 */
+function costTotals(s: NetworkSimState) {
+  return {
+    energyToday: s.costToday.energy,
+    chemicalToday: s.costToday.chemical,
+    sludgeToday: s.costToday.sludge,
+    totalToday: s.costToday.total,
+    total: s.cost.total,
+  };
+}
+
+/** 告警/健康度只读末好氧池 DO 测量值；坏探头回退真值，默认理想仪表下两者一致 */
+function measuredDo(s: NetworkSimState): number {
+  const last = s.reactors[s.reactors.length - 1];
+  if (!last) return 0;
+  return s.instruments ? measuredValue(s.instruments, `${last.id}:do`, last.doLevel) : last.doLevel;
+}
+
+/** WP7 资产视图：设备台数、ESD 状态、分组可用性因子 */
+function assetView(a: AssetPlantState) {
+  return {
+    count: a.assets.length,
+    esd: { active: a.esd.active, unitId: a.esd.unitId },
+    groups: groupAvailability(a),
+  };
+}
+
+/** 两帧共用的高通量字段：同一时刻、同一模型必须给出同一份值 */
+function liveFrame(
+  src: SnapshotSource,
+  s: NetworkSimState,
+  derived: DerivedFrame,
+  summarizeBenchmark: (b: ShadowBenchmark) => BenchmarkSummary,
+) {
+  return {
+    timeMin: s.timeMin,
+    influent: { ...s.influent, bod: s.influent.cod * 0.44, ph: 7.2 },
+    effluent: { ...s.effluent },
+    controls: s.controls,
+    scenario: s.scenario,
+    energy: { ...s.energy, specificKwhM3: s.energy.totalKw / Math.max(1, s.influent.flow) },
+    srtDays: s.srtDays,
+    fmRatio: s.fmRatio,
+    score: qualityScoreOf(s.effluent),
+    margins: derived.margins,
+    alarms: s.alarms
+      .slice(-20)
+      .reverse()
+      .map((a) => ({ ...a })),
+    activeAlarms: derived.activeAlarms,
+    alarmAttribution: derived.attribution,
+    health: derived.health,
+    totals: totalsOf(s),
+    stormStorageM3: s.stormStorageM3,
+    reactorCount: s.reactors.length,
+    forecastBand: src.recommendation?.ensemble ?? null,
+    benchmark: summarizeBenchmark(src.shadow.benchmark),
+    scorecard: scorecardFor(src, s),
+    hydraulics: hydraulicView(s.hydraulics),
+    plant: plantView(s.plant),
+    instruments: s.instruments ? instrumentationView(s.instruments) : undefined,
+    controlLayer: s.controlLayer ? controlLayerView(s.controlLayer) : undefined,
+    assets: s.assets ? assetView(s.assets) : undefined,
+  };
+}
+
+/** 评分卡的口径只取决于趋势窗口、流量、标准与场景窗口，收在一处 */
+function scorecardFor(src: SnapshotSource, s: NetworkSimState) {
+  return scorecardFromTrend(src.trend, {
+    flowM3h: s.influent.flow,
+    standard: src.standard ?? DEFAULT_STANDARD,
+    scenarioWindow: s.scenario
+      ? { from: s.scenario.startedAt, to: s.scenario.startedAt + s.scenario.durationMin }
+      : null,
+  });
+}
+
 export function createSnapshotService(deps: SnapshotDeps) {
   /**
    * 派生量的计算成本（实测，2000 次平均）：
@@ -76,16 +158,18 @@ export function createSnapshotService(deps: SnapshotDeps) {
    * 每帧只构造一次 DerivedFrame，再分发给所有连接。
    */
 
-  function currentAlarms(s: NetworkSimState) {
-    const last = s.reactors[s.reactors.length - 1];
-    return evaluateAlarms({
-      effluent: s.effluent,
-      lastDo: last?.doLevel ?? 0,
-      srtDays: s.srtDays,
-      blanketM: s.clarifier.blanketM,
-      depth: s.clarifier.depth,
-      atMin: s.timeMin,
-    });
+  function currentAlarms(s: NetworkSimState, standard = DEFAULT_STANDARD) {
+    return evaluateAlarms(
+      {
+        effluent: s.effluent,
+        lastDo: measuredDo(s),
+        srtDays: s.srtDays,
+        blanketM: s.clarifier.blanketM,
+        depth: s.clarifier.depth,
+        atMin: s.timeMin,
+      },
+      standard,
+    );
   }
 
   function buildAttribution(
@@ -93,14 +177,13 @@ export function createSnapshotService(deps: SnapshotDeps) {
     alarms: ReturnType<typeof currentAlarms>,
   ): Record<string, AlarmAttribution> {
     const slopes = trendSlopes(deps.source().trend, s.effluent.bod);
-    const last = s.reactors[s.reactors.length - 1];
     const out: Record<string, AlarmAttribution> = {};
     for (const alarm of alarms) {
       const attribution = attributeAlarm({
         code: alarm.code,
         effluent: s.effluent,
         srtDays: s.srtDays,
-        lastDo: last?.doLevel ?? 0,
+        lastDo: measuredDo(s),
         doSetpoint: s.controls.doSetpoint,
         blanketM: s.clarifier.blanketM,
         depth: s.clarifier.depth,
@@ -113,12 +196,12 @@ export function createSnapshotService(deps: SnapshotDeps) {
     return out;
   }
 
-  function derived(s: NetworkSimState): DerivedFrame {
-    const activeAlarms = currentAlarms(s);
-    const margins = estimateMargin(s.effluent);
+  function derived(s: NetworkSimState, standard = DEFAULT_STANDARD): DerivedFrame {
+    const activeAlarms = currentAlarms(s, standard);
+    const margins = estimateMargin(s.effluent, standard.limits);
     const health = plantHealth({
       margins,
-      lastDo: s.reactors[s.reactors.length - 1]?.doLevel ?? 0,
+      lastDo: measuredDo(s),
       doSetpoint: s.controls.doSetpoint,
       srtDays: s.srtDays,
       blanketM: s.clarifier.blanketM,
@@ -132,16 +215,14 @@ export function createSnapshotService(deps: SnapshotDeps) {
     const src = deps.source();
     const s = src.net;
     const fc = deps.forecastFor(s, src.topology);
-    const { activeAlarms, margins, health, attribution } = derived(s);
+    const frame = derived(s, src.standard ?? DEFAULT_STANDARD);
 
     return {
-      timeMin: s.timeMin,
+      ...liveFrame(src, s, frame, deps.summarizeBenchmark),
       simulatedAt: new Date().toISOString(),
       speed: src.speed,
       paused: src.paused,
       modelMode: s.modelMode,
-      influent: { ...s.influent, bod: s.influent.cod * 0.44, ph: 7.2 },
-      effluent: { ...s.effluent },
       tanks: buildTankStates(s),
       clarifier: {
         blanketM: s.clarifier.blanketM,
@@ -156,41 +237,12 @@ export function createSnapshotService(deps: SnapshotDeps) {
         profile: s.clarifier.settler.x.map((v) => Number(v.toFixed(1))),
         feedLayer: BSM1_SETTLER.feedLayer,
       },
-      controls: s.controls,
-      scenario: s.scenario,
-      energy: { ...s.energy, specificKwhM3: s.energy.totalKw / Math.max(1, s.influent.flow) },
-      cost: {
-        energyToday: s.costToday.energy,
-        chemicalToday: s.costToday.chemical,
-        sludgeToday: s.costToday.sludge,
-        totalToday: s.costToday.total,
-        total: s.cost.total,
-      },
-      srtDays: s.srtDays,
-      fmRatio: s.fmRatio,
-      score: qualityScoreOf(s.effluent),
-      margins,
-      alarms: s.alarms
-        .slice(-20)
-        .reverse()
-        .map((a) => ({ ...a })),
-      activeAlarms,
-      alarmAttribution: attribution,
-      health,
+      cost: costTotals(s),
       trends: src.trend,
       /**
-       * 运营评分卡：直接从趋势缓冲复算。
-       *
-       * 放在全量帧而不是增量帧里——它随窗口整体变化（达标率、均值），
-       * 不是一个 tick 的增量；每帧只算一次 720 点累加，实测 < 0.2 ms。
+       * 运营评分卡由 liveFrame 统一复算：全量帧与增量帧不能各算一份，
+       * 否则同一时刻的分数在两条路径上会有微小差异。
        */
-      scorecard: scorecardFromTrend(src.trend, {
-        flowM3h: s.influent.flow,
-        standard: src.standard ?? DEFAULT_STANDARD,
-        scenarioWindow: s.scenario
-          ? { from: s.scenario.startedAt, to: s.scenario.startedAt + s.scenario.durationMin }
-          : null,
-      }),
       forecast: fc
         ? {
             points: fc.points.map((pt) => ({
@@ -207,12 +259,7 @@ export function createSnapshotService(deps: SnapshotDeps) {
           }
         : null,
       recommendation: src.recommendation,
-      forecastBand: src.recommendation?.ensemble ?? null,
-      benchmark: deps.summarizeBenchmark(src.shadow.benchmark),
-      limits: LIMITS,
-      totals: totalsOf(s),
-      stormStorageM3: s.stormStorageM3,
-      reactorCount: s.reactors.length,
+      limits: { ...(src.standard ?? DEFAULT_STANDARD).limits, phMin: LIMITS.phMin, phMax: LIMITS.phMax },
     };
   }
 
@@ -225,13 +272,11 @@ export function createSnapshotService(deps: SnapshotDeps) {
   function buildPatchBody(): Omit<SnapshotPatch, 'trendsAppend'> {
     const src = deps.source();
     const s = src.net;
-    const { activeAlarms, margins, health, attribution } = derived(s);
+    const frame = derived(s, src.standard ?? DEFAULT_STANDARD);
 
     return {
-      timeMin: s.timeMin,
+      ...liveFrame(src, s, frame, deps.summarizeBenchmark),
       influentFlow: s.influent.flow,
-      influent: { ...s.influent, bod: s.influent.cod * 0.44, ph: 7.2 },
-      effluent: { ...s.effluent },
       tanks: buildTankPatch(s),
       clarifier: {
         blanketM: s.clarifier.blanketM,
@@ -240,42 +285,8 @@ export function createSnapshotService(deps: SnapshotDeps) {
         slr: s.clarifier.slr,
         profile: s.clarifier.settler.x.map((v) => Number(v.toFixed(1))),
       },
-      energy: { ...s.energy, specificKwhM3: s.energy.totalKw / Math.max(1, s.influent.flow) },
-      // 当日口径必须用 costToday：用累计值会让「今日运行成本」随仿真天数线性上涨
+      // 增量只带当日成本与累计总额；全量帧另给分项
       cost: { totalToday: s.costToday.total, total: s.cost.total },
-      srtDays: s.srtDays,
-      fmRatio: s.fmRatio,
-      // AI 会自动改写控制量：必须随增量下发，否则界面滑块停在用户上次拖的位置
-      controls: s.controls,
-      scenario: s.scenario,
-      totals: totalsOf(s),
-      score: qualityScoreOf(s.effluent),
-      margins,
-      alarms: s.alarms
-        .slice(-20)
-        .reverse()
-        .map((a) => ({ ...a })),
-      activeAlarms,
-      alarmAttribution: attribution,
-      health,
-      stormStorageM3: s.stormStorageM3,
-      reactorCount: s.reactors.length,
-      /**
-       * 预测扇区与双跑摘要也要随增量下发。
-       *
-       * 只在全量快照里带的话，客户端连接后趋势图的预测区与收益面板的
-       * 「AI vs 固定策略」会永久冻结在连接那一刻——界面上看不出来，
-       * 但那是假数据。两者都很小（几 KB），随帧发不会抵消增量收益。
-       */
-      forecastBand: src.recommendation?.ensemble ?? null,
-      benchmark: deps.summarizeBenchmark(src.shadow.benchmark),
-      scorecard: scorecardFromTrend(src.trend, {
-        flowM3h: s.influent.flow,
-        standard: src.standard ?? DEFAULT_STANDARD,
-        scenarioWindow: s.scenario
-          ? { from: s.scenario.startedAt, to: s.scenario.startedAt + s.scenario.durationMin }
-          : null,
-      }),
     };
   }
 

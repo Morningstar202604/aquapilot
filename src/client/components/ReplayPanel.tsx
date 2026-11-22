@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, MarkLineComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import type { SnapshotRow } from '../../shared/protocol';
 import { formatClock } from '../../shared/time';
+import { useEChart } from '../hooks/useEChart';
 
 echarts.use([LineChart, GridComponent, TooltipComponent, MarkLineComponent, CanvasRenderer]);
 
@@ -32,8 +33,7 @@ export function ReplayPanel() {
   const [cursor, setCursor] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const el = useRef<HTMLDivElement | null>(null);
-  const chart = useRef<echarts.ECharts | null>(null);
+  const { containerRef: el, chart } = useEChart();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -86,22 +86,6 @@ export function ReplayPanel() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  // 图表容器只在有数据时才渲染，因此初始化必须依赖 snapshots
-  useEffect(() => {
-    const node = el.current;
-    if (!node || snapshots.length === 0) return;
-    if (chart.current) return; // 已初始化
-    const inst = echarts.init(node, undefined, { renderer: 'canvas' });
-    chart.current = inst;
-    const ro = new ResizeObserver(() => inst.resize());
-    ro.observe(node);
-    return () => {
-      ro.disconnect();
-      inst.dispose();
-      chart.current = null;
-    };
-  }, [snapshots]);
 
   useEffect(() => {
     const inst = chart.current;
@@ -169,7 +153,7 @@ export function ReplayPanel() {
       },
       { notMerge: true },
     );
-  }, [snapshots]);
+  }, [snapshots, chart]);
 
   const current = snapshots[Math.min(cursor, Math.max(0, snapshots.length - 1))];
 

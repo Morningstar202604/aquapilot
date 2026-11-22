@@ -605,6 +605,7 @@ export function useSimulation() {
     send({ type: 'refreshDecision' });
   };
   const applyPreset = (id: string) => send({ type: 'preset', id });
+  const setModel = (model: 'simple' | 'asm1') => send({ type: 'model', model });
   const requestTopology = () => send({ type: 'topology', action: 'get' });
   const applyTopology = (topo: ProcessTopology) => send({ type: 'topology', action: 'apply', topology: topo });
   const requestTopologyHistory = () => send({ type: 'topology', action: 'history' });
@@ -730,6 +731,7 @@ export function useSimulation() {
     changeSpeed,
     refreshDecision,
     applyPreset,
+    setModel,
     topology,
     topologyRevision,
     topologyVersions,

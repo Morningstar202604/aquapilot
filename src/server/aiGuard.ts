@@ -67,6 +67,22 @@ export function applyGuards<T extends GuardableRecommendation>(
     chosens: { ...recommendation.chosens, controls: { ...recommendation.chosens.controls } },
   } as T;
 
+  /**
+   * 先记下「AI 原本想动什么」。
+   *
+   * 降级原因必须从这里分流：AI 自己就没给位移（无候选优于现状）、
+   * 允许项把位移全挡了、还是限幅把位移夹回原值——三种问题的处置
+   * 完全不同。旧版一律写成「单步限幅或允许项受限」，现场照着这句话
+   * 去放宽护栏，等于把「模型没找到方案」误诊成「护栏太紧」。
+   */
+  const proposedKeys = CONTROL_KEYS.filter((key) => {
+    const delta = (recommendation.chosens.controls[key] as number) - (currentControls[key] as number);
+    return Number.isFinite(delta) && Math.abs(delta) > 1e-9;
+  });
+  const allowlistBlockedKeys = proposedKeys.filter((key) => !constraints.allowedControls.includes(key));
+  const allowlistBlockedAll = proposedKeys.length > 0 && allowlistBlockedKeys.length === proposedKeys.length;
+  const preClampControls = { ...next.chosens.controls };
+
   // 1. 白名单
   for (const key of CONTROL_KEYS) {
     if (!constraints.allowedControls.includes(key)) {
@@ -85,12 +101,26 @@ export function applyGuards<T extends GuardableRecommendation>(
   });
 
   if (movedKeys.length === 0 && next.action !== 'hold') {
-    const blockedBy = constraints.requireHumanApproval
-      ? '当前为人工确认模式'
-      : `单步限幅 ${constraints.maxStepPct}% 或允许调整项受限`;
+    const clampZeroKeys = proposedKeys.filter((key) => {
+      const before = (preClampControls[key] as number) - (currentControls[key] as number);
+      return (
+        Math.abs(before) > 1e-9 &&
+        Math.abs((next.chosens.controls[key] as number) - (currentControls[key] as number)) <= 1e-9
+      );
+    });
+    const blocker =
+      proposedKeys.length === 0
+        ? '模型本轮未找到优于维持现状的控制组合，当前可用控制量无法消除该风险，属工艺能力限制（如二沉池面积、进水负荷）'
+        : allowlistBlockedAll
+          ? `本轮需调整的${allowlistBlockedKeys.map((key) => CONTROL_BOUNDS[key].label).join('、')}不在当前允许调整项内`
+          : clampZeroKeys.length > 0
+            ? `单步限幅 ${constraints.maxStepPct}% 把本轮调整夹回当前值`
+            : '当前约束组合未产生有效位移';
+    const approval = constraints.requireHumanApproval ? '；当前为人工确认模式' : '';
+    const remedy = allowlistBlockedAll ? '，或在 Agent 设置中放开对应控制项' : '';
     const riskWord = next.severity === 'critical' ? '超标' : '逼近限值';
     next.action = 'hold';
-    next.summary = `预测存在${riskWord}风险，但本轮无可执行的调节（${blockedBy}）。风险仍在，请人工确认或放宽护栏。`;
+    next.summary = `预测存在${riskWord}风险，但本轮无可执行的调节（${blocker}${approval}）。风险仍在，请人工确认${remedy}。`;
     next.tweaks = [];
     next.chosens.controls = { ...currentControls };
     return { recommendation: next, movedKeys, degradedByGuard: true };

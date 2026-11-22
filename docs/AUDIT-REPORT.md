@@ -240,7 +240,7 @@ grep -c "coverage\|audit\|playwright" .github/workflows/ci.yml
 ### 验收方式说明
 
 - **覆盖率**：以 `vitest --coverage` 的实际数字为准，不引用估算。
-- **前端测试**：必须能在 jsdom 下运行并断言 DOM 内容，不能是快照占位。
+- **前端测试**：必须能在 happy-dom 下运行并断言 DOM 内容，不能是快照占位。
 - **安全响应头**：必须用 `curl -I` 实测，不能只看代码。
 - **`stepNetwork` 拆分**：拆分后 211 项测试必须全部保持绿色，且物理结果不变（同一 seed 出水数值差 <1%）。
 
@@ -275,7 +275,7 @@ grep -c "coverage\|audit\|playwright" .github/workflows/ci.yml
 | F-006 | ✅ **已关闭** | `stepNetwork` 拆成 7 个命名阶段（hydraulic/reactors/clarifier/biomass/effluent/energy/alarms），主函数降至 ~55 行；重构前后两条动力学模型的轨迹逐位相同 |
 | F-007 | ✅ **已关闭** | `/api/metrics`（Prometheus 文本 + JSON）+ `docs/SLO.md` + 告警阈值建议；tick 耗时、AI 周期、WS 连接、持久化全部有计数 |
 | F-008 | ✅ **已关闭** | `VACUUM INTO` 一致性备份 + 校验式恢复 CLI；CI 增加「造数→备份→恢复→校验行数」往返测试 |
-| F-009 | ✅ **已关闭** | Playwright 冒烟 + 17 项组件级测试（jsdom + Testing Library，覆盖 5 个面板的渲染/回调/空状态） |
+| F-009 | ✅ **已关闭** | Playwright 冒烟 + 17 项组件级测试（happy-dom + Testing Library，覆盖 5 个面板的渲染/回调/空状态） |
 | F-010 | ✅ **已关闭** | ESLint 9（typescript-eslint + react-hooks）与 Prettier 3 接入 `npm run verify` 与 CI 两个 job |
 | F-011 | ✅ **已关闭** | 版本 0.2.0 + `CHANGELOG.md`（Keep a Changelog 格式）+ git tag `v0.2.0` |
 | F-012 | ✅ **已关闭** | JSON Lines 结构化日志：鉴权失败（含 IP/原因）、限流、非法消息、WS Origin 拒绝全部留痕；凭据字段自动脱敏 |
@@ -299,7 +299,7 @@ grep -c "coverage\|audit\|playwright" .github/workflows/ci.yml
 |---|---|---|---|
 | 分支覆盖率 | 85.23%（Node 24）/ 82.97%（Node 20） | 85% | Node 24 达标；Node 20 的 V8 分支计数更保守，差 2 个点，缺口在 `topologyRuntime` 防御分支 |
 | 圈复杂度 | 7 个阶段函数，最大 12 | ≤10 | 主入口 ~55 行；`solveReactors` 仍略高于 10（单池求解本身分支多），可接受 |
-| 前端组件测试 | 17 项 | >0 | jsdom + Testing Library |
+| 前端组件测试 | 17 项 | >0 | happy-dom + Testing Library |
 | 变异分数 | 未测 | ≥80% | 未引入 Stryker（需额外 CI 时长，未做） |
 
 **这些不是"以后再说"，而是明确列为未完成项。**

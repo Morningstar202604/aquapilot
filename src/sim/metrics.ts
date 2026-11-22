@@ -1,4 +1,4 @@
-import { CONTROL_BOUNDS, ControlSettings, LIMITS } from './config';
+import { CONTROL_BOUNDS, CONTROL_KEYS, ControlSettings, LIMITS, type Limits } from './config';
 import type { EffluentState } from './plantTypes';
 
 /**
@@ -19,18 +19,13 @@ export function clamp(v: number, min: number, max: number): number {
 }
 
 export function clampControls(c: ControlSettings): ControlSettings {
-  return {
-    doSetpoint: clamp(c.doSetpoint, CONTROL_BOUNDS.doSetpoint.min, CONTROL_BOUNDS.doSetpoint.max),
-    internalRecirc: clamp(c.internalRecirc, CONTROL_BOUNDS.internalRecirc.min, CONTROL_BOUNDS.internalRecirc.max),
-    rasRatio: clamp(c.rasRatio, CONTROL_BOUNDS.rasRatio.min, CONTROL_BOUNDS.rasRatio.max),
-    wasRatio: clamp(c.wasRatio, CONTROL_BOUNDS.wasRatio.min, CONTROL_BOUNDS.wasRatio.max),
-    pacDose: clamp(c.pacDose, CONTROL_BOUNDS.pacDose.min, CONTROL_BOUNDS.pacDose.max),
-    carbonDose: clamp(c.carbonDose, CONTROL_BOUNDS.carbonDose.min, CONTROL_BOUNDS.carbonDose.max),
-    alkDose: clamp(c.alkDose, CONTROL_BOUNDS.alkDose.min, CONTROL_BOUNDS.alkDose.max),
-    stormStore: clamp(c.stormStore, CONTROL_BOUNDS.stormStore.min, CONTROL_BOUNDS.stormStore.max),
-    stepFeed: clamp(c.stepFeed, CONTROL_BOUNDS.stepFeed.min, CONTROL_BOUNDS.stepFeed.max),
-    aiEnabled: c.aiEnabled,
-  };
+  const out: ControlSettings = { ...c };
+  // 控制量清单只有 CONTROL_KEYS 一份；新增控制量不需要再改这里
+  for (const key of CONTROL_KEYS) {
+    out[key] = clamp(c[key], CONTROL_BOUNDS[key].min, CONTROL_BOUNDS[key].max);
+  }
+  out.aiEnabled = c.aiEnabled;
+  return out;
 }
 
 /**
@@ -41,47 +36,70 @@ export function clampControls(c: ControlSettings): ControlSettings {
  * 运营方看不到任何可行动信息。
  */
 export function qualityScore(e: EffluentState): number {
-  const safe = (v: number) => (Number.isFinite(v) && v >= 0 ? v : LIMITS.cod * 10);
-  const ratios = [
-    safe(e.cod) / LIMITS.cod,
-    safe(e.bod) / LIMITS.bod,
-    safe(e.ss) / LIMITS.ss,
-    safe(e.nh) / LIMITS.nh,
-    safe(e.tn) / LIMITS.tn,
-    safe(e.tp) / LIMITS.tp,
-  ];
+  const ratios = effluentMarginRows(e).map((row) => row.ratio);
   const worst = Math.max(...ratios);
   const mean = ratios.reduce((a, b) => a + b, 0) / ratios.length;
   return Math.round(clamp(100 - Math.max(0, worst - 0.5) * 100 - Math.max(0, mean - 0.45) * 40, 0, 100));
 }
 
+export type EffluentMetric = 'cod' | 'bod' | 'ss' | 'nh' | 'tn' | 'tp';
+
 export interface MarginRow {
+  /** 指标键，供违规列表/图表按机器名索引 */
+  key: EffluentMetric;
   metric: string;
   ratio: number;
   value: number;
   limit: number;
+  /** 原始读数是否有限；NaN/Infinity 不参与违规判定 */
+  finite: boolean;
 }
 
+/** 六项出水指标的唯一顺序与显示名；所有比值/裕度逻辑都从这里派生 */
+export const EFFLUENT_METRICS: { key: EffluentMetric; label: string }[] = [
+  { key: 'cod', label: 'COD' },
+  { key: 'bod', label: 'BOD₅' },
+  { key: 'ss', label: 'SS' },
+  { key: 'nh', label: 'NH₃-N' },
+  { key: 'tn', label: 'TN' },
+  { key: 'tp', label: 'TP' },
+];
+
+export type EffluentLimits = Pick<Limits, 'cod' | 'bod' | 'ss' | 'nh' | 'tn' | 'tp'>;
+
 /**
- * 各指标占限值的比例，按最紧张排序。
+ * 各指标占限值的比例，未排序。
  *
  * 比值必须是有限数：NaN 参与 `sort` 会让排序结果不确定，界面上
  * 「最紧指标」显示 null，AI 的接地事实也会带一个 NaN 百分比。
- * 非有限值按「极紧」处理（ratio 取一个明确的大数），宁可报警也不静默。
+ * 非有限值按「极紧」处理（ratio 取正无穷），宁可报警也不静默。
  */
-export function estimateMargin(e: EffluentState): MarginRow[] {
-  const row = (metric: string, value: number, limit: number): MarginRow => ({
-    metric,
-    ratio: Number.isFinite(value) && value >= 0 ? value / limit : Number.POSITIVE_INFINITY,
-    value: Number.isFinite(value) ? value : 0,
-    limit,
+export function effluentMarginRows(e: EffluentState, limits: EffluentLimits = LIMITS): MarginRow[] {
+  return EFFLUENT_METRICS.map(({ key, label: metric }) => {
+    const value = e[key];
+    const finite = Number.isFinite(value) && value >= 0;
+    return {
+      key,
+      metric,
+      ratio: finite ? value / limits[key] : Number.POSITIVE_INFINITY,
+      value: Number.isFinite(value) ? value : 0,
+      limit: limits[key],
+      finite,
+    };
   });
-  return [
-    row('COD', e.cod, LIMITS.cod),
-    row('BOD₅', e.bod, LIMITS.bod),
-    row('SS', e.ss, LIMITS.ss),
-    row('NH₃-N', e.nh, LIMITS.nh),
-    row('TN', e.tn, LIMITS.tn),
-    row('TP', e.tp, LIMITS.tp),
-  ].sort((a, b) => b.ratio - a.ratio);
+}
+
+/**
+ * 最差指标占限值的比例（>1 即超标）。
+ *
+ * 决策评分、集合预测、灵敏度分析都需要同一个数；此前三处各写一遍
+ * 六项 Math.max，漏一项或口径不同就会让「同一出水、不同风险等级」。
+ */
+export function worstRatio(e: EffluentState, limits: EffluentLimits = LIMITS): number {
+  return Math.max(...effluentMarginRows(e, limits).map((row) => row.ratio));
+}
+
+/** 各指标占限值的比例，按最紧张排序 */
+export function estimateMargin(e: EffluentState, limits: EffluentLimits = LIMITS): MarginRow[] {
+  return effluentMarginRows(e, limits).sort((a, b) => b.ratio - a.ratio);
 }

@@ -31,7 +31,8 @@ import {
   qualityScoreOf,
 } from '../sim/networkEngine';
 import { SCENARIOS, type ScenarioType } from '../sim/scenarios';
-import { CONTROL_BOUNDS } from '../sim/config';
+import { EFFLUENT_METRICS } from '../sim/metrics';
+import { CONTROL_BOUNDS, CONTROL_KEYS as CONTROL_KEYS_SHARED, LIMITS } from '../sim/config';
 
 /** MCP protocol version this server speaks. */
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
@@ -87,17 +88,7 @@ interface ToolDef {
   run(args: Record<string, unknown>, facade: McpFacade): { content: string; structured?: unknown; isError?: true };
 }
 
-const CONTROL_KEYS = [
-  'doSetpoint',
-  'internalRecirc',
-  'rasRatio',
-  'wasRatio',
-  'pacDose',
-  'carbonDose',
-  'alkDose',
-  'stormStore',
-  'stepFeed',
-] as const;
+const CONTROL_KEYS = CONTROL_KEYS_SHARED;
 
 function controlSchema(): Record<string, unknown> {
   const props: Record<string, unknown> = {};
@@ -282,6 +273,7 @@ const TOOLS: ToolDef[] = [
         const samples: {
           minute: number;
           cod: number;
+          bod: number;
           nh: number;
           tn: number;
           tp: number;
@@ -294,6 +286,7 @@ const TOOLS: ToolDef[] = [
             samples.push({
               minute: state.timeMin - start,
               cod: state.effluent.cod,
+              bod: state.effluent.bod,
               nh: state.effluent.nh,
               tn: state.effluent.tn,
               tp: state.effluent.tp,
@@ -302,19 +295,18 @@ const TOOLS: ToolDef[] = [
             });
           }
         }
-        const exceed = (v: number, lim: number) => Number((v / lim).toFixed(3));
         const summary = {
           durationMin,
           scenario: scenario ?? null,
           samples,
-          worstRatios: {
-            cod: exceed(Math.max(...samples.map((s) => s.cod)), 50),
-            nh: exceed(Math.max(...samples.map((s) => s.nh)), 5),
-            tn: exceed(Math.max(...samples.map((s) => s.tn)), 15),
-            tp: exceed(Math.max(...samples.map((s) => s.tp)), 0.5),
-            ss: exceed(Math.max(...samples.map((s) => s.ss)), 10),
-          },
-          compliant: samples.every((s) => s.cod <= 50 && s.nh <= 5 && s.tn <= 15 && s.tp <= 0.5 && s.ss <= 10),
+          // 六项指标与限值都来自同一份清单，不在这里重抄 50/5/15/0.5/10
+          worstRatios: Object.fromEntries(
+            EFFLUENT_METRICS.map(({ key }) => [
+              key,
+              Number((Math.max(...samples.map((s) => s[key])) / LIMITS[key]).toFixed(3)),
+            ]),
+          ),
+          compliant: samples.every((s) => EFFLUENT_METRICS.every(({ key }) => s[key] <= LIMITS[key])),
           finalScore: samples[samples.length - 1]?.score ?? null,
         };
         return { content: JSON.stringify(summary, null, 2), structured: summary };

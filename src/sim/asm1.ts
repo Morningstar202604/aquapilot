@@ -110,6 +110,8 @@ export const ASM1_PROCESSES = [
 
 export type Asm1Process = (typeof ASM1_PROCESSES)[number];
 
+const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+
 type Stoich = Partial<Record<Asm1Component, number>>;
 
 /**
@@ -177,6 +179,64 @@ export function buildStoichiometry(p = ASM1_PARAMS): Record<Asm1Process, Stoich>
       S_ND: 1,
     },
   };
+}
+
+/**
+ * 由 ASM1 碱度换算 pH 的工程近似。
+ *
+ * ASM1 本身没有 pH 状态；S_ALK 是碳酸盐碱度。这里用碱度与 pH 的
+ * 经验关系给出反应器 pH 代理值，只用于抑制项，不替代完整的碳酸盐平衡。
+ * 单位：S_ALK 为 mol HCO₃/m³，乘以 50 得 mg/L as CaCO₃。
+ */
+export function phFromAlkalinity(sAlkMol: number): number {
+  const alkalinityMgL = Math.max(0, sAlkMol) * 50;
+  return clamp(6.6 + 0.004 * (alkalinityMgL - 40), 5.8, 8.7);
+}
+
+/**
+ * 游离氨（NH₃-N）浓度，mg N/L。
+ *
+ * 铵/氨平衡随 pH 与温度移动：pKa 约 9.25（25 ℃），温度每降 1 ℃ 约升 0.03。
+ * 这是硝化抑制的常用工程近似，不引入新的 ASM1 状态。
+ */
+export function freeAmmoniaMgL(nhMgL: number, ph: number, temperatureC: number): number {
+  const pKa = 9.25 - 0.03 * (temperatureC - 25);
+  const fraction = 1 / (1 + 10 ** (pKa - ph));
+  return Math.max(0, nhMgL) * fraction;
+}
+
+/**
+ * 过程级抑制系数。
+ *
+ * 与毒性抑制（`reactionRatesWithSuppression` 的外部 suppression）分开：
+ *   - pH 胁迫：低 pH 抑制硝化最明显，异养菌耐受更强；
+ *   - 游离氨：高 pH + 高氨氮时抑制自养菌；
+ *   - 衰减过程不叠加 pH 抑制，避免把内源呼吸也当成生长抑制。
+ *
+ * 该扩展在基准 pH 7.2 以上不改变原有 ASM1 行为；只有偏离中性区才生效。
+ */
+export function processInhibition(
+  process: Asm1Process,
+  state: Pick<Asm1State, 'S_NH'>,
+  ph: number,
+  temperatureC: number,
+): number {
+  if (process === 'decay_heterotrophs' || process === 'decay_autotrophs') return 1;
+
+  const isAutotroph = process === 'aerobic_growth_autotrophs';
+  const phFactor = phStressFactor(ph, isAutotroph ? 7.2 : 6.2, isAutotroph ? 0.45 : 0.4);
+  if (!isAutotroph && process !== 'aerobic_growth_heterotrophs' && process !== 'anoxic_growth_heterotrophs') {
+    return phFactor;
+  }
+
+  const nh3 = freeAmmoniaMgL(state.S_NH, ph, temperatureC);
+  const ammoniaFactor = 1 / (1 + nh3 / (isAutotroph ? 40 : 120));
+  return phFactor * ammoniaFactor;
+}
+
+function phStressFactor(ph: number, threshold: number, width: number): number {
+  const stress = Math.max(0, threshold - ph);
+  return 1 / (1 + (stress / width) ** 2);
 }
 
 /**

@@ -28,7 +28,8 @@ async function reservePort(): Promise<number> {
 }
 
 async function waitForHealth(): Promise<void> {
-  for (let i = 0; i < 40; i += 1) {
+  // 全量套件并发下 tsx 冷启动可能超过 10 s；给足 60 s，健康断言本身不放宽
+  for (let i = 0; i < 240; i += 1) {
     try {
       const response = await fetch(`http://127.0.0.1:${PORT}/api/health`);
       if (response.ok) return;
@@ -100,7 +101,7 @@ describe('真实 WebSocket 配置权限', () => {
       stdio: 'ignore',
     });
     await waitForHealth();
-  }, 30_000);
+  }, 120_000);
 
   afterAll(async () => {
     server?.kill();

@@ -22,6 +22,7 @@
  * - 超出序列末尾后循环使用（真实部署应替换为持续采集）。
  */
 
+import { parse as parseCsv } from 'csv-parse/sync';
 import { INFLUENT_DESIGN } from './config';
 import { BSM2_CONST_INFLUENT_CSV } from './data/bsm2ConstInfluent';
 import { parseBsm2InfluentCsv, toConventional } from './data/bsm2Reference';
@@ -79,34 +80,49 @@ function clampTo(key: keyof typeof RANGES, v: number): number {
 export function parseInfluentCsv(text: string, name = '自定义进水'): InfluentSeries {
   const warnings: string[] = [];
   const samples: InfluentSample[] = [];
-  const lines = text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0 && !l.startsWith('#'));
 
-  if (lines.length === 0) {
+  /**
+   * 用 csv-parse 处理引号、转义、BOM 与注释。
+   *
+   * 旧实现按逗号硬切，遇到 `"2026-01-01 08:00, 进水"` 这类带逗号的字段
+   * 会直接多列错位，而且无法识别 CRLF 之外的怪异换行。现场导出的 CSV
+   * 恰恰经常带引号字段。
+   */
+  let records: { record: string[]; info: { lines: number } }[];
+  try {
+    records = parseCsv(text, {
+      bom: true,
+      comment: '#',
+      skip_empty_lines: true,
+      relax_column_count: true,
+      trim: true,
+      info: true,
+    }) as unknown as typeof records;
+  } catch {
+    return { name, samples: [], durationMin: 0, warnings: ['文件无法解析为 CSV'] };
+  }
+
+  if (records.length === 0) {
     return { name, samples: [], durationMin: 0, warnings: ['文件为空'] };
   }
 
   // 表头检测：第一列不是数字就当作表头
   let startIndex = 0;
-  const firstCell = lines[0].split(',')[0]?.trim() ?? '';
-  if (!Number.isFinite(Number(firstCell))) {
-    startIndex = 1;
-  }
+  const firstCell = records[0].record[0]?.trim() ?? '';
+  if (!Number.isFinite(Number(firstCell))) startIndex = 1;
 
   const skipped: number[] = [];
-  for (let i = startIndex; i < lines.length; i++) {
-    const cells = lines[i].split(',').map((c) => c.trim());
+  for (let i = startIndex; i < records.length; i++) {
+    const cells = records[i].record;
     if (cells.length < 3) {
-      skipped.push(i + 1);
+      skipped.push(records[i].info.lines);
       continue;
     }
     const nums = cells.map(Number);
     // 前 7 列：minute, flow, cod, nh, tp, ss, temperature
     const [minute, flow, cod, nh, tp, ss, temperature] = nums;
     if (![minute, flow, cod, nh, tp, ss, temperature].every(Number.isFinite)) {
-      skipped.push(i + 1);
+      skipped.push(records[i].info.lines);
       continue;
     }
     /**
