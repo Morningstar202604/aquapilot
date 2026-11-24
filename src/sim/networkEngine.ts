@@ -618,7 +618,10 @@ function solveReactors(ctx: StepContext): {
     // 自养硝化耗氧（o2Nitro）单独一行，不进 COD 账。裂解（lysis）是活体→X_S 的 COD 转移，
     // 不耗 O₂、不计入氧化行（否则同一份生物量 COD 先当氧化、再随 X_S 被氧化，重复计账）。
     // COD 氧化当量 = 好氧异养/PAO 耗氧 + 缺氧反硝化消耗的 COD（NO₃ 作电子受体，2.86 gCOD/gN）。
-    const balancedOx = Math.max(0, flux.o2HeteroKgH) + Math.max(0, flux.denitrifiedNKgH) * 2.86;
+    const balancedOx =
+      Math.max(0, flux.o2HeteroKgH) +
+      Math.max(0, flux.denitrifiedNKgH) * 2.86 +
+      Math.max(0, flux.endogenousOxKgH);
     if (flux.clampedCount > 0 && state.plant) {
       recordPlantError(
         state.plant,
@@ -1371,7 +1374,7 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
       if (state.modelMode === 'asm2d' && r.asm2d) {
         const a = r.asm2d;
         invCod +=
-          ((a.S_I + a.S_F + a.S_A + a.X_I + a.X_S + a.X_H + a.X_PAO + a.X_PP + a.X_PP + a.X_AUT + a.X_PHA) * r.volume) / 1000;
+          ((a.S_I + a.S_F + a.S_A + a.X_I + a.X_S + a.X_H + a.X_PAO + a.X_AUT + a.X_PHA) * r.volume) / 1000;
         // 库存氮：溶解态 + 颗粒态结合氮（活体生物量 0.07、慢速基质 X_S 0.04），
         // 不再只按全局 biomassKg 折算，避免惰性颗粒增长时结合氮漏记、释氮时库存不下降。
         invN +=
