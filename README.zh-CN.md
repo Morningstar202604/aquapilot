@@ -5,11 +5,14 @@
 [English](README.md) · [API](docs/API.md) · [部署](docs/DEPLOYMENT.md) · [基准](docs/BENCHMARKS.md)
 
 [![CI](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/badge/tests-1617%20passing-brightgreen)](docs/BENCHMARKS.md)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ![AquaPilot 控制室](docs/screenshots/01-overview.jpg)
 
 AquaPilot 可以直接改工艺流程、跑过程模型，也可以把控制权交给 AI 值守员——预测、决策和护栏都留在界面上可查。
+
+对 BSM1 Table 6，S_NH **−10.8%**、TSS 为 **−7.4%**；门槛与口径见 [基准](docs/BENCHMARKS.md)。
 
 - **可编辑的厂，真实的过程模型。** 加池子、改回流、换模板；ASM1、ASM2d、Takács 与泥线按拓扑重新编译。
 - **AI 值守有据可查。** 提议、拒绝、被护栏阻断的动作都留日志；评分卡由引擎计算，不由 AI 自报。

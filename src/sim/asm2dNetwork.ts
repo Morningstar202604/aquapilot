@@ -149,7 +149,12 @@ function mixInflow(
 
   if (process.env.AP_DEBUG && !(globalThis as any).__rasDbg) {
     (globalThis as any).__rasDbg = true;
-    console.log('RASDBG', { xRas, feedParticulate, rasRatio, incoming: incoming.map(e => [e.to, e.recycleKind, edgeFlow.get(e.id)]) });
+    console.log('RASDBG', {
+      xRas,
+      feedParticulate,
+      rasRatio,
+      incoming: incoming.map((e) => [e.to, e.recycleKind, edgeFlow.get(e.id)]),
+    });
   }
   for (const edge of incoming) {
     const flow = edgeFlow.get(edge.id) ?? 0;
@@ -291,7 +296,8 @@ function reactionVector(
   // PAO 好氧段以胞内 PHA 为能源/碳源，吸收溶液态正磷合成 X_PP；与厌氧段
   // S_A→X_PHA 释磷储存构成「厌氧释磷 / 好氧吸磷」循环。仅好氧、生物除磷开启时发生。
   if (kind === 'aerobic' && bioP && s.X_PAO > 1e-6) {
-    const phaLim = 0.1 + 0.9 * (Math.max(0, s.X_PHA - 0.01) / (ASM2D_PARAMS.K_PHA + Math.max(0, s.X_PHA - 0.01) + 1e-6));
+    const phaLim =
+      0.1 + 0.9 * (Math.max(0, s.X_PHA - 0.01) / (ASM2D_PARAMS.K_PHA + Math.max(0, s.X_PHA - 0.01) + 1e-6));
     const po4Lim = s.S_PO4 / (ASM2D_PARAMS.K_P + s.S_PO4 + 1e-6);
     const uptake = ASM2D_PARAMS.q_PP * s.X_PAO * phaLim * po4Lim;
     if (uptake > 1e-6) {
@@ -404,7 +410,18 @@ export function stepAsm2dNetwork(args: StepAsm2dNetworkArgs): Asm2dNetworkFluxes
     if (process.env.AP_DEBUG && reactor.id === 'aerobic1' && !(reactor as any).__dbg) {
       (reactor as any).__dbg = true;
       const dbgVec = reactionVector(state, rates, stoich, bioP, suppression, reactor.kind);
-      console.log('DBG aerobic1', { qIn, qOverV, inXH: asmIn.X_H, curXH: state.X_H, inCOD: asmIn.S_A + asmIn.S_F, reactXH: dbgVec.vector.X_H, reactXPAO: dbgVec.vector.X_PAO, reactPHA: dbgVec.vector.X_PHA, reactPP: dbgVec.vector.X_PP, o2: dbgVec.o2Hetero });
+      console.log('DBG aerobic1', {
+        qIn,
+        qOverV,
+        inXH: asmIn.X_H,
+        curXH: state.X_H,
+        inCOD: asmIn.S_A + asmIn.S_F,
+        reactXH: dbgVec.vector.X_H,
+        reactXPAO: dbgVec.vector.X_PAO,
+        reactPHA: dbgVec.vector.X_PHA,
+        reactPP: dbgVec.vector.X_PP,
+        o2: dbgVec.o2Hetero,
+      });
     }
     let reactorClamped = false;
     // 本步反应质量（kg），子步累加后再折成 kg/h 通量
@@ -445,14 +462,64 @@ export function stepAsm2dNetwork(args: StepAsm2dNetworkArgs): Asm2dNetworkFluxes
         const loss = state[comp] + advect + react - next;
         if (loss < -1e-12) {
           const lost = -loss;
-          if (comp === 'S_NH4' || comp === 'S_NO3' || comp === 'S_N2' || comp === 'S_F' || comp === 'X_S' || comp === 'X_I' || comp === 'X_H' || comp === 'X_PAO' || comp === 'X_AUT') {
-            clampNMassKg += lost * (comp === 'S_NH4' || comp === 'S_NO3' || comp === 'S_N2' ? 1 : comp === 'S_F' ? ASM2D_PARAMS.i_N_SI : comp === 'X_S' || comp === 'X_I' ? ASM2D_PARAMS.i_N_XS : ASM2D_PARAMS.i_N_BM) * reactor.volume * subDtDays / 1000;
+          if (
+            comp === 'S_NH4' ||
+            comp === 'S_NO3' ||
+            comp === 'S_N2' ||
+            comp === 'S_F' ||
+            comp === 'X_S' ||
+            comp === 'X_I' ||
+            comp === 'X_H' ||
+            comp === 'X_PAO' ||
+            comp === 'X_AUT'
+          ) {
+            clampNMassKg +=
+              (lost *
+                (comp === 'S_NH4' || comp === 'S_NO3' || comp === 'S_N2'
+                  ? 1
+                  : comp === 'S_F'
+                    ? ASM2D_PARAMS.i_N_SI
+                    : comp === 'X_S' || comp === 'X_I'
+                      ? ASM2D_PARAMS.i_N_XS
+                      : ASM2D_PARAMS.i_N_BM) *
+                reactor.volume *
+                subDtDays) /
+              1000;
           }
-          if (comp === 'S_PO4' || comp === 'X_PP' || comp === 'X_S' || comp === 'X_H' || comp === 'X_PAO' || comp === 'X_AUT' || comp === 'X_MEP') {
-            clampPMassKg += lost * (comp === 'S_PO4' || comp === 'X_MEP' ? 1 : comp === 'X_PP' ? ASM2D_PARAMS.i_P_PP : comp === 'X_S' ? ASM2D_PARAMS.i_P_XS : ASM2D_PARAMS.i_P_BM) * reactor.volume * subDtDays / 1000;
+          if (
+            comp === 'S_PO4' ||
+            comp === 'X_PP' ||
+            comp === 'X_S' ||
+            comp === 'X_H' ||
+            comp === 'X_PAO' ||
+            comp === 'X_AUT' ||
+            comp === 'X_MEP'
+          ) {
+            clampPMassKg +=
+              (lost *
+                (comp === 'S_PO4' || comp === 'X_MEP'
+                  ? 1
+                  : comp === 'X_PP'
+                    ? ASM2D_PARAMS.i_P_PP
+                    : comp === 'X_S'
+                      ? ASM2D_PARAMS.i_P_XS
+                      : ASM2D_PARAMS.i_P_BM) *
+                reactor.volume *
+                subDtDays) /
+              1000;
           }
-          if (comp === 'S_I' || comp === 'S_F' || comp === 'S_A' || comp === 'X_I' || comp === 'X_S' || comp === 'X_H' || comp === 'X_PAO' || comp === 'X_AUT' || comp === 'X_PHA') {
-            clampCodMassKg += lost * reactor.volume * subDtDays / 1000;
+          if (
+            comp === 'S_I' ||
+            comp === 'S_F' ||
+            comp === 'S_A' ||
+            comp === 'X_I' ||
+            comp === 'X_S' ||
+            comp === 'X_H' ||
+            comp === 'X_PAO' ||
+            comp === 'X_AUT' ||
+            comp === 'X_PHA'
+          ) {
+            clampCodMassKg += (lost * reactor.volume * subDtDays) / 1000;
           }
         }
         if (next !== state[comp]) reactorClamped = true;
@@ -479,7 +546,7 @@ export function stepAsm2dNetwork(args: StepAsm2dNetworkArgs): Asm2dNetworkFluxes
     // 本步平均需氧率（g O₂/m³/h）：用整步子步累计质量折算，不能取末子步瞬时值——
     // 末子步基质已耗尽，瞬时需氧≈0 会让前馈失效、KLa 维持高位、DO 顶到上限。
     const totalO2MassKg = o2HeteroMassKg + o2NitroMassKg;
-    const ourH = ((totalO2MassKg * 1000) / Math.max(1e-9, reactor.volume)) / stepHours;
+    const ourH = (totalO2MassKg * 1000) / Math.max(1e-9, reactor.volume) / stepHours;
     if (reactor.kind === 'aerobic' && aerationCapacity > 0.02) {
       const aeration = stepAeration({
         volume: reactor.volume,

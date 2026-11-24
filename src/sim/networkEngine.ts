@@ -152,7 +152,6 @@ function makeClarifier(area: number, depth: number): ClarifierState {
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
-
 export function createNetworkState(
   topo: ProcessTopology,
   options: {
@@ -619,9 +618,7 @@ function solveReactors(ctx: StepContext): {
     // 不耗 O₂、不计入氧化行（否则同一份生物量 COD 先当氧化、再随 X_S 被氧化，重复计账）。
     // COD 氧化当量 = 好氧异养/PAO 耗氧 + 缺氧反硝化消耗的 COD（NO₃ 作电子受体，2.86 gCOD/gN）。
     const balancedOx =
-      Math.max(0, flux.o2HeteroKgH) +
-      Math.max(0, flux.denitrifiedNKgH) * 2.86 +
-      Math.max(0, flux.endogenousOxKgH);
+      Math.max(0, flux.o2HeteroKgH) + Math.max(0, flux.denitrifiedNKgH) * 2.86 + Math.max(0, flux.endogenousOxKgH);
     if (flux.clampedCount > 0 && state.plant) {
       recordPlantError(
         state.plant,
@@ -1284,12 +1281,7 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
     {
       ras: rec.ras,
       // ASM2d 内回流限到 1.0–4.0 Q（BSM1/BSM2 反硝化内回流量级 3Q）；rec.ir=0 的工况保留为 0。
-      ir:
-        state.modelMode === 'asm2d'
-          ? rec.ir <= 0
-            ? 0
-            : clamp(rec.ir, 1.0, 4.0)
-          : rec.ir,
+      ir: state.modelMode === 'asm2d' ? (rec.ir <= 0 ? 0 : clamp(rec.ir, 1.0, 4.0)) : rec.ir,
       // ASM2d 模式排泥比限到 0.6%–1.5% Q，对应 SRT 约 12–18 d；默认 2.2% Q 排泥过快，
       // 30 d 尺度下活性生物量被洗出（MLSS 跌破 2000）。simple/asm1 口径不变。
       was: state.modelMode === 'asm2d' ? Math.min(0.001, Math.max(0.0005, rec.was)) : rec.was,
@@ -1373,8 +1365,7 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
     for (const r of state.reactors) {
       if (state.modelMode === 'asm2d' && r.asm2d) {
         const a = r.asm2d;
-        invCod +=
-          ((a.S_I + a.S_F + a.S_A + a.X_I + a.X_S + a.X_H + a.X_PAO + a.X_AUT + a.X_PHA) * r.volume) / 1000;
+        invCod += ((a.S_I + a.S_F + a.S_A + a.X_I + a.X_S + a.X_H + a.X_PAO + a.X_AUT + a.X_PHA) * r.volume) / 1000;
         // 库存氮：溶解态 + 颗粒态结合氮（活体生物量 0.07、慢速基质 X_S 0.04），
         // 不再只按全局 biomassKg 折算，避免惰性颗粒增长时结合氮漏记、释氮时库存不下降。
         invN +=

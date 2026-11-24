@@ -5,11 +5,14 @@ A browser-based wastewater plant simulator with an auditable AI operator.
 [中文](README.zh-CN.md) · [API](docs/API.md) · [Deployment](docs/DEPLOYMENT.md) · [Benchmarks](docs/BENCHMARKS.md)
 
 [![CI](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml)
+[![tests](https://img.shields.io/badge/tests-1617%20passing-brightgreen)](docs/BENCHMARKS.md)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ![AquaPilot control room](docs/screenshots/01-overview.jpg)
 
 AquaPilot lets you edit a plant flowsheet, run the process model, and hand control to an AI operator whose forecasts, decisions and guardrails all remain visible.
+
+On BSM1 Table 6, S_NH at **−10.8%** and TSS sits at **−7.4%** against the reference; [benchmarks](docs/BENCHMARKS.md) list the gates and method.
 
 - **Editable plant, real process models.** Add tanks, rewire recycles, switch presets; ASM1, ASM2d, Takács and the sludge line recompile from the topology.
 - **AI operator with a paper trail.** Every proposed move, declined move and guardrail block is logged; the scorecard is computed by the engine, not self-reported.

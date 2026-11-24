@@ -432,8 +432,7 @@ export function buildAsm2dRates(p: Asm2dParams = ASM2D_PARAMS, temperatureC = p.
       monod(s.S_NH4, p.K_NH4_PAO) *
       monod(s.S_PO4, p.K_P) *
       s.X_PAO,
-    aerobic_growth_AUT: (s: Asm2dState) =>
-      p.mu_AUT * f * monod(s.S_NH4, p.K_NH4_AUT) * monod(ox(s), p.K_O2) * s.X_AUT,
+    aerobic_growth_AUT: (s: Asm2dState) => p.mu_AUT * f * monod(s.S_NH4, p.K_NH4_AUT) * monod(ox(s), p.K_O2) * s.X_AUT,
     hydrolysis_XS: (s: Asm2dState) =>
       ((p.k_h * f * (s.X_S / Math.max(eps, s.X_H))) / (p.K_X + s.X_S / Math.max(eps, s.X_H))) *
       (monod(s.S_O, p.K_O2) + p.eta_NO3_H * switchOff(s.S_O, p.K_O2) * monod(s.S_NO3, p.K_NO3)) *
@@ -640,9 +639,7 @@ export function fromAsm2d(s: Asm2dState): {
 
 /** 混合液总 COD 浓度 gCOD/m³（与描述符 COD 权重一致）。 */
 export function asm2dCodConcentration(s: Asm2dState): number {
-  return (
-    s.S_I + s.S_F + s.S_A + s.X_I + s.X_S + s.X_H + s.X_PAO + s.X_PHA + s.X_AUT
-  );
+  return s.S_I + s.S_F + s.S_A + s.X_I + s.X_S + s.X_H + s.X_PAO + s.X_PHA + s.X_AUT;
 }
 
 /** 混合液总结合氮浓度 gN/m³：溶解态氮 + 颗粒态结合氮（活体 i_N_BM、慢速基质 i_N_XS）。 */
@@ -667,4 +664,3 @@ export function asm2dPConcentration(s: Asm2dState): number {
     s.X_MEP
   );
 }
-
