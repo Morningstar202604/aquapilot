@@ -27,6 +27,8 @@ import { STANDARD_30_DAY_CRISIS, computeScorecard, type CrisisStep, type Scoreca
 import { DEFAULT_STANDARD, DISCHARGE_STANDARDS, standardById } from './sim/standards';
 import { checkRunReadiness } from './sim/topologyEngine';
 import { CONTROL_BOUNDS, type ControlSettings } from './sim/config';
+import { runExperiment, type ExperimentSpec } from './sim/experiment';
+import { parseExperimentSpec } from './server/experimentSchema';
 
 interface SimOptions {
   days: number;
@@ -212,6 +214,19 @@ function usage(): string {
     --control <k=v>              设置控制量（可重复），如 --control doSetpoint=2.5 --control wasRatio=0.02
     --csv <path>                 每 30 分钟一条采样，输出 CSV
     --json                       以 JSON 输出（供脚本消费，不打印人类可读文本）
+  experiment                     可复现离线实验：拓扑快照 + 种子 + 场景 + 多维校验
+    --minutes <n>                 实验时长（分钟，默认 --days×1440）
+    --model <simple|asm1|asm2d>   动力学模型（默认 asm1）
+    --seed <n>                    复现种子（默认 20261019）
+    --warmup <n>                  暖机天数（默认 5，0–30）
+    --sample <n>                  采样间隔分钟（默认 30，5–1440）
+    --policy <fixed|ai>           固定控制或 AI 闭环（默认 fixed）
+    --validation <basic|full>     校验级别（full 增加重复性与步长收敛）
+    --decision <n>                AI 决策间隔分钟（默认 240）
+    --plant                       开启全厂边界，额外校验 COD/N/P 三本账
+    --standard <id>               排放口径：${DISCHARGE_STANDARDS.map((s) => s.id).join(' | ')}
+    --csv <path>                  导出逐点样本 CSV
+    --json                        输出结构化结果（summary + validation + samples）
   report                         生成 Markdown 运营报告到 stdout
     （同 simulate 的 --days/--scenario/--control）
   bench                          BSM1 Table 6 基准对照（Christoulou et al. 2024 数值）
@@ -257,8 +272,18 @@ async function main(): Promise<number> {
       json: { type: 'boolean', default: false },
       /** topology 子命令的输入文件 */
       file: { type: 'string' },
-      /** scorecard 的排放标准口径 */
+      /** 排放标准口径 */
       standard: { type: 'string' },
+      minutes: { type: 'string' },
+      sample: { type: 'string' },
+      model: { type: 'string' },
+      seed: { type: 'string' },
+      warmup: { type: 'string' },
+      policy: { type: 'string' },
+      validation: { type: 'string' },
+      decision: { type: 'string' },
+      plant: { type: 'boolean', default: false },
+      name: { type: 'string' },
     },
     strict: false,
   });
@@ -438,6 +463,73 @@ async function main(): Promise<number> {
       if (opts.csvPath) {
         writeCsv(opts.csvPath, samples);
         if (!parsed.values.json) console.log(`\n采样序列已写入 ${opts.csvPath}`);
+      }
+      return 0;
+    }
+    case 'experiment': {
+      const durationMin = parsed.values.minutes ? Number(parsed.values.minutes) : days * 1440;
+      const raw: Record<string, unknown> = {
+        name: parsed.values.name ?? 'cli-experiment',
+        model: parsed.values.model ?? 'asm1',
+        seed: parsed.values.seed ? Number(parsed.values.seed) : 20261019,
+        warmupDays: parsed.values.warmup ? Number(parsed.values.warmup) : 5,
+        durationMin,
+        sampleEveryMin: parsed.values.sample ? Number(parsed.values.sample) : 30,
+        scenario: scenario ? { type: scenario } : null,
+        controls: opts.controls,
+        plantEnabled: Boolean(parsed.values.plant),
+        bioPRemoval: true,
+        standardId: parsed.values.standard ?? 'gb18918-1a',
+        policy: parsed.values.policy ?? 'fixed',
+        decisionIntervalMin: parsed.values.decision ? Number(parsed.values.decision) : 240,
+        validation: parsed.values.validation ?? 'basic',
+      };
+      const spec: ExperimentSpec = parseExperimentSpec(raw);
+      if (!parsed.values.json) {
+        console.log(`AquaPilot 实验：${spec.durationMin} min，模型 ${spec.model}，策略 ${spec.policy}…`);
+      }
+      const result = await runExperiment(PLANT_TOPOLOGY, spec);
+      if (parsed.values.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`
+采样 ${result.summary.sampleCount} 点；出水均值 COD ${result.summary.effluent.cod.mean.toFixed(1)}、NH₃-N ${result.summary.effluent.nh.mean.toFixed(2)}、TN ${result.summary.effluent.tn.mean.toFixed(1)}、TP ${result.summary.effluent.tp.mean.toFixed(2)} mg/L`);
+        console.log(
+          `能耗 ${result.summary.energyKwh.toFixed(0)} kWh；吨水能耗 ${result.summary.specificEnergyKwhM3.toFixed(4)} kWh/m³；平均 MLSS ${result.summary.meanMlss.toFixed(0)} mg/L`,
+        );
+        console.log(
+          `模型/数值校验：${result.validation.certified ? 'CERTIFIED' : 'NOT CERTIFIED'}；本次合规：${result.validation.operatingCompliant ? 'PASS' : 'FAIL'}`,
+        );
+        for (const check of result.validation.checks) {
+          console.log(`  [${check.status.toUpperCase()}] ${check.label} — ${check.detail}`);
+        }
+      }
+      if (opts.csvPath) {
+        const header = 'minute,flow,cod,bod,ss,nh,tn,tp,ph,temperature,do,mlss,srt,energy_kw,score,blanket_m';
+        const rows = result.samples.map((x) =>
+          [
+            x.minute,
+            x.effluent.flow,
+            x.effluent.cod,
+            x.effluent.bod,
+            x.effluent.ss,
+            x.effluent.nh,
+            x.effluent.tn,
+            x.effluent.tp,
+            x.effluent.ph,
+            x.effluent.temperature,
+            x.doLevel,
+            x.mlss,
+            x.srtDays,
+            x.energyKw,
+            x.score,
+            x.blanketM,
+          ]
+            .map((v) => (typeof v === 'number' ? v.toFixed(6) : String(v)))
+            .join(','),
+        );
+        writeFileSync(opts.csvPath, [header, ...rows].join('\n') + '\n', 'utf8');
+        if (!parsed.values.json) console.log(`\n实验样本已写入 ${opts.csvPath}`);
       }
       return 0;
     }

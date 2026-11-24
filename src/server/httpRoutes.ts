@@ -56,10 +56,10 @@ export function isApiPath(pathname: string): boolean {
  *   避免出现「isApiPath 认它是 API、isPublicApiPath 又不认」的两套判定；
  * - 集合是编译期常量，判定不经过任何拼接或前缀匹配，边界一眼可见。
  *
- * 只有两个端点在这里：健康探针（自动重启要看）与 auth-required
- * （前端靠它决定要不要弹登录框，拦掉会死锁）。
+ * 只有三个端点在这里：健康探针（自动重启要看）、auth-required
+ * （前端靠它决定要不要弹登录框，拦掉会死锁）与公开的 OpenAPI 契约。
  */
-const PUBLIC_API_PATHS: ReadonlySet<string> = new Set(['/api/health', '/api/auth-required']);
+const PUBLIC_API_PATHS: ReadonlySet<string> = new Set(['/api/health', '/api/auth-required', '/api/openapi.json']);
 
 export function isPublicApiPath(pathname: string): boolean {
   return PUBLIC_API_PATHS.has(pathname.toLowerCase());

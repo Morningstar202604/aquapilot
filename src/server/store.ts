@@ -15,7 +15,7 @@ export type PERSIST_TABLE = (typeof PERSIST_TABLES)[number];
  * 而不是让整个服务启动失败。持久化是增强项，不是运行前提。
  * （CI 在 Node 20 上失败过一次，就是因为静态 import 直接抛错。）
  */
-type DatabaseLike = {
+export type DatabaseLike = {
   exec(sql: string): void;
   prepare(sql: string): {
     run(...args: unknown[]): unknown;
@@ -25,7 +25,7 @@ type DatabaseLike = {
   close(): void;
 };
 
-async function loadSqlite(): Promise<(new (path: string) => DatabaseLike) | null> {
+export async function loadSqlite(): Promise<(new (path: string) => DatabaseLike) | null> {
   try {
     // 动态 import：Node 20 上该模块不存在，catch 后降级而不是崩溃
     const mod = (await import('node:sqlite')) as unknown as {

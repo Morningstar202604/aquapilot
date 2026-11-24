@@ -1,18 +1,20 @@
 # HTTP API
 
-Every endpoint below is **read-only** and answers `GET` (and `HEAD`).
-Write operations go through the WebSocket protocol, see [Protocol](#websocket-protocol).
+Legacy endpoints below are **read-only** and answer `GET` (and `HEAD`); live
+write operations still go through the WebSocket protocol, see [Protocol](#websocket-protocol).
+The versioned experiment API adds `POST /api/v1/experiments` and is documented
+in [Simulation experiment API](#simulation-experiment-api-v1).
 
-This describes the current local working tree, including uncommitted changes; it
-is not a statement of what has been published.
+This describes the current main branch. It is not a statement of any particular
+deployment's configuration.
 
 Base URL: `http://127.0.0.1:5173` by default (`PORT` overrides it).
 
 ## Authentication
 
 Access control is **off by default**. Setting any of the three role tokens enables
-it for every `/api/*` route except `/api/health` (including `?deep=1`) and
-`/api/auth-required`. Static assets remain public so the browser can load the
+it for every `/api/*` route except `/api/health` (including `?deep=1`),
+`/api/auth-required` and `/api/openapi.json`. Static assets remain public so the browser can load the
 application and show its token prompt. Non-loopback binding requires at least
 one configured token.
 
@@ -37,7 +39,8 @@ Authorization: Bearer <token>
 ```
 
 A wrong or missing token returns `401` with `{ "error": ..., "authRequired": true }`.
-Tokens are compared in constant time over SHA-256 digests.
+Tokens are compared in constant time over SHA-256 digests. Versioned experiment
+endpoints use RFC 9457 `application/problem+json` instead of this legacy shape.
 
 ## Errors
 
@@ -47,12 +50,116 @@ Tokens are compared in constant time over SHA-256 digests.
 | 401    | Auth required and token missing/invalid                               |
 | 403    | Static path escapes `dist/client`                                     |
 | 404    | Unknown `/api/*` route, or a missing static asset with an extension   |
-| 405    | Any non-`GET`/`HEAD` request to an `/api/*` route; `Allow: GET, HEAD` |
+| 405    | Any non-`GET`/`HEAD` request to a legacy `/api/*` route; `Allow: GET, HEAD` |
 
 `HEAD` is answered like `GET` without a body.
 
 Unknown `/api/*` paths return JSON, never the SPA shell — a client that asked for
 JSON must not receive HTML.
+
+## Simulation experiment API (v1)
+
+The experiment API is the control plane for reproducible offline simulation. It is
+deliberately versioned separately from the legacy GET API: `POST` is allowed,
+errors are RFC 9457, and every long-running job is an addressable resource.
+
+Contract: `GET /api/openapi.json` (OpenAPI 3.1.0, JSON Schema 2020-12; public).
+
+### `POST /api/v1/experiments`
+
+Requires `operator` (or `admin`). Creates a queued experiment against a snapshot
+of the **current topology**. Returns `202 Accepted` with `Location`; an
+`Idempotency-Key` replay returns `200` with the existing resource.
+
+```json
+{
+  "name": "storm-7d",
+  "model": "asm1",
+  "seed": 20261019,
+  "warmupDays": 5,
+  "durationMin": 10080,
+  "sampleEveryMin": 30,
+  "scenario": { "type": "storm", "magnitude": 1.2 },
+  "controls": { "doSetpoint": 2.5, "internalRecirc": 2.0 },
+  "plantEnabled": false,
+  "standardId": "gb18918-1a",
+  "policy": "fixed",
+  "validation": "full"
+}
+```
+
+Field semantics:
+
+- `model`: `simple` | `asm1` | `asm2d`; default `asm1`.
+- `seed`: deterministic RNG seed; default `20261019`.
+- `warmupDays`: 0–30; spin-up excluded from the sampled window.
+- `durationMin`: 60–43,200 (30 d).
+- `sampleEveryMin`: 5–1,440; total samples capped at 20,000.
+- `scenario`: optional disturbance; `magnitude` must be inside the scenario's
+  documented range.
+- `plantEnabled`: turns on the ASM2d plant boundary; the validation then includes
+  COD/N/P mass balance. It does **not** silently turn a failing balance green.
+- `standardId`: `gb18918-1a` | `gb18918-1b` | `bsm1-reference`.
+- `policy`: `fixed` or `ai`. `ai` lets the decision engine close the loop inside
+  the experiment; AI decisions are capped at 288, so a 30-day run must use a
+  decision interval ≥ 150 min (default 240).
+- `validation`: `basic` or `full`. `full` adds a same-seed repeat run and a
+  1 min vs 2 min step-size convergence run.
+
+`Idempotency-Key` is optional but recommended. Same key + same body is safe to
+retry; same key + different body returns `409 IDEMPOTENCY_KEY_REUSED`.
+
+Responses:
+
+| Status | Meaning |
+| --- | --- |
+| `202` | queued; `Location: /api/v1/experiments/<id>` |
+| `200` | idempotent replay |
+| `400` | malformed JSON / bad cursor / bad idempotency key |
+| `409` | idempotency conflict |
+| `413` | body > 64 KiB |
+| `415` | not `application/json` |
+| `422` | schema or business-boundary failure, with `errors[]` |
+| `429` | queued+running backlog full; `Retry-After: 30` |
+
+### `GET /api/v1/experiments`
+
+`viewer` role. Query: `status=all|queued|running|succeeded|failed|cancelled`,
+`limit=1..100` (default 20), opaque `cursor` from `nextCursor`. Returns summary
+metadata only, not topology or samples. Supports `ETag` / `If-None-Match`.
+
+### `GET /api/v1/experiments/{id}`
+
+`viewer` role. Returns the spec, progress, summary, validation checks and
+provenance. `ETag`/`304` is supported. `samples` are intentionally excluded;
+download them instead.
+
+### `POST /api/v1/experiments/{id}/cancel`
+
+`operator` role. Cancels `queued` or `running`; returns `202`. `succeeded` and
+`failed` are `409`.
+
+### `GET /api/v1/experiments/{id}/samples.csv`
+
+`viewer` role, successful runs only. Columns: minute, flow, COD, BOD, SS, NH,
+TN, TP, pH, temperature, DO, MLSS, SRT, energy kW, score, blanket depth.
+
+### `GET /api/v1/experiments/{id}/report.md`
+
+`viewer` role, successful runs only. Markdown includes spec, topology hash,
+effluent statistics, compliance table, validation checks and a reproduction
+command.
+
+### Validation semantics
+
+`validation.certified` means the **model/numerical** checks passed
+(finite/non-negative/coverage, optional repeatability/convergence, and mass
+balance when `plantEnabled`). `validation.operatingCompliant` is the separate
+question "did this run meet the selected discharge standard". A deliberately
+disturbed scenario can be model-certified while operating non-compliant.
+
+With `plantEnabled=true`, the current WP2 plant boundary returns
+`massBalance.closed=fail`; the API reports that failure rather than hiding it.
 
 ## Endpoints
 

@@ -4,6 +4,53 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] — 2026-11-24
+
+### Added
+
+- **Reproducible experiment control plane** (`src/sim/experiment.ts`):
+  topology snapshot + explicit spec + seed; fixed or in-experiment AI policy;
+  30-day / 20,000-sample / 288-AI-decision limits; cancellation and progress.
+- **Durable queue and recovery** (`experimentStore.ts`, `experimentService.ts`):
+  SQLite WAL when available, in-memory fallback, `queued→running→succeeded|failed|cancelled`,
+  concurrency 2 / queue 24 defaults, `429 + Retry-After`, `Idempotency-Key`
+  replay/conflict, restart requeue, graceful SIGINT/SIGTERM.
+- **Versioned API** (`/api/v1/experiments`): OpenAPI 3.1.0 / JSON Schema
+  2020-12, RFC 9457 `application/problem+json`, `202 + Location`, ETag/304,
+  cursor pagination, `samples.csv` and `report.md`.
+- **MCP experiment tools** (`create_experiment`, `get_experiment`,
+  `list_experiments`, `cancel_experiment`): async create/poll for external
+  agents, operator role for writes.
+- **CLI** `aquapilot experiment`: headless runs with summary, validation and CSV.
+- **Multi-dimensional validation**: finite/non-negative/coverage checks,
+  separate `operatingCompliant`, optional repeatability and 1-vs-2-min
+  step-convergence, plant COD/N/P mass balance when enabled.
+
+### Changed
+
+- README product positioning is now **simulation modelling software**, not only
+  a live simulator; English and Chinese versions updated.
+- `docs/API.md` documents the versioned experiment API; new
+  `docs/BACKEND-MODERNIZATION.md` records standards, limits, performance and
+  known gaps (FMI/SSP not implemented).
+- JSON body reader now accepts only `application/json` or `+json` media types
+  (no longer `application/jsonp`), and versioned API auth errors keep RFC 9457
+  shape.
+
+### Fixed
+
+- Removed two lint errors in new code (`no-control-regex`, useless assignment).
+- Formatting normalized for new backend files.
+
+### Known issues
+
+- WP2 30-day plant COD/N/P mass balance is still red:
+  `tests/plantBoundary.test.ts` fails at `cod 账应闭合`.
+  `plantEnabled=true` experiments honestly report `massBalance.closed=fail`
+  and do not certify; no `it.fails`, tolerance widening or projection was used.
+- FMI 3.0 / SSP 1.0 interoperability is not implemented; REST/OpenAPI/MCP are
+  the current integration boundary.
+
 ## [0.10.0] — 2026-11-23
 
 Nine work packages behind one integration point. The plant can now be wired, not

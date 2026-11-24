@@ -29,6 +29,7 @@ import type { AssetPlantState } from '../sim/assets';
 import type { ProtocolAdapter } from './protocols/adapter';
 import type { ProtocolAuditLog } from './protocols/audit';
 import { createProtocolAudit } from './protocols/audit';
+import type { ExperimentApi } from './routes/experiments';
 import type { ProtocolKind } from './protocols/tags';
 
 /**
@@ -71,6 +72,8 @@ export interface ApiHandlerDeps {
   protocolAdapters?: () => Partial<Record<ProtocolKind, ProtocolAdapter>>;
   /** WP8：写审计；未配置时 /api/protocols/audit 返回空列表 */
   protocolAudit?: () => ProtocolAuditLog | null;
+  /** 版本化实验 API；未接线时该前缀仍会落到 404，不会误入静态资源 */
+  experimentApi?: ExperimentApi;
 }
 
 /** 路由模块需要 URL（含 searchParams），不是只有 query */
@@ -96,9 +99,16 @@ function replyTo(res: ServerResponse, reply: RouteReply): void {
 export function createApiHandler(deps: ApiHandlerDeps) {
   return function handleApi(req: IncomingMessage, res: ServerResponse, pathname: string): void {
     /**
-     * 访问控制用**默认拒绝**结构：先假设一切 /api/* 都要鉴权，只有白名单
-     * 里的两个端点显式提前放行。新增端点不写代码就是受保护的。
+     * 访问控制用**默认拒绝**结构：先假设一切 /api/* 都要鉴权，只有
+     * 公开白名单显式提前放行。新增端点不写代码就是受保护的。
      */
+    // 版本化实验 API：自带 viewer/operator 分级、POST/cancel、幂等键与
+    // RFC 9457 错误，必须先于旧只读门分派；否则 401 会以旧 `{error}`
+    // 形状提前返回，破坏版本化 API 的错误契约。
+    if (deps.experimentApi?.matches(pathname)) {
+      deps.experimentApi.handle(req, res, pathname);
+      return;
+    }
     if (!isPublicApiPath(pathname)) {
       const decision = authorize(req, null, 'viewer');
       if (!decision.allowed) {
@@ -113,7 +123,7 @@ export function createApiHandler(deps: ApiHandlerDeps) {
         return;
       }
     }
-    // 所有 API 都是只读的（写操作走 WebSocket），非 GET/HEAD 一律 405
+    // 其余 API 都是只读的（写操作走 WebSocket），非 GET/HEAD 一律 405
     if (!isReadMethod(req.method)) {
       sendJson(res, 405, { error: 'method not allowed' }, { Allow: 'GET, HEAD' });
       return;

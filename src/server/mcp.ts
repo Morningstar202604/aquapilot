@@ -56,6 +56,15 @@ export interface McpFacade {
   getReport(): string;
   /** 运营评分卡（四维）；外部 agent 用它评估"当前运行得怎么样" */
   getScorecard(): Record<string, unknown>;
+  /** 可选：异步实验队列；外部 agent 可创建实验并轮询，不阻塞 MCP 调用 */
+  experiments?: McpExperimentApi;
+}
+
+export interface McpExperimentApi {
+  create(input: Record<string, unknown>): { ok: boolean; error?: string; record?: Record<string, unknown> };
+  get(id: string): Record<string, unknown> | null;
+  list(status: string, limit: number): Record<string, unknown>[];
+  cancel(id: string): { ok: boolean; error?: string; record?: Record<string, unknown> };
 }
 
 export interface McpRequestInput {
@@ -313,6 +322,113 @@ const TOOLS: ToolDef[] = [
       } catch (err) {
         return { content: `Simulation failed: ${String(err)}`, isError: true };
       }
+    },
+  },
+  {
+    name: 'create_experiment',
+    description:
+      'Create a reproducible offline simulation experiment and return immediately (202-style). The live plant is untouched. Poll get_experiment for status/summary/validation; use cancel_experiment to stop. policy=ai lets the AI operator close the loop inside the experiment.',
+    readOnly: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', maxLength: 80 },
+        model: { type: 'string', enum: ['simple', 'asm1', 'asm2d'] },
+        seed: { type: 'integer', minimum: 0, maximum: 2147483647 },
+        warmupDays: { type: 'integer', minimum: 0, maximum: 30 },
+        durationMin: { type: 'integer', minimum: 60, maximum: 43200 },
+        sampleEveryMin: { type: 'integer', minimum: 5, maximum: 1440 },
+        scenario: {
+          type: 'object',
+          properties: {
+            type: { type: 'string', enum: scenarioNames },
+            durationMin: { type: 'integer', minimum: 5, maximum: 4320 },
+            magnitude: { type: 'number', minimum: 0, maximum: 3 },
+          },
+          required: ['type'],
+          additionalProperties: false,
+        },
+        controls: controlSchema(),
+        plantEnabled: { type: 'boolean' },
+        bioPRemoval: { type: 'boolean' },
+        standardId: { type: 'string', enum: ['gb18918-1a', 'gb18918-1b', 'bsm1-reference'] },
+        policy: { type: 'string', enum: ['fixed', 'ai'] },
+        decisionIntervalMin: { type: 'integer', minimum: 15, maximum: 1440 },
+        validation: { type: 'string', enum: ['basic', 'full'] },
+      },
+      required: ['durationMin'],
+      additionalProperties: false,
+    },
+    run(args, facade) {
+      if (!facade.experiments) return { content: 'Experiment service is not wired on this server', isError: true };
+      const out = facade.experiments.create(args);
+      if (!out.ok || !out.record) return { content: out.error ?? 'create_experiment failed', isError: true };
+      return { content: JSON.stringify(out.record, null, 2), structured: out.record };
+    },
+  },
+  {
+    name: 'get_experiment',
+    description:
+      'Read one experiment: status, progress, spec, summary (effluent stats/compliance/energy), validation checks and provenance. Poll this after create_experiment. Read-only.',
+    readOnly: true,
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    run(args, facade) {
+      if (!facade.experiments) return { content: 'Experiment service is not wired on this server', isError: true };
+      if (typeof args.id !== 'string' || !args.id.trim()) return { content: 'id is required', isError: true };
+      const record = facade.experiments.get(args.id);
+      if (!record) return { content: `Experiment not found: ${args.id}`, isError: true };
+      return { content: JSON.stringify(record, null, 2), structured: record };
+    },
+  },
+  {
+    name: 'list_experiments',
+    description:
+      'List experiments, newest first. Read-only. Use status=all or queued/running/succeeded/failed/cancelled.',
+    readOnly: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: {
+          type: 'string',
+          enum: ['all', 'queued', 'running', 'succeeded', 'failed', 'cancelled'],
+        },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+      additionalProperties: false,
+    },
+    run(args, facade) {
+      if (!facade.experiments) return { content: 'Experiment service is not wired on this server', isError: true };
+      const status = typeof args.status === 'string' ? args.status : 'all';
+      const limit = typeof args.limit === 'number' ? Math.min(100, Math.max(1, Math.round(args.limit))) : 20;
+      const rows = facade.experiments.list(status, limit);
+      return { content: JSON.stringify(rows, null, 2), structured: rows };
+    },
+  },
+  {
+    name: 'cancel_experiment',
+    description:
+      'Cancel a queued/running offline experiment. The live plant is unaffected. Read-write (operator role).',
+    readOnly: false,
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    run(args, facade) {
+      if (!facade.experiments) return { content: 'Experiment service is not wired on this server', isError: true };
+      if (typeof args.id !== 'string' || !args.id.trim()) return { content: 'id is required', isError: true };
+      const out = facade.experiments.cancel(args.id);
+      if (!out.ok) return { content: out.error ?? 'cancel_experiment failed', isError: true };
+      return {
+        content: JSON.stringify(out.record ?? { id: args.id, status: 'cancelled' }, null, 2),
+        structured: out.record,
+      };
     },
   },
   {

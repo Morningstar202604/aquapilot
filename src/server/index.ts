@@ -41,6 +41,10 @@ import { createLlmChat } from './llmChat';
 import { createAgentConfigHandler } from './agentConfigHandler';
 import { createLlmConfigHandler } from './llmConfigHandler';
 import { createApiHandler } from './apiRoutes';
+import { ExperimentStore } from './experimentStore';
+import { ExperimentConflictError, ExperimentService } from './experimentService';
+import { parseExperimentSpec } from './experimentSchema';
+import { createExperimentApi } from './routes/experiments';
 import { createComplianceLedger } from './complianceLedger';
 import { parseClientMessage } from './messageSchema';
 import { createCalibrationService } from './calibrationService';
@@ -226,6 +230,15 @@ runtime.baselineStoredCodKg = particulateCodKg(runtime.net);
  * N 个客户端就是 N 倍重复；现在一帧内所有连接共用一份。
  * 预测缓存也收在这里：同一 (timeMin, controls) 只算一次。
  */
+const experimentStore = new ExperimentStore();
+const experiments = new ExperimentService({
+  topology: () => runtime.topology,
+  store: experimentStore,
+  maxConcurrency: Math.max(1, Number(process.env.AQUAPILOT_EXPERIMENT_CONCURRENCY ?? 2)),
+  maxQueue: Math.max(1, Number(process.env.AQUAPILOT_EXPERIMENT_QUEUE ?? 24)),
+  appVersion: APP_VERSION,
+});
+
 const snapshots = createSnapshotService({
   source: () => ({
     topology: runtime.topology,
@@ -1149,6 +1162,7 @@ const handleLlmConfig = createLlmConfigHandler({ clientState: () => runtime.clie
 async function main(): Promise<void> {
   // 在开始服务前完成持久化初始化（Node 20 上会自动降级为不持久化）
   await store.open();
+  await experiments.start();
 
   const server = createServer((req, res) => {
     const startedHr = process.hrtime.bigint();
@@ -1190,6 +1204,70 @@ async function main(): Promise<void> {
    * 协议处理在 ./mcp.ts（纯逻辑、可单测）；这里只做 HTTP 壳与鉴权。
    */
   const mcpFacade: McpFacade = {
+    experiments: {
+      create: (input) => {
+        try {
+          const spec = parseExperimentSpec(input);
+          const created = experiments.create(spec);
+          return {
+            ok: true,
+            record: {
+              id: created.record.id,
+              name: created.record.name,
+              status: created.record.status,
+              progress: created.record.progress,
+              spec: created.record.spec,
+              self: `/api/v1/experiments/${created.record.id}`,
+              replayed: created.replayed,
+            },
+          };
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
+      },
+      get: (id) => {
+        const record = experiments.get(id);
+        if (!record) return null;
+        return {
+          id: record.id,
+          name: record.name,
+          status: record.status,
+          progress: record.progress,
+          simMinute: record.simMinute,
+          spec: record.spec,
+          summary: record.summary,
+          validation: record.validation,
+          provenance: record.provenance,
+          error: record.error,
+        };
+      },
+      list: (status, limit) =>
+        experiments
+          .list(status as 'all' | 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled', limit)
+          .map((row) => ({
+            id: row.id,
+            name: row.name,
+            status: row.status,
+            progress: row.progress,
+            createdAt: new Date(row.createdAt).toISOString(),
+            finishedAt: row.finishedAt ? new Date(row.finishedAt).toISOString() : null,
+            summary: row.summary,
+            error: row.error,
+          })),
+      cancel: (id) => {
+        try {
+          const record = experiments.cancel(id);
+          return record
+            ? { ok: true, record: { id: record.id, status: record.status } }
+            : { ok: false, error: `experiment not found: ${id}` };
+        } catch (error) {
+          if (error instanceof ExperimentConflictError) {
+            return { ok: false, error: `experiment is already ${error.status}` };
+          }
+          return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
+      },
+    },
     /**
      * 版本必须来自打包时常量：`npm_package_version` 只在 `npm run` 起进程
      * 时存在，`node dist/server/index.mjs`、Docker、SEA exe 都拿不到；
@@ -1279,6 +1357,7 @@ async function main(): Promise<void> {
     snapshot: buildSnapshot,
     store,
     topologyStore,
+    experimentApi: createExperimentApi({ service: experiments, appVersion: APP_VERSION }),
     complianceReadings: () => {
       const span = complianceLedger.span();
       return span.count === 0 ? [] : complianceLedger.readings(span.fromMin, span.toMin);
@@ -1510,10 +1589,12 @@ process.on('unhandledRejection', (reason) => {
 });
 
 process.on('SIGINT', () => {
+  experiments.close();
   store.close();
   process.exit(0);
 });
 process.on('SIGTERM', () => {
+  experiments.close();
   store.close();
   process.exit(0);
 });
