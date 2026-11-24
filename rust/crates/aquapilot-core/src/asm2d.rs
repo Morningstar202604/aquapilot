@@ -609,6 +609,98 @@ pub fn p_concentration(s: &State, p: &Params) -> f64 {
         + s.get(Component::XMEP)
 }
 
+pub const COD_PER_VSS: f64 = 1.42;
+
+/// Aggregate influent to ASM2d. This is the standard BSM2 urban split used by the
+/// TypeScript reference; it is an initial-condition mapping, not calibration.
+pub fn influent_to_asm2d(cod_in: f64, nh: f64, no3: f64, tp: f64, alkalinity: f64) -> State {
+    let cod = cod_in.max(1.0);
+    let mut s = State::zero();
+    s.set(Component::SA, cod * 0.085);
+    s.set(Component::SF, cod * 0.085);
+    s.set(Component::SI, cod * 0.09);
+    s.set(Component::XS, cod * 0.4);
+    s.set(Component::XI, cod * 0.07);
+    s.set(Component::XH, cod * 0.02);
+    s.set(Component::SNH4, nh.max(0.0));
+    s.set(Component::SNO3, no3.max(0.0));
+    s.set(Component::SPO4, tp.max(0.0));
+    s.set(Component::SAlk, (alkalinity / 50.0).max(0.0));
+    s
+}
+
+/// Aggregate reactor initialization (MLSS seeding), matching `toAsm2d`.
+pub fn to_asm2d(
+    cod_in: f64,
+    nh: f64,
+    no3: f64,
+    tp: f64,
+    do_level: f64,
+    alkalinity: f64,
+    mlss: f64,
+) -> State {
+    let total_cod = cod_in.max(1.0);
+    let inert_soluble = total_cod * 0.08;
+    let soluble_readily = total_cod * 0.18;
+    let inert_particulate = total_cod * 0.2;
+    let remaining = total_cod * 0.54;
+    let biomass_from_mlss = if mlss > 0.0 {
+        mlss * 0.75 * COD_PER_VSS
+    } else {
+        0.0
+    };
+    let biomass = remaining.min(biomass_from_mlss);
+    let slowly = (remaining - biomass).max(0.0);
+
+    let mut s = State::zero();
+    s.set(Component::SI, inert_soluble);
+    s.set(Component::SF, soluble_readily * 0.45);
+    s.set(Component::SA, soluble_readily * 0.55);
+    s.set(Component::XI, inert_particulate);
+    s.set(Component::XS, slowly);
+    s.set(Component::XH, biomass * 0.7);
+    s.set(Component::XPAO, biomass * 0.15);
+    s.set(Component::XAUT, biomass * 0.15);
+    s.set(Component::XPP, biomass * 0.15 * 0.25);
+    s.set(Component::XPHA, biomass * 0.15 * 0.15);
+    s.set(Component::SNH4, nh.max(0.0));
+    s.set(Component::SNO3, no3.max(0.0));
+    s.set(Component::SPO4, tp.max(0.0));
+    s.set(Component::SO, do_level.max(0.0));
+    s.set(Component::SAlk, (alkalinity / 50.0).max(0.0));
+    s
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Aggregate {
+    pub cod: f64,
+    pub nh: f64,
+    pub no3: f64,
+    pub tp: f64,
+    pub ss: f64,
+    pub do_level: f64,
+    pub alkalinity: f64,
+}
+
+pub fn from_asm2d(s: &State) -> Aggregate {
+    let particulate = s.get(Component::XI)
+        + s.get(Component::XS)
+        + s.get(Component::XH)
+        + s.get(Component::XPAO)
+        + s.get(Component::XPP)
+        + s.get(Component::XPHA)
+        + s.get(Component::XAUT);
+    Aggregate {
+        cod: s.get(Component::SI) + s.get(Component::SF) + s.get(Component::SA) + particulate,
+        nh: s.get(Component::SNH4),
+        no3: s.get(Component::SNO3),
+        tp: s.get(Component::SPO4),
+        ss: particulate / COD_PER_VSS,
+        do_level: s.get(Component::SO),
+        alkalinity: s.get(Component::SAlk) * 50.0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
