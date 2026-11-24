@@ -5,7 +5,6 @@ A browser-based wastewater plant simulator with an auditable AI operator.
 [中文](README.zh-CN.md) · [API](docs/API.md) · [Deployment](docs/DEPLOYMENT.md) · [Benchmarks](docs/BENCHMARKS.md)
 
 [![CI](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-1617%20passing-brightgreen)](docs/BENCHMARKS.md)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ![AquaPilot control room](docs/screenshots/01-overview.jpg)

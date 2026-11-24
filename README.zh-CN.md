@@ -5,7 +5,6 @@
 [English](README.md) · [API](docs/API.md) · [部署](docs/DEPLOYMENT.md) · [基准](docs/BENCHMARKS.md)
 
 [![CI](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml)
-[![tests](https://img.shields.io/badge/tests-1617%20passing-brightgreen)](docs/BENCHMARKS.md)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ![AquaPilot 控制室](docs/screenshots/01-overview.jpg)
