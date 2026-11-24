@@ -1,8 +1,8 @@
 # AquaPilot 工业级仿真实施计划
 
-> 版本：2026-11-23  
+> 版本：2026-11-24  
 > 基线：`05c5642`（v0.9.0，MIT，仅 `main`）  
-> 本次交付：v0.10.0；全部改造在整批验收后统一提交。
+> 本次交付：v0.10.0 + Rust M1 内核切片；全部改造在整批验收后统一提交。
 
 ## 1. 交付边界（先说清楚，避免假承诺）
 
@@ -29,7 +29,7 @@
 | ID | 工作包 | 核心交付 | 验收标准 | 状态 |
 |---|---|---|---|---|
 | WP1 | ASM1 温度/pH/游离氨 + KLa 曝气闭环 | `src/sim/aeration.ts`、ASM1 抑制、DO PI、风机功率 | 冬季场景实际降温且硝化变差；鼓风机故障 DO 脱离设定值；KLa 不贴设定值；单元 + 网络回归通过 | 已完成 |
-| WP2 | ASM2d 生物除磷 + ADM1 泥线闭环 | 主引擎支持 ASM2d；消化池/沼气/沼液回流接入；TP/TN 全厂账 | 厌氧释磷、好氧吸磷、PAC 三条路径可区分；泥线回流对水线 N/P 负荷可见；质量平衡闭合 | **部分交付**：过程级/批次级计量守恒已闭合，网络级 30 d 台账与除磷稳态未达（3 个 `it.fails` 显式标注，差距见 `docs/PLANT-BOUNDARY.md` §5.1 与本文 §3.5） |
+| WP2 | ASM2d 生物除磷 + ADM1 泥线闭环 | 主引擎支持 ASM2d；消化池/沼气/沼液回流接入；TP/TN 全厂账 | 厌氧释磷、好氧吸磷、PAC 三条路径可区分；泥线回流对水线 N/P 负荷可见；质量平衡闭合 | **部分交付 / 21/22**：过程级 19 过程 COD/N/P 计量全部闭合，P 单位豁免已移除；单池好氧释磷/吸磷循环、生物量留住、出水门已真实通过；仅剩 30 d 全厂三本账 COD/N/P 闭合一条真实红灯（见 `docs/PLANT-BOUNDARY.md` §5.1） |
 | WP3 | 水力学与多系列 | 阻力分流、管渠容积/输运延迟、泵/阀/堰、多二沉池 | 两支路流量不按数量均分；示踪剂有停留时间分布；两条完整系列可独立回流/排泥 | 已完成：阀位 0.3/0.7 → 303.99/696.01 m³/h，示踪剂 τ=4.5 min、σ²=11.98，双系列 2 trains/2 clarifiers，82 项测试 |
 | WP4 | 仪表、执行机构、控制层 | 传感器模型、执行器模型、PID/联锁、测量与真值分离 | 报警/AI 只读测量值；传感器故障/漂移/死时间可注入；阀门/风机饱和与速率限制生效 | 已完成：两阶段共 35 项测试；默认理想仪表零扰动，故障/漂移/死时间/联锁/ESD/资产折减均进物理路径 |
 | WP5 | 标定与不确定性 | 内部剖面观测、参数置信区间、蒙特卡洛/后验 | 不只拟合 4 个出水指标；给出参数相关性与 P10/P90；质量平衡可审计 | 已完成：真值恢复 mu_A 3.9%/K_NH 4.8%/b_H 11.6%，区间覆盖 19/20，P10/P50/P90 COD 17.88/22.62/26.26，50 项测试 |
@@ -179,6 +179,15 @@ npx jscpd ...                 37,698 行，0 克隆，0 重复行
 - 服务端冒烟（`PORT=5199 AQUAPILOT_PERSIST=0 node dist/server/index.mjs`）：`/api/health`、`/api/snapshot`、`/api/hydraulics`、`/api/instruments`、`/api/control/interlocks`、`/api/assets`、`/api/plant/balance`、`/api/protocols/tags`、`/api/compliance/report` 均 200；`/api/calibration/uncertainty` 409 `CALIBRATION_INSUFFICIENT_DATA`（无剖面数据，符合契约）。
 - 浏览器冒烟（Chromium）：侧栏 12 个页签；工业页 4 个子视图（合规 / 资产 / 协议 / 仪表联锁）；仪表 25 测点、0 异常，`measured` 与 `truth` 逐位一致；快照、仪表、联锁三处 `timeMin` 对齐（t=42 min）。
 - 提交方式：单次统一 commit（不 push、不建分支），版本 `0.10.0`。
+
+
+### 3.7 语言迁移 M1：Rust 仿真内核切片（2026-11-24）
+
+- `rust/` Cargo workspace 已建立，`aquapilot-core` 启用 `#![forbid(unsafe_code)]`；Rust 1.100.0。
+- 已完成 ASM2d 19 组分/19 过程、CSTR、曝气/DO PI、前馈、风机功率、5 池网络（外回流/RAS/发酵/好氧吸磷/DO 控制）移植。
+- CSTR 24 h 与 TS 逐位一致（≤1e-12），黄金 `rust/golden/asm2d-cstr-24h.json`；5 池 48 h 的 19 组分 × 5 反应器与 TS **逐点完全一致**，黄金 `rust/golden/asm2d-network-48h.json`。
+- `cargo test` 7 单元 + CSTR parity + network parity 全过；`cargo clippy --all-targets -- -D warnings` 0 报错。
+- 未完成：ASM1、ADM1、Takács、水力学、服务端、AI、CLI 的 Rust 端口；M2–M4 未开始。
 
 ## 4. 实施顺序与依赖
 
