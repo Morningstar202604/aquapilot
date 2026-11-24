@@ -55,13 +55,12 @@ const N_W: Partial<Record<Asm2dComponent, number>> = {
 };
 
 /**
- * 磷当量权重：溶液态 1:1；X_PP 本身是聚磷酸盐，按磷质量 1:1；其余颗粒态按含磷分数。
- * 注：骨架 X_PP 同时以 COD 口径参与库存折算，生长过程「PP 作为磷源」的系数是 COD 口径，
- * 磷质量换算差一个 i_P_PP 因子，属已知单位混合边界（见文档 §7）。
+ * 磷当量权重：溶液态 1:1；X_PP 在本骨架按 COD 口径存储，P 当量为 i_P_PP；
+ * 其余颗粒态按含磷分数。这样 P 账与 X_PP 的 COD 计量在同一单位下闭合。
  */
 const P_W: Partial<Record<Asm2dComponent, number>> = {
   S_PO4: 1,
-  X_PP: 1,
+  X_PP: p.i_P_PP,
   X_MEP: 1,
   X_S: p.i_P_XS,
   X_H: p.i_P_BM,
@@ -97,16 +96,8 @@ function processResidual(proc: (typeof ASM2D_PROCESSES)[number], state: Asm2dSta
   };
 }
 
-/** 磷口径存在单位混合边界的过程：生长以 PP-COD 为磷源，P 质量换算差 i_P_PP 因子。 */
-const P_UNIT_BOUNDARY = new Set([
-  'aerobic_growth_PAO',
-  'anoxic_growth_PAO',
-  'storage_PHA_anaerobic',
-  'storage_PHA_anoxic',
-  'storage_PHA_aerobic',
-  'hydrolysis_PP',
-  'lysis_PAO',
-]);
+/** X_PP 以 COD 口径参与计量，P 当量按 i_P_PP 统一换算后，不再需要 P 单位豁免。 */
+const P_UNIT_BOUNDARY = new Set<string>();
 
 /** 一个底物/生物量/氧/氮磷都不缺的状态，保证各过程速率 > 0。 */
 function richState(): Asm2dState {
