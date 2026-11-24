@@ -25,3 +25,12 @@
 
 Every turn must land a code/test/golden commit or explicitly record a blocker;
 do not repeat the same probe without a code change.
+
+## 2026-11-24 repository delivery
+
+- [x] Concise English/Chinese README, screenshots and demo linked
+- [x] Five-platform main synced; all side branches removed
+- [x] GitHub descriptions, topics, auto-merge, delete-branch-on-merge and main protection enabled
+- [x] Gitee/GitCode descriptions, main branch and merge settings set
+- [x] Docs consistency tests repaired
+- [ ] WP2 30 d COD/N/P balance closure (remaining red CI gate)
