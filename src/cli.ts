@@ -29,6 +29,8 @@ import { checkRunReadiness } from './sim/topologyEngine';
 import { CONTROL_BOUNDS, type ControlSettings } from './sim/config';
 import { runExperiment, type ExperimentSpec } from './sim/experiment';
 import { parseExperimentSpec } from './server/experimentSchema';
+import { aggregateStudy, planStudy, studyMarkdown, type StudyChildRow } from './sim/study';
+import { parseStudySpec } from './server/studySchema';
 
 interface SimOptions {
   days: number;
@@ -227,6 +229,9 @@ function usage(): string {
     --standard <id>               排放口径：${DISCHARGE_STANDARDS.map((s) => s.id).join(' | ')}
     --csv <path>                  导出逐点样本 CSV
     --json                        输出结构化结果（summary + validation + samples）
+  study                          批量仿真研究：base + 变体 + 重复 + 目标排序/Pareto
+    --file <path>                 研究 spec JSON（必填；含 base/variants/objectives）
+    --json                        输出聚合结果 JSON（默认输出 Markdown 报告）
   report                         生成 Markdown 运营报告到 stdout
     （同 simulate 的 --days/--scenario/--control）
   bench                          BSM1 Table 6 基准对照（Christoulou et al. 2024 数值）
@@ -532,6 +537,61 @@ async function main(): Promise<number> {
         if (!parsed.values.json) console.log(`\n实验样本已写入 ${opts.csvPath}`);
       }
       return 0;
+    }
+    case 'study': {
+      const file = typeof parsed.values.file === 'string' ? parsed.values.file : undefined;
+      if (!file) throw new Error('study 需要 --file <path>（研究 spec JSON）');
+      const spec = parseStudySpec(JSON.parse(readFileSync(file, 'utf8')));
+      const plan = planStudy(spec);
+      const rows: (StudyChildRow | null)[] = Array.from({ length: plan.children.length }, () => null);
+      let next = 0;
+      async function worker(): Promise<void> {
+        while (next < plan.children.length) {
+          const index = next;
+          next += 1;
+          const child = plan.children[index]!;
+          try {
+            const result = await runExperiment(PLANT_TOPOLOGY, child.spec);
+            rows[index] = {
+              id: `cli_${index}`,
+              name: child.spec.name ?? `child-${index}`,
+              status: 'succeeded',
+              summary: result.summary,
+              validation: result.validation,
+              error: null,
+            };
+          } catch (error) {
+            rows[index] = {
+              id: `cli_${index}`,
+              name: child.spec.name ?? `child-${index}`,
+              status: 'failed',
+              summary: null,
+              validation: null,
+              error: error instanceof Error ? error.message : String(error),
+            };
+          }
+          if (!parsed.values.json) {
+            process.stderr.write(
+              `  [${index + 1}/${plan.children.length}] ${child.spec.name ?? 'child'} ${rows[index]!.status}\n`,
+            );
+          }
+        }
+      }
+      await Promise.all([worker(), worker()]);
+      const aggregate = aggregateStudy(spec, rows);
+      if (parsed.values.json) {
+        console.log(JSON.stringify({ spec, aggregate, children: rows.map((row) => row?.id ?? null) }, null, 2));
+      } else {
+        process.stdout.write(
+          studyMarkdown(
+            spec.name ?? 'study',
+            spec,
+            aggregate,
+            rows.map((row) => row?.id ?? ''),
+          ),
+        );
+      }
+      return aggregate.status === 'failed' ? 1 : 0;
     }
     case 'report': {
       const { samples, totals } = runSimulation(opts);

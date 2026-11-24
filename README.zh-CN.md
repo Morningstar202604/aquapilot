@@ -37,7 +37,14 @@ npm run cli -- experiment --minutes 1440 --validation full
 npm run cli -- experiment --days 7 --scenario storm --policy ai --plant --json
 ```
 
-REST 控制面：`POST /api/v1/experiments` 返回 `202 + Location`；轮询详情、下载 CSV/报告，契约见 `GET /api/openapi.json`。
+批量研究：
+
+```bash
+# 2 个变体 × 2 次重复，按成本与出水氨氮排序并给出 Pareto 前沿
+npm run cli -- study --file study.json
+```
+
+REST 控制面：`POST /api/v1/experiments` / `POST /api/v1/studies` 返回 `202 + Location`；轮询详情、下载 CSV/报告，契约见 `GET /api/openapi.json`。
 
 ## 快速开始
 

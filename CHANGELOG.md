@@ -4,6 +4,34 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] — 2026-11-24
+
+### Added
+
+- **Simulation studies** (`src/sim/study.ts`): one base experiment + 1–12
+  variants + 1–2 replicates (max 24 children), deterministic seed derivation,
+  per-variant metrics/ranking, multi-objective Pareto front and Markdown report.
+- **Study control plane** (`studyService.ts`, `studyStore.ts`, `routes/studies.ts`):
+  `POST/GET /api/v1/studies`, detail with ETag/304, batch cancel, `report.md`;
+  whole-batch `429 STUDY_QUEUE_FULL` when the experiment queue cannot fit it;
+  `Idempotency-Key` replay/conflict; SQLite WAL or in-memory fallback.
+- **MCP study tools**: `create_study`, `get_study`, `list_studies`,
+  `cancel_study`, `get_study_report`.
+- **CLI** `aquapilot study --file study.json`: offline batch execution and
+  Markdown/JSON output using the same planner and aggregator as the server.
+
+### Changed
+
+- Experiment store exposes a summary-only `findStudyRows()` query so a study
+  never loads 24 full sample sets into memory.
+- Removed leftover `AP_DEBUG` probes from the ASM2d network path; the engine
+  no longer writes console diagnostics in production.
+
+### Fixed
+
+- Study aggregation now computes certification and operating-compliance rates
+  per variant, not from a global pass/fail count.
+
 ## [0.10.1] — 2026-11-24
 
 ### Added

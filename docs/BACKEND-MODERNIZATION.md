@@ -68,7 +68,7 @@ GET    /api/openapi.json                      OpenAPI 3.1 契约（公开）
 
 ### 2.4 AI 工具总线（`src/server/mcp.ts`）
 
-MCP 2025-06-18 端点新增四个工具：
+MCP 2025-06-18 端点新增四个实验工具，以及五个研究工具：
 
 | 工具 | 语义 |
 | --- | --- |
@@ -76,6 +76,11 @@ MCP 2025-06-18 端点新增四个工具：
 | `get_experiment` | 读状态、summary、validation、provenance |
 | `list_experiments` | 按状态列实验 |
 | `cancel_experiment` | 取消排队/运行中的实验 |
+| `create_study` | 创建批量研究，立即返回 |
+| `get_study` | 读聚合、排名、Pareto、认证/合规率 |
+| `list_studies` | 列研究 |
+| `cancel_study` | 取消整批研究 |
+| `get_study_report` | 读研究级 Markdown 报告 |
 
 写工具要求 operator 角色；读工具 viewer。外部 agent 不再只能跑 1 天的
 `simulate_headless`，而是可以编排 30 天、带校验、可取消的完整实验。
@@ -85,9 +90,44 @@ MCP 2025-06-18 端点新增四个工具：
 ```bash
 npm run cli -- experiment --minutes 1440 --validation full --standard gb18918-1b
 npm run cli -- experiment --days 7 --scenario storm --policy ai --plant --json
+npm run cli -- study --file study.json
 ```
 
 CLI 与 HTTP/MCP 共用同一 spec/runner/校验；不是第三套逻辑。
+
+### 2.6 仿真研究（`src/sim/study.ts` / `studyService.ts` / `studyStore.ts`）
+
+一个 Study 不是“再包一层实验”，而是把**批量仿真**变成可查询、可复现的资源：
+
+- 1 个 base experiment + 1–12 个 variant + 1–2 次重复，最多 24 个子实验；
+- 子实验共享创建时的拓扑快照、边界和 base spec，只允许覆盖控制量、场景、模型、
+  `plantEnabled`、`bioPRemoval`；不允许在 variant 里换拓扑或换种子算法；
+- 种子由 `base.seed + variant.seedOffset + variantIndex * 104729 + replicate * 7919`
+  派生，相同 Study spec 永远得到同一组子实验；
+- 每个子实验仍是普通实验资源，进入同一个持久队列，可单独查询、取消、下载；
+- 聚合层只读子实验的 `summary` / `validation`，不读 samples/topology，避免 24 个
+  子实验把详情页内存放大；
+- 输出包括每个 variant 的均值/极值/P95、目标值、排名、Pareto 前沿、认证率、
+  合规率、失败检查统计，以及 Markdown 复现报告。
+
+```text
+POST   /api/v1/studies                    创建整批（operator；202 + Location）
+GET    /api/v1/studies                    列表（viewer）
+GET    /api/v1/studies/{id}               详情 + 聚合（viewer，ETag/304）
+POST   /api/v1/studies/{id}/cancel        取消整批（operator）
+GET    /api/v1/studies/{id}/report.md     研究级 Markdown 报告
+```
+
+容量是显式失败而不是静默排队：若当前实验队列的空闲槽位不足以容纳整批，
+Study 返回 `429 STUDY_QUEUE_FULL`，不会留下一半任务。幂等键语义与实验一致：
+同键同 body 返回 200，同键不同 body 返回 409。
+
+聚合口径：
+
+- `certifiedRate = 子实验 validation.certified / 有 validation 的成功子实验`；
+- `operatingComplianceRate = 子实验 validation.operatingCompliant / 有 validation 的成功子实验`；
+- `complianceRate = 子实验 summary.compliant / 成功子实验`；
+- 三者分开，不允许用“模型认证”冒充“本次运行达标”。
 
 ## 3. 标准对照
 
@@ -138,7 +178,8 @@ WP2 全厂 COD/N/P 账本尚未闭合。这是**唯一核心红灯**，本轮的
 
 - 1 天 1 min 步长实验约 0.4–0.5 s；30 天约 15 s；
 - `full` 校验约 3 倍成本；`policy=ai` 每次决策约 0.15–0.6 s，受 horizon/candidate budget 影响；
-- 队列默认 2 并发、合计 24 个积压，适合单机“提交—轮询—下载”的批量实验，不是 HPC 调度器。
+- 队列默认 2 并发、合计 24 个积压；一个 Study 最多 24 个子实验，正好占满默认队列；
+- 适合单机“提交—轮询—下载”的批量实验，不是 HPC 调度器。
 
 下一步若要跑 100+ 情景的不确定性扫描，应把 worker 从主进程拆出，
 再评估 SQLite → PostgreSQL/TimescaleDB；本轮不引入这些重依赖。
@@ -148,7 +189,8 @@ WP2 全厂 COD/N/P 账本尚未闭合。这是**唯一核心红灯**，本轮的
 ```bash
 npm run typecheck
 npm run build
-npx vitest run tests/experiment.test.ts tests/experimentService.test.ts tests/experimentApi.test.ts
+npx vitest run tests/experiment.test.ts tests/experimentService.test.ts tests/experimentApi.test.ts \
+  tests/study.test.ts tests/studyService.test.ts tests/studyApi.test.ts
 npm run cli -- experiment --minutes 60 --json
 curl -s http://127.0.0.1:5173/api/openapi.json | head
 ```

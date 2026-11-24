@@ -16,6 +16,7 @@ import {
   type ExperimentRecord,
   type ExperimentProvenance,
   type ExperimentStatus,
+  type ExperimentStudyRow,
 } from './experimentStore';
 import { hashJson } from './canonical';
 import { ExperimentAbortedError, runExperiment, type ExperimentSpec } from '../sim/experiment';
@@ -142,6 +143,14 @@ export class ExperimentService {
 
   get(id: string): ExperimentRecord | null {
     return this.store.findById(id);
+  }
+
+  getStudyRows(ids: string[]): ExperimentStudyRow[] {
+    return this.store.findStudyRows(ids);
+  }
+
+  activeCount(): number {
+    return this.store.countActive();
   }
 
   list(status: ExperimentStatus | 'all', limit: number, cursor?: { createdAt: number; id: string } | null) {

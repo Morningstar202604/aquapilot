@@ -58,6 +58,16 @@ export interface McpFacade {
   getScorecard(): Record<string, unknown>;
   /** 可选：异步实验队列；外部 agent 可创建实验并轮询，不阻塞 MCP 调用 */
   experiments?: McpExperimentApi;
+  /** 可选：批量仿真研究；子实验仍走 experiments 队列 */
+  studies?: McpStudyApi;
+}
+
+export interface McpStudyApi {
+  create(input: Record<string, unknown>): { ok: boolean; error?: string; record?: Record<string, unknown> };
+  get(id: string): Record<string, unknown> | null;
+  list(limit: number): Record<string, unknown>[];
+  cancel(id: string): { ok: boolean; error?: string; record?: Record<string, unknown> };
+  report(id: string): string | null;
 }
 
 export interface McpExperimentApi {
@@ -429,6 +439,155 @@ const TOOLS: ToolDef[] = [
         content: JSON.stringify(out.record ?? { id: args.id, status: 'cancelled' }, null, 2),
         structured: out.record,
       };
+    },
+  },
+  {
+    name: 'create_study',
+    description:
+      'Create a simulation study: one base experiment + up to 12 variants + up to 2 replicates (max 24 children). Children share the topology snapshot and boundary, but may override controls/scenario/model/plantEnabled/bioPRemoval. Use objectives (1-3 metrics, min/max) to rank variants and compute a Pareto front. Returns immediately; poll get_study. Read-write (operator role).',
+    readOnly: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', maxLength: 80 },
+        base: {
+          type: 'object',
+          description: 'ExperimentSpec: durationMin is required; other fields use experiment defaults.',
+        },
+        variants: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 12,
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', maxLength: 40 },
+              seedOffset: { type: 'integer', minimum: 0, maximum: 2147483647 },
+              controls: controlSchema(),
+              scenario: { type: 'object' },
+              model: { type: 'string', enum: ['simple', 'asm1', 'asm2d'] },
+              plantEnabled: { type: 'boolean' },
+              bioPRemoval: { type: 'boolean' },
+            },
+            additionalProperties: false,
+          },
+        },
+        replicates: { type: 'integer', minimum: 1, maximum: 2 },
+        objectives: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 3,
+          items: {
+            type: 'object',
+            properties: {
+              metric: {
+                type: 'string',
+                enum: [
+                  'totalCost',
+                  'energyKwh',
+                  'specificEnergyKwhM3',
+                  'meanMlss',
+                  'finalSrtDays',
+                  'finalDo',
+                  'effluent.cod',
+                  'effluent.bod',
+                  'effluent.ss',
+                  'effluent.nh',
+                  'effluent.tn',
+                  'effluent.tp',
+                ],
+              },
+              direction: { type: 'string', enum: ['min', 'max'] },
+            },
+            required: ['metric', 'direction'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['base', 'variants', 'objectives'],
+      additionalProperties: false,
+    },
+    run(args, facade) {
+      if (!facade.studies) return { content: 'Study service is not wired on this server', isError: true };
+      const out = facade.studies.create(args);
+      if (!out.ok || !out.record) return { content: out.error ?? 'create_study failed', isError: true };
+      return { content: JSON.stringify(out.record, null, 2), structured: out.record };
+    },
+  },
+  {
+    name: 'get_study',
+    description:
+      'Read a study: status/progress, child experiment IDs, per-variant metrics, ranking, Pareto front, certification/compliance rates and best variant. Poll this after create_study. Read-only.',
+    readOnly: true,
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    run(args, facade) {
+      if (!facade.studies) return { content: 'Study service is not wired on this server', isError: true };
+      if (typeof args.id !== 'string' || !args.id.trim()) return { content: 'id is required', isError: true };
+      const record = facade.studies.get(args.id);
+      if (!record) return { content: `Study not found: ${args.id}`, isError: true };
+      return { content: JSON.stringify(record, null, 2), structured: record };
+    },
+  },
+  {
+    name: 'list_studies',
+    description: 'List simulation studies, newest first. Read-only.',
+    readOnly: true,
+    inputSchema: {
+      type: 'object',
+      properties: { limit: { type: 'integer', minimum: 1, maximum: 100 } },
+      additionalProperties: false,
+    },
+    run(args, facade) {
+      if (!facade.studies) return { content: 'Study service is not wired on this server', isError: true };
+      const limit = typeof args.limit === 'number' ? Math.min(100, Math.max(1, Math.round(args.limit))) : 20;
+      const rows = facade.studies.list(limit);
+      return { content: JSON.stringify(rows, null, 2), structured: rows };
+    },
+  },
+  {
+    name: 'cancel_study',
+    description:
+      'Cancel a study and all its queued/running children. The live plant is untouched. Read-write (operator role).',
+    readOnly: false,
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    run(args, facade) {
+      if (!facade.studies) return { content: 'Study service is not wired on this server', isError: true };
+      if (typeof args.id !== 'string' || !args.id.trim()) return { content: 'id is required', isError: true };
+      const out = facade.studies.cancel(args.id);
+      if (!out.ok) return { content: out.error ?? 'cancel_study failed', isError: true };
+      return {
+        content: JSON.stringify(out.record ?? { id: args.id, status: 'cancelled' }, null, 2),
+        structured: out.record,
+      };
+    },
+  },
+  {
+    name: 'get_study_report',
+    description:
+      'Render the study Markdown report: variant table, ranking, Pareto front, certification/compliance and reproducible child IDs. Read-only.',
+    readOnly: true,
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    run(args, facade) {
+      if (!facade.studies) return { content: 'Study service is not wired on this server', isError: true };
+      if (typeof args.id !== 'string' || !args.id.trim()) return { content: 'id is required', isError: true };
+      const md = facade.studies.report(args.id);
+      if (!md) return { content: `Study not found: ${args.id}`, isError: true };
+      return { content: md };
     },
   },
   {

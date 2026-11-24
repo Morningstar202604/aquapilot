@@ -45,6 +45,10 @@ import { ExperimentStore } from './experimentStore';
 import { ExperimentConflictError, ExperimentService } from './experimentService';
 import { parseExperimentSpec } from './experimentSchema';
 import { createExperimentApi } from './routes/experiments';
+import { StudyService, type StudyDetail } from './studyService';
+import { parseStudySpec } from './studySchema';
+import { studyMarkdown } from '../sim/study';
+import { createStudyApi } from './routes/studies';
 import { createComplianceLedger } from './complianceLedger';
 import { parseClientMessage } from './messageSchema';
 import { createCalibrationService } from './calibrationService';
@@ -238,6 +242,7 @@ const experiments = new ExperimentService({
   maxQueue: Math.max(1, Number(process.env.AQUAPILOT_EXPERIMENT_QUEUE ?? 24)),
   appVersion: APP_VERSION,
 });
+const studies = new StudyService({ experiments });
 
 const snapshots = createSnapshotService({
   source: () => ({
@@ -1163,6 +1168,7 @@ async function main(): Promise<void> {
   // 在开始服务前完成持久化初始化（Node 20 上会自动降级为不持久化）
   await store.open();
   await experiments.start();
+  await studies.start();
 
   const server = createServer((req, res) => {
     const startedHr = process.hrtime.bigint();
@@ -1203,6 +1209,29 @@ async function main(): Promise<void> {
    * 同样的 reset 清理；外部 agent 与浏览器操作员享有同等（而非更大）的权限。
    * 协议处理在 ./mcp.ts（纯逻辑、可单测）；这里只做 HTTP 壳与鉴权。
    */
+  function toMcpStudy(detail: StudyDetail): Record<string, unknown> {
+    return {
+      id: detail.record.id,
+      name: detail.record.name,
+      status: detail.aggregate.status,
+      progressPercent: detail.aggregate.progressPercent,
+      total: detail.aggregate.total,
+      succeeded: detail.aggregate.succeeded,
+      failed: detail.aggregate.failed,
+      cancelled: detail.aggregate.cancelled,
+      best: detail.aggregate.best,
+      aggregate: detail.aggregate,
+      children: detail.plan.children.map((child, index) => ({
+        experimentId: detail.record.childIds[index] ?? null,
+        name: child.spec.name,
+        variantIndex: child.variantIndex,
+        replicate: child.replicate,
+      })),
+      error: detail.record.error,
+      self: `/api/v1/studies/${detail.record.id}`,
+    };
+  }
+
   const mcpFacade: McpFacade = {
     experiments: {
       create: (input) => {
@@ -1266,6 +1295,45 @@ async function main(): Promise<void> {
           }
           return { ok: false, error: error instanceof Error ? error.message : String(error) };
         }
+      },
+    },
+    studies: {
+      create: (input) => {
+        try {
+          const spec = parseStudySpec(input);
+          const created = studies.create(spec);
+          return { ok: true, record: toMcpStudy(created.detail) };
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
+      },
+      get: (id) => {
+        const detail = studies.get(id);
+        return detail ? toMcpStudy(detail) : null;
+      },
+      list: (limit) =>
+        studies.list(limit).map((detail) => ({
+          id: detail.record.id,
+          name: detail.record.name,
+          status: detail.aggregate.status,
+          progressPercent: detail.aggregate.progressPercent,
+          total: detail.aggregate.total,
+          succeeded: detail.aggregate.succeeded,
+          failed: detail.aggregate.failed,
+          best: detail.aggregate.best,
+          self: `/api/v1/studies/${detail.record.id}`,
+        })),
+      cancel: (id) => {
+        const detail = studies.cancel(id);
+        return detail
+          ? { ok: true, record: { id: detail.record.id, status: detail.aggregate.status } }
+          : { ok: false, error: `study not found: ${id}` };
+      },
+      report: (id) => {
+        const detail = studies.get(id);
+        return detail
+          ? studyMarkdown(detail.record.name, detail.record.spec, detail.aggregate, detail.record.childIds)
+          : null;
       },
     },
     /**
@@ -1358,6 +1426,7 @@ async function main(): Promise<void> {
     store,
     topologyStore,
     experimentApi: createExperimentApi({ service: experiments, appVersion: APP_VERSION }),
+    studyApi: createStudyApi({ service: studies }),
     complianceReadings: () => {
       const span = complianceLedger.span();
       return span.count === 0 ? [] : complianceLedger.readings(span.fromMin, span.toMin);
@@ -1590,11 +1659,13 @@ process.on('unhandledRejection', (reason) => {
 
 process.on('SIGINT', () => {
   experiments.close();
+  studies.close();
   store.close();
   process.exit(0);
 });
 process.on('SIGTERM', () => {
   experiments.close();
+  studies.close();
   store.close();
   process.exit(0);
 });

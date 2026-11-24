@@ -30,6 +30,7 @@ import type { ProtocolAdapter } from './protocols/adapter';
 import type { ProtocolAuditLog } from './protocols/audit';
 import { createProtocolAudit } from './protocols/audit';
 import type { ExperimentApi } from './routes/experiments';
+import type { StudyApi } from './routes/studies';
 import type { ProtocolKind } from './protocols/tags';
 
 /**
@@ -74,6 +75,8 @@ export interface ApiHandlerDeps {
   protocolAudit?: () => ProtocolAuditLog | null;
   /** 版本化实验 API；未接线时该前缀仍会落到 404，不会误入静态资源 */
   experimentApi?: ExperimentApi;
+  /** 版本化研究 API（批量变体/Pareto）；同样先于旧只读门分派 */
+  studyApi?: StudyApi;
 }
 
 /** 路由模块需要 URL（含 searchParams），不是只有 query */
@@ -105,6 +108,10 @@ export function createApiHandler(deps: ApiHandlerDeps) {
     // 版本化实验 API：自带 viewer/operator 分级、POST/cancel、幂等键与
     // RFC 9457 错误，必须先于旧只读门分派；否则 401 会以旧 `{error}`
     // 形状提前返回，破坏版本化 API 的错误契约。
+    if (deps.studyApi?.matches(pathname)) {
+      void deps.studyApi.handle(req, res, pathname);
+      return;
+    }
     if (deps.experimentApi?.matches(pathname)) {
       deps.experimentApi.handle(req, res, pathname);
       return;

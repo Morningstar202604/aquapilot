@@ -55,6 +55,15 @@ export interface ExperimentRecord {
   error: string | null;
 }
 
+export interface ExperimentStudyRow {
+  id: string;
+  name: string;
+  status: ExperimentStatus;
+  summary: ExperimentSummary | null;
+  validation: ExperimentValidation | null;
+  error: string | null;
+}
+
 export interface ExperimentListRow {
   id: string;
   name: string;
@@ -235,6 +244,60 @@ export class ExperimentStore {
       return row ? this.rowToRecord(row) : null;
     }
     return this.memory.get(id) ?? null;
+  }
+
+  /** Study 聚合只读 summary/validation，不读 samples/topology，避免 24 个子实验把内存放大。 */
+  findStudyRows(ids: string[]): ExperimentStudyRow[] {
+    if (ids.length === 0) return [];
+    if (this.db) {
+      const placeholders = ids.map(() => '?').join(',');
+      const rows = this.db
+        .prepare(
+          `SELECT id,name,status,summary_json,validation_json,error FROM experiments WHERE id IN (${placeholders})`,
+        )
+        .all(...ids) as Row[];
+      const byId = new Map(rows.map((row) => [text(row.id), row]));
+      return ids.map((id) => {
+        const row = byId.get(id);
+        if (!row)
+          return {
+            id,
+            name: id,
+            status: 'failed' as const,
+            summary: null,
+            validation: null,
+            error: 'experiment missing',
+          };
+        return {
+          id: text(row.id),
+          name: text(row.name),
+          status: text(row.status) as ExperimentStatus,
+          summary: json<ExperimentSummary | null>(row.summary_json, null),
+          validation: json<ExperimentValidation | null>(row.validation_json, null),
+          error: typeof row.error === 'string' ? row.error : null,
+        };
+      });
+    }
+    return ids.map((id) => {
+      const record = this.memory.get(id);
+      if (!record)
+        return {
+          id,
+          name: id,
+          status: 'failed' as const,
+          summary: null,
+          validation: null,
+          error: 'experiment missing',
+        };
+      return {
+        id: record.id,
+        name: record.name,
+        status: record.status,
+        summary: record.summary,
+        validation: record.validation,
+        error: record.error,
+      };
+    });
   }
 
   findByIdempotencyKey(key: string): ExperimentRecord | null {

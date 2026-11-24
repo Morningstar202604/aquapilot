@@ -161,6 +161,61 @@ disturbed scenario can be model-certified while operating non-compliant.
 With `plantEnabled=true`, the current WP2 plant boundary returns
 `massBalance.closed=fail`; the API reports that failure rather than hiding it.
 
+## Simulation study API (v1)
+
+A study is a reproducible batch: one base experiment plus 1–12 variants and 1–2
+replicates, at most 24 children. Children share the topology snapshot and
+boundary; a variant may only override controls, scenario, model, `plantEnabled`
+or `bioPRemoval`. Creation expands everything into the **same** durable
+experiment queue; the study itself stores only its spec and child IDs.
+
+| Method | Path | Role | Semantics |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/studies` | operator | expand + enqueue; `202` + `Location`, replay `200` |
+| `GET` | `/api/v1/studies` | viewer | list summaries |
+| `GET` | `/api/v1/studies/{id}` | viewer | spec + child links + aggregate; ETag/304 |
+| `POST` | `/api/v1/studies/{id}/cancel` | operator | cancel every queued/running child |
+| `GET` | `/api/v1/studies/{id}/report.md` | viewer | variant table, ranking, Pareto, reproduction IDs |
+
+Example body:
+
+```json
+{
+  "name": "energy-scan",
+  "base": {
+    "durationMin": 43200,
+    "model": "asm2d",
+    "seed": 20261019,
+    "warmupDays": 5,
+    "policy": "fixed",
+    "validation": "full"
+  },
+  "variants": [
+    { "name": "do-1.5", "controls": { "doSetpoint": 1.5 } },
+    { "name": "do-3.0", "controls": { "doSetpoint": 3.0 } }
+  ],
+  "replicates": 2,
+  "objectives": [
+    { "metric": "totalCost", "direction": "min" },
+    { "metric": "effluent.nh", "direction": "min" }
+  ]
+}
+```
+
+Aggregate fields are computed from child `summary`/`validation`:
+
+- `variants[]`: per-variant metric mean/min/max/P95, objective values, rank;
+- `ranking[]`: sorted by the first objective; `best` is the top entry;
+- `pareto[]`: non-dominated variants over **all** objectives;
+- `validation.certified` / `operatingCompliant`: counts over children with
+  validation; `certifiedRate` and `operatingComplianceRate` are per-variant;
+- `status`: `queued|running|succeeded|partial|failed|cancelled`.
+
+Capacity is explicit: if the experiment queue cannot fit the whole batch,
+`POST /api/v1/studies` returns `429 STUDY_QUEUE_FULL` with `Retry-After: 30`
+instead of half-enqueueing. `Idempotency-Key` has the same replay/conflict
+semantics as experiments.
+
 ## Endpoints
 
 ### `GET /api/health`

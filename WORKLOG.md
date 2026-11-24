@@ -15,21 +15,33 @@
 - [x] B1 reproducible experiments / durable queue
 - [x] B2 OpenAPI 3.1 + RFC 9457 + idempotency
 - [x] B3 multi-dimensional validation + MCP experiment bus
-- [ ] B4 full regression, docs, five-platform delivery
+- [ ] B4 full regression, docs, five-platform delivery（WP2 三账仍红，不冒充全绿）
+- [x] B5 simulation studies / batch variants / Pareto / reproducible report
 
 ## Latest verifiable state
 
 - `cargo test`: 8 unit + ASM1 parity 2 + CSTR parity 1 + network parity 1, all pass
 - `cargo clippy --all-targets -- -D warnings`: clean
-- `npx vitest run`: 1635 passed / 1636; one WP2 30 d balance failure
+- `npx vitest run`: 1648 passed / 1649; one WP2 30 d COD/N/P balance failure (real failure, no `it.fails`)
+- `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
-- Latest release: `v0.10.1` (backend control plane); prior commits `7ad5a99`, `2604ddf`
+- Latest release: `v0.11.0` (simulation studies); prior `v0.10.1`, `7ad5a99`, `2604ddf`
 - GitHub CI: typecheck/lint/build pass；unit 仅 WP2 30 d 账本失败；browser smoke 因前置单测红灯跳过
 
 ## Rule
 
 Every turn must land a code/test/golden commit or explicitly record a blocker;
 do not repeat the same probe without a code change.
+
+## 2026-11-24 simulation studies (v0.11.0)
+
+- [x] `src/sim/study.ts`: base + 1–12 variants + 1–2 replicates (24 max), deterministic seeds, metrics/P95, ranking, Pareto, Markdown report
+- [x] `studySchema/studyStore/studyService/routes/studies.ts`: valibot boundaries, SQLite WAL + memory fallback, batch queue capacity (`429 STUDY_QUEUE_FULL`), idempotency, cancel, ETag
+- [x] OpenAPI 3.1 study paths/schemas; MCP `create_study/get_study/list_studies/cancel_study/get_study_report`; CLI `aquapilot study --file`
+- [x] 13 study tests (domain/service/API); production smoke: POST 202, poll succeeded 2/2, report.md 200
+- [x] Removed leftover `AP_DEBUG` console probes from ASM2d network path
+- [x] README/README.zh-CN, API, backend modernization, plant-boundary and changelog updated
+- [ ] WP2 30 d COD/N/P balance remains the only red test; no tolerance relaxation, no projection, no `it.fails`
 
 ## 2026-11-24 repository delivery
 

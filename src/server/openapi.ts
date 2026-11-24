@@ -186,6 +186,156 @@ const ExperimentDetail = {
   },
 } as const;
 
+const StudyControls = {
+  type: 'object',
+  additionalProperties: false,
+  properties: controlProperties,
+} as const;
+
+const StudyScenario = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['type'],
+  properties: {
+    type: { type: 'string', enum: SCENARIO_ORDER },
+    durationMin: { type: 'integer', minimum: 5, maximum: 4_320 },
+    magnitude: { type: 'number', minimum: 0, maximum: 3 },
+  },
+} as const;
+
+const StudyVariant = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    name: { type: 'string', maxLength: 40 },
+    seedOffset: { type: 'integer', minimum: 0, maximum: 2_147_483_647 },
+    controls: { $ref: '#/components/schemas/StudyControls' },
+    scenario: { oneOf: [{ type: 'null' }, { $ref: '#/components/schemas/StudyScenario' }] },
+    model: { type: 'string', enum: ['simple', 'asm1', 'asm2d'] },
+    plantEnabled: { type: 'boolean' },
+    bioPRemoval: { type: 'boolean' },
+  },
+} as const;
+
+const StudyObjective = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['metric', 'direction'],
+  properties: {
+    metric: {
+      type: 'string',
+      enum: [
+        'totalCost',
+        'energyKwh',
+        'specificEnergyKwhM3',
+        'meanMlss',
+        'finalSrtDays',
+        'finalDo',
+        'effluent.cod',
+        'effluent.bod',
+        'effluent.ss',
+        'effluent.nh',
+        'effluent.tn',
+        'effluent.tp',
+      ],
+    },
+    direction: { type: 'string', enum: ['min', 'max'] },
+  },
+} as const;
+
+const StudySpec = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['base', 'variants', 'objectives'],
+  properties: {
+    name: { type: 'string', maxLength: 80 },
+    base: { $ref: '#/components/schemas/ExperimentSpec' },
+    variants: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 12,
+      items: { $ref: '#/components/schemas/StudyVariant' },
+    },
+    replicates: { type: 'integer', minimum: 1, maximum: 2, default: 1 },
+    objectives: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 3,
+      items: { $ref: '#/components/schemas/StudyObjective' },
+    },
+  },
+} as const;
+
+const StudyVariantResult = {
+  type: 'object',
+  properties: {
+    index: { type: 'integer' },
+    name: { type: 'string' },
+    experiments: { type: 'integer' },
+    completed: { type: 'integer' },
+    succeeded: { type: 'integer' },
+    failed: { type: 'integer' },
+    cancelled: { type: 'integer' },
+    complianceRate: { type: 'number' },
+    certifiedRate: { type: 'number' },
+    operatingComplianceRate: { type: 'number' },
+    metrics: { type: 'object', additionalProperties: { type: 'object' } },
+    objectiveValues: { type: 'object', additionalProperties: { type: 'number' } },
+    rank: { oneOf: [{ type: 'null' }, { type: 'integer' }] },
+  },
+} as const;
+
+const StudyAggregate = {
+  type: 'object',
+  required: ['status', 'progressPercent', 'total', 'variants', 'ranking', 'pareto'],
+  properties: {
+    status: {
+      type: 'string',
+      enum: ['queued', 'running', 'succeeded', 'partial', 'failed', 'cancelled'],
+    },
+    progressPercent: { type: 'integer' },
+    total: { type: 'integer' },
+    completed: { type: 'integer' },
+    succeeded: { type: 'integer' },
+    failed: { type: 'integer' },
+    cancelled: { type: 'integer' },
+    variants: { type: 'array', items: { $ref: '#/components/schemas/StudyVariantResult' } },
+    ranking: { type: 'array', items: { type: 'object' } },
+    pareto: { type: 'array', items: { type: 'object' } },
+    best: { oneOf: [{ type: 'null' }, { type: 'object' }] },
+    validation: { type: 'object' },
+    objectives: { type: 'array', items: { $ref: '#/components/schemas/StudyObjective' } },
+  },
+} as const;
+
+const StudyDetail = {
+  type: 'object',
+  required: ['id', 'name', 'createdAt', 'spec', 'aggregate', 'children'],
+  properties: {
+    id: { type: 'string' },
+    name: { type: 'string' },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+    error: { oneOf: [{ type: 'null' }, { type: 'string' }] },
+    spec: { $ref: '#/components/schemas/StudySpec' },
+    aggregate: { $ref: '#/components/schemas/StudyAggregate' },
+    children: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          experimentId: { oneOf: [{ type: 'null' }, { type: 'string' }] },
+          name: { type: 'string' },
+          variantIndex: { type: 'integer' },
+          replicate: { type: 'integer' },
+          links: { oneOf: [{ type: 'null' }, { type: 'object' }] },
+        },
+      },
+    },
+    links: { type: 'object' },
+  },
+} as const;
+
 const Problem = {
   type: 'object',
   required: ['type', 'title', 'status', 'detail'],
@@ -363,6 +513,100 @@ export function openApiDocument(appVersion: string): Record<string, unknown> {
           },
         },
       },
+      '/api/v1/studies': {
+        get: {
+          operationId: 'listStudies',
+          summary: '列出仿真研究',
+          parameters: [
+            { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+          ],
+          responses: {
+            '200': {
+              description: '研究列表',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: { items: { type: 'array', items: { $ref: '#/components/schemas/StudyDetail' } } },
+                  },
+                },
+              },
+            },
+            '401': problem('缺少或无效令牌'),
+            '403': problem('令牌权限不足'),
+          },
+        },
+        post: {
+          operationId: 'createStudy',
+          summary: '创建仿真研究（批量变体 + 重复 + 目标）',
+          description:
+            '一个 Study 会展开为 N 个可复现子实验，共享拓扑快照与边界，只改变控制/场景/模型/边界开关。子实验进入同一持久队列；若队列空闲槽位不足，整批返回 429。',
+          parameters: [
+            {
+              name: 'Idempotency-Key',
+              in: 'header',
+              required: false,
+              schema: { type: 'string', maxLength: 128 },
+              description: '客户端生成的唯一键；同键不同 body 返回 409。',
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/StudySpec' } } },
+          },
+          responses: {
+            '202': {
+              description: '整批已入队',
+              headers: { Location: { schema: { type: 'string' } }, 'Retry-After': { schema: { type: 'integer' } } },
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/StudyDetail' } } },
+            },
+            '200': { description: '幂等重放，返回既有研究' },
+            '400': problem('JSON 结构或字段类型不合法'),
+            '409': problem('Idempotency-Key 已用于不同研究'),
+            '422': problem('研究参数不合法（变体/重复/目标/控制边界）'),
+            '429': problem('实验队列空闲槽位不足'),
+          },
+        },
+      },
+      '/api/v1/studies/{id}': {
+        get: {
+          operationId: 'getStudy',
+          summary: '读取研究详情与聚合结果',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': {
+              description: '研究详情',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/StudyDetail' } } },
+            },
+            '404': problem('研究不存在'),
+          },
+        },
+      },
+      '/api/v1/studies/{id}/cancel': {
+        post: {
+          operationId: 'cancelStudy',
+          summary: '取消整批研究',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            '202': {
+              description: '取消请求已接受',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/StudyDetail' } } },
+            },
+            '404': problem('研究不存在'),
+          },
+        },
+      },
+      '/api/v1/studies/{id}/report.md': {
+        get: {
+          operationId: 'downloadStudyReport',
+          summary: '下载研究级 Markdown 报告（含排序/Pareto/认证率/复现 ID）',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Markdown 报告', content: { 'text/markdown': { schema: { type: 'string' } } } },
+            '404': problem('研究不存在'),
+          },
+        },
+      },
       '/api/openapi.json': {
         get: {
           operationId: 'getOpenApi',
@@ -382,6 +626,14 @@ export function openApiDocument(appVersion: string): Record<string, unknown> {
         ComplianceRow,
         ExperimentValidation: Validation,
         ExperimentDetail,
+        StudyControls,
+        StudyScenario,
+        StudyVariant,
+        StudyObjective,
+        StudySpec,
+        StudyVariantResult,
+        StudyAggregate,
+        StudyDetail,
         Problem,
       },
     },

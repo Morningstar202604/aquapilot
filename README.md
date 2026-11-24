@@ -37,7 +37,14 @@ npm run cli -- experiment --minutes 1440 --validation full
 npm run cli -- experiment --days 7 --scenario storm --policy ai --plant --json
 ```
 
-REST control plane: `POST /api/v1/experiments` returns `202 + Location`; poll detail, download CSV/report, contract at `GET /api/openapi.json`.
+Batch studies:
+
+```bash
+# 2 variants × 2 replicates, ranked by cost and effluent ammonia, with a Pareto front
+npm run cli -- study --file study.json
+```
+
+REST control plane: `POST /api/v1/experiments` and `POST /api/v1/studies` return `202 + Location`; poll detail, download CSV/report, contract at `GET /api/openapi.json`.
 
 ## Quick start
 

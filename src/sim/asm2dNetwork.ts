@@ -146,16 +146,6 @@ function mixInflow(
   // 限制在 1–6，避免浓缩倍数被量纲错配放大。
   const feedParticulate = last?.asm2d ? PARTICULATE.reduce((s, c) => s + last.asm2d![c], 0) : 0;
   const rasRatio = feedParticulate > 1 ? Math.max(2.15, Math.min(6, (xRas * COD_PER_VSS) / feedParticulate)) : 2.15;
-
-  if (process.env.AP_DEBUG && !(globalThis as any).__rasDbg) {
-    (globalThis as any).__rasDbg = true;
-    console.log('RASDBG', {
-      xRas,
-      feedParticulate,
-      rasRatio,
-      incoming: incoming.map((e) => [e.to, e.recycleKind, edgeFlow.get(e.id)]),
-    });
-  }
   for (const edge of incoming) {
     const flow = edgeFlow.get(edge.id) ?? 0;
     if (flow <= 0) continue;
@@ -407,22 +397,6 @@ export function stepAsm2dNetwork(args: StepAsm2dNetworkArgs): Asm2dNetworkFluxes
     const qOverV = qIn / Math.max(1e-9, reactor.volume);
     const subDtDays = subDt / 24;
     const state: Asm2dState = { ...reactor.asm2d };
-    if (process.env.AP_DEBUG && reactor.id === 'aerobic1' && !(reactor as any).__dbg) {
-      (reactor as any).__dbg = true;
-      const dbgVec = reactionVector(state, rates, stoich, bioP, suppression, reactor.kind);
-      console.log('DBG aerobic1', {
-        qIn,
-        qOverV,
-        inXH: asmIn.X_H,
-        curXH: state.X_H,
-        inCOD: asmIn.S_A + asmIn.S_F,
-        reactXH: dbgVec.vector.X_H,
-        reactXPAO: dbgVec.vector.X_PAO,
-        reactPHA: dbgVec.vector.X_PHA,
-        reactPP: dbgVec.vector.X_PP,
-        o2: dbgVec.o2Hetero,
-      });
-    }
     let reactorClamped = false;
     // 本步反应质量（kg），子步累加后再折成 kg/h 通量
     let o2HeteroMassKg = 0;
