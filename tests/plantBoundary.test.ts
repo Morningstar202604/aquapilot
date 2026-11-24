@@ -368,9 +368,8 @@ function runSteady(opts: SteadyOpts = {}) {
 }
 
 describe('WP2 返工：ASM2d 网络级 30 d 稳态', () => {
-  // 已知差距（it.fails，期望失败，不删断言、不放宽阈值）：网络级 ASM2d 稳态未达 BSM2 量级，
-  // 第五轮修氨化氮系数后异养菌不再爆发、硝化恢复，但 MLSS 偏低、PAO/PP/PHA 未留存、
-  // 出水 TN/TP 仍超门限。见 docs/PLANT-BOUNDARY.md §3.6 / §5.1「未达成清单」。
+  // 已转真实通过：MLSS、出水门、厌氧释磷/好氧吸磷、PAO 储存循环均在网络级成立。
+  // 唯一未闭合项是三本账库存/氧化/气体口径，见 docs/PLANT-BOUNDARY.md §5.1。
   it('生物量留住、出水达标、释磷/吸磷与 PAO 储存池循环在网络级成立', () => {
     const s = runSteady({ plant: true });
     const mlss = (s.biomassKg * 1000) / s.volume.bio;
