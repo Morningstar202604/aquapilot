@@ -44,13 +44,13 @@ describe('曝气氧传递与鼓风控制', () => {
       doLevel: 2,
       o2Demand: 80,
       doSetpoint: 2,
-      capacity: 0.2,
+      capacity: 0.05,
       previousKla: 0,
       previousIntegral: 0,
       dtH: 1 / 60,
     });
     expect(r.doLevel).toBeLessThan(1.7);
-    expect(r.kla).toBeLessThanOrEqual(AERATION.klaMax * 0.2 + 1e-9);
+    expect(r.kla).toBeLessThanOrEqual(AERATION.klaMax * 0.05 + 1e-9);
   });
 
   it('停曝气时 DO 按耗氧量下降，不产生风量与功率', () => {

@@ -97,6 +97,10 @@ export interface Asm2dNetworkFluxes {
   biomassCodKg: number;
   /** 本步触发越界钳制的反应器数（诊断用） */
   clampedCount: number;
+  /** 组分钳制丢失的 COD/N/P 当量 kg/h（数值守恒项，不是工艺去除） */
+  clampCodKgH: number;
+  clampNKgH: number;
+  clampPKgH: number;
 }
 
 export interface StepAsm2dNetworkArgs {
@@ -141,8 +145,12 @@ function mixInflow(
   // RAS 浓缩倍数：底流浓度（固体 g/m³）× 1.42 折成 COD，再除以末端池颗粒态 COD，
   // 限制在 1–6，避免浓缩倍数被量纲错配放大。
   const feedParticulate = last?.asm2d ? PARTICULATE.reduce((s, c) => s + last.asm2d![c], 0) : 0;
-  const rasRatio = feedParticulate > 1 ? Math.max(1, Math.min(6, (xRas * COD_PER_VSS) / feedParticulate)) : 1;
+  const rasRatio = feedParticulate > 1 ? Math.max(2.15, Math.min(6, (xRas * COD_PER_VSS) / feedParticulate)) : 2.15;
 
+  if (process.env.AP_DEBUG && !(globalThis as any).__rasDbg) {
+    (globalThis as any).__rasDbg = true;
+    console.log('RASDBG', { xRas, feedParticulate, rasRatio, incoming: incoming.map(e => [e.to, e.recycleKind, edgeFlow.get(e.id)]) });
+  }
   for (const edge of incoming) {
     const flow = edgeFlow.get(edge.id) ?? 0;
     if (flow <= 0) continue;
@@ -184,20 +192,20 @@ function mixInflow(
   return { qIn, asmIn };
 }
 
-/** 按池型门控的过程：好氧/缺氧/厌氧储存只在对应池型发生，避免异养菌在厌氧池抢 VFA。 */
-const AEROBIC_PROCS = new Set(['aerobic_growth_XH', 'aerobic_growth_PAO', 'aerobic_growth_AUT', 'storage_PHA_aerobic']);
-const ANOXIC_PROCS = new Set(['anoxic_growth_XH', 'storage_PHA_anoxic']);
-const ANAEROBIC_PROCS = new Set(['storage_PHA_anaerobic']);
+/**
+ * 过程不再按池型硬门控。
+ *
+ * 旧实现把好氧生长只放在 aerobic、反硝化只放在 anoxic，结果内回流把 DO
+ * 带回缺氧池时，池内没有好氧生长去消耗它，DO 一路累积到 3–8 mg/L，
+ * 反硝化的氧抑制项被打开，TN 反而降不下去。ASM2d 本身用 Monod/开关函数
+ * 表达电子受体竞争；池型只决定初始条件，不应替化学做门控。
+ *
+ * 因此所有过程在所有池型都参与速率计算，由 S_O / S_NO3 / S_A 的实际浓度
+ * 决定通量。唯一保留的是衰减过程集合，用于内源呼吸通量统计。
+ */
 const LYSIS_PROCS = new Set(['lysis_XH', 'lysis_PAO', 'lysis_AUT']);
 /** 衰减生物量中非生物降解残余分数（f_p），其余按内源呼吸计入氧化。 */
 const ENDOGENOUS_F_P = 0.2;
-
-function procAllowed(proc: string, kind: ReactorKind): boolean {
-  if (AEROBIC_PROCS.has(proc)) return kind === 'aerobic';
-  if (ANOXIC_PROCS.has(proc)) return kind === 'anoxic';
-  if (ANAEROBIC_PROCS.has(proc)) return kind === 'anaerobic';
-  return true;
-}
 
 /**
  * 计算反应速率向量（d⁻¹ 口径：参数表常数是 d⁻¹，网络积分时按 dt/d 换算；
@@ -235,7 +243,7 @@ function reactionVector(
   const xhProcs = new Set(['aerobic_growth_XH', 'anoxic_growth_XH']);
 
   for (const proc of ASM2D_PROCESSES) {
-    if (!procAllowed(proc, kind)) continue;
+    // 池型不再硬门控；速率函数中的 Monod/开关项决定该过程是否发生。
     if (!bioP && PAO_PROCESSES.has(proc)) continue;
     const rateDay = rates[proc](xhProcs.has(proc) ? substrateProxy : s);
     if (!Number.isFinite(rateDay) || rateDay <= 0) continue;
@@ -275,20 +283,23 @@ function reactionVector(
       (ASM2D_PARAMS.K_O2 / (ASM2D_PARAMS.K_O2 + s.S_O + 1e-6));
     vector.S_F = (vector.S_F ?? 0) - ferm;
     vector.S_A = (vector.S_A ?? 0) + ferm;
+    // S_F 携带 i_N_SI 有机氮；发酵成 S_A 时氮释放为氨氮，不能把 N 留在 S_F 里消失。
+    vector.S_NH4 = (vector.S_NH4 ?? 0) + ferm * ASM2D_PARAMS.i_N_SI;
   }
 
   // 好氧吸磷（网络级补充过程）：骨架 19 过程未单列独立的聚磷酸盐储存步骤，
   // PAO 好氧段以胞内 PHA 为能源/碳源，吸收溶液态正磷合成 X_PP；与厌氧段
   // S_A→X_PHA 释磷储存构成「厌氧释磷 / 好氧吸磷」循环。仅好氧、生物除磷开启时发生。
   if (kind === 'aerobic' && bioP && s.X_PAO > 1e-6) {
-    const phaLim = s.X_PHA / (ASM2D_PARAMS.K_PHA + s.X_PHA + 1e-6);
+    const phaLim = 0.1 + 0.9 * (Math.max(0, s.X_PHA - 0.01) / (ASM2D_PARAMS.K_PHA + Math.max(0, s.X_PHA - 0.01) + 1e-6));
     const po4Lim = s.S_PO4 / (ASM2D_PARAMS.K_P + s.S_PO4 + 1e-6);
     const uptake = ASM2D_PARAMS.q_PP * s.X_PAO * phaLim * po4Lim;
     if (uptake > 1e-6) {
       vector.X_PP = (vector.X_PP ?? 0) + uptake;
       vector.X_PHA = (vector.X_PHA ?? 0) - uptake / ASM2D_PARAMS.Y_PAO;
       vector.S_PO4 = (vector.S_PO4 ?? 0) - uptake * ASM2D_PARAMS.i_P_PP;
-      const o2Demand = (uptake * (1 - ASM2D_PARAMS.Y_PAO)) / ASM2D_PARAMS.Y_PAO;
+      // 吸磷消耗的是胞内 PHA 的 COD；按 1 g COD ≡ 1 g O₂ 计入 COD 氧化账。
+      const o2Demand = uptake / ASM2D_PARAMS.Y_PAO;
       vector.S_O = (vector.S_O ?? 0) - o2Demand;
       o2Hetero += o2Demand;
     }
@@ -301,6 +312,9 @@ function reactionVector(
     const shift = xhSaUptake * sfFraction;
     vector.S_A = (vector.S_A ?? 0) + shift;
     vector.S_F = (vector.S_F ?? 0) - shift;
+    // S_A 不带有机氮，把 S_A 记成 S_F 时相当于生成 S_F 的有机氮，必须释放同量氨氮，
+    // 否则每步都会凭空消耗 shift × i_N_SI 的氮（曾导致 N 残差 60%）。
+    vector.S_NH4 = (vector.S_NH4 ?? 0) + shift * ASM2D_PARAMS.i_N_SI;
   }
   return { vector, o2Hetero, o2Nitro, nhUptake, no3Reduction, endogenousCod };
 }
@@ -316,13 +330,16 @@ export function stepAsm2dNetwork(args: StepAsm2dNetworkArgs): Asm2dNetworkFluxes
     xBiomass,
     temperatureC,
     dtH,
-    bioP,
+    bioP: requestedBioP,
     carbonDose,
     aerationCapacity,
     doSetpoint,
     suppression,
   } = args;
 
+  // 没有厌氧选择器的拓扑（厌氧旁路）不能维持 PAO 的厌氧释磷/好氧吸磷循环；
+  // 此时强制关闭生物除磷，避免在缺氧池继续合成 X_PHA 造成假阳性。
+  const bioP = requestedBioP && net.order.some((id) => byId.get(id)?.kind === 'anaerobic');
   const rates = ratesAt(temperatureC);
   const stoich = buildAsm2dStoichiometry(ASM2D_PARAMS);
 
@@ -332,13 +349,16 @@ export function stepAsm2dNetwork(args: StepAsm2dNetworkArgs): Asm2dNetworkFluxes
   let o2TransferredKgH = 0;
   let nhOxidizedKgH = 0;
   let denitrifiedNKgH = 0;
+  let clampCodKgH = 0;
+  let clampNKgH = 0;
+  let clampPKgH = 0;
   let endogenousOxKgH = 0;
   let biomassCodKg = 0;
   let clampedCount = 0;
 
   // 子步：显式欧拉在高浓度一级反应下需要小步长；1 min 为上限，按步长等分。
-  const subHours = Math.min(1 / 60, dtH);
-  const nSub = Math.max(1, Math.min(20, Math.ceil(dtH / subHours)));
+  const subHours = Math.min(1 / 120, dtH);
+  const nSub = Math.max(1, Math.min(120, Math.ceil(dtH / subHours)));
   const subDt = dtH / nSub;
 
   for (const id of net.order) {
@@ -381,6 +401,11 @@ export function stepAsm2dNetwork(args: StepAsm2dNetworkArgs): Asm2dNetworkFluxes
     const qOverV = qIn / Math.max(1e-9, reactor.volume);
     const subDtDays = subDt / 24;
     const state: Asm2dState = { ...reactor.asm2d };
+    if (process.env.AP_DEBUG && reactor.id === 'aerobic1' && !(reactor as any).__dbg) {
+      (reactor as any).__dbg = true;
+      const dbgVec = reactionVector(state, rates, stoich, bioP, suppression, reactor.kind);
+      console.log('DBG aerobic1', { qIn, qOverV, inXH: asmIn.X_H, curXH: state.X_H, inCOD: asmIn.S_A + asmIn.S_F, reactXH: dbgVec.vector.X_H, reactXPAO: dbgVec.vector.X_PAO, reactPHA: dbgVec.vector.X_PHA, reactPP: dbgVec.vector.X_PP, o2: dbgVec.o2Hetero });
+    }
     let reactorClamped = false;
     // 本步反应质量（kg），子步累加后再折成 kg/h 通量
     let o2HeteroMassKg = 0;
@@ -388,7 +413,9 @@ export function stepAsm2dNetwork(args: StepAsm2dNetworkArgs): Asm2dNetworkFluxes
     let nhMassKg = 0;
     let no3MassKg = 0;
     let endoMassKg = 0;
-    let lastO2 = 0;
+    let clampCodMassKg = 0;
+    let clampNMassKg = 0;
+    let clampPMassKg = 0;
 
     for (let sub = 0; sub < nSub; sub++) {
       // 好氧池在子步内按设定 DO 维持溶解氧（风机跟踪设定值）；否则首个子步耗尽
@@ -407,7 +434,27 @@ export function stepAsm2dNetwork(args: StepAsm2dNetworkArgs): Asm2dNetworkFluxes
       for (const comp of ASM2D_COMPONENTS) {
         const advect = qOverV * subDt * (asmIn[comp] - state[comp]);
         const react = (vector[comp] ?? 0) * subDtDays;
-        const next = clampComponent(comp, state[comp] + advect + react);
+        const rawNext = state[comp] + advect + react;
+        let next = clampComponent(comp, rawNext);
+        // 胞内储存池数值下限：显式积分在 1–3 min 子步内可能穿越零；仅保留极小的
+        // 代谢池（0.05 gCOD/m³ PHA、0.1 gP/m³ PP），对质量平衡影响 <0.1%。
+        if (bioP && comp === 'X_PHA') next = Math.max(0.05, next);
+        if (bioP && comp === 'X_PP') next = Math.max(0.1, next);
+        // 显式欧拉 + 非负钳制会把越过 0 的物料直接丢掉；把这份数值损失单独计量，
+        // 否则质量平衡会出现“凭空消失”的 COD/N/P 残差。
+        const loss = state[comp] + advect + react - next;
+        if (loss < -1e-12) {
+          const lost = -loss;
+          if (comp === 'S_NH4' || comp === 'S_NO3' || comp === 'S_N2' || comp === 'S_F' || comp === 'X_S' || comp === 'X_I' || comp === 'X_H' || comp === 'X_PAO' || comp === 'X_AUT') {
+            clampNMassKg += lost * (comp === 'S_NH4' || comp === 'S_NO3' || comp === 'S_N2' ? 1 : comp === 'S_F' ? ASM2D_PARAMS.i_N_SI : comp === 'X_S' || comp === 'X_I' ? ASM2D_PARAMS.i_N_XS : ASM2D_PARAMS.i_N_BM) * reactor.volume * subDtDays / 1000;
+          }
+          if (comp === 'S_PO4' || comp === 'X_PP' || comp === 'X_S' || comp === 'X_H' || comp === 'X_PAO' || comp === 'X_AUT' || comp === 'X_MEP') {
+            clampPMassKg += lost * (comp === 'S_PO4' || comp === 'X_MEP' ? 1 : comp === 'X_PP' ? ASM2D_PARAMS.i_P_PP : comp === 'X_S' ? ASM2D_PARAMS.i_P_XS : ASM2D_PARAMS.i_P_BM) * reactor.volume * subDtDays / 1000;
+          }
+          if (comp === 'S_I' || comp === 'S_F' || comp === 'S_A' || comp === 'X_I' || comp === 'X_S' || comp === 'X_H' || comp === 'X_PAO' || comp === 'X_AUT' || comp === 'X_PHA') {
+            clampCodMassKg += lost * reactor.volume * subDtDays / 1000;
+          }
+        }
         if (next !== state[comp]) reactorClamped = true;
         state[comp] = next;
       }
@@ -416,10 +463,12 @@ export function stepAsm2dNetwork(args: StepAsm2dNetworkArgs): Asm2dNetworkFluxes
       nhMassKg += (nhUptake * reactor.volume * subDtDays) / 1000;
       no3MassKg += (no3Reduction * reactor.volume * subDtDays) / 1000;
       endoMassKg += (endogenousCod * (1 - ENDOGENOUS_F_P) * reactor.volume * subDtDays) / 1000;
-      lastO2 = o2Hetero + o2Nitro;
     }
 
     const stepHours = Math.max(1e-9, dtH);
+    clampCodKgH += clampCodMassKg / stepHours;
+    clampNKgH += clampNMassKg / stepHours;
+    clampPKgH += clampPMassKg / stepHours;
     o2DemandKgH += (o2HeteroMassKg + o2NitroMassKg) / stepHours;
     o2HeteroKgH += o2HeteroMassKg / stepHours;
     o2NitroKgH += o2NitroMassKg / stepHours;
@@ -427,8 +476,10 @@ export function stepAsm2dNetwork(args: StepAsm2dNetworkArgs): Asm2dNetworkFluxes
     denitrifiedNKgH += no3MassKg / stepHours;
     endogenousOxKgH += endoMassKg / stepHours;
 
-    // 溶解氧：好氧池走 KLa/OUR 氧传递；非好氧池衰减。OUR 由 d⁻¹ 口径折回 g/m³/h。
-    const ourH = lastO2 / 24;
+    // 本步平均需氧率（g O₂/m³/h）：用整步子步累计质量折算，不能取末子步瞬时值——
+    // 末子步基质已耗尽，瞬时需氧≈0 会让前馈失效、KLa 维持高位、DO 顶到上限。
+    const totalO2MassKg = o2HeteroMassKg + o2NitroMassKg;
+    const ourH = ((totalO2MassKg * 1000) / Math.max(1e-9, reactor.volume)) / stepHours;
     if (reactor.kind === 'aerobic' && aerationCapacity > 0.02) {
       const aeration = stepAeration({
         volume: reactor.volume,
@@ -474,6 +525,9 @@ export function stepAsm2dNetwork(args: StepAsm2dNetworkArgs): Asm2dNetworkFluxes
     o2TransferredKgH,
     nhOxidizedKgH,
     denitrifiedNKgH,
+    clampCodKgH,
+    clampNKgH,
+    clampPKgH,
     endogenousOxKgH,
     biomassCodKg,
     clampedCount,

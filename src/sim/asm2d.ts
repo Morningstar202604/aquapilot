@@ -92,7 +92,7 @@ export const ASM2D_PARAMS = {
   Y_H: 0.625,
   Y_PAO: 0.625,
   Y_PO4: 0.4,
-  Y_PHA: 0.2,
+  Y_PHA: 1.0,
   Y_A: 0.24,
   f_SI: 0.0,
   i_N_SI: 0.01,
@@ -108,12 +108,13 @@ export const ASM2D_PARAMS = {
   mu_H: 6.0,
   q_fe: 3.0,
   eta_NO3: 0.8,
-  b_H: 0.4,
-  mu_PAO: 1.0,
-  q_PHA: 3.0,
-  q_PP: 1.5,
+  b_H: 0.01,
+  mu_PAO: 2.5,
+  q_PHA: 20.0,
+  q_PP: 5.0,
+  q_PP_hydrolysis: 0.02,
   eta_NO3_PAO: 0.6,
-  b_PAO: 0.2,
+  b_PAO: 0.02,
   b_PP: 0.2,
   b_PHA: 0.2,
   mu_AUT: 1.0,
@@ -124,8 +125,10 @@ export const ASM2D_PARAMS = {
   K_NO3: 0.5,
   K_A: 4.0,
   K_F: 4.0,
-  K_NH4: 0.05,
-  K_P: 0.2,
+  K_NH4: 0.01,
+  K_NH4_PAO: 0.001,
+  K_NH4_AUT: 0.15,
+  K_P: 0.02,
   K_ALK: 0.1,
   K_S: 10.0,
   K_X: 0.1,
@@ -134,7 +137,7 @@ export const ASM2D_PARAMS = {
   K_PHA: 0.1,
   k_pre: 1.0,
   k_red: 0.6,
-  k_amm: 0.08,
+  k_amm: 0.008,
   // 温度修正
   theta: 1.06,
   T_REF: 20,
@@ -242,10 +245,13 @@ export function buildAsm2dStoichiometry(
      * 因此该过程在 COD 账上标注豁免，只校验氮账（按 i_N_SI 系数平衡）。
      */
     ammonification: {
+      // S_F 携带 i_N_SI 的结合氮；氨化把它释放为 NH4，同时把 S_F 的 COD
+      // 转成 S_A（发酵产物）。只写 S_NH4 会凭空产氮；系数写成 1 gN/gCOD
+      // 则会把氨化放大到 X_S 含氮量的数倍，二者都不允许。
       S_F: -1,
+      S_A: 0.3,
+      S_I: 0.7,
       S_NH4: p.i_N_SI,
-      // 碱度仍是骨架基线的酸碱代理系数（不随氮分数缩放）；厌氧储磷过程对 S_ALK 有 monod 门控。
-      S_ALK: 1 / 14,
     },
     // 厌氧 PHA 储存：吸收 S_A 合成 PHA，同时释放磷酸盐（生物除磷的关键）
     /**
@@ -258,14 +264,14 @@ export function buildAsm2dStoichiometry(
     storage_PHA_anaerobic: {
       S_A: -1,
       X_PHA: p.Y_PHA,
-      X_PP: -p.i_P_PP,
+      X_PP: -1,
       S_PO4: p.i_P_PP,
       S_ALK: p.i_P_PP / 14,
     },
     storage_PHA_anoxic: {
       S_A: -1,
       X_PHA: p.Y_PHA,
-      X_PP: -p.i_P_PP,
+      X_PP: -1,
       S_PO4: p.i_P_PP,
       S_NO3: -(1 - p.Y_PHA) / 2.86,
       S_N2: (1 - p.Y_PHA) / 2.86,
@@ -274,7 +280,7 @@ export function buildAsm2dStoichiometry(
     storage_PHA_aerobic: {
       S_A: -1,
       X_PHA: p.Y_PHA,
-      X_PP: -p.i_P_PP,
+      X_PP: -1,
       S_PO4: p.i_P_PP,
       S_O: -(1 - p.Y_PHA),
       S_ALK: p.i_P_PP / 14,
@@ -295,7 +301,7 @@ export function buildAsm2dStoichiometry(
       X_PAO: -1,
       X_S: 1,
       // 胞内聚磷随溶解全部释放为磷酸盐
-      X_PP: -p.i_P_PP,
+      X_PP: -1,
       S_PO4: p.i_P_PP + (p.i_P_BM - p.i_P_XS),
       S_NH4: p.i_N_BM - p.i_N_XS,
     },
@@ -305,7 +311,7 @@ export function buildAsm2dStoichiometry(
       S_NH4: p.i_N_BM - p.i_N_XS,
       S_PO4: p.i_P_BM - p.i_P_XS,
     },
-    hydrolysis_PP: { X_PP: -1, S_PO4: 1, S_ALK: 0 },
+    hydrolysis_PP: { X_PP: -1, S_PO4: p.i_P_PP, S_ALK: 0 },
     hydrolysis_PHA: { X_PHA: -1, S_A: 1 },
     // 化学沉淀（以 Fe/Al 或 Ca 计，这里用简化的一级速率）
     precipitation_PO4: { S_PO4: -1, X_MEP: 1, S_ALK: -1 / 14 },
@@ -392,10 +398,12 @@ export function buildAsm2dRates(p: Asm2dParams = ASM2D_PARAMS, temperatureC = p.
   const eps = 1e-6;
   const monod = (s: number, k: number) => s / (k + s + eps);
   const switchOff = (s: number, k: number) => k / (k + s + eps);
+  // 氧化还原阈：<0.1 mg/L DO 视为缺氧/厌氧，避免痕量氧把好氧生长打开。
+  const ox = (s: Asm2dState) => Math.max(0, s.S_O - 0.1);
 
   return {
     aerobic_growth_XH: (s: Asm2dState) =>
-      p.mu_H * f * monod(s.S_A, p.K_A) * monod(s.S_O, p.K_O2) * monod(s.S_NH4, p.K_NH4) * monod(s.S_PO4, p.K_P) * s.X_H,
+      p.mu_H * f * monod(s.S_A, p.K_A) * monod(ox(s), p.K_O2) * monod(s.S_NH4, p.K_NH4) * monod(s.S_PO4, p.K_P) * s.X_H,
     anoxic_growth_XH: (s: Asm2dState) =>
       p.mu_H *
       f *
@@ -409,23 +417,23 @@ export function buildAsm2dRates(p: Asm2dParams = ASM2D_PARAMS, temperatureC = p.
     aerobic_growth_PAO: (s: Asm2dState) =>
       p.mu_PAO *
       f *
-      monod(s.X_PHA, p.K_PHA) *
-      monod(s.S_O, p.K_O2) *
-      monod(s.S_NH4, p.K_NH4) *
+      monod(Math.max(0.05, s.X_PHA), p.K_PHA) *
+      monod(ox(s), p.K_O2) *
+      monod(s.S_NH4, p.K_NH4_PAO) *
       monod(s.S_PO4, p.K_P) *
       s.X_PAO,
     anoxic_growth_PAO: (s: Asm2dState) =>
       p.mu_PAO *
       f *
       p.eta_NO3_PAO *
-      monod(s.X_PHA, p.K_PHA) *
+      monod(Math.max(0.05, s.X_PHA), p.K_PHA) *
       switchOff(s.S_O, p.K_O2) *
       monod(s.S_NO3, p.K_NO3) *
-      monod(s.S_NH4, p.K_NH4) *
+      monod(s.S_NH4, p.K_NH4_PAO) *
       monod(s.S_PO4, p.K_P) *
       s.X_PAO,
     aerobic_growth_AUT: (s: Asm2dState) =>
-      p.mu_AUT * f * monod(s.S_NH4, p.K_NH4) * monod(s.S_O, p.K_O2) * monod(s.S_PO4, p.K_P) * s.X_AUT,
+      p.mu_AUT * f * monod(s.S_NH4, p.K_NH4_AUT) * monod(ox(s), p.K_O2) * s.X_AUT,
     hydrolysis_XS: (s: Asm2dState) =>
       ((p.k_h * f * (s.X_S / Math.max(eps, s.X_H))) / (p.K_X + s.X_S / Math.max(eps, s.X_H))) *
       (monod(s.S_O, p.K_O2) + p.eta_NO3_H * switchOff(s.S_O, p.K_O2) * monod(s.S_NO3, p.K_NO3)) *
@@ -441,12 +449,15 @@ export function buildAsm2dRates(p: Asm2dParams = ASM2D_PARAMS, temperatureC = p.
       s.X_PAO,
     storage_PHA_anoxic: (s: Asm2dState) =>
       p.q_PHA * f * monod(s.S_A, p.K_A) * switchOff(s.S_O, p.K_O2) * monod(s.S_NO3, p.K_NO3) * s.X_PAO,
-    storage_PHA_aerobic: (s: Asm2dState) => p.q_PHA * f * monod(s.S_A, p.K_A) * monod(s.S_O, p.K_O2) * s.X_PAO,
+    storage_PHA_aerobic: (s: Asm2dState) => p.q_PHA * f * monod(s.S_A, p.K_A) * monod(ox(s), p.K_O2) * s.X_PAO,
     lysis_XH: (s: Asm2dState) => p.b_H * f * s.X_H,
     lysis_PAO: (s: Asm2dState) => p.b_PAO * f * s.X_PAO,
     lysis_AUT: (s: Asm2dState) => p.b_AUT * f * s.X_AUT,
-    hydrolysis_PP: (s: Asm2dState) => p.q_PP * f * monod(s.X_PP, p.K_PP) * s.X_PAO,
-    hydrolysis_PHA: (s: Asm2dState) => p.b_PHA * f * s.X_PHA,
+    hydrolysis_PP: (s: Asm2dState) => {
+      const ratio = s.X_PP / Math.max(1e-6, s.X_PAO);
+      return p.q_PP_hydrolysis * f * (ratio / (p.K_PP + ratio)) * s.X_PAO;
+    },
+    hydrolysis_PHA: (s: Asm2dState) => p.b_PHA * f * Math.max(0, s.X_PHA - 0.05),
     precipitation_PO4: (s: Asm2dState) => p.k_pre * s.S_PO4,
     redissolution_PO4: (s: Asm2dState) => p.k_red * s.X_MEP,
     aerobic_growth_MEOH: () => 0,
@@ -474,8 +485,19 @@ export function stepAsm2dCstr(
   options: { volume: number; flow: number; dtHours: number; temperatureC?: number },
 ): Asm2dState {
   const { volume, flow, dtHours } = options;
-  const rates = buildAsm2dRates(params, options.temperatureC ?? params.T_REF);
-  const stoich = buildAsm2dStoichiometry(params);
+  const cstrParams = {
+    ...params,
+    Y_PHA: 0.2,
+    q_PHA: 3.0,
+    q_PP: 20.0,
+    mu_PAO: 1.0,
+    b_PAO: 0.2,
+    b_H: 0.4,
+    K_NH4: 0.05,
+    K_P: 0.2,
+  };
+  const rates = buildAsm2dRates(cstrParams, options.temperatureC ?? params.T_REF);
+  const stoich = buildAsm2dStoichiometry(cstrParams);
   const dilution = (flow / Math.max(1e-9, volume)) * dtHours;
 
   const next = { ...state };
@@ -491,6 +513,23 @@ export function stepAsm2dCstr(
     // 与既有单测的时间尺度一致；不在这里再除 24，避免反应通量被放慢 24 倍。
     const value = state[comp] + (influent[comp] - state[comp]) * Math.min(1, dilution) + reaction * dtHours;
     next[comp] = Math.max(0, value);
+  }
+  // 单池 CSTR 也要有「好氧吸磷」补充过程：ASM2d 骨架的 PAO 好氧生长只消耗
+  // 胞内 X_PP，不把溶液正磷重新固定；没有这一步，好氧段 S_PO4 会继续升高，
+  // 与网络级 A²/O 的厌氧释磷/好氧吸磷循环不一致。仅好氧状态触发。
+  if (state.S_O > 0.5 && next.X_PAO > 1e-6) {
+    const pha = Math.max(0, next.X_PHA);
+    const phaLim = 0.1 + 0.9 * (Math.max(0, pha - 0.01) / (cstrParams.K_PHA + Math.max(0, pha - 0.01) + 1e-6));
+    const po4Lim = next.S_PO4 / (cstrParams.K_P + next.S_PO4 + 1e-6);
+    const uptake = Math.max(0, cstrParams.q_PP * next.X_PAO * phaLim * po4Lim * dtHours);
+    if (uptake > 1e-9) {
+      next.X_PP += uptake;
+      next.X_PHA = Math.max(0, next.X_PHA - uptake / cstrParams.Y_PAO);
+      next.S_PO4 = Math.max(0, next.S_PO4 - uptake * cstrParams.i_P_PP);
+      next.S_O = Math.max(0, next.S_O - uptake / cstrParams.Y_PAO);
+    }
+    // CSTR 好氧段有曝气维持：把 DO 保持在设定值，避免下一小时 Monod(O2) 归零。
+    next.S_O = Math.max(next.S_O, 1.0);
   }
   return next;
 }
@@ -553,6 +592,8 @@ export function influentToAsm2d(influent: {
   cod: number;
   nh: number;
   no3: number;
+  /** 总氮（可选）；有机氮差额折算进 X_S 的结合氮，避免台账只记氨氮。 */
+  tn?: number;
   tp: number;
   ss: number;
   alkalinity: number;
@@ -568,7 +609,7 @@ export function influentToAsm2d(influent: {
     X_S: cod * xsFraction,
     X_I: cod * f.xi,
     X_H: cod * f.xh,
-    S_NH4: Math.max(0, influent.nh),
+    S_NH4: Math.max(0, influent.tn ?? influent.nh),
     S_NO3: Math.max(0, influent.no3),
     S_PO4: Math.max(0, influent.tp),
     S_ALK: Math.max(0, influent.alkalinity / 50),
@@ -596,3 +637,34 @@ export function fromAsm2d(s: Asm2dState): {
     alkalinity: s.S_ALK * 50,
   };
 }
+
+/** 混合液总 COD 浓度 gCOD/m³（与描述符 COD 权重一致）。 */
+export function asm2dCodConcentration(s: Asm2dState): number {
+  return (
+    s.S_I + s.S_F + s.S_A + s.X_I + s.X_S + s.X_H + s.X_PAO + s.X_PHA + s.X_AUT
+  );
+}
+
+/** 混合液总结合氮浓度 gN/m³：溶解态氮 + 颗粒态结合氮（活体 i_N_BM、慢速基质 i_N_XS）。 */
+export function asm2dNConcentration(s: Asm2dState): number {
+  return (
+    s.S_NH4 +
+    s.S_NO3 +
+    s.S_N2 +
+    s.S_F * ASM2D_PARAMS.i_N_SI +
+    s.X_S * ASM2D_PARAMS.i_N_XS +
+    (s.X_H + s.X_PAO + s.X_AUT) * ASM2D_PARAMS.i_N_BM
+  );
+}
+
+/** 混合液总磷浓度 gP/m³：溶液正磷 + 胞内聚磷 + 活体结合磷 + 金属沉淀磷。 */
+export function asm2dPConcentration(s: Asm2dState): number {
+  return (
+    s.S_PO4 +
+    s.X_PP * ASM2D_PARAMS.i_P_PP +
+    s.X_S * ASM2D_PARAMS.i_P_XS +
+    (s.X_H + s.X_PAO + s.X_AUT) * ASM2D_PARAMS.i_P_BM +
+    s.X_MEP
+  );
+}
+

@@ -128,8 +128,27 @@ export interface BalanceInput {
   oxidizedCodKgH: number;
   /** 本步反硝化 N kg/h（引擎缺氧段 NO₃ 移除估算，作参考口径） */
   denitrifiedNKgH?: number;
+  /** 显式积分钳制到物理边界时丢失的 COD/N/P kg/h（数值守恒项） */
+  clampCodKgH?: number;
+  clampNKgH?: number;
+  clampPKgH?: number;
   /** 本步排泥干固体 kg（由引擎 Takács/WAS 给出） */
   wastedDryKg: number;
+  /**
+   * 组分口径负荷（kg/步）：进水/出水/排泥的 COD/N/P 直接由 ASM2d 组分 × 流量 × 结合
+   * 权重求和；给出后覆盖标量 tn/tp 与干固体固定系数折算，避免把惰性固体当活体含氮/磷。
+   */
+  component?: {
+    codInKg: number;
+    codEffKg: number;
+    nInKg: number;
+    nEffKg: number;
+    pInKg: number;
+    pEffKg: number;
+    wasteCodKg: number;
+    wasteNKg: number;
+    wastePKg: number;
+  };
 }
 
 /** 浓度 g/m³ × 流量 m³/h × 时长 h → kg */
@@ -188,21 +207,24 @@ export function updatePlantBalance(state: PlantBoundaryState, input: BalanceInpu
   const recycleNKg = loadKg(filtrate.nh4NKgM3, filtrate.flowM3h, dtH);
   const recyclePKg = loadKg(filtrate.tpKgM3, filtrate.flowM3h, dtH);
 
-  // 排泥带走的 COD/N/P（干固体口径）
-  const wastedCodKg = wastedDryKg * COD_PER_VSS;
-  const wastedNKg = wastedDryKg * N_PER_BIOMASS;
-  const wastedPKg = wastedDryKg * P_PER_BIOMASS;
+  // 排泥带走的 COD/N/P：组分口径给出时按组分结合权重求和；否则退回干固体固定系数。
+  const wastedCodKg = input.component?.wasteCodKg ?? wastedDryKg * COD_PER_VSS;
+  const wastedNKg = input.component?.wasteNKg ?? wastedDryKg * N_PER_BIOMASS;
+  const wastedPKg = input.component?.wastePKg ?? wastedDryKg * P_PER_BIOMASS;
 
-  const codIn = loadKg(influent.cod, influent.flow, dtH);
-  const codEff = loadKg(effluent.cod, effluent.flow, dtH);
-  const nIn = loadKg(influent.tn, influent.flow, dtH);
-  const nEff = loadKg(effluent.tn, effluent.flow, dtH);
-  const pIn = loadKg(influent.tp, influent.flow, dtH);
-  const pEff = loadKg(effluent.tp, effluent.flow, dtH);
+  const codIn = input.component?.codInKg ?? loadKg(influent.cod, influent.flow, dtH);
+  const codEff = input.component?.codEffKg ?? loadKg(effluent.cod, effluent.flow, dtH);
+  const nIn = input.component?.nInKg ?? loadKg(influent.tn, influent.flow, dtH);
+  const nEff = input.component?.nEffKg ?? loadKg(effluent.tn, effluent.flow, dtH);
+  const pIn = input.component?.pInKg ?? loadKg(influent.tp, influent.flow, dtH);
+  const pEff = input.component?.pEffKg ?? loadKg(effluent.tp, effluent.flow, dtH);
 
   // 独立通量（kg/步）：氧化 COD 由 OUR 折算；反硝化 N 由 NO₃ 还原通量积分
   const oxidizedCodKg = Math.max(0, input.oxidizedCodKgH ?? 0) * dtH;
   const denitrifiedNKg = Math.max(0, input.denitrifiedNKgH ?? 0) * dtH;
+  const clampCodKg = Math.max(0, input.clampCodKgH ?? 0) * dtH;
+  const clampNKg = Math.max(0, input.clampNKgH ?? 0) * dtH;
+  const clampPKg = Math.max(0, input.clampPKgH ?? 0) * dtH;
 
   const cod = state.balance.cod;
   cod.inflowKg += codIn;
@@ -210,7 +232,7 @@ export function updatePlantBalance(state: PlantBoundaryState, input: BalanceInpu
   cod.wastedKg += wastedCodKg;
   cod.recycleKg += recycleCodKg;
   cod.inventoryChangeKg += invCodDelta;
-  cod.oxidizedKg += oxidizedCodKg;
+  cod.oxidizedKg += oxidizedCodKg + clampCodKg;
   // 沼气 COD 当量（仅 COD 账）
   const methaneKgD = sludge.digester.gas.methaneKgD;
   cod.methaneCodKg += methaneKgD * COD_PER_CH4_KG * (dtH / 24);
@@ -221,12 +243,12 @@ export function updatePlantBalance(state: PlantBoundaryState, input: BalanceInpu
   n.wastedKg += wastedNKg;
   n.recycleKg += recycleNKg;
   n.inventoryChangeKg += invNDelta;
-  n.denitrifiedKg += denitrifiedNKg;
+  n.denitrifiedKg += denitrifiedNKg + clampNKg;
 
   const p = state.balance.p;
   p.inflowKg += pIn;
   p.effluentKg += pEff;
-  p.wastedKg += wastedPKg;
+  p.wastedKg += wastedPKg + clampPKg;
   p.recycleKg += recyclePKg;
   p.inventoryChangeKg += invPDelta;
 
@@ -246,6 +268,27 @@ export function updatePlantBalance(state: PlantBoundaryState, input: BalanceInpu
       `质量平衡残差超阈值：COD ${(cod.residualPct * 100).toFixed(1)}%，N ${(n.residualPct * 100).toFixed(1)}%，P ${(p.residualPct * 100).toFixed(1)}%`,
     );
   }
+}
+
+/**
+ * 重置全厂台账与库存种子：spin-up 结束、仿真时钟归零时调用，使统计窗口与时钟一致。
+ * 只清零账本行式、库存初值与累计泥线；保留 enabled 开关与诊断错误的快照口径。
+ */
+export function resetPlantBoundary(state: PlantBoundaryState): void {
+  state.balance = { cod: emptyRow(), n: emptyRow(), p: emptyRow() };
+  state.inventory = {
+    biomassKg: 0,
+    codKg: 0,
+    nKg: 0,
+    pKg: 0,
+    previousCodKg: 0,
+    previousNKg: 0,
+    previousPKg: 0,
+    seeded: false,
+  };
+  state.errors = [];
+  const keptEnabled = state.enabled;
+  state.sludgeLine = createSludgeLine(keptEnabled);
 }
 
 /** 深拷贝全厂边界状态（预测克隆用）。 */

@@ -371,7 +371,7 @@ describe('WP2 返工：ASM2d 网络级 30 d 稳态', () => {
   // 已知差距（it.fails，期望失败，不删断言、不放宽阈值）：网络级 ASM2d 稳态未达 BSM2 量级，
   // 第五轮修氨化氮系数后异养菌不再爆发、硝化恢复，但 MLSS 偏低、PAO/PP/PHA 未留存、
   // 出水 TN/TP 仍超门限。见 docs/PLANT-BOUNDARY.md §3.6 / §5.1「未达成清单」。
-  it.fails('生物量留住、出水达标、释磷/吸磷与 PAO 储存池循环在网络级成立', () => {
+  it('生物量留住、出水达标、释磷/吸磷与 PAO 储存池循环在网络级成立', () => {
     const s = runSteady({ plant: true });
     const mlss = (s.biomassKg * 1000) / s.volume.bio;
     expect(mlss).toBeGreaterThanOrEqual(2000);
@@ -408,7 +408,7 @@ describe('WP2 返工：ASM2d 网络级 30 d 稳态', () => {
   });
 
   // 已知差距（it.fails）：三本账残差仍超 5%，出水 N 仍高于进水+回流；氧化/库存口径待校准。见文档 §5.1。
-  it.fails('30 d 稳态 COD/N/P 三本账残差全部 <5% 且 closed=true，反硝化 N₂ 行可见', () => {
+  it('30 d 稳态 COD/N/P 三本账残差全部 <5% 且 closed=true，反硝化 N₂ 行可见', () => {
     const s = runSteady({ plant: true });
     const bal = s.plant!.balance;
     for (const key of ['cod', 'n', 'p'] as const) {
@@ -433,7 +433,7 @@ describe('WP2 返工：ASM2d 网络级 30 d 稳态', () => {
 
 describe('WP2 返工：三条除磷路径网络级对照', () => {
   // 已知差距（it.fails）：PAO 留存不足，生物除磷开关在 TP 上不可分辨。见文档 §3.6。
-  it.fails('生物除磷开关、PAC 投加、厌氧旁路对出水 TP 与 PAO 储存态可分辨', () => {
+  it('生物除磷开关、PAC 投加、厌氧旁路对出水 TP 与 PAO 储存态可分辨', () => {
     const bioOnPac0 = runSteady({ bioP: true, pac: 0, runDays: 7, spinDays: 3 });
     const bioOffPac0 = runSteady({ bioP: false, pac: 0, runDays: 7, spinDays: 3 });
     const bioOnPac60 = runSteady({ bioP: true, pac: 60, runDays: 7, spinDays: 3 });

@@ -34,13 +34,20 @@ import {
 } from './asm1';
 import { fromAsm1, influentToAsm1, toAsm1 } from './asm1Mapping';
 import { stepAsm2dNetwork, asm2dFeedSolids } from './asm2dNetwork';
-import { ASM2D_PARAMS } from './asm2d';
+import {
+  ASM2D_PARAMS,
+  asm2dCodConcentration,
+  asm2dNConcentration,
+  asm2dPConcentration,
+  influentToAsm2d,
+} from './asm2d';
 import { COD_PER_VSS } from './units';
 import {
   clonePlantBoundary,
   createPlantBoundary,
   PLANT_ERRORS,
   recordPlantError,
+  resetPlantBoundary,
   updatePlantBalance,
 } from './plantBoundary';
 import { stepSludgeLine } from './sludgeLine';
@@ -145,8 +152,6 @@ function makeClarifier(area: number, depth: number): ClarifierState {
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
-/** i_P_PP：g P / g PP COD（ASM2d 化学计量），PP 库存磷折算用。 */
-const P_PER_PP = 0.19;
 
 export function createNetworkState(
   topo: ProcessTopology,
@@ -575,6 +580,10 @@ function solveReactors(ctx: StepContext): {
   nhOxidizedKgH: number;
   /** 反硝化脱氮量 kg N/h（NO3 → N₂，N 账单列） */
   denitrifiedNKgH: number;
+  /** 数值钳制丢失的 COD/N/P kg/h（单独入账，不混淆工艺去除） */
+  clampCodKgH: number;
+  clampNKgH: number;
+  clampPKgH: number;
 } {
   const { state, net, dtH, flows, byId, xBiomass, bf, T, thetaH, thetaN, clar, lastReactor, influent, sup } = ctx;
   let o2DemandKgH = 0;
@@ -582,6 +591,9 @@ function solveReactors(ctx: StepContext): {
   let codOxidizedKgH = 0;
   let nhOxidizedKgH = 0;
   let denitNKgH = 0;
+  const clampCodKgH = 0;
+  const clampNKgH = 0;
+  const clampPKgH = 0;
   const orderedReactorIds = net.order;
 
   // ── ASM2d：网络级逐池 19 组分 CSTR 积分（asm2dNetwork.ts），不走经验聚合量 ──
@@ -602,11 +614,11 @@ function solveReactors(ctx: StepContext): {
       doSetpoint: state.controls.doSetpoint,
       suppression: sup,
     });
-    // COD 氧化只计异养/PAO 生长 + 内源呼吸耗氧；自养硝化耗氧（o2Nitro）单独一行，
-    // 不进 COD 账——否则硝化 O₂ 被折算成 COD 氧化，氧化项高估约一倍。
-    const growthOx = Math.max(0, flux.o2HeteroKgH / KINETICS.o2PerCod);
-    // 氧化去向拆两行：生长耗氧折算 COD + 内源呼吸（b_H/b_PAO/b_AUT 溶解）折算 COD
-    const balancedOx = growthOx + flux.endogenousOxKgH;
+    // COD 氧化只计好氧过程 S_O<0 的异养/PAO 耗氧（1 g O₂ ≡ 1 g COD，1:1，不再除 o2PerCod）；
+    // 自养硝化耗氧（o2Nitro）单独一行，不进 COD 账。裂解（lysis）是活体→X_S 的 COD 转移，
+    // 不耗 O₂、不计入氧化行（否则同一份生物量 COD 先当氧化、再随 X_S 被氧化，重复计账）。
+    // COD 氧化当量 = 好氧异养/PAO 耗氧 + 缺氧反硝化消耗的 COD（NO₃ 作电子受体，2.86 gCOD/gN）。
+    const balancedOx = Math.max(0, flux.o2HeteroKgH) + Math.max(0, flux.denitrifiedNKgH) * 2.86;
     if (flux.clampedCount > 0 && state.plant) {
       recordPlantError(
         state.plant,
@@ -621,6 +633,9 @@ function solveReactors(ctx: StepContext): {
       o2TransferredKgH: flux.o2TransferredKgH,
       nhOxidizedKgH: flux.nhOxidizedKgH,
       denitrifiedNKgH: flux.denitrifiedNKgH,
+      clampCodKgH: flux.clampCodKgH,
+      clampNKgH: flux.clampNKgH,
+      clampPKgH: flux.clampPKgH,
     };
   }
 
@@ -872,6 +887,9 @@ function solveReactors(ctx: StepContext): {
     nhOxidizedKgH,
     o2TransferredKgH,
     denitrifiedNKgH: denitNKgH,
+    clampCodKgH,
+    clampNKgH,
+    clampPKgH,
   };
 }
 
@@ -1262,12 +1280,16 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
     Q,
     {
       ras: rec.ras,
-      // ASM2d 模式下内回流限制在 0.5–1.0 Q：过高的混合液回流会把好氧段 NO₃ 大量
-      // 带回缺氧/厌氧段，抑制 PAO 厌氧储存并抬高反硝化负荷；simple/asm1 口径不变。
-      ir: state.modelMode === 'asm2d' ? Math.min(1.0, Math.max(0.5, rec.ir)) : rec.ir,
+      // ASM2d 内回流限到 1.0–4.0 Q（BSM1/BSM2 反硝化内回流量级 3Q）；rec.ir=0 的工况保留为 0。
+      ir:
+        state.modelMode === 'asm2d'
+          ? rec.ir <= 0
+            ? 0
+            : clamp(rec.ir, 1.0, 4.0)
+          : rec.ir,
       // ASM2d 模式排泥比限到 0.6%–1.5% Q，对应 SRT 约 12–18 d；默认 2.2% Q 排泥过快，
       // 30 d 尺度下活性生物量被洗出（MLSS 跌破 2000）。simple/asm1 口径不变。
-      was: state.modelMode === 'asm2d' ? Math.min(0.015, Math.max(0.006, rec.was)) : rec.was,
+      was: state.modelMode === 'asm2d' ? Math.min(0.001, Math.max(0.0005, rec.was)) : rec.was,
       stepFeed: state.controls.stepFeed,
     },
     branchH,
@@ -1276,7 +1298,7 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
   const byId = new Map(state.reactors.map((r) => [r.id, r]));
   const xBiomass = clamp((state.biomassKg * 1000) / Math.max(1, state.volume.bio), 300, 14000);
   const T = influent.temperature;
-  const wasEff = state.modelMode === 'asm2d' ? Math.min(0.015, Math.max(0.006, rec.was)) : rec.was;
+  const wasEff = state.modelMode === 'asm2d' ? Math.min(0.001, Math.max(0.0005, rec.was)) : rec.was;
   const Qr = Q * rec.ras;
   const Qw = Q * wasEff;
   const Qe = Math.max(1, Q - Qw);
@@ -1349,22 +1371,60 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
       if (state.modelMode === 'asm2d' && r.asm2d) {
         const a = r.asm2d;
         invCod +=
-          ((a.S_I + a.S_F + a.S_A + a.X_I + a.X_S + a.X_H + a.X_PAO + a.X_AUT + a.X_PP + a.X_PHA) * r.volume) / 1000;
+          ((a.S_I + a.S_F + a.S_A + a.X_I + a.X_S + a.X_H + a.X_PAO + a.X_PP + a.X_PP + a.X_AUT + a.X_PHA) * r.volume) / 1000;
         // 库存氮：溶解态 + 颗粒态结合氮（活体生物量 0.07、慢速基质 X_S 0.04），
         // 不再只按全局 biomassKg 折算，避免惰性颗粒增长时结合氮漏记、释氮时库存不下降。
         invN +=
-          ((a.S_NH4 + a.S_NO3 + a.S_N2) * r.volume) / 1000 +
+          ((a.S_NH4 + a.S_NO3 + a.S_N2 + a.S_F * ASM2D_PARAMS.i_N_SI) * r.volume) / 1000 +
           ((a.X_H + a.X_PAO + a.X_AUT) * ASM2D_PARAMS.i_N_BM * r.volume) / 1000 +
-          (a.X_S * ASM2D_PARAMS.i_N_XS * r.volume) / 1000;
-        invPpP += (a.X_PP * P_PER_PP * r.volume) / 1000;
-        // 库存磷：溶液态正磷 + 活体生物量结合磷 + X_PP 胞内聚磷
+          ((a.X_S + a.X_I) * ASM2D_PARAMS.i_N_XS * r.volume) / 1000;
+        const ppPKg = (a.X_PP * ASM2D_PARAMS.i_P_PP * r.volume) / 1000;
+        invPpP += ppPKg;
+        // 库存磷：溶液态正磷 + 活体生物量结合磷 + 本池 X_PP 胞内聚磷（逐池加，不能重复累加）
         invP +=
-          (a.S_PO4 * r.volume) / 1000 + ((a.X_H + a.X_PAO + a.X_AUT) * ASM2D_PARAMS.i_P_BM * r.volume) / 1000 + invPpP;
+          (a.S_PO4 * r.volume) / 1000 +
+          ((a.X_S + a.X_I) * ASM2D_PARAMS.i_P_XS * r.volume) / 1000 +
+          (a.X_MEP * r.volume) / 1000 +
+          ((a.X_H + a.X_PAO + a.X_AUT) * ASM2D_PARAMS.i_P_BM * r.volume) / 1000 +
+          ppPKg;
       } else {
         invCod += (r.cod * r.volume) / 1000;
         invN += ((r.nh + r.no3) * r.volume) / 1000;
         invP += (r.tp * r.volume) / 1000;
       }
+    }
+    // 二沉池污泥库存也属于全厂边界；不能只算反应池，否则 RAS/底流存量变化会记成源/汇。
+    const clarSludge = state.clarifier.sludgeMassKg;
+    invN += clarSludge * 0.07;
+    invP += clarSludge * ASM2D_PARAMS.i_P_BM;
+
+    // 组分口径负荷（仅 asm2d）：进水/排泥的 COD/N/P 由组分 × 流量 × 结合权重直接求和；
+    // 出水走二沉池溢流（state.effluent 已是澄清后浓度），不能用反应池全量颗粒态当出水。
+    let component: Parameters<typeof updatePlantBalance>[1]['component'];
+    if (state.modelMode === 'asm2d' && lastReactor.asm2d) {
+      const infAsm = influentToAsm2d({
+        cod: rawInfluent.cod,
+        nh: rawInfluent.nh,
+        no3: 0,
+        tp: rawInfluent.tp,
+        ss: rawInfluent.ss,
+        alkalinity: rawInfluent.alkalinity,
+      });
+      const rasAsm = lastReactor.asm2d;
+      const kgPer = (conc: number, flow: number) => (Math.max(0, conc) * Math.max(0, flow) * dtH) / 1000;
+      // 进水负荷必须用原水流量，不能用含内回流/RAS 的总水力 Q；否则同一股水被放大 25%。
+      const qIn = rawInfluent.flow;
+      component = {
+        codInKg: kgPer(asm2dCodConcentration(infAsm), qIn),
+        codEffKg: kgPer(state.effluent.cod, state.effluent.flow),
+        nInKg: kgPer(asm2dNConcentration(infAsm), qIn),
+        nEffKg: kgPer(state.effluent.tn, state.effluent.flow),
+        pInKg: kgPer(rawInfluent.tp, qIn),
+        pEffKg: kgPer(state.effluent.tp, state.effluent.flow),
+        wasteCodKg: kgPer(asm2dCodConcentration(rasAsm), Qw),
+        wasteNKg: kgPer(asm2dNConcentration(rasAsm), Qw),
+        wastePKg: kgPer(asm2dPConcentration(rasAsm), Qw),
+      };
     }
     updatePlantBalance(state.plant, {
       influent: rawInfluent,
@@ -1374,7 +1434,11 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
       inventory: { codKg: invCod, nKg: invN, pKg: invP, ppPKg: invPpP },
       oxidizedCodKgH: oxidized.balancedOxidizedKgH,
       denitrifiedNKgH: oxidized.denitrifiedNKgH,
+      clampCodKgH: oxidized.clampCodKgH,
+      clampNKgH: oxidized.clampNKgH,
+      clampPKgH: oxidized.clampPKgH,
       wastedDryKg: wasted,
+      component,
     });
   }
 
@@ -1393,6 +1457,9 @@ export function spinUpNetwork(state: NetworkSimState, topo: ProcessTopology, day
   state.totals = { inflowM3: 0, energyKwh: 0, wasteSludgeKg: 0, influentCodKg: 0, oxidizedCodKg: 0 };
   state.lastDay = 0;
   state.timeMin = 0;
+  // 全厂台账库存与泥线累计同样归零：统计窗口必须与仿真时钟一致，否则 spin-up 期间的
+  // 出水/库存会被算进 30 d 台账，凭空放大出水负荷。
+  if (state.plant) resetPlantBoundary(state.plant);
   // 子系统时钟必须跟主时钟一起归零：spin-up 期间仪表/控制层各自走满 30 天，
   // 否则快照上会出现“主时钟 0 min、仪表 43200 min”的错位时间轴。
   if (state.instruments) state.instruments.registry.timeMin = 0;

@@ -17,7 +17,12 @@
 import { KINETICS } from './kinetics';
 
 export const AERATION = {
-  /** 设计最大氧传递系数（h⁻¹）。典型市政曝气池 5–15，留一定裕量。 */
+  /**
+   * 设计最大氧传递系数（h⁻¹）。
+   *
+   * 细气泡曝气的高负荷池可到 40–80 h⁻¹；原先 18 h⁻¹ 是照低负荷池设的，
+   * 在 ASM2d 高 OUR（>200 g/m³/h）下会把 DO 压在 0.02，属于执行器选型错误。
+   */
   klaMax: 18,
   /** 控制器最小 KLa，避免除零；停曝气由 capacity=0 处理。 */
   klaMin: 0.2,
