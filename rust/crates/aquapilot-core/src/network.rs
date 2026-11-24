@@ -88,6 +88,12 @@ const BOUNDS: [f64; 19] = [
     15_000.0, 5_000.0, 5_000.0, 15_000.0, 20_000.0, 1_000.0, 5_000.0,
 ];
 
+fn substrate_proxy(s: &State) -> State {
+    let mut p = *s;
+    p.set(Component::SA, s.get(Component::SA) + s.get(Component::SF));
+    p
+}
+
 fn clamp(c: Component, v: f64) -> f64 {
     if !v.is_finite() {
         return 0.0;
@@ -102,10 +108,10 @@ fn reaction_vector(
     kind: ReactorKind,
     opts: StepOptions,
 ) -> ([f64; 19], Flux) {
-    let rates = rates(params, s, opts.temperature_c);
     let mut v = [0.0; 19];
     let mut flux = Flux::default();
     let mut xh_sa_uptake = 0.0;
+    let proxy = substrate_proxy(s);
 
     for proc in PROCESSES {
         if !opts.bio_p
@@ -122,7 +128,12 @@ fn reaction_vector(
         {
             continue;
         }
-        let rate_day = rates.r[proc as usize];
+        let src = if matches!(proc, Process::AerobicGrowthXH | Process::AnoxicGrowthXH) {
+            &proxy
+        } else {
+            s
+        };
+        let rate_day = rates(params, src, opts.temperature_c).r[proc as usize];
         if !rate_day.is_finite() || rate_day <= 0.0 {
             continue;
         }
