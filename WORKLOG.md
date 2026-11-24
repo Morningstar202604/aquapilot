@@ -5,7 +5,7 @@
 - [x] M0 Rust workspace, ASM2d CSTR + 5-pool network parity
 - [x] M1 ASM1 reaction surface (13 components, 8 processes, 20/15 C parity)
 - [x] M1 ASM1 CSTR / network integration (5-tank slice, TS↔Rust 1e-12)
-- [ ] M1 Takács settler parity
+- [x] M1 Takács settler parity (10-layer BSM1 slice, 64 f64 ulp)
 - [ ] M1 ADM1 parity
 - [ ] M1 hydraulics / transport parity
 - [ ] WP2 30 d COD/N/P balance closure
@@ -20,18 +20,26 @@
 
 ## Latest verifiable state
 
-- `cargo test`: 10 unit + ASM1 parity 2 + ASM1 network parity 2 + ASM2d CSTR 1 + ASM2d network 1, all pass
+- `cargo test`: 12 unit + ASM1 parity 2 + ASM1 network parity 2 + ASM2d CSTR 1 + ASM2d network 1 + Takács 1, all pass
 - `cargo clippy --all-targets -- -D warnings`: clean
 - `npx vitest run`: 1651 passed / 1652 (139 files); one WP2 30 d COD/N/P balance failure (real failure, no `it.fails`)
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
-- Latest release: `v0.11.1` (ASM1 CSTR/network parity + simulation studies); prior `v0.11.0`, `v0.10.1`
+- Latest release: `v0.11.2` (Takács settler parity + ASM1 CSTR/network + simulation studies); prior `v0.11.1`, `v0.11.0`
 - GitHub CI: typecheck/lint/build pass；unit 仅 WP2 30 d 账本失败；browser smoke 因前置单测红灯跳过
 
 ## Rule
 
 Every turn must land a code/test/golden commit or explicitly record a blocker;
 do not repeat the same probe without a code change.
+
+## 2026-11-25 Takács settler parity (v0.11.2)
+
+- [x] `rust/crates/aquapilot-core/src/takacs.rs`: 10-layer BSM1 Takács, double-exponential v_s, limiting-flux interfaces, feed layer, CFL sub-stepping, solids loading
+- [x] `rust/golden/takacs-24h.json`: 24 h profile from TS oracle; Rust matches within 64 f64 ulps (bottom layer ~14,349 g/m³)
+- [x] Rust unit tests for settling velocity / invalid geometry; one parity test; clippy `-D warnings` clean
+- [ ] ADM1 / hydraulics parity still not started
+- [ ] WP2 30 d COD/N/P balance remains the only red test
 
 ## 2026-11-25 ASM1 CSTR/network parity (v0.11.1)
 

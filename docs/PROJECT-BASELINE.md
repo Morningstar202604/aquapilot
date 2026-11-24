@@ -9,11 +9,11 @@
 
 | 层级 | 版本 | 提交 | 状态 |
 |---|---|---|---|
-| 本地 `main` | `0.11.1` | `HEAD` | ASM1 CSTR/network parity + 仿真研究 |
-| 五平台 `main` | `0.11.1` | `HEAD` | 已同步（2026-11-25；以 `git ls-remote` 复核） |
+| 本地 `main` | `0.11.2` | `HEAD` | ASM1 CSTR/network parity + 仿真研究 |
+| 五平台 `main` | `0.11.2` | `HEAD` | 已同步（2026-11-25；以 `git ls-remote` 复核） |
 | 当前工作树 | clean | — | 除 WP2 三账外，回归门禁通过 |
 
-一致性结论：五平台 `main` 与 `v0.11.1` 已用 `git ls-remote` 核对到同一提交；
+一致性结论：五平台 `main` 与 `v0.11.2` 已用 `git ls-remote` 核对到同一提交；
 若后续再改动，必须重新推送并复验，不能沿用本文的旧哈希。
 
 核对命令：
@@ -63,13 +63,14 @@ git log --oneline --decorate -3
 | `lint` / `prettier` / `build` | 通过 |
 | 研究领域/服务/API | 13 项测试通过 |
 | ASM1 CSTR/网络 | 3 项 TS 不变量 + Rust 1e-12 parity 通过 |
+| Takács 二沉池 | 24 h BSM1 profile，Rust↔TS 64 f64 ulp 内 |
 
 唯一真实失败：
 
 - `tests/plantBoundary.test.ts` — 30 d 稳态 COD/N/P 三本账残差全部 <5% 且 `closed=true`。
   当前 COD 13.2% / N 49.35% / P 116.67%；生物学、出水门与 PAO 循环已通过。
 
-这意味着 **WP2 仍未达到“工业级可审计闭合”**；`v0.11.1` 作为 ASM1 CSTR/网络 parity 与仿真研究控制面发布，
+这意味着 **WP2 仍未达到“工业级可审计闭合”**；`v0.11.2` 作为 Takács 二沉池 parity、ASM1 CSTR/网络与仿真研究控制面发布，
 不把“控制面可用”写成“模型三账已闭合”，也不放宽容差或投影归零。
 
 ### 1.4 已运行的工业接口

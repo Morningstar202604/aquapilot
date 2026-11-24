@@ -4,6 +4,23 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] — 2026-11-25
+
+### Added
+
+- **Takács 10-layer clarifier** (`rust/crates/aquapilot-core/src/takacs.rs`):
+  double-exponential settling velocity, limiting-flux interfaces, feed layer,
+  CFL sub-stepping and solids-loading output. 24 h BSM1 profile matches the
+  TypeScript oracle `src/sim/takacs.ts` within 64 f64 ulps (bottom layer
+  ~14,349 g/m³), with `rust/golden/takacs-24h.json` as the reference profile.
+- Rust unit tests for settling velocity and invalid-geometry no-op; one
+  TS-golden parity test.
+
+### Changed
+
+- Rust README and baseline now distinguish Takács parity from ADM1 /
+  hydraulics, which remain unported.
+
 ## [0.11.1] — 2026-11-25
 
 ### Added
