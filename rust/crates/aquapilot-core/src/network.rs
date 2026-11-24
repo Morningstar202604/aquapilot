@@ -293,11 +293,7 @@ impl Network {
                     (_, Some(from)) => self.reactors[from].state,
                     (_, None) => influent_to_asm2d(
                         influent.cod,
-                        if influent.tn > 0.0 {
-                            influent.tn
-                        } else {
-                            influent.nh
-                        },
+                        influent.nh,
                         0.0,
                         influent.tp,
                         influent.alkalinity,
@@ -333,12 +329,16 @@ impl Network {
             let mut clamp_n_mass = 0.0;
             let mut clamp_p_mass = 0.0;
 
-            for _ in 0..n_sub {
+            for sub in 0..n_sub {
                 if reactor.kind == ReactorKind::Aerobic && opts.aeration_capacity > 0.02 {
                     reactor.state.set(Component::SO, opts.do_setpoint);
                 }
                 let (vector, local_flux) =
                     reaction_vector(&reactor.state, params, &stoich, reactor.kind, opts);
+                if std::env::var("AP_DEBUG_REACT").is_ok() && reactor.id == "anaerobic" && sub == 0
+                {
+                    println!("RSRV {:?}", vector);
+                }
                 let mut next = State::zero();
                 for c in COMPONENTS {
                     let advect = q_over_v * sub_dt * (asm_in.get(c) - reactor.state.get(c));

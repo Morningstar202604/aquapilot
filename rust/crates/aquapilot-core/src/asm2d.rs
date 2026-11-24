@@ -619,7 +619,7 @@ pub fn influent_to_asm2d(cod_in: f64, nh: f64, no3: f64, tp: f64, alkalinity: f6
     s.set(Component::SA, cod * 0.085);
     s.set(Component::SF, cod * 0.085);
     s.set(Component::SI, cod * 0.09);
-    s.set(Component::XS, cod * 0.4);
+    s.set(Component::XS, cod * 0.65);
     s.set(Component::XI, cod * 0.07);
     s.set(Component::XH, cod * 0.02);
     s.set(Component::SNH4, nh.max(0.0));

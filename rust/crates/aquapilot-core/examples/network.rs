@@ -2,7 +2,6 @@ use aquapilot_core::asm2d::{Params, to_asm2d};
 use aquapilot_core::network::{
     Edge, Influent, Network, Reactor, ReactorKind, Recycle, StepOptions,
 };
-
 fn main() {
     let initial = to_asm2d(312.0, 31.5, 0.0, 4.6, 0.0, 8.0, 3000.0);
     let mk = |id: &str, kind, volume| Reactor {
@@ -77,6 +76,7 @@ fn main() {
         do_setpoint: 2.0,
         aeration_capacity: 0.976,
     };
+    println!("initial {:?}", net.reactors[0].state.v);
     for _ in 0..48 {
         net.step(inf, 4428.0, &Params::default(), opts);
     }
