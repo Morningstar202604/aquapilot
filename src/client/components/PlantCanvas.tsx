@@ -94,10 +94,27 @@ function FlowCanvas({
   const rf = useReactFlow<PlantFlowNode, PlantFlowEdge>();
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
+  /**
+   * 只有「撑满容器」的监视视图才默认全览。
+   *
+   * 编排视图（fit='flow'）的约定是 1:1 图纸 + 画布内平移：桌面 1600 宽下
+   * 全览会把 17 个单元压到 64%，11.5px 的标题落到屏幕上只剩 7px，用户
+   * 只能再放大；放大后端口和标题又挤在一起。默认 1:1 是 CAD 类编辑器的
+   * 通用做法，全景交给右下角的「全览」按钮。
+   */
   const [fitToWindow, setFitToWindow] = useState(() =>
-    typeof window === 'undefined' ? true : window.innerWidth > 900,
+    typeof window === 'undefined' ? fit === 'fill' : fit === 'fill' && window.innerWidth > 900,
   );
   const [snapTarget, setSnapTarget] = useState<{ unitId: string; portId: string } | null>(null);
+  /**
+   * 触屏设备没有右键/中键，编排画布必须允许单指在空白处平移；
+   * 桌面仍保留左键框选、右键/中键平移的分工。用 pointer:coarse 而不是
+   * 宽度判断，避免把窄窗口的鼠标用户误当成触屏。
+   */
+  const coarsePointer =
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(pointer: coarse)').matches
+      : false;
   /**
    * 大标题只属于「真正缩得很小」的全览，而不是 fitToWindow 这个模式标记。
    *
@@ -109,13 +126,44 @@ function FlowCanvas({
 
   const adaptiveLaneGap = compact ? 76 : 96;
   const layout = useMemo(
-    () => layoutTopology(topo, { compact, laneGap: adaptiveLaneGap, maxRowWidth: undefined }),
-    [topo, compact, adaptiveLaneGap],
+    () =>
+      layoutTopology(topo, {
+        compact,
+        laneGap: adaptiveLaneGap,
+        maxRowWidth: undefined,
+        // 编辑态节点间留 46px，端口圆点和箭头不再贴到相邻卡片标题上；监视视图保持紧凑
+        gapX: editable && !compact ? 46 : undefined,
+      }),
+    [topo, compact, adaptiveLaneGap, editable],
   );
   const visibleEdges = useMemo(
     () => layout.edges.filter((e) => showRecycle || !e.connection.recycle),
     [layout.edges, showRecycle],
   );
+
+  /**
+   * 全览状态要跟着容器尺寸重算。
+   *
+   * 旧实现只在挂载时 fitView 一次；从 1600 拖到 1024 后仍用 64% 的旧缩放，
+   * 右侧单元被画布边界裁掉，而按钮还高亮着「全览」——用户看到的是半张图。
+   * 这里只在 fitToWindow 为真时监听容器，手动 1:1/自由缩放后不会抢镜。
+   */
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || !fitToWindow || typeof ResizeObserver === 'undefined') return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        void rf.fitView({ padding: 0.12, duration: 0 });
+      });
+    });
+    observer.observe(wrap);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [fitToWindow, rf]);
 
   const suppressPortClick = useRef(false);
   const portDragRef = useRef<{
@@ -451,17 +499,25 @@ function FlowCanvas({
           }}
           onMove={(_, vp) => updateViewport(vp)}
           onInit={(instance) => {
-            if (fit === 'fill' || (typeof window !== 'undefined' && window.innerWidth > 900)) {
+            if (fit === 'fill' && fitToWindow) {
               void instance.fitView({ padding: 0.12, duration: 0 });
-            } else {
+            } else if (fit === 'fill') {
+              // 小屏监视视图按 CSS 约定保持 1:1 横滑，不能 fit 成看不清的微缩图
               void instance.setViewport({ x: 0, y: 0, zoom: 1 });
+            } else {
+              /**
+               * 编排视图从 1:1 左上角开始。图例已经是画布上方的独立工具带，
+               * 只需留 20px 网格呼吸位；旧版本这里只要窗口 >900 就 fitView，
+               * 和 fit='flow' 的「按图纸尺寸绘制」约定相反，正是默认 64% 小字的来源。
+               */
+              void instance.setViewport({ x: 16, y: 20, zoom: 1 });
             }
           }}
           nodesDraggable={editable}
           nodesConnectable={editable}
           elementsSelectable={editable}
-          panOnDrag={editable ? [1, 2] : true}
-          selectionOnDrag={editable}
+          panOnDrag={editable ? (coarsePointer ? true : [1, 2]) : true}
+          selectionOnDrag={editable && !coarsePointer}
           selectionMode={SelectionMode.Partial}
           multiSelectionKeyCode="Shift"
           deleteKeyCode={null}
@@ -493,6 +549,7 @@ function FlowCanvas({
             <MiniMap
               pannable
               zoomable
+              position="bottom-left"
               nodeColor="#0c9d7e"
               maskColor="rgba(12,30,26,0.12)"
               style={{ width: 148, height: 74 }}

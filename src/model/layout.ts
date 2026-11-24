@@ -88,9 +88,9 @@ function layerOf(unit: UnitSpec, topo: ProcessTopology): Layer {
 
 export function layoutTopology(
   topo: ProcessTopology,
-  opts: { compact?: boolean; maxRowWidth?: number; laneGap?: number; rowGap?: number } = {},
+  opts: { compact?: boolean; maxRowWidth?: number; laneGap?: number; rowGap?: number; gapX?: number } = {},
 ): Layout {
-  const gapX = opts.compact ? 30 : GAP_X;
+  const gapX = opts.gapX ?? (opts.compact ? 30 : GAP_X);
   const gapY = opts.laneGap ?? (opts.compact ? 88 : GAP_Y);
 
   const nodeMap = new Map<string, PlacedNode>();

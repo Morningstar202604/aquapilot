@@ -48,6 +48,20 @@ describe('PlantCanvas 渲染', () => {
     );
   });
 
+  it('编排视图默认 1:1，不进入会压小字号的强制全览', () => {
+    const { container } = render(
+      <PlantCanvas
+        snap={makeSnapshot()}
+        topo={PLANT_TOPOLOGY}
+        selected={null}
+        onSelect={vi.fn()}
+        fit="flow"
+        editable
+      />,
+    );
+    expect(container.querySelector('.canvas-viewport')?.getAttribute('data-fit')).toBe('false');
+  });
+
   it('监视模式不画端口圆点（只读视图保持干净）', () => {
     const { container } = render(
       <PlantCanvas snap={makeSnapshot()} topo={PLANT_TOPOLOGY} selected={null} onSelect={vi.fn()} />,

@@ -2818,12 +2818,27 @@ button {
 
 /* 编排视图下把图例移出画面，避免遮挡池体 */
 .canvas-legend-flow {
-  position: sticky;
-  top: 6px;
-  left: 8px;
-  float: left;
-  margin: 6px 8px;
-  z-index: 5;
+  /* 编排视图图例做成一整条画布上方的工具带，不再浮在节点标题上 */
+  position: static;
+  flex: none;
+  margin: 0;
+  padding: 5px 10px;
+  border: none;
+  border-bottom: 1px solid var(--line-soft);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.82);
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  z-index: auto;
+}
+
+.canvas-legend-flow .canvas-legend-title {
+  flex: none;
+}
+
+.canvas-legend-flow .canvas-legend-item {
+  flex: none;
 }
 
 /* 监视视图：宽流程图保持原始比例，横向滚动而不是压扁 */
@@ -5031,4 +5046,189 @@ button {
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.8);
   white-space: nowrap;
+}
+
+/**
+ * 泳道分隔线加强。
+ *
+ * 原先是 0.26 透明度的虚线，缩到 83% 后几乎看不见，用户会把三条泳道
+ * 读成一整片空白里的散点。改成中性色虚线 + 实底标签胶囊，既不像物流线，
+ * 也能在压缩视图里一眼分出「主处理 / 公用工程 / 污泥」。
+ */
+.canvas-lane {
+  border-top-color: rgba(16, 49, 43, 0.42);
+}
+
+.canvas-lane-label {
+  top: -11px;
+  padding: 0 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 19px;
+  letter-spacing: 0.08em;
+}
+
+/* 端口圆点保持 9px 视觉尺寸，但把可点击/可拖拽的热区扩到 21px，触屏也能接 */
+.flow-editor-canvas .port-dot::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+}
+
+.flow-editor-canvas .port-hint {
+  z-index: 2;
+  font-size: 9px;
+  box-shadow: 0 2px 8px rgba(16, 49, 43, 0.12);
+}
+
+/**
+ * 编排器在 1100px 以下改为单列：
+ *
+ * 旧布局在 1024 宽仍保留 176px 组件库 + 264px 属性栏，中间画布只剩
+ * 424px；同时 900px 以下把行高写死成 `auto 420px 460px`，加上工具栏
+ * 和图例后画布只剩一条缝。这里改成「组件库横条 → 固定高度画布 → 属性栏」，
+ * 由外层容器滚动，任何宽度下画布都有可用高度。
+ */
+@media (max-width: 1100px) {
+  .layout-editor {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .stage-editor {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
+
+  .stage-editor .editor {
+    height: auto;
+    min-height: 0;
+  }
+
+  .editor {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto clamp(600px, 68dvh, 780px) auto;
+  }
+
+  /* 组件库从 190px 纵向清单变成一条可横滑的工具栏，点击即添加 */
+  .editor-palette {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 7px 10px;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: thin;
+  }
+
+  .editor-palette > div {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+  }
+
+  .palette-group-title {
+    flex: none;
+    margin: 0 4px 0 8px;
+    white-space: nowrap;
+  }
+
+  .palette-group-title::after {
+    display: none;
+  }
+
+  .palette-item {
+    flex: none;
+    width: auto;
+    margin: 0;
+    padding: 5px 8px;
+    white-space: nowrap;
+  }
+
+  .palette-glyph {
+    width: 10px;
+    height: 10px;
+  }
+
+  .palette-name {
+    font-size: 10.5px;
+  }
+
+  /* 工具栏横滑而不是折成五行，主操作永远在同一行 */
+  .editor-toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+  }
+
+  .editor-toolbar > * {
+    flex: none;
+  }
+
+  .editor-toolbar .toolbar-spacer {
+    display: none;
+  }
+
+  .editor-side {
+    height: 300px;
+    min-height: 300px;
+    max-height: none;
+    border-top: 1px solid var(--line);
+    border-left: none;
+  }
+
+  .canvas-legend-flow {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  /*
+   * 监视视图的 30dvh 高度上限不能套到编排画布：390 宽时它只给 253px，
+   * 三条泳道只露出主处理线。编排画布由外层 grid 行高负责，这里解除上限。
+   */
+  .flow-editor-canvas .canvas-wrap {
+    max-height: none;
+  }
+}
+
+@media (max-width: 600px) {
+  /* 手机上说明条会让画布再少 35px，操作提示已经在按钮标题里 */
+  .editor-hint-bar {
+    display: none;
+  }
+
+  /* 触屏缩小地图但保留：它是1:1画布里唯一能看出“右边还有多少单元”的导航 */
+  .react-flow__minimap {
+    width: 96px !important;
+    height: 52px !important;
+  }
+
+  .editor-toolbar {
+    padding: 7px 10px;
+  }
+
+  .editor-toolbar .pill,
+  .editor-toolbar .btn-primary {
+    min-width: 0;
+    height: 27px;
+    padding: 0 8px;
+    font-size: 10.5px;
+  }
+
+  /* 窄屏横向工具栏会把「应用到仿真」推到屏幕外，主操作必须排在最前 */
+  .editor-toolbar .btn-primary {
+    order: -1;
+  }
 }

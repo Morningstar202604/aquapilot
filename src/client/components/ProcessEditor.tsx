@@ -313,7 +313,8 @@ export function ProcessEditor({
         />
 
         <div className="editor-hint-bar" role="note">
-          拖动移动 · Shift 点选多个 · 空白处拖框选 · 点出口→点入口连线 · 方向键微调 · Del 删除 · Ctrl+Z 撤销
+          拖动移动 · Shift 点选多个 · 空白处拖框选 · 点出口→点入口连线 · 右键/中键拖动画布 · 方向键微调 · Del 删除 ·
+          Ctrl+Z 撤销
         </div>
         {dirty && (
           <div className="draft-banner">

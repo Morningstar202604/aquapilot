@@ -43,6 +43,18 @@ describe('人工摆放', () => {
     expect(layout.lanes.length).toBeGreaterThan(0);
   });
 
+  it('编排态 gapX 拉开卡片间距，端口与标题不贴邻', () => {
+    const base = layoutTopology(PLANT_TOPOLOGY);
+    const wide = layoutTopology(PLANT_TOPOLOGY, { gapX: 46 });
+    const inletA = base.nodes.find((n) => n.unit.id === 'inlet')!;
+    const screenA = base.nodes.find((n) => n.unit.id === 'screening')!;
+    const inletB = wide.nodes.find((n) => n.unit.id === 'inlet')!;
+    const screenB = wide.nodes.find((n) => n.unit.id === 'screening')!;
+    expect(screenA.x - inletA.x).toBeGreaterThanOrEqual(inletA.w + 30);
+    expect(screenB.x - inletB.x).toBeGreaterThanOrEqual(inletB.w + 46);
+    expect(wide.width).toBeGreaterThan(base.width);
+  });
+
   it('非法坐标被忽略，不产生 NaN 布局', () => {
     const topo = {
       ...PLANT_TOPOLOGY,

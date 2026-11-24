@@ -115,7 +115,7 @@ export function EditorToolbar({
           自动排列
         </button>
       )}
-      <button className="pill" data-active={ready} onClick={onApply} disabled={!ready}>
+      <button className="pill btn-primary" data-active={ready} onClick={onApply} disabled={!ready}>
         应用到仿真
       </button>
       <button
