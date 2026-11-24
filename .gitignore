@@ -44,3 +44,6 @@ Thumbs.db
 .v2c/
 reports/
 .workbuddy/
+
+# Rust build output
+/rust/target/
