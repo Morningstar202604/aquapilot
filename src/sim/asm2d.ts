@@ -417,7 +417,7 @@ export function buildAsm2dRates(p: Asm2dParams = ASM2D_PARAMS, temperatureC = p.
     aerobic_growth_PAO: (s: Asm2dState) =>
       p.mu_PAO *
       f *
-      monod(Math.max(0.05, s.X_PHA), p.K_PHA) *
+      monod(Math.max(0, s.X_PHA), p.K_PHA) *
       monod(ox(s), p.K_O2) *
       monod(s.S_NH4, p.K_NH4_PAO) *
       monod(s.S_PO4, p.K_P) *
@@ -426,7 +426,7 @@ export function buildAsm2dRates(p: Asm2dParams = ASM2D_PARAMS, temperatureC = p.
       p.mu_PAO *
       f *
       p.eta_NO3_PAO *
-      monod(Math.max(0.05, s.X_PHA), p.K_PHA) *
+      monod(Math.max(0, s.X_PHA), p.K_PHA) *
       switchOff(s.S_O, p.K_O2) *
       monod(s.S_NO3, p.K_NO3) *
       monod(s.S_NH4, p.K_NH4_PAO) *
@@ -608,7 +608,7 @@ export function influentToAsm2d(influent: {
     X_S: cod * xsFraction,
     X_I: cod * f.xi,
     X_H: cod * f.xh,
-    S_NH4: Math.max(0, influent.tn ?? influent.nh),
+    S_NH4: Math.max(0, influent.nh),
     S_NO3: Math.max(0, influent.no3),
     S_PO4: Math.max(0, influent.tp),
     S_ALK: Math.max(0, influent.alkalinity / 50),
