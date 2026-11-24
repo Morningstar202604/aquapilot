@@ -4,6 +4,24 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.3] — 2026-11-25
+
+### Added
+
+- **ADM1 CSTR parity** (`rust/crates/aquapilot-core/src/adm1.rs`,
+  `tests/adm1_parity.rs`): 27-component anaerobic digester state, 11 rate
+  processes, gas transfer, pH and inhibition diagnostics, explicit-Euler
+  constant-volume CSTR. The 48 h / 0.5 h golden
+  (`rust/golden/adm1-48h.json`) matches all states, methane rate/fraction,
+  pH and inhibition flag within 64 f64 ulps.
+
+### Notes
+
+- The TypeScript oracle has a naming/process inconsistency: `hydCh/hydPr/
+  hydLi` are driven by `X_su/X_aa/X_fa`, and `X_ch/X_pr/X_li` are never
+  depleted. Rust mirrors this on purpose so parity is exact; correcting the
+  oracle is tracked as a separate model change, not hidden by test changes.
+
 ## [0.11.2] — 2026-11-25
 
 ### Added

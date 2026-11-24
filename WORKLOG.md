@@ -6,7 +6,8 @@
 - [x] M1 ASM1 reaction surface (13 components, 8 processes, 20/15 C parity)
 - [x] M1 ASM1 CSTR / network integration (5-tank slice, TS↔Rust 1e-12)
 - [x] M1 Takács settler parity (10-layer BSM1 slice, 64 f64 ulp)
-- [ ] M1 ADM1 parity
+- [x] M1 ADM1 standalone CSTR parity (48 h, 27 components)
+- [ ] M1 ADM1 sludge-line integration
 - [ ] M1 hydraulics / transport parity
 - [ ] WP2 30 d COD/N/P balance closure
 - [ ] M2 Rust server / AI / CLI
@@ -20,7 +21,7 @@
 
 ## Latest verifiable state
 
-- `cargo test`: 12 unit + ASM1 parity 2 + ASM1 network parity 2 + ASM2d CSTR 1 + ASM2d network 1 + Takács 1, all pass
+- `cargo test`: 13 unit + ADM1 parity 1 + ASM1 parity 2 + ASM1 network parity 2 + ASM2d CSTR 1 + ASM2d network 1 + Takács 1, all pass
 - `cargo clippy --all-targets -- -D warnings`: clean
 - `npx vitest run`: 1651 passed / 1652 (139 files); one WP2 30 d COD/N/P balance failure (real failure, no `it.fails`)
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
@@ -32,6 +33,14 @@
 
 Every turn must land a code/test/golden commit or explicitly record a blocker;
 do not repeat the same probe without a code change.
+
+## 2026-11-25 ADM1 standalone parity (v0.11.3)
+
+- [x] `rust/crates/aquapilot-core/src/adm1.rs`: 27-component ADM1, 11 rate processes, gas transfer, pH/inhibition diagnostics, explicit-Euler CSTR.
+- [x] `rust/golden/adm1-48h.json`: 96 steps × 0.5 h at 1000 m³ / 100 m³/d.
+- [x] `tests/adm1_parity.rs`: all 27 states within 64 f64 ulps; methane rate, methane fraction, pH and inhibition flag exact.
+- [x] Parity finding: TS oracle's `hydCh/hydPr/hydLi` rates read `X_su/X_aa/X_fa` and never deplete `X_ch/X_pr/X_li`; Rust mirrors this intentionally. Correcting the oracle is a separate model change.
+- [ ] ADM1 sludge-line integration and hydraulics parity still open.
 
 ## 2026-11-25 Takács settler parity (v0.11.2)
 

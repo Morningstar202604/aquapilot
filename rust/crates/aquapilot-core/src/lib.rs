@@ -4,6 +4,7 @@
 //! TypeScript reference implementation. The reference implementation remains the
 //! oracle until parity is proven.
 
+pub mod adm1;
 pub mod aeration;
 pub mod asm1;
 pub mod asm1_network;
