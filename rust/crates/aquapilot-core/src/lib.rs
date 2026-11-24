@@ -5,5 +5,6 @@
 //! oracle until parity is proven.
 
 pub mod aeration;
+pub mod asm1;
 pub mod asm2d;
 pub mod network;
