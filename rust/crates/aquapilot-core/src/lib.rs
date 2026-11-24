@@ -5,3 +5,4 @@
 //! oracle until parity is proven.
 
 pub mod asm2d;
+pub mod network;

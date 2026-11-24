@@ -10,7 +10,7 @@ module passes the golden-corpus parity gate.
 | ASM2d components / processes / stoichiometry / rates | complete | CSTR 24 h exact (`tests/asm2d_parity.rs`) |
 | ASM2d CSTR | complete | exact, `<=1e-12` |
 | ASM2d aggregate mapping | complete | unit-level mapping |
-| ASM2d network | not started | — |
+| ASM2d network | partial (advection + reaction + RAS + supplemental processes) | finite/nonnegative smoke; no TS parity yet |
 | ASM1 / Takács / ADM1 / hydraulics | not started | — |
 | server / AI / CLI | not started | — |
 
