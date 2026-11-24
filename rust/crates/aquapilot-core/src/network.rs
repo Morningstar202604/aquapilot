@@ -22,6 +22,9 @@ pub struct Reactor {
     pub kind: ReactorKind,
     pub volume: f64,
     pub state: State,
+    pub kla: f64,
+    pub integral: f64,
+    pub o2_demand: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +65,7 @@ pub struct Flux {
     pub o2_demand_kg_h: f64,
     pub o2_hetero_kg_h: f64,
     pub o2_nitro_kg_h: f64,
+    pub o2_transferred_kg_h: f64,
     pub nh_oxidized_kg_h: f64,
     pub denitrified_n_kg_h: f64,
     pub clamp_cod_kg_h: f64,
@@ -221,7 +225,7 @@ impl Network {
         let n_sub = ((opts.dt_h / sub_h).ceil() as usize).clamp(1, 120);
         let sub_dt = opts.dt_h / n_sub as f64;
         let sub_days = sub_dt / 24.0;
-        let mut total = Flux::default();
+        let mut total_mass = Flux::default();
 
         let last_state = self
             .reactors
@@ -278,12 +282,19 @@ impl Network {
                     (_, Some(from)) => self.reactors[from].state,
                     (_, None) => influent_to_asm2d(
                         influent.cod,
-                        influent.nh,
+                        if influent.tn > 0.0 {
+                            influent.tn
+                        } else {
+                            influent.nh
+                        },
                         0.0,
                         influent.tp,
                         influent.alkalinity,
                     ),
                 };
+                if src.get(Component::SO) > 10.0 {
+                    src.set(Component::SO, 10.0);
+                }
                 if q_in <= 0.0 {
                     asm_in = src;
                 } else {
@@ -295,9 +306,6 @@ impl Network {
                     }
                 }
                 q_in += flow;
-                if src.get(Component::SO) > 10.0 {
-                    src.set(Component::SO, 10.0);
-                }
             }
 
             if q_in <= 0.0 {
@@ -306,7 +314,14 @@ impl Network {
 
             let reactor = &mut self.reactors[idx];
             let q_over_v = q_in / reactor.volume.max(1e-9);
-            let mut clamped_count = 0;
+            let mut o2_hetero_mass = 0.0;
+            let mut o2_nitro_mass = 0.0;
+            let mut nh_mass = 0.0;
+            let mut no3_mass = 0.0;
+            let mut clamp_cod_mass = 0.0;
+            let mut clamp_n_mass = 0.0;
+            let mut clamp_p_mass = 0.0;
+
             for _ in 0..n_sub {
                 if reactor.kind == ReactorKind::Aerobic && opts.aeration_capacity > 0.02 {
                     reactor.state.set(Component::SO, opts.do_setpoint);
@@ -317,8 +332,14 @@ impl Network {
                 for c in COMPONENTS {
                     let advect = q_over_v * sub_dt * (asm_in.get(c) - reactor.state.get(c));
                     let react = vector[c as usize] * sub_days;
+                    let mut value = clamp(c, reactor.state.get(c) + advect + react);
+                    if opts.bio_p && c == Component::XPHA {
+                        value = value.max(0.05);
+                    }
+                    if opts.bio_p && c == Component::XPP {
+                        value = value.max(0.1);
+                    }
                     let raw = reactor.state.get(c) + advect + react;
-                    let value = clamp(c, raw);
                     let loss = raw - value;
                     if loss < -1e-12 {
                         let lost = -loss;
@@ -337,12 +358,10 @@ impl Network {
                             _ => 0.0,
                         };
                         if n_weight > 0.0 {
-                            total.clamp_n_kg_h +=
-                                lost * n_weight * reactor.volume * sub_days / 1000.0;
+                            clamp_n_mass += lost * n_weight * reactor.volume * sub_days / 1000.0;
                         }
                         if p_weight > 0.0 {
-                            total.clamp_p_kg_h +=
-                                lost * p_weight * reactor.volume * sub_days / 1000.0;
+                            clamp_p_mass += lost * p_weight * reactor.volume * sub_days / 1000.0;
                         }
                         if matches!(
                             c,
@@ -356,29 +375,71 @@ impl Network {
                                 | Component::XAUT
                                 | Component::XPHA
                         ) {
-                            total.clamp_cod_kg_h += lost * reactor.volume * sub_days / 1000.0;
+                            clamp_cod_mass += lost * reactor.volume * sub_days / 1000.0;
                         }
-                    }
-                    if value != reactor.state.get(c) {
-                        clamped_count += 1;
                     }
                     next.set(c, value);
                 }
                 reactor.state = next;
-                total.o2_hetero_kg_h +=
-                    local_flux.o2_hetero_kg_h * reactor.volume * sub_days / 1000.0;
-                total.o2_nitro_kg_h +=
-                    local_flux.o2_nitro_kg_h * reactor.volume * sub_days / 1000.0;
-                total.nh_oxidized_kg_h +=
-                    local_flux.nh_oxidized_kg_h * reactor.volume * sub_days / 1000.0;
-                total.denitrified_n_kg_h +=
-                    local_flux.denitrified_n_kg_h * reactor.volume * sub_days / 1000.0;
-                let _ = clamped_count;
+                o2_hetero_mass += local_flux.o2_hetero_kg_h * reactor.volume * sub_days / 1000.0;
+                o2_nitro_mass += local_flux.o2_nitro_kg_h * reactor.volume * sub_days / 1000.0;
+                nh_mass += local_flux.nh_oxidized_kg_h * reactor.volume * sub_days / 1000.0;
+                no3_mass += local_flux.denitrified_n_kg_h * reactor.volume * sub_days / 1000.0;
+            }
+
+            let our_h = ((o2_hetero_mass + o2_nitro_mass) * 1000.0)
+                / reactor.volume.max(1e-9)
+                / opts.dt_h.max(1e-9);
+            let aeration = if reactor.kind == ReactorKind::Aerobic && opts.aeration_capacity > 0.02
+            {
+                let a = crate::aeration::step_aeration(crate::aeration::AerationInput {
+                    volume: reactor.volume,
+                    temperature_c: opts.temperature_c,
+                    do_level: reactor.state.get(Component::SO),
+                    o2_demand: our_h.max(0.0),
+                    do_setpoint: opts.do_setpoint,
+                    capacity: opts.aeration_capacity,
+                    previous_kla: reactor.kla,
+                    previous_integral: reactor.integral,
+                    dt_h: opts.dt_h,
+                });
+                reactor.kla = a.kla;
+                reactor.integral = a.integral;
+                reactor.state.set(Component::SO, a.do_level);
+                Some(a)
+            } else {
+                reactor.kla = 0.0;
+                reactor.integral = 0.0;
+                reactor.state.set(
+                    Component::SO,
+                    (reactor.state.get(Component::SO) - opts.dt_h * 0.5).max(0.02),
+                );
+                None
+            };
+            reactor.o2_demand = our_h.max(0.0);
+
+            total_mass.o2_hetero_kg_h += o2_hetero_mass;
+            total_mass.o2_nitro_kg_h += o2_nitro_mass;
+            total_mass.nh_oxidized_kg_h += nh_mass;
+            total_mass.denitrified_n_kg_h += no3_mass;
+            total_mass.clamp_cod_kg_h += clamp_cod_mass;
+            total_mass.clamp_n_kg_h += clamp_n_mass;
+            total_mass.clamp_p_kg_h += clamp_p_mass;
+            if let Some(a) = aeration {
+                total_mass.o2_transferred_kg_h += a.o2_transferred_kg_h / opts.dt_h.max(1e-9);
             }
         }
 
-        total.o2_demand_kg_h = total.o2_hetero_kg_h + total.o2_nitro_kg_h;
-        total
+        let dt = opts.dt_h.max(1e-9);
+        total_mass.o2_hetero_kg_h /= dt;
+        total_mass.o2_nitro_kg_h /= dt;
+        total_mass.nh_oxidized_kg_h /= dt;
+        total_mass.denitrified_n_kg_h /= dt;
+        total_mass.clamp_cod_kg_h /= dt;
+        total_mass.clamp_n_kg_h /= dt;
+        total_mass.clamp_p_kg_h /= dt;
+        total_mass.o2_demand_kg_h = total_mass.o2_hetero_kg_h + total_mass.o2_nitro_kg_h;
+        total_mass
     }
 }
 
@@ -406,30 +467,45 @@ mod tests {
                 kind: ReactorKind::Anaerobic,
                 volume: 3000.0,
                 state: State::zero(),
+                kla: 0.0,
+                integral: 0.0,
+                o2_demand: 0.0,
             },
             Reactor {
                 id: "anoxic".into(),
                 kind: ReactorKind::Anoxic,
                 volume: 4500.0,
                 state: State::zero(),
+                kla: 0.0,
+                integral: 0.0,
+                o2_demand: 0.0,
             },
             Reactor {
                 id: "aerobic1".into(),
                 kind: ReactorKind::Aerobic,
                 volume: 5750.0,
                 state: State::zero(),
+                kla: 0.0,
+                integral: 0.0,
+                o2_demand: 0.0,
             },
             Reactor {
                 id: "aerobic2".into(),
                 kind: ReactorKind::Aerobic,
                 volume: 5750.0,
                 state: State::zero(),
+                kla: 0.0,
+                integral: 0.0,
+                o2_demand: 0.0,
             },
             Reactor {
                 id: "aerobic3".into(),
                 kind: ReactorKind::Aerobic,
                 volume: 5750.0,
                 state: State::zero(),
+                kla: 0.0,
+                integral: 0.0,
+                o2_demand: 0.0,
             },
         ];
         let edges = vec![
