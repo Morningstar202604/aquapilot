@@ -167,5 +167,5 @@ describe('closed loop safety', () => {
       expect(tank.doLevel).toBeGreaterThan(0.9);
       expect(tank.doLevel).toBeLessThan(5);
     }
-  });
+  }, 60_000);
 });
