@@ -4,7 +4,7 @@
 
 - [x] M0 Rust workspace, ASM2d CSTR + 5-pool network parity
 - [x] M1 ASM1 reaction surface (13 components, 8 processes, 20/15 C parity)
-- [ ] M1 ASM1 CSTR / network integration
+- [x] M1 ASM1 CSTR / network integration (5-tank slice, TS↔Rust 1e-12)
 - [ ] M1 Takács settler parity
 - [ ] M1 ADM1 parity
 - [ ] M1 hydraulics / transport parity
@@ -20,18 +20,26 @@
 
 ## Latest verifiable state
 
-- `cargo test`: 8 unit + ASM1 parity 2 + CSTR parity 1 + network parity 1, all pass
+- `cargo test`: 10 unit + ASM1 parity 2 + ASM1 network parity 2 + ASM2d CSTR 1 + ASM2d network 1, all pass
 - `cargo clippy --all-targets -- -D warnings`: clean
-- `npx vitest run`: 1648 passed / 1649; one WP2 30 d COD/N/P balance failure (real failure, no `it.fails`)
+- `npx vitest run`: 1651 passed / 1652 (139 files); one WP2 30 d COD/N/P balance failure (real failure, no `it.fails`)
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
-- Latest release: `v0.11.0` (simulation studies); prior `v0.10.1`, `7ad5a99`, `2604ddf`
+- Latest release: `v0.11.1` (ASM1 CSTR/network parity + simulation studies); prior `v0.11.0`, `v0.10.1`
 - GitHub CI: typecheck/lint/build pass；unit 仅 WP2 30 d 账本失败；browser smoke 因前置单测红灯跳过
 
 ## Rule
 
 Every turn must land a code/test/golden commit or explicitly record a blocker;
 do not repeat the same probe without a code change.
+
+## 2026-11-25 ASM1 CSTR/network parity (v0.11.1)
+
+- [x] `src/sim/asm1Network.ts`: constant-volume CSTR + ordered 5-tank network slice; RAS particulate thickening, internal recycle, deterministic sub-stepping
+- [x] `rust/crates/aquapilot-core/src/asm1_network.rs`: same slice in Rust; 24 h CSTR + 48 h network match TS at `<=1e-12`
+- [x] Golden fixtures `asm1-cstr-24h.json`, `asm1-network-48h.json`; 3 TS invariants + 2 Rust parity tests
+- [x] Removed the last Rust `AP_DEBUG_REACT` console probe; clippy `-D warnings` clean
+- [ ] WP2 30 d COD/N/P balance remains the only red test; no tolerance relaxation, projection or `it.fails`
 
 ## 2026-11-24 simulation studies (v0.11.0)
 

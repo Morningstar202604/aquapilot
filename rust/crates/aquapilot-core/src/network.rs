@@ -329,16 +329,12 @@ impl Network {
             let mut clamp_n_mass = 0.0;
             let mut clamp_p_mass = 0.0;
 
-            for sub in 0..n_sub {
+            for _sub in 0..n_sub {
                 if reactor.kind == ReactorKind::Aerobic && opts.aeration_capacity > 0.02 {
                     reactor.state.set(Component::SO, opts.do_setpoint);
                 }
                 let (vector, local_flux) =
                     reaction_vector(&reactor.state, params, &stoich, reactor.kind, opts);
-                if std::env::var("AP_DEBUG_REACT").is_ok() && reactor.id == "anaerobic" && sub == 0
-                {
-                    println!("RSRV {:?}", vector);
-                }
                 let mut next = State::zero();
                 for c in COMPONENTS {
                     let advect = q_over_v * sub_dt * (asm_in.get(c) - reactor.state.get(c));

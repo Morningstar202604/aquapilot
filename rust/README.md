@@ -13,17 +13,18 @@ module passes the golden-corpus parity gate.
 | ASM2d aggregate mapping | complete | unit-level mapping |
 | ASM2d network (5-pool slice) | complete for the 5-pool A²/O fixture | 48 h exact all 19 components / 5 reactors (`tests/network_parity.rs`) |
 | ASM1 components / stoich / rates / reaction | complete | 20 °C and 15 °C exact (`tests/asm1_parity.rs`) |
-| ASM1 CSTR / network integration | not started | — |
+| ASM1 CSTR / network integration | complete for the 5-tank slice | 24 h CSTR + 48 h network exact, `<=1e-12` (`tests/asm1_network_parity.rs`) |
 | Takács / ADM1 / hydraulics | not started | — |
 | server / AI / CLI | not started | — |
 
 The ASM1 fixture is `golden/asm1-reaction.json` (20 °C and 15 °C reaction vectors).
-The exact CSTR fixture is `golden/asm2d-cstr-24h.json`, generated from
-`src/sim/asm2d.ts`. The network fixture is `golden/asm2d-network-48h.json`,
-covering 5 reactors, 1546 m³/h feed, 454 m³/h RAS, 48 h at 0.5 h steps. It
-locks the fixed edge-flow table, the corrected external X_S fraction (0.65) and
-the NH4-only external N mapping (`S_NH4=nh`, not TN) that made the TypeScript
-and Rust paths diverge.
+The exact CSTR fixtures are `golden/asm2d-cstr-24h.json` and
+`golden/asm1-cstr-24h.json`; the ASM1 network fixture is
+`golden/asm1-network-48h.json`, generated from `src/sim/asm1Network.ts`.
+The ASM2d network fixture is `golden/asm2d-network-48h.json`, covering 5 reactors,
+1546 m³/h feed, 454 m³/h RAS, 48 h at 0.5 h steps. It locks the fixed edge-flow
+table, the corrected external X_S fraction (0.65) and the NH4-only external N
+mapping (`S_NH4=nh`, not TN) that made the TypeScript and Rust paths diverge.
 
 ## Commands
 

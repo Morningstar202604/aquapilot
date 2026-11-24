@@ -6,5 +6,6 @@
 
 pub mod aeration;
 pub mod asm1;
+pub mod asm1_network;
 pub mod asm2d;
 pub mod network;

@@ -4,6 +4,30 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] — 2026-11-25
+
+### Added
+
+- **ASM1 CSTR / network slice** (`src/sim/asm1Network.ts`,
+  `rust/crates/aquapilot-core/src/asm1_network.rs`): constant-volume CSTR,
+  ordered multi-reactor advection, ASM1 reaction and optional RAS thickening.
+  TypeScript and Rust now match to `<= 1e-12` on 24 h CSTR and 48 h five-tank
+  fixtures (`rust/golden/asm1-cstr-24h.json`, `asm1-network-48h.json`).
+- Three TypeScript invariants (finite/non-negative, RAS head thickening,
+  deterministic replay) and two Rust golden parity tests.
+
+### Changed
+
+- Removed the remaining Rust `AP_DEBUG_REACT` environment probe from the
+  ASM2d network path; the production engine no longer prints state vectors.
+- Rust README and project baseline updated for the new M1 slice.
+
+### Known issue
+
+- WP2 30 d plant-boundary COD/N/P closure remains the single red test:
+  COD 13.2% / N 49.35% / P 116.67%. No tolerance relaxation, projection,
+  `it.fails` or parameter masking was used.
+
 ## [0.11.0] — 2026-11-24
 
 ### Added
