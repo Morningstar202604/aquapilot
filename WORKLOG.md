@@ -19,7 +19,8 @@
 - `cargo clippy --all-targets -- -D warnings`: clean
 - `npx vitest run`: 1618 passed / 1619; one WP2 30 d balance failure
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
-- Latest commits: `26e8ccc`, `22b405c`, `b988495`, `f811c36`
+- Latest commits: `7ad5a99`, `2604ddf`
+- GitHub CI: typecheck/lint/build pass；unit 仅 WP2 30 d 账本失败；browser smoke 因前置单测红灯跳过
 
 ## Rule
 
@@ -44,3 +45,4 @@ do not repeat the same probe without a code change.
 - [x] 编辑态节点间距 46px、泳道分隔线加深、图例移到画布上方工具带、端口热区扩到 21px
 - [x] 触屏单指平移画布，1:1 下可拖到右侧与下方单元
 - [x] 前端相关 87 项单测通过；全量 1618/1619，唯一红灯仍是 WP2 全厂 COD/N/P 边界
+- [x] 本地 `npm run e2e` 通过；五平台 main 已同步到 `2604ddf`
