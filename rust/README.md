@@ -12,9 +12,12 @@ module passes the golden-corpus parity gate.
 | aeration / DO PI | complete | unit tests; network parity pending |
 | ASM2d aggregate mapping | complete | unit-level mapping |
 | ASM2d network (5-pool slice) | complete for the 5-pool A²/O fixture | 48 h exact all 19 components / 5 reactors (`tests/network_parity.rs`) |
-| ASM1 / Takács / ADM1 / hydraulics | not started | — |
+| ASM1 components / stoich / rates / reaction | complete | 20 °C and 15 °C exact (`tests/asm1_parity.rs`) |
+| ASM1 CSTR / network integration | not started | — |
+| Takács / ADM1 / hydraulics | not started | — |
 | server / AI / CLI | not started | — |
 
+The ASM1 fixture is `golden/asm1-reaction.json` (20 °C and 15 °C reaction vectors).
 The exact CSTR fixture is `golden/asm2d-cstr-24h.json`, generated from
 `src/sim/asm2d.ts`. The network fixture is `golden/asm2d-network-48h.json`,
 covering 5 reactors, 1546 m³/h feed, 454 m³/h RAS, 48 h at 0.5 h steps. It
