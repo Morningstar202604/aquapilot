@@ -4,6 +4,28 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.10] — 2026-11-25
+
+### Added
+
+- **Rust ADM1 sludge-line integration.** Ported the full process chain behind
+  the TypeScript `sludgeLine.ts` oracle: gravity thickener split, ADM1 CSTR
+  digester sized by SRT, VS-based gas accounting, dewatering cake/filtrate
+  split, cumulative loads and flow-weighted filtrate recycle into the plant
+  influent. `apply_filtrate_to_influent` is the explicit coupling point; it
+  refuses to apply a load without a positive plant flow.
+- Golden fixture `rust/golden/sludge-line-48h.json` (80 m3/h WAS, 8000 g/m3
+  SS, 48 h at 0.5 h steps) and `tests/sludge_line_parity.rs`; all 27 ADM1
+  components, gas, dewatering and cumulative fields match the TS oracle within
+  1e-12 relative tolerance. No tolerance was loosened.
+- `examples/sludge.rs` and rust README status row.
+
+### Verification
+
+- `cargo test`: 26 tests pass (17 unit + 9 parity/integration).
+- `cargo fmt --check` / `cargo clippy --all-targets -- -D warnings`: pass.
+- TypeScript suite unchanged at 1,734/1,734; `npm run ci` ALL GREEN.
+
 ## [0.11.9] — 2026-11-25
 
 ### Fixed

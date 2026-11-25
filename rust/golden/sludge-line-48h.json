@@ -1,0 +1,85 @@
+{
+  "source": "src/sim/sludgeLine.ts",
+  "generated": "2026-11-25",
+  "feed": {
+    "wasFlowM3h": 80,
+    "feedSsKgM3": 8000,
+    "feedCodKgM3": 12000,
+    "feedNKgM3": 600,
+    "feedPKgM3": 120,
+    "ambientTempC": 18
+  },
+  "dtHours": 0.5,
+  "steps": 96,
+  "final": {
+    "thickener": {
+      "feedFlowM3h": 80,
+      "feedSsKgM3": 8000,
+      "underflowFlowM3h": 44,
+      "underflowSsKgM3": 20000,
+      "supernatantFlowM3h": 36
+    },
+    "digester": {
+      "volumeM3": 968,
+      "srtDays": 22,
+      "adm1": {
+        "S_su": 21.8261395770865,
+        "S_aa": 21.737395212201317,
+        "S_fa": 21.55990648243096,
+        "S_va": 0,
+        "S_bu": 0,
+        "S_pro": 0,
+        "S_ac": 0.1774887297703475,
+        "S_h2": 0,
+        "S_ch4": 0,
+        "S_IC": 5.143672167755502,
+        "S_IN": 532.4661893110434,
+        "S_I": 717.8476952806295,
+        "X_c": 5955.689050199433,
+        "X_ch": 2.118422115284718,
+        "X_pr": 2.118422115284718,
+        "X_li": 2.118422115284718,
+        "X_su": 0,
+        "X_aa": 0,
+        "X_fa": 0,
+        "X_c4": 0,
+        "X_pro": 0,
+        "X_ac": 0,
+        "X_h2": 0,
+        "X_I": 0,
+        "G_h2": 0,
+        "G_ch4": 0,
+        "G_co2": 3.730764320761874
+      },
+      "gas": {
+        "methaneM3d": 1219.68,
+        "co2M3d": 656.7507692307693,
+        "h2M3d": 0,
+        "totalM3d": 1876.4307692307693,
+        "ch4Fraction": 0.65,
+        "methaneKgD": 874.51056,
+        "vssDestroyedKgD": 3484.8,
+        "heatingKw": 868.5111111111111,
+        "mixingKw": 48.400000000000006
+      }
+    },
+    "dewatering": {
+      "cakeDrySolidsKgD": 4963.2,
+      "cakeWetKgD": 24815.999999999993,
+      "filtrate": {
+        "flowM3h": 78.966,
+        "nh4NKgM3": 505.9392650001267,
+        "codKgM3": 668.6422004406961,
+        "tpKgM3": 33.432110022034806
+      }
+    },
+    "cumulative": {
+      "rawSludgeKgD": 16896,
+      "cakeKgD": 49631.99999999999,
+      "methaneM3": 2439.3600000000006,
+      "filtrateNh4Kg": 1917.696000000005,
+      "filtrateCodKg": 2534.4000000000046,
+      "filtrateTpKg": 126.71999999999969
+    }
+  }
+}

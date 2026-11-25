@@ -7,7 +7,7 @@
 - [x] M1 ASM1 CSTR / network integration (5-tank slice, TS↔Rust 1e-12)
 - [x] M1 Takács settler parity (10-layer BSM1 slice, 64 f64 ulp)
 - [x] M1 ADM1 standalone CSTR parity (48 h, 27 components)
-- [ ] M1 ADM1 sludge-line integration
+- [x] M1 ADM1 sludge-line integration (process chain + filtrate recycle, 48 h golden)
 - [ ] M1 hydraulics / transport parity
 - [x] WP2 30 d COD/N/P balance closure
 - [ ] M2 Rust server / AI / CLI
@@ -21,18 +21,25 @@
 
 ## Latest verifiable state
 
-- `cargo test`: 13 unit + ADM1 parity 1 + ASM1 parity 2 + ASM1 network parity 2 + ASM2d CSTR 1 + ASM2d network 1 + Takács 1, all pass
+- `cargo test`: 17 unit + ADM1 parity 1 + sludge-line parity 1 + ASM1 parity 2 + ASM1 network parity 2 + ASM2d CSTR 1 + ASM2d network 1 + Takács 1 = 26, all pass
 - `cargo clippy --all-targets -- -D warnings`: clean
 - `npx vitest run --coverage`: 1734 passed / 1734 (143 files); WP2 30 d COD/N/P 三账闭合；覆盖率 94.07/82.02/95.22
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
-- Latest release: `v0.11.9` (Node24 action upgrade); prior `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
-- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release 并清掉 `allow_updates` 非法输入；v0.11.9 把 JS actions 全部升级到 Node24 构建，Node20 告警才真正消失
+- Latest release: `v0.11.10` (Rust ADM1 sludge line); prior `v0.11.9`, `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
+- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release；v0.11.9 清掉 Node20 告警；v0.11.10 把 ADM1 泥线工艺链接入 Rust 内核
 
 ## Rule
 
 Every turn must land a code/test/golden commit or explicitly record a blocker;
 do not repeat the same probe without a code change.
+
+## 2026-11-25 Rust ADM1 泥线接入 (v0.11.10)
+
+- 新增 `rust/crates/aquapilot-core/src/sludge_line.rs`：浓缩池固定分流/浓缩倍数、ADM1 CSTR 消化池（体积按进料流量与 SRT 反推）、VS 降解产气、脱水泥饼/滤液分配、累计负荷。
+- 新增 `apply_filtrate_to_influent`：按厂流量把 NH4-N/COD/TP 回流负荷并入 `Influent`；流量为零时拒绝施加载荷，避免无流量基准的假回流。
+- 用 TS oracle 生成 `rust/golden/sludge-line-48h.json`：80 m³/h WAS、8000 g/m³ SS、0.5 h 步长 48 h；`tests/sludge_line_parity.rs` 对 27 个 ADM1 组分、产气、脱水与累计量做 1e-12 相对容差比对，阈值未放宽。
+- `cargo test` 26 项全过；`cargo fmt/clippy` 通过；TS 全量 1734/1734 不变。
 
 ## 2026-11-25 顶栏与 e2e 稳定性 (v0.11.7)
 
