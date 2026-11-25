@@ -4,6 +4,24 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.7] — 2026-11-25
+
+### Fixed
+
+- **Topbar clipping at 1366 px on Linux/CJK runners.** The right-most control
+  ended at 1369 px; the <=1500 px layout now trims 2 px of gap and 2 px of
+  horizontal padding per side, leaving font-metric headroom without hiding
+  fields.
+- **Flaky replay-tab smoke check.** The e2e runner waited a fixed 600 ms and
+  then asserted `.scroll-panel` visibility; on a 2-core CI runner the panel can
+  arrive later. It now polls the real marker for up to 4 s, so slow render is
+  no longer reported as a missing panel.
+
+### Verification
+
+- `npm run e2e`: PASS at 1920/1600/1440/1366/1280/1024, 0 console errors.
+- Full TypeScript suite: 1729/1729; coverage 93.84/81.81/95.16.
+
 ## [0.11.6] — 2026-11-25
 
 ### Fixed

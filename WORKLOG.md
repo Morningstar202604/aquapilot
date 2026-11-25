@@ -26,13 +26,19 @@
 - `npx vitest run`: 1729 passed / 1729 (143 files); WP2 30 d COD/N/P 三账闭合；覆盖率 93.84/81.83/95.16
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
-- Latest release: `v0.11.6` (coverage gate restored); prior `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
-- GitHub CI: v0.11.6 待跑；v0.11.5 Release 因覆盖率阈值失败，已由本版补测修复
+- Latest release: `v0.11.7` (topbar/e2e fix); prior `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
+- GitHub CI: v0.11.6 覆盖率已转绿，但 Release e2e 在 1366 顶栏裁切、CI 回放页签固定等待误判；v0.11.7 已修复
 
 ## Rule
 
 Every turn must land a code/test/golden commit or explicitly record a blocker;
 do not repeat the same probe without a code change.
+
+## 2026-11-25 顶栏与 e2e 稳定性 (v0.11.7)
+
+- 1366px + Linux Noto CJK 下顶栏最右控件落到 1369px：<=1500 断点再收紧 2px 间距与左右各 2px 内边距，留出字体度量余量。
+- CI 2 核 runner 上「回放」页签 600ms 固定等待会误判：改为轮询真实标志元素最多 4s。
+- 本地 e2e 六档宽度全过、0 控制台错误；TS 1729/1729。
 
 ## 2026-11-25 覆盖率门禁补测 (v0.11.6)
 

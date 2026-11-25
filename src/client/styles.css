@@ -1825,8 +1825,10 @@ button {
     min-width: 90px;
   }
   .topbar {
-    gap: 14px;
-    padding: 0 12px;
+    /* 1366 + Linux Noto CJK 实测仍溢出 3px：再收紧 4px 内边距与 2px 间距，
+       留出字体度量差异的余量，不靠隐藏字段换宽度。 */
+    gap: 12px;
+    padding: 0 10px;
   }
   .topbar-meta {
     gap: 14px;

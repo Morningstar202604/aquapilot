@@ -140,8 +140,18 @@ try {
     if (!labelledBy || labelledBy !== activeTabId) {
       fail(`tab "${tab}" panel labelledby=${labelledBy} does not match active tab ${activeTabId}`);
     }
-    const markerVisible = await page.locator(PANEL_MARKERS[tab]).first().isVisible();
-    if (!markerVisible) fail(`tab "${tab}" panel content marker not visible`);
+    // CI 2 核 runner 上页签内容可能晚于 600ms 渲染：轮询真实标志元素，
+    // 而不是用固定等待把慢环境判成失败。
+    const marker = page.locator(PANEL_MARKERS[tab]).first();
+    let markerVisible = false;
+    for (let i = 0; i < 40; i++) {
+      if (await marker.isVisible().catch(() => false)) {
+        markerVisible = true;
+        break;
+      }
+      await page.waitForTimeout(100);
+    }
+    if (!markerVisible) fail(`tab "${tab}" panel content marker not visible after 4s`);
     if (tab === '告警') {
       const parts = await page.locator('.health-part').count();
       if (parts !== 5) fail(`alarm panel should show 5 health parts, got ${parts}`);
