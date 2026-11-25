@@ -4,6 +4,36 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.12] — 2026-11-25
+
+### Fixed
+
+- **Resistance split no longer loses flow after a capacity cap.** The old
+  two-pass allocator overwrote the first-pass shares of uncapped branches with
+  only the residual, and indexed weights by the filtered pass array. A 64-case
+  randomized differential corpus exposed a 33.48 m3/h loss on a three-branch
+  case. The split now redistributes the residual iteratively until no branch
+  caps; branches that cannot absorb the total return
+  `HYDRAULICS_UNSOLVABLE_SPLIT` instead of silently under-allocating.
+- TypeScript and Rust split implementations were fixed together; two
+  regression tests lock conservation and the capacity-shortfall error path.
+
+### Added
+
+- `rust/golden/hydraulics-fuzz.json`: deterministic 64 state cases (191 edges),
+  64 split cases and 64 geometry cases, generated from the TS oracle.
+- `tests/hydraulics_fuzz_parity.rs`: randomized differential parity plus
+  property invariants (non-negative flows, capacity bounds, mass conservation,
+  no NaN, segment bounds).
+- CodeQL workflow upgraded from `codeql-action@v3` to v4 at a pinned commit;
+  the actions declare `node24`, clearing the Node20 deprecation annotation.
+
+### Verification
+
+- Rust: 36 tests pass (21 unit + 15 parity/integration/fuzz).
+- TypeScript: 1,736 tests pass; coverage 94.10% lines / 82.06% branches / 95.21% functions.
+- `cargo fmt` / `clippy -D warnings` / `npm run ci`: pass.
+
 ## [0.11.11] — 2026-11-25
 
 ### Added

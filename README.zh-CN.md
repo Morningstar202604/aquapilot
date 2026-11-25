@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![测试](https://img.shields.io/badge/测试-1734%20通过-brightgreen)](docs/BENCHMARKS.md)
+[![测试](https://img.shields.io/badge/测试-1736%20通过-brightgreen)](docs/BENCHMARKS.md)
 
 ![AquaPilot 控制室](docs/screenshots/01-overview.jpg)
 

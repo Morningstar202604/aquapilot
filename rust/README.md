@@ -18,6 +18,7 @@ module passes the golden-corpus parity gate.
 | ADM1 CSTR | complete for the standalone 48 h slice | exact, `tests/adm1_parity.rs`; <=0.05 h substeps |
 | ADM1 sludge line (thickener / digester / dewatering / filtrate recycle) | complete for the process chain | 48 h exact vs `sludge-line-48h.json` (`tests/sludge_line_parity.rs`); filtrate mixing unit test |
 | hydraulics / transport (resistance split, pump / valve / weir, segmented CSTR, tracer RTD) | complete | 48 × 1 min fixture exact, `tests/hydraulics_parity.rs` |
+| hydraulics randomized fuzz / property invariants | complete | 64 state (191 edges) / 64 split / 64 geometry cases, `tests/hydraulics_fuzz_parity.rs` |
 | server / AI / CLI (M2) | not started | — |
 
 The ASM1 fixture is `golden/asm1-reaction.json` (20 °C and 15 °C reaction vectors).
@@ -32,8 +33,11 @@ The ADM1 fixture is `golden/adm1-48h.json`: 27 components, 48 h at 0.5 h outer s
 18446 m³/d feed at 3000 g/m³, 3850 m³/d underflow, 24 h at 1 h steps.
 The hydraulics fixture is `golden/hydraulics-48h.json`: 6 edges, 48 × 1 min steps,
 900/850/1000 m³/h flow transients, 60 kg feed tracer pulse, 1e-12 pure-function
-and state parity including RTD moments and train aggregation. `serde_json` is a
-dev-dependency only, used to read the fixture.
+and state parity including RTD moments and train aggregation. The fuzz fixture
+`golden/hydraulics-fuzz.json` is generated with a fixed seed from the TS oracle;
+it caught a real mass loss when a branch hit its capacity cap, now fixed in both
+implementations with iterative capped allocation. `serde_json` is a
+dev-dependency only, used to read the fixtures.
 
 ## Commands
 

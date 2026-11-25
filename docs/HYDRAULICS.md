@@ -1,6 +1,6 @@
 # WP3 水力学与多系列：模型边界与口径
 
-> 版本：2026-11-23
+> 版本：2026-11-25
 > 归属：`src/sim/hydraulics.ts`、`src/sim/network.ts`、`src/sim/networkEngine.ts`、
 > `src/sim/networkTypes.ts`、`src/server/routes/hydraulics.ts`、`src/shared/protocol.ts`、
 > `src/server/snapshotView.ts`。
@@ -12,7 +12,8 @@ WP3 把「两条支路平分流量」的占位实现换成阻力驱动的水力�
 
 1. **阻力分流**：同一节点的各支路按下游阻力分配流量，支路损失水头相等
    `h = Rᵢ Qᵢ²`，因此 `Qᵢ ∝ 1/√Rᵢ`，总流量守恒。阀门开度不同、管径不同，
-   份额就不同；等阻力时退化为均分，旧拓扑行为不变。
+   份额就不同；等阻力时退化为均分，旧拓扑行为不变。某支路达到能力上限即截流，
+   余量在剩余支路迭代重分；全部支路触顶仍不足时返回 `UNSOLVABLE_SPLIT`，不允许静默少分。
 2. **管渠容积与输运延迟**：每条水力边有容积、停留时间、实际流速；边内按
    N 段串联 CSTR 传递保守组分（COD/NH/NO₃/TP/SS）与示踪剂，给出停留时间分布。
 3. **泵/阀/堰**：泵 H-Q 二次曲线带转速折算与超曲线判定；阀门 Cv/开度带全关
@@ -132,7 +133,7 @@ H(Q) = H₀·(n/n₀)² − K·Q²
 - 错误码：`HYDRAULICS_INVALID_GEOMETRY`、`HYDRAULICS_UNSOLVABLE_SPLIT`、
   `HYDRAULICS_TRACER_OVERFLOW`。
 
-## 9. Rust parity（v0.11.11）
+## 9. Rust parity 与随机差分（v0.11.11 → v0.11.12）
 
 - `rust/crates/aquapilot-core/src/hydraulics.rs` 按本文口径移植：阻力分流、
   沿程/阀/堰阻力、泵 H-Q、分段 CSTR、示踪剂 RTD、质量守恒账、系列聚合与快照。
@@ -140,5 +141,12 @@ H(Q) = H₀·(n/n₀)² − K·Q²
   900/850/1000 m³/h 阶跃、进水 60 kg 示踪剂脉冲。
 - `tests/hydraulics_parity.rs` 对纯函数、边字段、各段示踪剂/5 组分、RTD 与
   系列聚合逐项比对，相对容差 1e-12；`examples/hydraulics.rs` 为烟测入口。
+- 随机差分 `rust/golden/hydraulics-fuzz.json`（固定种子）：64 个状态场景 /
+  191 条边、64 个分流、64 个几何推导；`tests/hydraulics_fuzz_parity.rs` 逐字段
+  1e-12 比对，另跑 1000 组分流与 1000 组几何的非负、容量上限、守恒、无 NaN
+  和段数 1–4 属性检查。
+- 该语料暴露并修复了分流截流后的质量损失：旧两遍分配会覆盖未封顶支路份额并
+  丢余量。TS 与 Rust 均改为迭代封顶分配，能力不足显式返回
+  `HYDRAULICS_UNSOLVABLE_SPLIT`。
 - 边界仍同第 7 节：Rust 目前是模块级 parity，不是全厂同输入出水/库存/
   三本账对比，也不是闭环管网平差。

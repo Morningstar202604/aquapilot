@@ -66,6 +66,30 @@ describe('WP3 阻力分流', () => {
     expect(allClosed.errorCode).toBe(HYDRAULICS_ERRORS.UNSOLVABLE_SPLIT);
   });
 
+  it('支路能力封顶后余量在未封顶支路间重分，总量守恒', () => {
+    const total = 478.95815148949623;
+    const out = splitByResistance(total, [
+      { edgeId: 'b0', resistance: 3.9154343579888664, closed: false, capacityM3h: Infinity },
+      { edgeId: 'b1', resistance: 0.01272132208181067, closed: false, capacityM3h: 373.8579474296421 },
+      { edgeId: 'b2', resistance: 38.60422341225238, closed: false, capacityM3h: 344.07467459794134 },
+    ]);
+    expect(out.status).toBe('ok');
+    expect(out.flows[1]).toBeCloseTo(373.8579474296421, 9);
+    expect(out.flows.reduce((s, f) => s + f, 0)).toBeCloseTo(total, 9);
+    expect(out.flows[0]).toBeLessThan(80);
+    expect(out.flows[2]).toBeLessThan(30);
+  });
+
+  it('全部支路能力不足时返回 UNSOLVABLE_SPLIT，不静默丢流量', () => {
+    const out = splitByResistance(100, [
+      { edgeId: 'a', resistance: 1, closed: false, capacityM3h: 20 },
+      { edgeId: 'b', resistance: 1, closed: false, capacityM3h: 20 },
+    ]);
+    expect(out.status).toBe('unsolvable');
+    expect(out.errorCode).toBe(HYDRAULICS_ERRORS.UNSOLVABLE_SPLIT);
+    expect(out.flows).toEqual([20, 20]);
+  });
+
   it('泵超出 H-Q 曲线判为 overCurve，阀全关流量为 0', () => {
     const curve = { head0M: 18, k: 2.4e-5, rpm: 1450, ratedRpm: 1450 };
     const ok = pumpHead(curve, 500);

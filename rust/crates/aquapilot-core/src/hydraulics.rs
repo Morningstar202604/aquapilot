@@ -459,7 +459,10 @@ pub enum SplitStatus {
     Unsolvable,
 }
 
-/// Resistance split: h = RᵢQᵢ² at a shared node, so Qᵢ ∝ 1/√Rᵢ, total conserved.
+/// Resistance split: h = RᵢQᵢ² at a shared node, so Qᵢ ∝ 1/√Rᵢ. Branches that hit
+/// their capacity cap are fixed and the residual is redistributed iteratively; if
+/// even all caps cannot absorb the total, the split is `Unsolvable` rather than
+/// silently under-allocating.
 pub fn split_by_resistance(total_q: f64, branches: &[SplitBranch]) -> SplitOutcome {
     let active: Vec<usize> = branches
         .iter()
@@ -483,38 +486,42 @@ pub fn split_by_resistance(total_q: f64, branches: &[SplitBranch]) -> SplitOutco
         };
     }
 
-    let weights: Vec<f64> = active
-        .iter()
-        .map(|&i| 1.0 / branches[i].resistance.sqrt())
-        .collect();
+    let mut active_indices = active.clone();
     let mut flows = vec![0.0; branches.len()];
     let mut remaining = total_q;
-    let mut capped: Vec<usize> = Vec::new();
 
-    for _pass in 0..2 {
-        if remaining <= 1e-9 {
-            break;
-        }
-        let round: Vec<(usize, f64)> = active
+    // Iteratively allocate the residual to uncapped branches. Each branch that
+    // hits its capacity is capped and removed; the rest is redistributed. A
+    // fixed two-pass loop loses mass when several branches cap consecutively.
+    while remaining > 1e-9 && !active_indices.is_empty() {
+        let round: Vec<(usize, f64)> = active_indices
             .iter()
-            .zip(weights.iter())
-            .filter(|(i, _)| !capped.contains(i))
-            .map(|(&i, &w)| (i, w))
+            .map(|&i| (i, 1.0 / branches[i].resistance.sqrt()))
             .collect();
-        if round.is_empty() {
-            break;
-        }
         let round_weight_sum: f64 = round.iter().map(|(_, w)| *w).sum();
+        let mut capped_any = false;
         for &(i, w) in &round {
             let cap = branches[i].capacity_m3h;
             let mut q = (remaining * w) / round_weight_sum;
             if cap.is_finite() && q > cap {
                 q = cap;
-                capped.push(i);
+                active_indices.retain(|&x| x != i);
+                remaining -= cap;
+                capped_any = true;
             }
             flows[i] = q;
         }
-        remaining = total_q - flows.iter().sum::<f64>();
+        if !capped_any {
+            remaining = 0.0;
+        }
+    }
+
+    if remaining > 1e-9 {
+        return SplitOutcome {
+            flows,
+            status: SplitStatus::Unsolvable,
+            error_code: Some(HYDRAULICS_ERRORS.unsolvable_split),
+        };
     }
 
     SplitOutcome {

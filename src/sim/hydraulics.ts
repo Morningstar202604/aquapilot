@@ -328,26 +328,38 @@ export function splitByResistance(totalQ: number, branches: SplitBranch[]): Spli
     return { flows: branches.map(() => 0), status: 'ok' };
   }
 
-  const weights = active.map(({ b }) => 1 / Math.sqrt(b.resistance));
   const flows = branches.map(() => 0);
-
+  const activeIndices = new Set(active.map(({ i }) => i));
   let remaining = totalQ;
-  const capped = new Set<number>();
-  // 两遍分配：先按阻力权重分，超能力上限的支路截流，余量在未封顶支路间再分一次。
-  for (let pass = 0; pass < 2 && remaining > 1e-9; pass++) {
-    const roundIdx = active.filter(({ i }) => !capped.has(i)).map(({ i }, k) => ({ i, w: weights[k] }));
-    if (roundIdx.length === 0) break;
-    const roundWeightSum = roundIdx.reduce((s, r) => s + r.w, 0);
-    for (const { i, w } of roundIdx) {
+
+  // 逐轮把余量按 1/√R 分给未封顶支路；某支路达到能力上限后截流并从本轮集合移除，
+  // 余量在剩余支路间重新分配。不能只跑固定两遍：多支路连续封顶会漏掉第三轮余量。
+  while (remaining > 1e-9 && activeIndices.size > 0) {
+    const round = [...activeIndices].map((i) => ({ i, w: 1 / Math.sqrt(branches[i].resistance) }));
+    const roundWeightSum = round.reduce((s, r) => s + r.w, 0);
+    let cappedAny = false;
+    for (const { i, w } of round) {
       const cap = branches[i].capacityM3h;
       let q = (remaining * w) / roundWeightSum;
       if (cap < Number.POSITIVE_INFINITY && q > cap) {
         q = cap;
-        capped.add(i);
+        activeIndices.delete(i);
+        remaining -= cap;
+        cappedAny = true;
       }
       flows[i] = q;
     }
-    remaining = totalQ - flows.reduce((s, f) => s + f, 0);
+    if (!cappedAny) {
+      remaining = 0;
+    }
+  }
+
+  if (remaining > 1e-9) {
+    return {
+      flows,
+      status: 'unsolvable',
+      errorCode: HYDRAULICS_ERRORS.UNSOLVABLE_SPLIT,
+    };
   }
 
   return { flows, status: 'ok' };
