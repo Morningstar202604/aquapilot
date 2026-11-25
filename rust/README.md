@@ -21,7 +21,9 @@ module passes the golden-corpus parity gate.
 | hydraulics randomized fuzz / property invariants | complete | 64 state (191 edges) / 64 split / 64 geometry cases, `tests/hydraulics_fuzz_parity.rs` |
 | plant boundary COD/N/P mass books | complete | 96 half-hour steps exact, `tests/plant_boundary_parity.rs`; 500-step residual invariants |
 | full plant production `stepNetwork` replay | complete for the fixed 96-step trajectory | 96 × 15 min replay; max absolute residual 1.73e-9, gate 1e-8 (`tests/plant_replay_parity.rs`) |
-| server / AI / CLI (M2) | not started | — |
+| M2-2 AI provider / audit / rate limit / watchdog | complete in `aquapilot-ops` | TS oracle parity: 14 watchdog inputs, 5 decisions, 2 rate sequences, 9 URL cases (`tests/ops_parity.rs`) |
+| M2-1 HTTP/WS server migration | not started | TypeScript server remains the only public listener |
+| M2-3 7×24 soak | harness only | `scripts/soak.ts`; no 24 h wall-clock acceptance yet |
 
 The ASM1 fixture is `golden/asm1-reaction.json` (20 °C and 15 °C reaction vectors).
 The exact CSTR fixtures are `golden/asm2d-cstr-24h.json`,
@@ -46,13 +48,13 @@ is the full production `stepNetwork` trace: 20 d spin-up, carbon dose 8, then
 three mass books. `tests/plant_replay_parity.rs` rebuilds each production input
 and compares every state/flux plus the effluent, inventory and biomass projections;
 module fixtures keep 1e-12, the closed-loop replay uses 1e-8 absolute with an
-observed worst residual of 1.73e-9. `serde_json` is a dev-dependency
-only, used to read the fixtures.
+observed worst residual of 1.73e-9. `serde_json` is a dev-dependency only in `aquapilot-core`, used to read the fixtures; `aquapilot-ops` uses it at runtime for audit/provider JSON.
 
 ## Commands
 
 ```bash
 cargo test
+cargo test -p aquapilot-ops --all-targets
 cargo clippy --all-targets -- -D warnings
 cargo run -p aquapilot-core --example cstr
 cargo run -p aquapilot-core --example network

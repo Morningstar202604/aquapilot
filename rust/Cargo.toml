@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/aquapilot-core"]
-default-members = ["crates/aquapilot-core"]
+members = ["crates/aquapilot-core", "crates/aquapilot-ops"]
+default-members = ["crates/aquapilot-core", "crates/aquapilot-ops"]
 
 [workspace.package]
 edition = "2024"

@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.11.15] — 2026-11-25
+
+### Added
+
+- 新增 Rust crate `rust/crates/aquapilot-ops`，把 M2-2 的四项服务能力落到目标语言：
+  - `provider`: OpenAI 兼容 / Anthropic Messages / Google Gemini 三种协议的 chat
+    调用；base URL 校验、云元数据/链路本地拒绝、DNS 解析后地址钉扎、禁跟随重定向、
+    密钥不进错误串。
+  - `audit`: append-only JSONL 账本，事件带 `prev_hash/hash` SHA-256 哈希链；
+    启动时复验，篡改/断链直接报错；决策去重窗口与 TS `shouldRecordDecision` 一致。
+  - `rate_limit`: 每连接固定窗口（control 500 ms / topology 5 s / decision 2 s /
+    chat 1.5 s / snapshot 1 s）、提示 2 s 冷却、LLM 在途上限 2。
+  - `watchdog`: 10 项确定性自检，输出既有 `WatchdogReport` 契约；正常/暂停/停钟/
+    LLM 降级/持久化/钩子/CSV 循环等分支全部有测试。
+- `scripts/gen-ops-cases.ts` 与 `rust/golden/ops-cases.json`：从 TS oracle 冻结
+  14 组 watchdog 输入、5 组决策去重、2 组限流序列、9 组 URL 守卫；Rust
+  `tests/ops_parity.rs` 逐项比对。
+- `scripts/soak.ts`：真实墙钟 soak harness，采样 `/proc` RSS/线程/FD，并周期
+  探活 HTTP health/snapshot 与真实 WS hello；`SOAK_MINUTES` 默认 24 h，
+  1 分钟快速跑只用于验证 harness，不能当作 24 h 验收。
+- `package.json` 新增 `gen:ops-cases` 与 `soak` 命令。
+
+### Verification
+
+- Rust 58 项全过（34 单元 + 24 集成/parity）：core 41 + ops 13 单元 + ops 4 parity。
+- `cargo fmt --all -- --check`、`cargo clippy --all-targets -- -D warnings` 干净。
+- M2-2 退出条件“AI Provider、审计、限流、看门狗在目标语言中可用”满足。
+- **M2 未关闭**：HTTP/WS 契约迁移（M2-1）与 7×24 soak（M2-3）仍未完成；
+  本版没有用 Rust service crate 冒充服务端迁移，也没有把 1 分钟 soak 冒充 24 h。
+
 All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
