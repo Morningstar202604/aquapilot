@@ -6,6 +6,7 @@
 
 [![CI](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![测试](https://img.shields.io/badge/测试-1729%20通过-brightgreen)](docs/BENCHMARKS.md)
 
 ![AquaPilot 控制室](docs/screenshots/01-overview.jpg)
 
@@ -21,8 +22,8 @@ AquaPilot 可以直接改工艺流程、跑过程模型，也可以把控制权�
 
 ![AI 决策链](docs/screenshots/03-decision.jpg)
 
-| 工艺编排 | 运营评分卡 |
-| --- | --- |
+| 工艺编排                            | 运营评分卡                             |
+| ----------------------------------- | -------------------------------------- |
 | ![](docs/screenshots/07-editor.jpg) | ![](docs/screenshots/11-scorecard.jpg) |
 
 [![演示](docs/media/demo.gif)](docs/media/demo.mp4)
@@ -64,7 +65,7 @@ npm run cli -- experiment --minutes 1440 --validation full --standard gb18918-1b
 npm run cli -- bench
 ```
 
-Windows 单文件构建：`npm run exe`。
+Windows 单文件构建：`npm run exe`，产物在 `dist/aquapilot.exe`。
 
 ## 边界
 

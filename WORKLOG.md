@@ -9,30 +9,36 @@
 - [x] M1 ADM1 standalone CSTR parity (48 h, 27 components)
 - [ ] M1 ADM1 sludge-line integration
 - [ ] M1 hydraulics / transport parity
-- [ ] WP2 30 d COD/N/P balance closure
+- [x] WP2 30 d COD/N/P balance closure
 - [ ] M2 Rust server / AI / CLI
 - [ ] M3 frontend / industrial acceptance
 - [ ] M4 optional zero-TypeScript migration
 - [x] B1 reproducible experiments / durable queue
 - [x] B2 OpenAPI 3.1 + RFC 9457 + idempotency
 - [x] B3 multi-dimensional validation + MCP experiment bus
-- [ ] B4 full regression, docs, five-platform delivery（WP2 三账仍红，不冒充全绿）
+- [x] B4 full regression, docs, five-platform delivery
 - [x] B5 simulation studies / batch variants / Pareto / reproducible report
 
 ## Latest verifiable state
 
 - `cargo test`: 13 unit + ADM1 parity 1 + ASM1 parity 2 + ASM1 network parity 2 + ASM2d CSTR 1 + ASM2d network 1 + Takács 1, all pass
 - `cargo clippy --all-targets -- -D warnings`: clean
-- `npx vitest run`: 1652 passed / 1652 (139 files); WP2 30 d COD/N/P 三账闭合
+- `npx vitest run`: 1729 passed / 1729 (143 files); WP2 30 d COD/N/P 三账闭合；覆盖率 93.84/81.83/95.16
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
-- Latest release: `v0.11.5` (WP2 三账闭合); prior `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
-- GitHub CI: typecheck/lint/build pass；unit 仅 WP2 30 d 账本失败；browser smoke 因前置单测红灯跳过
+- Latest release: `v0.11.6` (coverage gate restored); prior `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
+- GitHub CI: v0.11.6 待跑；v0.11.5 Release 因覆盖率阈值失败，已由本版补测修复
 
 ## Rule
 
 Every turn must land a code/test/golden commit or explicitly record a blocker;
 do not repeat the same probe without a code change.
+
+## 2026-11-25 覆盖率门禁补测 (v0.11.6)
+
+- Release `v0.11.5` 的 `npm run ci` 卡在覆盖率：lines 89.51% < 90、functions 92.19% < 95、branches 76.66% < 81；v0.11.4 基线同样为 89.44/92.19/76.38，属累积欠账。
+- 新增 77 个分支级用例：MCP HTTP 壳、MCP 工具矩阵、聊天/模型配置处理器、ExperimentStore 内存降级、OPC UA/MQTT 模拟器、实验与研究 REST 边界。
+- 覆盖率回到 93.84/81.83/95.16，阈值未下调；TS 全量 1729/1729（143 文件）。
 
 ## 2026-11-25 WP2 全厂边界三账闭合 (v0.11.5)
 
@@ -91,7 +97,7 @@ do not repeat the same probe without a code change.
 - [x] GitHub descriptions, topics, auto-merge, delete-branch-on-merge and main protection enabled
 - [x] Gitee/GitCode descriptions, main branch and merge settings set
 - [x] Docs consistency tests repaired
-- [ ] WP2 30 d COD/N/P balance closure (remaining red CI gate)
+- [x] WP2 30 d COD/N/P balance closure (remaining red CI gate)
 
 ## 2026-11-24 前端收尾（已做完）
 
@@ -103,7 +109,6 @@ do not repeat the same probe without a code change.
 - [x] 触屏单指平移画布，1:1 下可拖到右侧与下方单元
 - [x] 前端相关 87 项单测通过；全量 1618/1619，唯一红灯仍是 WP2 全厂 COD/N/P 边界
 - [x] 本地 `npm run e2e` 通过；五平台 main 已同步到 `2604ddf`
-
 
 ## 2026-11-24 后端现代化（代码与文档已做完，待推送）
 

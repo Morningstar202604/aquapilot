@@ -140,3 +140,101 @@ describe('研究 REST API', () => {
     await experiments.idle();
   });
 });
+
+describe('研究 REST API 边界', () => {
+  it('集合非允许方法 405；列表 limit 非法 400；HEAD/ETag', async () => {
+    const { base } = await startApi();
+    const put = await fetch(`${base}/api/v1/studies`, { method: 'PUT' });
+    expect(put.status).toBe(405);
+    expect(put.headers.get('allow')).toBe('GET, HEAD, POST');
+    for (const q of ['limit=0', 'limit=101', 'limit=x']) {
+      const res = await fetch(`${base}/api/v1/studies?${q}`);
+      expect(res.status, q).toBe(400);
+    }
+    const list = await fetch(`${base}/api/v1/studies`);
+    const etag = list.headers.get('etag');
+    const cached = await fetch(`${base}/api/v1/studies`, { headers: { 'if-none-match': etag! } });
+    expect(cached.status).toBe(304);
+    const head = await fetch(`${base}/api/v1/studies`, { method: 'HEAD' });
+    expect(head.status).toBe(200);
+  });
+
+  it('创建：缺 Content-Type、坏 JSON、超大 body 分别 415/400/413', async () => {
+    const { base } = await startApi();
+    const noType = await fetch(`${base}/api/v1/studies`, { method: 'POST', body: JSON.stringify(BODY) });
+    expect(noType.status).toBe(415);
+    const bad = await fetch(`${base}/api/v1/studies`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{bad',
+    });
+    expect(bad.status).toBe(400);
+    const big = await fetch(`${base}/api/v1/studies`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...BODY, padding: 'x'.repeat(70_000) }),
+    });
+    expect(big.status).toBe(413);
+  });
+
+  it('详情：非法 ID、未知 ID、POST 405', async () => {
+    const { base } = await startApi();
+    const bad = await fetch(`${base}/api/v1/studies/nope`);
+    expect(bad.status).toBe(404);
+    const missing = await fetch(`${base}/api/v1/studies/study_00000000-0000-0000-0000-000000000000`);
+    expect(missing.status).toBe(404);
+    expect((await missing.json()).code).toBe('STUDY_NOT_FOUND');
+    const post = await fetch(`${base}/api/v1/studies/study_00000000-0000-0000-0000-000000000000`, { method: 'POST' });
+    expect(post.status).toBe(405);
+  });
+
+  it('取消：GET 405、未知 404、创建后 202', async () => {
+    const { base, experiments } = await startApi();
+    const id = 'study_00000000-0000-0000-0000-000000000000';
+    const get = await fetch(`${base}/api/v1/studies/${id}/cancel`);
+    expect(get.status).toBe(405);
+    const missing = await fetch(`${base}/api/v1/studies/${id}/cancel`, { method: 'POST' });
+    expect(missing.status).toBe(404);
+    const created = await fetch(`${base}/api/v1/studies`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(BODY),
+    });
+    const realId = (await created.json()).id as string;
+    const cancel = await fetch(`${base}/api/v1/studies/${realId}/cancel`, { method: 'POST' });
+    expect(cancel.status).toBe(202);
+    await experiments.idle();
+  });
+
+  it('报告：GET 与 HEAD、未知 404、POST 405', async () => {
+    const { base } = await startApi();
+    const missing = await fetch(`${base}/api/v1/studies/study_00000000-0000-0000-0000-000000000000/report.md`);
+    expect(missing.status).toBe(404);
+    const created = await fetch(`${base}/api/v1/studies`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(BODY),
+    });
+    const id = (await created.json()).id as string;
+    const md = await fetch(`${base}/api/v1/studies/${id}/report.md`);
+    expect(md.status).toBe(200);
+    expect(await md.text()).toContain('研究');
+    const head = await fetch(`${base}/api/v1/studies/${id}/report.md`, { method: 'HEAD' });
+    expect(head.status).toBe(200);
+    const post = await fetch(`${base}/api/v1/studies/${id}/report.md`, { method: 'POST' });
+    expect(post.status).toBe(405);
+  });
+
+  it('未知研究子资源 404', async () => {
+    const { base } = await startApi();
+    const created = await fetch(`${base}/api/v1/studies`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(BODY),
+    });
+    const id = (await created.json()).id as string;
+    const res = await fetch(`${base}/api/v1/studies/${id}/nope`);
+    expect(res.status).toBe(404);
+    expect((await res.json()).code).toBe('NOT_FOUND');
+  });
+});

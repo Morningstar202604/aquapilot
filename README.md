@@ -6,6 +6,7 @@ A wastewater treatment plant **simulation modelling platform**: reproducible mod
 
 [![CI](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![tests](https://img.shields.io/badge/tests-1729%20passing-brightgreen)](docs/BENCHMARKS.md)
 
 ![AquaPilot control room](docs/screenshots/01-overview.jpg)
 
@@ -21,8 +22,8 @@ On BSM1 Table 6, S_NH at **−10.8%** and TSS sits at **−7.4%** against the re
 
 ![AI decision trail](docs/screenshots/03-decision.jpg)
 
-| Flowsheet editor | Operational scorecard |
-| --- | --- |
+| Flowsheet editor                    | Operational scorecard                  |
+| ----------------------------------- | -------------------------------------- |
 | ![](docs/screenshots/07-editor.jpg) | ![](docs/screenshots/11-scorecard.jpg) |
 
 [![Watch the demo](docs/media/demo.gif)](docs/media/demo.mp4)
@@ -64,7 +65,7 @@ npm run cli -- experiment --minutes 1440 --validation full --standard gb18918-1b
 npm run cli -- bench
 ```
 
-Windows single-file build: `npm run exe`.
+Windows single-file build: `npm run exe`; the output is `dist/aquapilot.exe`.
 
 ## Scope
 

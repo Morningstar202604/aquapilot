@@ -4,6 +4,25 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.6] — 2026-11-25
+
+### Fixed
+
+- **Release coverage gate restored without lowering thresholds.** The
+  `v0.11.5` Release failed `npm run ci` at the coverage gate (lines 89.51%,
+  functions 92.19%, branches 76.66%); the same gate was already red at
+  `v0.11.4` (89.44 / 92.19 / 76.38), masked by the WP2 test failure.
+- Added branch-level tests for the MCP HTTP shell, MCP tool matrix, chat and
+  model-config handlers, experiment-store memory fallback, OPC UA/MQTT
+  simulators, and experiment/study REST error paths.
+- Coverage is now lines 93.84%, branches 81.83%, functions 95.16%, above the
+  existing 90 / 81 / 95 thresholds. No threshold value was changed.
+
+### Verification
+
+- Full TypeScript suite: 1729/1729 passed (143 files).
+- No production behavior changed in this release.
+
 ## [0.11.5] — 2026-11-25
 
 ### Fixed
@@ -66,7 +85,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 ### Notes
 
 - The TypeScript oracle has a naming/process inconsistency: `hydCh/hydPr/
-  hydLi` are driven by `X_su/X_aa/X_fa`, and `X_ch/X_pr/X_li` are never
+hydLi` are driven by `X_su/X_aa/X_fa`, and `X_ch/X_pr/X_li` are never
   depleted. Rust mirrors this on purpose so parity is exact; correcting the
   oracle is tracked as a separate model change, not hidden by test changes.
 
@@ -266,7 +285,7 @@ become usable from a keyboard and a screen reader.
   declined it, optionally with a reason) and `auto` (the agent executed on its
   own). Previously only adoption produced a record, so a recommendation with no
   follow-up was indistinguishable from one an operator deliberately rejected.
-  The decision panel now offers *Decline and log* plus four one-click reasons;
+  The decision panel now offers _Decline and log_ plus four one-click reasons;
   the acting role is stored with every row.
 - **WAI-ARIA tabs for the side panels** (`src/client/components/tabNav.ts`).
   Roving tabindex (only the selected tab is in the Tab sequence), Arrow/Home/End
@@ -372,6 +391,7 @@ class of silent-truth defects is closed.
 - **MCP tool descriptions in English** with English business errors: external
   agents consume these strings directly, and a mixed-language catalogue reads
   as an unfinished integration.
+
 ### Added (continued)
 
 - **Operational scorecard** (`src/sim/scorecard.ts`): four weighted dimensions —
@@ -558,8 +578,6 @@ theme.
 
 - 1189 tests (+30), all green in CI; `solveReactors` complexity 66 → 21
   (v0.5.1) with bit-identical benchmark numbers.
-
-
 
 ## [0.5.1] — 2026-11-03
 
@@ -806,7 +824,7 @@ report honestly when they block a move.
 - `docs/COMPETITIVE-ANALYSIS.md`: verified comparison against seven peer projects
   (`bsm2-python`, QSDsan, PooPyLab, PyADM1ODE, Junction-2025, wwtw-digital-twin,
   wwtmodels/Activated-Sludge-Models), including an explicit list of what
-  AquaPilot does *not* do.
+  AquaPilot does _not_ do.
 
 ### Performance
 
@@ -839,7 +857,7 @@ report honestly when they block a move.
 - **Single malformed request could kill the process.** Query strings were parsed
   against a client-controlled `Host` header (`new URL` throws on `Host: a b`), and
   non-integer `?limit=` reached SQLite as a `LIMIT ?` binding (`datatype
-  mismatch`). Both raised outside any try/catch. Query parsing no longer touches
+mismatch`). Both raised outside any try/catch. Query parsing no longer touches
   `Host`, every HTTP handler is wrapped, and LIMIT values are truncated.
 - **Permission model allowed self-escalation.** One `save` could switch
   `permission` to `open` and add a webhook hook in the same payload; open-only
@@ -905,7 +923,7 @@ settings) alongside the correctness fixes.
   `{ type: 'topology', action: 'history' | 'revert' }`.
 - **Along-the-train profile in the unit inspector.** Selecting any main-train unit
   renders the five-stage DO / NH₄ / NO₃ walk through the train with the current unit
-  highlighted, so an operator can see *where* nitrification and denitrification happen
+  highlighted, so an operator can see _where_ nitrification and denitrification happen
   instead of only the selected tank. Non-train units (blower, chemical) show nothing,
   and a snapshot without live reactor state does not render an empty table
   (`src/model/trainProfile.ts`, 6 unit tests + 3 inspector tests).
@@ -1101,7 +1119,7 @@ settings) alongside the correctness fixes.
   store test passes an explicit history path inside its temp dir.
 - **What-if forecasts simulated the wrong severity.** The forecast clone hard-coded
   `magnitude: 1`, but the field's meaning differs per scenario: `blower_failure` uses
-  it as *remaining* aeration capacity (1 = no fault) and `winter` as the target water
+  it as _remaining_ aeration capacity (1 = no fault) and `winter` as the target water
   temperature in °C. Consequences measured before the fix: "what if the blower fails"
   returned the baseline NH₄ bit-for-bit (0.67 vs 0.67) while the real fault drives it
   to 8.04 mg/L; winter forecast produced 8 °C instead of 12 °C. The clone now reads
@@ -1246,16 +1264,16 @@ length`, 17–39 s). The chat path now uses a reasoning-aware budget/timeout,
 
 ### Audit trail (measured, not opinion)
 
-| # | Finding | Evidence |
-|---|---|---|
-| T1 | Simplified nitrification runs ~420× the ASM1 rate constant, compensated by a biomass factor | `kNit=14/h` vs `ASM1 mu_A/24≈0.033/h`, `bf=xBiomass/DESIGN_MLSS` |
-| T2 | **Fixed together with T3**: default control exceeded the 15 mg/L TN limit | 15.40 → 11.18 mg/L at seed 7 |
-| T3 | **Fixed**: nitrate yield was 0.88, so 12 % of nitrified N vanished | `KINETICS.nitrateYieldPerNitrifiedN = 1.0` + `kDen` 4.6 → 8.0 |
-| T4 | **Fixed**: every tank reported the plant-average MLSS | `server/tankStates.ts` now labels `mlssSource`; ASM1 mode gives per-reactor values |
-| T5 | ASM1 and simple modes expose different TP definitions through one field | simple 0.010 vs asm1 2.509 mg/L |
-| T6 | Takács thickening zone has ~4 distinct values | profile `8,13,22,53,254,258,259,260,259,5474` |
-| T7 | Clarifier solids balance residual 1.5 % | 7020 vs 6917 kg/h steady state |
-| T8 | **Fixed**: `carbonDose` changed cost only | now enters the anoxic zone; TN 11.44 → 9.37 at 60 mg/L |
+| #   | Finding                                                                                     | Evidence                                                                           |
+| --- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| T1  | Simplified nitrification runs ~420× the ASM1 rate constant, compensated by a biomass factor | `kNit=14/h` vs `ASM1 mu_A/24≈0.033/h`, `bf=xBiomass/DESIGN_MLSS`                   |
+| T2  | **Fixed together with T3**: default control exceeded the 15 mg/L TN limit                   | 15.40 → 11.18 mg/L at seed 7                                                       |
+| T3  | **Fixed**: nitrate yield was 0.88, so 12 % of nitrified N vanished                          | `KINETICS.nitrateYieldPerNitrifiedN = 1.0` + `kDen` 4.6 → 8.0                      |
+| T4  | **Fixed**: every tank reported the plant-average MLSS                                       | `server/tankStates.ts` now labels `mlssSource`; ASM1 mode gives per-reactor values |
+| T5  | ASM1 and simple modes expose different TP definitions through one field                     | simple 0.010 vs asm1 2.509 mg/L                                                    |
+| T6  | Takács thickening zone has ~4 distinct values                                               | profile `8,13,22,53,254,258,259,260,259,5474`                                      |
+| T7  | Clarifier solids balance residual 1.5 %                                                     | 7020 vs 6917 kg/h steady state                                                     |
+| T8  | **Fixed**: `carbonDose` changed cost only                                                   | now enters the anoxic zone; TN 11.44 → 9.37 at 60 mg/L                             |
 
 ## [0.3.0] — 2026-10-24
 
