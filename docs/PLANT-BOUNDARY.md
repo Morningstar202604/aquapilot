@@ -246,3 +246,17 @@ RAS 硝酸盐在二沉池/回流管内的反硝化显式记入 N₂；RAS 底流
 - 路由：`GET /api/plant/balance` 返回三本账、沼气、泥线状态、残差闭合标志与诊断；
   纯函数 `plantBoundaryRoute(pathname, url, input)`，接线由集成方在 `apiRoutes.ts` 完成。
 - 错误码：`PLANT_BALANCE_UNCLOSED`（残差超阈值）、`ASM2D_STATE_INVALID`（组分越界已钳制）。
+
+
+## 9. Rust parity（v0.11.13）
+
+- `rust/crates/aquapilot-core/src/plant_boundary.rs` 按本文口径移植三本账：
+  进水/出水/排泥/沼气 COD/氧化/反硝化/库存变化/滤液回流/钳制损失，支持组分
+  负荷与标量负荷两条路径，诊断码与消息格式保持一致。
+- `rust/golden/plant-boundary-96step.json`：96 个 0.5 h 步，交替使用组分与标量
+  负荷，动态泥线进料、库存变化与显式 clamp；`tests/plant_boundary_parity.rs`
+  对每行每字段、库存与诊断做 1e-12 比对。
+- 属性测试覆盖 500 步残差恒等式、`closed` 阈值一致性、非负累计项；关闭泥线时
+  滤液回流为零、沼气 COD 为零，`reset` 清空账本与库存种子。
+- 边界：三本账模块已 parity，但整厂 production `stepNetwork` 轨迹逐态 replay
+  尚未完成，不能据此把 M1 总里程碑标为完成。

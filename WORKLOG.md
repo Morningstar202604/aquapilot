@@ -10,6 +10,7 @@
 - [x] M1 ADM1 sludge-line integration (process chain + filtrate recycle, 48 h golden)
 - [x] M1 hydraulics / transport parity (resistance split, pump/valve/weir, segmented CSTR, tracer RTD; 48-step TS golden)
 - [x] M1 hydraulics randomized differential fuzz + property invariants (64 state / 191 edge / 64 split / 64 geometry cases)
+- [x] M1 plant boundary COD/N/P mass books parity (96-step golden + residual/flag properties)
 - [x] WP2 30 d COD/N/P balance closure
 - [ ] M2 Rust server / AI / CLI
 - [ ] M3 frontend / industrial acceptance
@@ -22,18 +23,26 @@
 
 ## Latest verifiable state
 
-- `cargo test`: 21 unit + 15 integration/parity/fuzz (ASM1 4, ASM2d 2, Takács 1, ADM1 1, sludge-line 1, hydraulics 3, hydraulics fuzz 3) = 36, all pass
+- `cargo test`: 21 unit + 18 integration/parity/fuzz (ASM1 4, ASM2d 2, Takács 1, ADM1 1, sludge-line 1, hydraulics 3, hydraulics fuzz 3, plant boundary 3) = 39, all pass
 - `cargo clippy --all-targets -- -D warnings`: clean
 - `npx vitest run --coverage`: 1736 passed / 1736 (143 files); WP2 30 d COD/N/P 三账闭合；覆盖率 94.10/82.06/95.21（阈值 90/81/95 未下调）
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
-- Latest release: `v0.11.12` (hydraulics randomized fuzz + split mass-loss fix; M1 slices complete, overall M1 exit open); prior `v0.11.11`, `v0.11.10`, `v0.11.9`, `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
-- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release；v0.11.9 清掉 Node20 告警；v0.11.10 接入 ADM1 泥线；v0.11.11 接入水力/输运；v0.11.12 加随机差分并修掉分流截流后的丢流量
+- Latest release: `v0.11.13` (plant boundary mass-book parity; M1 replay gate still open); prior `v0.11.12`, `v0.11.11`, `v0.11.10`, `v0.11.9`, `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
+- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release；v0.11.9 清掉 Node20 告警；v0.11.10 接入 ADM1 泥线；v0.11.11 接入水力/输运；v0.11.12 加随机差分并修掉分流截流后的丢流量；v0.11.13 补齐三本账 Rust parity
 
 ## Rule
 
 Every turn must land a code/test/golden commit or explicitly record a blocker;
 do not repeat the same probe without a code change.
+
+## 2026-11-25 全厂三本账 Rust parity (v0.11.13)
+
+- 新增 `rust/crates/aquapilot-core/src/plant_boundary.rs`，按 `src/sim/plantBoundary.ts` 移植 COD/N/P 三本账：进水/出水/排泥/沼气 COD/氧化/反硝化/库存变化/滤液回流/钳制损失，支持组分口径与标量口径两种负荷路径。
+- 新增 `rust/golden/plant-boundary-96step.json`：96 个 0.5 h 步，交替使用组分负荷与标量负荷，含动态泥线进料、库存变化与显式钳制损失。
+- `tests/plant_boundary_parity.rs`：96 步每行每字段、库存、诊断逐项 1e-12 比对；另有 500 步残差/闭合标志属性测试、关闭泥线零回流与 reset 测试。
+- M1：六项模块切片 + 水力随机差分 + 三本账 parity 完成；整厂 production `stepNetwork` 轨迹逐态 replay 仍未做，M1 总里程碑不关闭。M2 未开始。
+- `cargo test` 39 项全过；`cargo fmt/clippy` 通过；TS 1736/1736 不变。
 
 ## 2026-11-25 水力随机差分、分流修复 (v0.11.12)
 

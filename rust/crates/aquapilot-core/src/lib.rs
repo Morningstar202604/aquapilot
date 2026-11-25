@@ -11,5 +11,6 @@ pub mod asm1_network;
 pub mod asm2d;
 pub mod hydraulics;
 pub mod network;
+pub mod plant_boundary;
 pub mod sludge_line;
 pub mod takacs;

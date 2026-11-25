@@ -4,6 +4,31 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.13] — 2026-11-25
+
+### Added
+
+- Ported `src/sim/plantBoundary.ts` to
+  `rust/crates/aquapilot-core/src/plant_boundary.rs`: COD/N/P balance rows,
+  component and scalar load paths, inventory deltas, sludge-line filtrate
+  recycle, methane COD, clamp losses, diagnostics and reset.
+- `rust/golden/plant-boundary-96step.json`: 96 half-hour steps generated from
+  the TypeScript oracle, alternating component/scalar accounting, dynamic
+  sludge feed and explicit clamp losses.
+- `tests/plant_boundary_parity.rs`: 1e-12 row/inventory/diagnostic parity over
+  all 96 steps, plus 500-step residual/flag invariants and a disabled-sludge
+  no-recycle property.
+
+### Status
+
+- M1 mass-balance module parity is complete. The full-plant replay gate
+  (production `stepNetwork` trajectory captured step-by-step and replayed on
+  the Rust kernel) is still open, so M1 is not closed and M2 is not started.
+
+### Verification
+
+- Rust: 39 tests pass (21 unit + 18 integration/parity/fuzz).
+- TypeScript: 1,736 tests remain unchanged.
 ## [0.11.12] — 2026-11-25
 
 ### Fixed
