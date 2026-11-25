@@ -498,7 +498,7 @@ mod tests {
         assert!(validate_base_url("http://[::ffff:169.254.169.254]/v1").is_err());
         assert!(validate_base_url("http://100.100.100.200/v1").is_err());
         assert!(validate_base_url("http://metadata.google.internal./v1").is_err());
-        assert!(validate_base_url("https://user:pass@example.com/v1").is_err());
+        assert!(validate_base_url("https://user%3Apass@example.com/v1").is_err());
     }
 
     #[test]

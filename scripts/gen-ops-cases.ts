@@ -127,7 +127,7 @@ const urlCases = [
   'http://[::ffff:169.254.169.254]/v1',
   'http://100.100.100.200/v1',
   'http://metadata.google.internal./v1',
-  'https://user:pass@example.com/v1',
+  'https://user%3Apass@example.com/v1',
   'file:///etc/passwd',
   'http://127.0.0.1:11434/v1',
   'http://10.0.0.8:8000/v1',

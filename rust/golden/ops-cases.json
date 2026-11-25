@@ -1488,7 +1488,7 @@
       "reason": "该地址属于云元数据或链路本地服务，禁止访问"
     },
     {
-      "url": "https://user:pass@example.com/v1",
+      "url": "https://user%3Apass@example.com/v1",
       "allowed": false,
       "reason": "地址里不允许内嵌账号密码，请把密钥填在 API Key 字段"
     },
