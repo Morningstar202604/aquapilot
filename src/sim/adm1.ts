@@ -172,10 +172,10 @@ export function adm1PH(state: Adm1State): number {
 /**
  * ADM1 CSTR 一步。
  *
- * 这是显式 Euler（小步长建议 ≤ 0.25 h），每一步先算速率再做水力混合。
+ * 核心是显式 Euler；公开入口按 ≤0.05 h 自动分子步，避免 0.5 h 步长下的酸化振荡。
  * 过程是透明的，便于和 bsm2-python 的 `adm1equations` 逐项对照。
  */
-export function stepAdm1(
+function stepAdm1Once(
   state: Adm1State,
   influent: Adm1State,
   params: Adm1Params = ADM1_PARAMS,
@@ -188,9 +188,9 @@ export function stepAdm1(
 
   // 1) 固体水解 / 崩解
   rates.disintegration = params.k_dec * state.X_c;
-  rates.hydCh = params.k_hyd_ch * state.X_su;
-  rates.hydPr = params.k_hyd_pr * state.X_aa;
-  rates.hydLi = params.k_hyd_li * state.X_fa;
+  rates.hydCh = params.k_hyd_ch * state.X_ch;
+  rates.hydPr = params.k_hyd_pr * state.X_pr;
+  rates.hydLi = params.k_hyd_li * state.X_li;
 
   // 2) 酸化/产甲烷：每个菌群的 Monod 限制 + 氢抑制
   const pH = adm1PH(state);
@@ -212,9 +212,9 @@ export function stepAdm1(
 
   // 3) 水解：颗粒→可溶底物
   add('X_c', -r('disintegration') * dtD);
-  add('X_su', r('disintegration') * 0.2 * dtD - r('hydCh') * dtD);
-  add('X_aa', r('disintegration') * 0.2 * dtD - r('hydPr') * dtD);
-  add('X_fa', r('disintegration') * 0.2 * dtD - r('hydLi') * dtD);
+  add('X_ch', r('disintegration') * 0.2 * dtD - r('hydCh') * dtD);
+  add('X_pr', r('disintegration') * 0.2 * dtD - r('hydPr') * dtD);
+  add('X_li', r('disintegration') * 0.2 * dtD - r('hydLi') * dtD);
   add('S_su', r('hydCh') * dtD + r('disintegration') * 0.1 * dtD);
   add('S_aa', r('hydPr') * dtD + r('disintegration') * 0.1 * dtD);
   add('S_fa', r('hydLi') * dtD + r('disintegration') * 0.1 * dtD);
@@ -278,6 +278,30 @@ export function stepAdm1(
     pH: adm1PH(stateOut),
     inhibited: pHFactor < 0.9 || h2Inhibition < 0.5,
   };
+}
+
+/**
+ * ADM1 稳定步进包装：把任意 dt 切成 <=0.05 h 的显式子步。
+ *
+ * 0.5 h 直接显式 Euler 会让酸化中间体在 48 h 内振荡到 pH 6.4、S_ac 200 g/m³，
+ * 这是数值刚性而非模型结论。子步进保持同一方程与操作顺序，只缩小步长。
+ */
+export function stepAdm1(
+  state: Adm1State,
+  influent: Adm1State,
+  params: Adm1Params = ADM1_PARAMS,
+  options: Adm1StepOptions,
+): Adm1Output {
+  const dt = Math.max(1e-9, options.dtHours);
+  const substeps = Math.max(1, Math.ceil(dt / 0.05));
+  const subDt = dt / substeps;
+  let current = state;
+  let out = stepAdm1Once(current, influent, params, { ...options, dtHours: subDt });
+  for (let i = 1; i < substeps; i++) {
+    current = out.state;
+    out = stepAdm1Once(current, influent, params, { ...options, dtHours: subDt });
+  }
+  return out;
 }
 
 export function emptyAdm1State(overrides: Partial<Adm1State> = {}): Adm1State {

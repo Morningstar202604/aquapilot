@@ -26,13 +26,21 @@
 - `npx vitest run`: 1651 passed / 1652 (139 files); one WP2 30 d COD/N/P balance failure (real failure, no `it.fails`)
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
-- Latest release: `v0.11.2` (Takács settler parity + ASM1 CSTR/network + simulation studies); prior `v0.11.1`, `v0.11.0`
+- Latest release: `v0.11.4` (ADM1 口径修正 + 子步进); prior `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
 - GitHub CI: typecheck/lint/build pass；unit 仅 WP2 30 d 账本失败；browser smoke 因前置单测红灯跳过
 
 ## Rule
 
 Every turn must land a code/test/golden commit or explicitly record a blocker;
 do not repeat the same probe without a code change.
+
+## 2026-11-25 ADM1 口径修正与子步进 (v0.11.4)
+
+- [x] 修正 TS oracle：`hydCh/hydPr/hydLi` 改回 `X_ch/X_pr/X_li`；崩解产物进入 `X_ch/X_pr/X_li`，不再误加 `X_su/X_aa/X_fa`。
+- [x] `stepAdm1`/`step_adm1` 公开入口按 <=0.05 h 自动子步，消除 0.5 h 显式 Euler 的酸化振荡（pH 6.42、S_ac 200 g/m³）。
+- [x] `sludgeToAdm1In` 不再同时写入 `X_c` 与 `X_ch/X_pr/X_li`，避免泥线 COD 重复计量。
+- [x] 重新生成 `rust/golden/adm1-48h.json`；Rust parity 全 27 组分 + 沼气/ pH 通过。
+- [ ] WP2 三账仍红，和本次 ADM1 泥线修正无关（WP2 稳态关闭泥线）。
 
 ## 2026-11-25 ADM1 standalone parity (v0.11.3)
 

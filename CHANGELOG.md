@@ -4,6 +4,28 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.4] — 2026-11-25
+
+### Fixed
+
+- **ADM1 hydrolysis mapping corrected** (`src/sim/adm1.ts`,
+  `rust/crates/aquapilot-core/src/adm1.rs`): `hydCh/hydPr/hydLi` now read
+  `X_ch/X_pr/X_li`; disintegration routes its particulate products to
+  `X_ch/X_pr/X_li` instead of incorrectly feeding `X_su/X_aa/X_fa`. This is
+  the standard ADM1 structure, replacing the oracle quirk mirrored in 0.11.3.
+- **ADM1 numerical stability**: the public step now splits any requested dt
+  into <= 0.05 h explicit-Euler substeps. At 0.5 h the corrected model
+  otherwise oscillated to pH 6.42 and S_ac ≈ 200 g/m³; substeps keep pH ≈ 7.14.
+- **Sludge feed COD double count removed** (`src/sim/sludgeLine.ts`): `X_c`
+  is no longer accompanied by separate `X_ch/X_pr/X_li` fractions that ADM1
+  disintegration would count again.
+
+### Changed
+
+- Regenerated `rust/golden/adm1-48h.json`; all 27 states, methane rate,
+  methane fraction, pH and inhibition flag match within 64 f64 ulps.
+- Version `0.11.4`.
+
 ## [0.11.3] — 2026-11-25
 
 ### Added

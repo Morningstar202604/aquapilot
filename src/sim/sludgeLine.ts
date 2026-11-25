@@ -163,10 +163,9 @@ export function createSludgeLine(enabled: boolean): SludgeLineState {
 function sludgeToAdm1In(feed: SludgeFeed): Adm1State {
   const solids = clampNonFinite(feed.feedSsKgM3);
   return emptyAdm1State({
+    // X_c is the particulate COD pool; ADM1 disintegration splits it into
+    // X_ch / X_pr / X_li. Adding those fractions here would double-count solids.
     X_c: solids * 0.85,
-    X_pr: solids * 0.85 * 0.3,
-    X_ch: solids * 0.85 * 0.3,
-    X_li: solids * 0.85 * 0.2,
     S_IN: clampNonFinite(feed.feedNKgM3),
     S_IC: 10,
     S_I: solids * 0.1,

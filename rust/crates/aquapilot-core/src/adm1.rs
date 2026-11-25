@@ -1,9 +1,9 @@
 //! ADM1 CSTR slice (M1 parity scaffold).
 //!
 //! Ported from the TypeScript oracle `src/sim/adm1.ts`. This is the transparent
-//! explicit-Euler unit used by the digester prototype, not a claim that the
-//! full BSM2 plant is ported. Operation order is kept identical so the golden
-//! state can be compared at floating-point precision.
+//! ADM1 CSTR used by the digester prototype, not a claim that the full BSM2
+//! plant is ported. The public step splits any dt into <=0.05 h explicit-Euler
+//! substeps; operation order is kept identical for golden comparison.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
@@ -205,22 +205,58 @@ fn clamp_state(s: State) -> State {
     out
 }
 
+/// Stable public step: split any dt into <= 0.05 h explicit-Euler substeps.
+/// The equations and operation order are unchanged; only the step size shrinks.
+pub fn step_adm1(state: &State, influent: &State, params: &Params, options: StepOptions) -> Output {
+    let dt = options.dt_hours.max(1e-9);
+    let substeps = ((dt / 0.05).ceil() as usize).max(1);
+    let sub_dt = dt / substeps as f64;
+    let mut current = *state;
+    let mut out = step_adm1_once(
+        &current,
+        influent,
+        params,
+        StepOptions {
+            dt_hours: sub_dt,
+            ..options
+        },
+    );
+    for _ in 1..substeps {
+        current = out.state;
+        out = step_adm1_once(
+            &current,
+            influent,
+            params,
+            StepOptions {
+                dt_hours: sub_dt,
+                ..options
+            },
+        );
+    }
+    out
+}
+
 pub fn empty_state() -> State {
     State::default()
 }
 
 /// One explicit-Euler CSTR step. The operation order mirrors TypeScript:
 /// reaction increments, gas transfer, then hydraulic mixing.
-pub fn step_adm1(state: &State, influent: &State, params: &Params, options: StepOptions) -> Output {
+fn step_adm1_once(
+    state: &State,
+    influent: &State,
+    params: &Params,
+    options: StepOptions,
+) -> Output {
     let dt_d = options.dt_hours / 24.0;
     let tau = (options.volume / options.flow.max(1e-9)).max(1e-9);
     let dilution = (options.dt_hours / tau.max(1e-9)).min(1.0);
     let mut rates = [0.0f64; 11];
 
     rates[0] = params.k_dec * state.get(Component::Xc);
-    rates[1] = params.k_hyd_ch * state.get(Component::Xsu);
-    rates[2] = params.k_hyd_pr * state.get(Component::Xaa);
-    rates[3] = params.k_hyd_li * state.get(Component::Xfa);
+    rates[1] = params.k_hyd_ch * state.get(Component::Xch);
+    rates[2] = params.k_hyd_pr * state.get(Component::Xpr);
+    rates[3] = params.k_hyd_li * state.get(Component::Xli);
 
     let ph = adm1_ph(state);
     let ph_factor = if ph < 6.5 {
@@ -269,9 +305,9 @@ pub fn step_adm1(state: &State, influent: &State, params: &Params, options: Step
 
     // 3) hydrolysis: particulate -> soluble substrate
     next.add(Component::Xc, -rates[0] * dt_d);
-    next.add(Component::Xsu, rates[0] * 0.2 * dt_d - rates[1] * dt_d);
-    next.add(Component::Xaa, rates[0] * 0.2 * dt_d - rates[2] * dt_d);
-    next.add(Component::Xfa, rates[0] * 0.2 * dt_d - rates[3] * dt_d);
+    next.add(Component::Xch, rates[0] * 0.2 * dt_d - rates[1] * dt_d);
+    next.add(Component::Xpr, rates[0] * 0.2 * dt_d - rates[2] * dt_d);
+    next.add(Component::Xli, rates[0] * 0.2 * dt_d - rates[3] * dt_d);
     next.add(Component::SSu, rates[1] * dt_d + rates[0] * 0.1 * dt_d);
     next.add(Component::SAa, rates[2] * dt_d + rates[0] * 0.1 * dt_d);
     next.add(Component::SFa, rates[3] * dt_d + rates[0] * 0.1 * dt_d);
