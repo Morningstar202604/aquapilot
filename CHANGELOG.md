@@ -4,6 +4,44 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.8] — 2026-11-25
+
+### Fixed
+
+- **Rust core is now gated in CI and Release.** `cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings` and `cargo test` run on Rust
+  `1.100.0`; previously the parity suite was only executed locally, so an M1
+  regression could reach a release tag without being seen.
+- **Invalid release input removed.** `softprops/action-gh-release` was given
+  `allow_updates`, which is not part of its input schema (GitHub reported
+  "Unexpected input(s)"). The release still succeeded, but the annotation was
+  noise; the input is gone.
+- **Node 20 deprecation annotations.** All workflows set
+  `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` instead of bumping action majors,
+  keeping action behavior unchanged while adopting the runner's Node 24.
+- **Stale plan/baseline counts.** `INDUSTRIAL-READINESS-PLAN.md` no longer
+  claims "current 0.11.5 / 132 files / 1614 tests / ASM1, ADM1, Takács missing";
+  `PROJECT-BASELINE.md`, `ADR-0001-language.md` and `QUALITY-ROADMAP.md` now
+  match 143 files / 1,734 tests. Historical rows are explicitly marked as
+  snapshots rather than current state.
+- **MCP surface documented and counted correctly.** `docs/API.md` now describes
+  `POST /mcp` (stateless Streamable HTTP, 2025-06-18, 20 tools, role mapping,
+  60 req/min/IP, Origin check), and `AGENT-HARNESS.md` says 20 tools instead of
+  the stale 10.
+
+### Added
+
+- Five API-route contract tests for `/api/models`, `health?deep=1`, bounded
+  history windows, Markdown export headers and unconnected industrial domains.
+- Coverage: lines 94.07%, branches 82.02%, functions 95.22% (thresholds
+  unchanged at 90 / 81 / 95); full suite 1,734/1,734 in 143 files.
+
+### Verification
+
+- `npm run ci`: ALL GREEN.
+- `cargo fmt --check` / `cargo clippy --all-targets -- -D warnings` / `cargo test`: pass (21 tests).
+- `npm run e2e`: pass at six widths, 0 console errors.
+
 ## [0.11.7] — 2026-11-25
 
 ### Fixed

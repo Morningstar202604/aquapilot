@@ -23,11 +23,11 @@
 
 - `cargo test`: 13 unit + ADM1 parity 1 + ASM1 parity 2 + ASM1 network parity 2 + ASM2d CSTR 1 + ASM2d network 1 + Takács 1, all pass
 - `cargo clippy --all-targets -- -D warnings`: clean
-- `npx vitest run`: 1729 passed / 1729 (143 files); WP2 30 d COD/N/P 三账闭合；覆盖率 93.84/81.83/95.16
+- `npx vitest run --coverage`: 1734 passed / 1734 (143 files); WP2 30 d COD/N/P 三账闭合；覆盖率 94.07/82.02/95.22
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
-- Latest release: `v0.11.7` (topbar/e2e fix); prior `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
-- GitHub CI: v0.11.6 覆盖率已转绿，但 Release e2e 在 1366 顶栏裁切、CI 回放页签固定等待误判；v0.11.7 已修复
+- Latest release: `v0.11.8` (Rust CI + docs hygiene); prior `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
+- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release，并清掉 `allow_updates` 非法输入与 Node20 弃用告警
 
 ## Rule
 

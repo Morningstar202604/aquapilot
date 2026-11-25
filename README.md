@@ -6,7 +6,7 @@ A wastewater treatment plant **simulation modelling platform**: reproducible mod
 
 [![CI](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Morningstar202604/aquapilot/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![tests](https://img.shields.io/badge/tests-1729%20passing-brightgreen)](docs/BENCHMARKS.md)
+[![tests](https://img.shields.io/badge/tests-1734%20passing-brightgreen)](docs/BENCHMARKS.md)
 
 ![AquaPilot control room](docs/screenshots/01-overview.jpg)
 

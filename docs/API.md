@@ -216,6 +216,24 @@ Capacity is explicit: if the experiment queue cannot fit the whole batch,
 instead of half-enqueueing. `Idempotency-Key` has the same replay/conflict
 semantics as experiments.
 
+## MCP endpoint
+
+`POST /mcp` 暴露 MCP Streamable HTTP（JSON-RPC 2.0，协议版本 `2025-06-18`），
+无状态、无 SSE；`GET /mcp` 按规范返回 `405`。外部 Agent 框架可直接把该 URL
+作为 streamable HTTP server 接入，无需另写适配器。
+
+- **鉴权**：复用 `Authorization: Bearer` 分级令牌。只读工具按 `viewer`，写工具
+  按 `operator`；未知工具按 `viewer` 进入协议层后回 `-32602`。
+- **限流**：每 IP 60 请求/分钟，超限返回 `429`。
+- **Origin**：带 `Origin` 时必须与 `Host` 同源，否则拒绝，防止 DNS rebinding。
+- **工具面**：20 个工具，读写分离，涵盖状态读取、控制/工况注入、无头仿真、
+  实验队列（创建/查询/列表/取消）与研究队列（批量变体/Pareto/报告）。
+- **初始化**：`initialize` 响应声明 `tools.listChanged=false`，`serverInfo.name`
+  为 `aquapilot`；`tools/list` 返回每个工具的 `inputSchema` 与
+  `readOnlyHint`/`destructiveHint`。
+- **错误**：协议错误用 JSON-RPC error；工具业务失败用 `result.isError=true`
+  + 文本原因，不把异常栈返回给客户端。
+
 ## Endpoints
 
 ### `GET /api/health`

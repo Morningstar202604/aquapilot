@@ -207,7 +207,7 @@ export function createApiHandler(deps: ApiHandlerDeps) {
         active: d.id === 'asm1' && (rt.net.modelMode === 'asm1' || rt.net.modelMode === 'simple'),
         /** 是否已接入主求解器；ASM2d 可驱动主界面，但网络级稳态仍是实验特性 */
         inRuntime: d.id === 'asm1' || d.id === 'asm2d',
-        /** 实验特性标记：ASM2d 网络级稳态/除磷尚未达验收门（见 docs/PLANT-BOUNDARY.md） */
+        /** 实验特性标记：ASM2d 为可选高阶模型，默认仍跑 ASM1；WP2 三账已闭合（见 docs/PLANT-BOUNDARY.md） */
         experimental: d.id === 'asm2d',
       }));
       sendJson(res, 200, { models: list, influentSources: ADAPTER_CAPABILITIES });

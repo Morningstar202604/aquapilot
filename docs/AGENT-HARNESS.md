@@ -1,7 +1,7 @@
 # Agent Harness 生态：调研与落地（2026-03）
 
 > **调研结论的落地状态**：P0（MCP Streamable HTTP 端点）已于 v0.6.0 实现——
-> `POST /mcp`，协议版本 2025-06-18，10 个工具（读写分离），分级令牌鉴权 +
+> `POST /mcp`，协议版本 2025-06-18，20 个工具（读写分离，含实验/研究队列），分级令牌鉴权 +
 > 限流 + Origin 校验，见 `src/server/mcp.ts` 与 `tests/mcpServer.test.ts`。
 > 外部 agent 框架（LangGraph / OpenAI Agents SDK / CrewAI / Vercel AI SDK /
 > Mastra）配置 Streamable HTTP URL 即可直连。P1/P2 项见文末优先级清单。

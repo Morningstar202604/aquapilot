@@ -1,6 +1,6 @@
 # AquaPilot 工业级仿真实施计划
 
-> 版本：2026-11-25（历史计划；当前交付 0.11.5）  
+> 版本：2026-11-25（历史计划；文档状态截至 v0.11.8）
 > 基线：`05c5642`（v0.9.0，MIT，仅 `main`）  
 > 本文件保留 2026-11-24 的计划口径；实际已按批次推送五平台，当前状态以 `docs/PROJECT-BASELINE.md` 为准。
 
@@ -171,7 +171,7 @@ npx jscpd ...                 37,698 行，0 克隆，0 重复行
 | 类型 | `npx tsc -p tsconfig.json --noEmit` | 0 错误 |
 | Lint | `npx eslint src tests` | 0 错误 |
 | 格式 | `npx prettier --check "src/**/*.{ts,tsx,css}" "tests/**/*.{ts,tsx}"` | 全部匹配 |
-| 回归 | `npx vitest run --maxWorkers=4` | 132 文件 / 1614 通过 + 3 预期失败 / 0 失败，278 s |
+| 回归 | `npx vitest run --maxWorkers=4` | 132 文件 / 1614 通过 + 3 预期失败 / 0 失败，278 s（v0.10.0 当时记录） |
 | 构建 | `npm run build` | client + server + cli 成功 |
 | 重复代码 | `npx jscpd src --min-lines 8 --min-tokens 80 --format ...` | 0 克隆（48,050 行） |
 
@@ -179,7 +179,8 @@ npx jscpd ...                 37,698 行，0 克隆，0 重复行
 - 并发压测下 `wsAgentConfigAuth.integration.test.ts` 的 tsx 冷启动会超过 10 s，健康轮询上限由 40×250 ms 提到 240×250 ms（断言不放宽），全量套件恢复全绿。
 - 服务端冒烟（`PORT=5199 AQUAPILOT_PERSIST=0 node dist/server/index.mjs`）：`/api/health`、`/api/snapshot`、`/api/hydraulics`、`/api/instruments`、`/api/control/interlocks`、`/api/assets`、`/api/plant/balance`、`/api/protocols/tags`、`/api/compliance/report` 均 200；`/api/calibration/uncertainty` 409 `CALIBRATION_INSUFFICIENT_DATA`（无剖面数据，符合契约）。
 - 浏览器冒烟（Chromium）：侧栏 12 个页签；工业页 4 个子视图（合规 / 资产 / 协议 / 仪表联锁）；仪表 25 测点、0 异常，`measured` 与 `truth` 逐位一致；快照、仪表、联锁三处 `timeMin` 对齐（t=42 min）。
-- 提交方式：单次统一 commit（不 push、不建分支），版本 `0.10.0`。
+- 提交方式：单次统一 commit（不 push、不建分支），版本 `0.10.0`（历史记录；当前 v0.11.8 已推送五平台）。
+- **当前门禁（v0.11.8）**：143 文件 / 1734 用例全部通过，0 预期失败；覆盖率 94.07/82.02/95.22（阈值 90/81/95）。见 `docs/PROJECT-BASELINE.md` §1.3。
 
 
 ### 3.7 语言迁移 M1：Rust 仿真内核切片（2026-11-24）
@@ -188,7 +189,8 @@ npx jscpd ...                 37,698 行，0 克隆，0 重复行
 - 已完成 ASM2d 19 组分/19 过程、CSTR、曝气/DO PI、前馈、风机功率、5 池网络（外回流/RAS/发酵/好氧吸磷/DO 控制）移植。
 - CSTR 24 h 与 TS 逐位一致（≤1e-12），黄金 `rust/golden/asm2d-cstr-24h.json`；5 池 48 h 的 19 组分 × 5 反应器与 TS **逐点完全一致**，黄金 `rust/golden/asm2d-network-48h.json`。
 - `cargo test` 7 单元 + CSTR parity + network parity 全过；`cargo clippy --all-targets -- -D warnings` 0 报错。
-- 未完成：ASM1、ADM1、Takács、水力学、服务端、AI、CLI 的 Rust 端口；M2–M4 未开始。
+- 后续已完成：ASM1 反应面/CSTR/网络、ADM1 standalone CSTR、Takács 二沉池的 Rust parity；CI 现在会跑 `cargo fmt/clippy/test`。
+- 当前 M1 剩余：ADM1 泥线整链与水力/输运 parity；M2–M4 未开始。状态以 `WORKLOG.md` 与 `docs/PROJECT-BASELINE.md` 为准。
 
 ## 4. 实施顺序与依赖
 
