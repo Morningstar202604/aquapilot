@@ -1,0 +1,786 @@
+{
+  "source": "src/sim/hydraulics.ts",
+  "designFlowM3h": 900,
+  "dtMin": 1,
+  "steps": 48,
+  "specs": [
+    {
+      "id": "feed",
+      "from": "inlet",
+      "to": "a",
+      "stream": "mixed_liquor",
+      "trainId": "A",
+      "geometry": {
+        "lengthM": 24,
+        "diameterMm": 500,
+        "roughnessMm": 0.4,
+        "targetVelocityMps": 1.2,
+        "deviceKind": "none",
+        "valveOpen": 1,
+        "valveCv": 120,
+        "pumpRpm": 1450,
+        "pumpHead0M": 18,
+        "pumpK": 0.000024,
+        "weirWidthM": 1,
+        "weirType": "rectangular"
+      }
+    },
+    {
+      "id": "a-clar",
+      "from": "a",
+      "to": "clar",
+      "stream": "mixed_liquor",
+      "trainId": "A",
+      "geometry": {
+        "lengthM": 36,
+        "diameterMm": 600,
+        "roughnessMm": 0.35,
+        "targetVelocityMps": 1.2,
+        "deviceKind": "none",
+        "valveOpen": 1,
+        "valveCv": 120,
+        "pumpRpm": 1450,
+        "pumpHead0M": 18,
+        "pumpK": 0.000024,
+        "weirWidthM": 1,
+        "weirType": "rectangular"
+      }
+    },
+    {
+      "id": "ras",
+      "from": "clar",
+      "to": "a",
+      "stream": "return_activated_sludge",
+      "trainId": "A",
+      "recycleKind": "ras",
+      "geometry": {
+        "lengthM": 18,
+        "diameterMm": 400,
+        "roughnessMm": 0.5,
+        "targetVelocityMps": 1.2,
+        "deviceKind": "pump",
+        "valveOpen": 1,
+        "valveCv": 120,
+        "pumpRpm": 1200,
+        "pumpHead0M": 14,
+        "pumpK": 0.000012,
+        "weirWidthM": 1,
+        "weirType": "rectangular"
+      }
+    },
+    {
+      "id": "was",
+      "from": "clar",
+      "to": "thick",
+      "stream": "waste_sludge",
+      "trainId": "A",
+      "recycleKind": "was",
+      "geometry": {
+        "lengthM": 16,
+        "diameterMm": 200,
+        "roughnessMm": 0.5,
+        "targetVelocityMps": 1.2,
+        "deviceKind": "valve",
+        "valveOpen": 0.45,
+        "valveCv": 90,
+        "pumpRpm": 1450,
+        "pumpHead0M": 18,
+        "pumpK": 0.000024,
+        "weirWidthM": 1,
+        "weirType": "rectangular"
+      }
+    },
+    {
+      "id": "air",
+      "from": "blower",
+      "to": "a",
+      "stream": "air",
+      "trainId": "A",
+      "geometry": {
+        "lengthM": 10,
+        "diameterMm": 300,
+        "roughnessMm": 0.5,
+        "targetVelocityMps": 1.2,
+        "deviceKind": "none",
+        "valveOpen": 1,
+        "valveCv": 120,
+        "pumpRpm": 1450,
+        "pumpHead0M": 18,
+        "pumpK": 0.000024,
+        "weirWidthM": 1,
+        "weirType": "rectangular"
+      }
+    },
+    {
+      "id": "out",
+      "from": "clar",
+      "to": "outlet",
+      "stream": "effluent",
+      "trainId": "A",
+      "geometry": {
+        "lengthM": 12,
+        "diameterMm": 700,
+        "roughnessMm": 0.5,
+        "targetVelocityMps": 1.2,
+        "deviceKind": "weir",
+        "valveOpen": 1,
+        "valveCv": 120,
+        "pumpRpm": 1450,
+        "pumpHead0M": 18,
+        "pumpK": 0.000024,
+        "weirWidthM": 1.2,
+        "weirType": "v-notch"
+      }
+    }
+  ],
+  "pure": {
+    "defaultGeo": {
+      "lengthM": 6,
+      "diameterMm": 0,
+      "roughnessMm": 0.5,
+      "targetVelocityMps": 1.2,
+      "deviceKind": "none",
+      "valveOpen": 1,
+      "valveCv": 120,
+      "pumpRpm": 1450,
+      "pumpHead0M": 18,
+      "pumpK": 0.000024,
+      "weirWidthM": 1,
+      "weirType": "rectangular"
+    },
+    "diameter2000": 767.7647766029678,
+    "diameterZero": 100,
+    "valve30": {
+      "resistance": 26.653293639520932,
+      "status": "ok",
+      "zeta": 27.77777777777778,
+      "closed": false
+    },
+    "valve80": {
+      "resistance": 3.946871621172313,
+      "status": "ok",
+      "zeta": 3.906249999999999,
+      "closed": false
+    },
+    "pump500": {
+      "headM": 12,
+      "maxFlowM3h": 866.0254037844386,
+      "overCurve": false
+    },
+    "pumpOver": {
+      "headM": 0,
+      "maxFlowM3h": 866.0254037844386,
+      "overCurve": true
+    },
+    "split": {
+      "flows": [
+        277.88145152278486,
+        722.1185484772151
+      ],
+      "status": "ok"
+    },
+    "segments": [
+      1,
+      1,
+      2,
+      4
+    ],
+    "weirRect": {
+      "flowM3h": 884.2777250615331,
+      "overflow": false
+    },
+    "weirV": {
+      "flowM3h": 94.32295733989686,
+      "overflow": false
+    },
+    "weirHigh": {
+      "flowM3h": 4594.841843423993,
+      "overflow": true
+    },
+    "outletBranch": {
+      "areaM2": 0.38484510006474965,
+      "diameterMm": 700,
+      "velocityMps": 0.6712657463739804,
+      "volumeM3": 4.6181412007769955,
+      "residenceMin": 0.29794459359851583,
+      "friction": 0.022,
+      "resistance": 0.12978812578675772,
+      "headLossM": 0.00866155478340793,
+      "status": "ok",
+      "zeta": 0,
+      "pumpHeadM": 0
+    }
+  },
+  "trace": [
+    {
+      "t": 1,
+      "feed": 900,
+      "feedOutlet": 3043.7711055572468,
+      "outFlow": 837,
+      "outTracer": 0,
+      "retained": 14.343433416641293,
+      "discharged": 0
+    },
+    {
+      "t": 16,
+      "feed": 900,
+      "feedOutlet": 0.0000014485719125246268,
+      "outFlow": 837,
+      "outTracer": 0.07509691137460829,
+      "retained": 0.0005112687994130677,
+      "discharged": 55.799271398699055
+    },
+    {
+      "t": 32,
+      "feed": 850,
+      "feedOutlet": 3.289378904425314e-16,
+      "outFlow": 790.5,
+      "outTracer": 7.819494526460999e-8,
+      "retained": 5.373711640918172e-10,
+      "discharged": 55.79998747678018
+    },
+    {
+      "t": 48,
+      "feed": 1000,
+      "feedOutlet": 1.0213056341066557e-26,
+      "outFlow": 930,
+      "outTracer": 1.9588235320595606e-14,
+      "retained": 1.3053862270979805e-16,
+      "discharged": 55.79998747757729
+    }
+  ],
+  "final": {
+    "edges": [
+      {
+        "id": "feed",
+        "from": "inlet",
+        "to": "a",
+        "stream": "mixed_liquor",
+        "trainId": "A",
+        "flowM3h": 1000,
+        "volumeM3": 4.71238898038469,
+        "residenceMin": 0.2827433388230814,
+        "velocityMps": 1.4147106052612919,
+        "resistance": 1.3960633792627435,
+        "headLossM": 0.10772093975792775,
+        "capacityM3h": null,
+        "deviceKind": "none",
+        "status": "ok",
+        "valveOpen": null,
+        "pumpHeadM": 0,
+        "pumpRpm": null,
+        "tracerSegments": [
+          1.0213056341066557e-26
+        ],
+        "componentSegments": [
+          [
+            420.00000000000006,
+            35.00000000000001,
+            8,
+            6.000000000000001,
+            180.00000000000003
+          ]
+        ],
+        "tracerOutlet": 1.0213056341066557e-26,
+        "segmentCount": 1
+      },
+      {
+        "id": "a-clar",
+        "from": "a",
+        "to": "clar",
+        "stream": "mixed_liquor",
+        "trainId": "A",
+        "flowM3h": 978,
+        "volumeM3": 10.17876019763093,
+        "residenceMin": 0.6244638158055785,
+        "velocityMps": 0.9608242860732941,
+        "resistance": 0.8415698418588103,
+        "headLossM": 0.06211019202318537,
+        "capacityM3h": null,
+        "deviceKind": "none",
+        "status": "ok",
+        "valveOpen": null,
+        "pumpHeadM": 0,
+        "pumpRpm": null,
+        "tracerSegments": [
+          3.93735438767091e-15
+        ],
+        "componentSegments": [
+          [
+            420.00000000000006,
+            35,
+            8,
+            6.000000000000002,
+            180.00000000000003
+          ]
+        ],
+        "tracerOutlet": 3.93735438767091e-15,
+        "segmentCount": 1
+      },
+      {
+        "id": "ras",
+        "from": "clar",
+        "to": "a",
+        "stream": "return_activated_sludge",
+        "trainId": "A",
+        "recycleKind": "ras",
+        "flowM3h": 180,
+        "volumeM3": 2.261946710584651,
+        "residenceMin": 0.7539822368615504,
+        "velocityMps": 0.3978873577297383,
+        "resistance": 3.19533549330767,
+        "headLossM": 0.007988338733269176,
+        "capacityM3h": 893.8952687459117,
+        "deviceKind": "pump",
+        "status": "ok",
+        "valveOpen": null,
+        "pumpHeadM": 9.199785017835909,
+        "pumpRpm": 1200,
+        "tracerSegments": [
+          0
+        ],
+        "componentSegments": [
+          [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        ],
+        "tracerOutlet": 0,
+        "segmentCount": 1
+      },
+      {
+        "id": "was",
+        "from": "clar",
+        "to": "thick",
+        "stream": "waste_sludge",
+        "trainId": "A",
+        "recycleKind": "was",
+        "flowM3h": 42,
+        "volumeM3": 0.5026548245743669,
+        "residenceMin": 0.7180783208205241,
+        "velocityMps": 0.3713615338810891,
+        "resistance": 728.4424534198502,
+        "headLossM": 0.0991491117154796,
+        "capacityM3h": null,
+        "deviceKind": "valve",
+        "status": "ok",
+        "valveOpen": 0.45,
+        "pumpHeadM": 0,
+        "pumpRpm": null,
+        "tracerSegments": [
+          0
+        ],
+        "componentSegments": [
+          [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        ],
+        "tracerOutlet": 0,
+        "segmentCount": 1
+      },
+      {
+        "id": "air",
+        "from": "blower",
+        "to": "a",
+        "stream": "air",
+        "trainId": "A",
+        "flowM3h": 0,
+        "volumeM3": 0.7068583470577035,
+        "residenceMin": 0,
+        "velocityMps": 0,
+        "resistance": 7.480620816522759,
+        "headLossM": 0,
+        "capacityM3h": null,
+        "deviceKind": "none",
+        "status": "no_flow",
+        "valveOpen": null,
+        "pumpHeadM": 0,
+        "pumpRpm": null,
+        "tracerSegments": [
+          0
+        ],
+        "componentSegments": [
+          [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        ],
+        "tracerOutlet": 0,
+        "segmentCount": 1
+      },
+      {
+        "id": "out",
+        "from": "clar",
+        "to": "outlet",
+        "stream": "effluent",
+        "trainId": "A",
+        "flowM3h": 930,
+        "volumeM3": 4.6181412007769955,
+        "residenceMin": 0.29794459359851583,
+        "velocityMps": 0.6712657463739804,
+        "resistance": 0.12978812578675772,
+        "headLossM": 0.00866155478340793,
+        "capacityM3h": null,
+        "deviceKind": "weir",
+        "status": "ok",
+        "valveOpen": null,
+        "pumpHeadM": 0,
+        "pumpRpm": null,
+        "tracerSegments": [
+          1.9588235320595606e-14
+        ],
+        "componentSegments": [
+          [
+            420.00000000000006,
+            35,
+            8,
+            6.000000000000001,
+            180.00000000000003
+          ]
+        ],
+        "tracerOutlet": 1.9588235320595606e-14,
+        "segmentCount": 1
+      }
+    ],
+    "tracer": {
+      "active": true,
+      "injectedMassKg": 60,
+      "meanResidenceMin": 4.839065054748348,
+      "varianceMin2": 2.028881342319302,
+      "peakMin": 3,
+      "peakC": 1350.0291826446044,
+      "retainedMassKg": 1.3053862270979805e-16,
+      "dischargedMassKg": 55.79998747757729,
+      "historyLength": 48,
+      "history": [
+        {
+          "tMin": 1,
+          "outletC": 0
+        },
+        {
+          "tMin": 2,
+          "outletC": 0
+        },
+        {
+          "tMin": 3,
+          "outletC": 1350.0291826446044
+        },
+        {
+          "tMin": 4,
+          "outletC": 1211.5146814294696
+        },
+        {
+          "tMin": 5,
+          "outletC": 737.2015622860224
+        },
+        {
+          "tMin": 6,
+          "outletC": 380.34511545514994
+        },
+        {
+          "tMin": 7,
+          "outletC": 179.70004673565475
+        },
+        {
+          "tMin": 8,
+          "outletC": 80.6084956882535
+        },
+        {
+          "tMin": 9,
+          "outletC": 35.01206336362922
+        },
+        {
+          "tMin": 10,
+          "outletC": 14.897742412155887
+        },
+        {
+          "tMin": 11,
+          "outletC": 6.25517531825518
+        },
+        {
+          "tMin": 12,
+          "outletC": 2.6037028987361173
+        },
+        {
+          "tMin": 13,
+          "outletC": 1.0776717566673788
+        },
+        {
+          "tMin": 14,
+          "outletC": 0.44440768943062275
+        },
+        {
+          "tMin": 15,
+          "outletC": 0.1828259266568
+        },
+        {
+          "tMin": 16,
+          "outletC": 0.07509691137460829
+        },
+        {
+          "tMin": 17,
+          "outletC": 0.03145430699350286
+        },
+        {
+          "tMin": 18,
+          "outletC": 0.013231105097632557
+        },
+        {
+          "tMin": 19,
+          "outletC": 0.0055803192531931394
+        },
+        {
+          "tMin": 20,
+          "outletC": 0.002357361539851984
+        },
+        {
+          "tMin": 21,
+          "outletC": 0.0009968374575734262
+        },
+        {
+          "tMin": 22,
+          "outletC": 0.0004217798193140467
+        },
+        {
+          "tMin": 23,
+          "outletC": 0.00017852864553929363
+        },
+        {
+          "tMin": 24,
+          "outletC": 0.00007558367568961835
+        },
+        {
+          "tMin": 25,
+          "outletC": 0.00003200426417103262
+        },
+        {
+          "tMin": 26,
+          "outletC": 0.000013552646309230852
+        },
+        {
+          "tMin": 27,
+          "outletC": 0.000005739348085976833
+        },
+        {
+          "tMin": 28,
+          "outletC": 0.000002430605981368976
+        },
+        {
+          "tMin": 29,
+          "outletC": 0.0000010293778369720905
+        },
+        {
+          "tMin": 30,
+          "outletC": 4.359534290793525e-7
+        },
+        {
+          "tMin": 31,
+          "outletC": 1.8463262855900155e-7
+        },
+        {
+          "tMin": 32,
+          "outletC": 7.819494526460999e-8
+        },
+        {
+          "tMin": 33,
+          "outletC": 3.129086237419607e-8
+        },
+        {
+          "tMin": 34,
+          "outletC": 1.2311344749548237e-8
+        },
+        {
+          "tMin": 35,
+          "outletC": 4.797538324570668e-9
+        },
+        {
+          "tMin": 36,
+          "outletC": 1.859131918219978e-9
+        },
+        {
+          "tMin": 37,
+          "outletC": 7.180932744639994e-10
+        },
+        {
+          "tMin": 38,
+          "outletC": 2.76828964761276e-10
+        },
+        {
+          "tMin": 39,
+          "outletC": 1.0659667067487217e-10
+        },
+        {
+          "tMin": 40,
+          "outletC": 4.1018437657516925e-11
+        },
+        {
+          "tMin": 41,
+          "outletC": 1.5777487078558315e-11
+        },
+        {
+          "tMin": 42,
+          "outletC": 6.067239492324432e-12
+        },
+        {
+          "tMin": 43,
+          "outletC": 2.3328216867184124e-12
+        },
+        {
+          "tMin": 44,
+          "outletC": 8.968801389610459e-13
+        },
+        {
+          "tMin": 45,
+          "outletC": 3.447980945294656e-13
+        },
+        {
+          "tMin": 46,
+          "outletC": 1.3255066957462635e-13
+        },
+        {
+          "tMin": 47,
+          "outletC": 5.095549264363533e-14
+        },
+        {
+          "tMin": 48,
+          "outletC": 1.9588235320595606e-14
+        }
+      ]
+    },
+    "errors": [],
+    "trains": [
+      {
+        "id": "A",
+        "clarifierId": "clar",
+        "feedFlowM3h": 2908,
+        "rasFlowM3h": 180,
+        "wasFlowM3h": 42
+      }
+    ],
+    "view": {
+      "edgeCount": 6,
+      "edges": [
+        {
+          "id": "feed",
+          "from": "inlet",
+          "to": "a",
+          "stream": "mixed_liquor",
+          "flowM3h": 1000,
+          "volumeM3": 4.712,
+          "residenceMin": 0.283,
+          "velocityMps": 1.415,
+          "headLossM": 0.108,
+          "deviceKind": "none",
+          "status": "ok",
+          "pumpHeadM": 0,
+          "tracerOutlet": 0
+        },
+        {
+          "id": "a-clar",
+          "from": "a",
+          "to": "clar",
+          "stream": "mixed_liquor",
+          "flowM3h": 978,
+          "volumeM3": 10.179,
+          "residenceMin": 0.624,
+          "velocityMps": 0.961,
+          "headLossM": 0.062,
+          "deviceKind": "none",
+          "status": "ok",
+          "pumpHeadM": 0,
+          "tracerOutlet": 0
+        },
+        {
+          "id": "ras",
+          "from": "clar",
+          "to": "a",
+          "stream": "return_activated_sludge",
+          "flowM3h": 180,
+          "volumeM3": 2.262,
+          "residenceMin": 0.754,
+          "velocityMps": 0.398,
+          "headLossM": 0.008,
+          "deviceKind": "pump",
+          "status": "ok",
+          "pumpHeadM": 9.2,
+          "tracerOutlet": 0
+        },
+        {
+          "id": "was",
+          "from": "clar",
+          "to": "thick",
+          "stream": "waste_sludge",
+          "flowM3h": 42,
+          "volumeM3": 0.503,
+          "residenceMin": 0.718,
+          "velocityMps": 0.371,
+          "headLossM": 0.099,
+          "deviceKind": "valve",
+          "status": "ok",
+          "valveOpen": 0.45,
+          "pumpHeadM": 0,
+          "tracerOutlet": 0
+        },
+        {
+          "id": "air",
+          "from": "blower",
+          "to": "a",
+          "stream": "air",
+          "flowM3h": 0,
+          "volumeM3": 0.707,
+          "residenceMin": 0,
+          "velocityMps": 0,
+          "headLossM": 0,
+          "deviceKind": "none",
+          "status": "no_flow",
+          "pumpHeadM": 0,
+          "tracerOutlet": 0
+        },
+        {
+          "id": "out",
+          "from": "clar",
+          "to": "outlet",
+          "stream": "effluent",
+          "flowM3h": 930,
+          "volumeM3": 4.618,
+          "residenceMin": 0.298,
+          "velocityMps": 0.671,
+          "headLossM": 0.009,
+          "deviceKind": "weir",
+          "status": "ok",
+          "pumpHeadM": 0,
+          "tracerOutlet": 0
+        }
+      ],
+      "trains": [
+        {
+          "id": "A",
+          "clarifierId": "clar",
+          "feedFlowM3h": 2908,
+          "rasFlowM3h": 180,
+          "wasFlowM3h": 42
+        }
+      ],
+      "tracer": {
+        "active": true,
+        "meanResidenceMin": 4.839,
+        "varianceMin2": 2.029,
+        "peakMin": 3,
+        "peakC": 1350.029,
+        "injectedMassKg": 60,
+        "retainedMassKg": 0
+      },
+      "errors": []
+    }
+  }
+}

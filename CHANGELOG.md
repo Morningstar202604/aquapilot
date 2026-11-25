@@ -4,6 +4,37 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.11] — 2026-11-25
+
+### Added
+
+- **Rust hydraulics / transport parity.** Ported `src/sim/hydraulics.ts` into
+  `rust/crates/aquapilot-core/src/hydraulics.rs`: resistance-based split,
+  friction and valve/weir losses, pump H-Q curve, segmented-CSTR transport,
+  tracer injection/RTD moments, mass balance, train aggregation and snapshot
+  projection.
+- Golden fixture `rust/golden/hydraulics-48h.json` (6 edges, 48 × 1 min steps,
+  900/850/1000 m3/h transients, 60 kg feed tracer pulse) and
+  `tests/hydraulics_parity.rs`. Pure functions, every edge field, per-segment
+  tracer/5-component concentrations, RTD and train aggregation match the TS
+  oracle within 1e-12 relative tolerance. No tolerance was loosened.
+- `examples/hydraulics.rs`; `serde_json` is a test-only dev-dependency.
+
+### Milestone
+
+- **M1 module slices are complete** across the six defined units: ASM1 reaction/network,
+  Takács, ADM1 CSTR, ADM1 sludge line, hydraulics/transport. The overall M1
+  exit gate still requires a full-plant same-input TS↔Rust comparison (effluent,
+  inventory, three balances) plus fuzz/property tests. M2 (Rust server/AI/CLI),
+  M3 (3D/industrial acceptance) and M4 are still open and are not represented by
+  placeholders.
+
+### Verification
+
+- `cargo test`: 33 tests pass (21 unit + 12 parity/integration).
+- `cargo fmt --check` / `cargo clippy --all-targets -- -D warnings`: pass.
+- TypeScript suite unchanged at 1,734/1,734; `npm run ci` ALL GREEN.
+
 ## [0.11.10] — 2026-11-25
 
 ### Added

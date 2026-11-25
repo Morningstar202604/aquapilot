@@ -131,3 +131,14 @@ H(Q) = H₀·(n/n₀)² − K·Q²
   `GET /api/hydraulics/tracer`（纯路由函数，接线由集成方在 `apiRoutes.ts` 完成）；
 - 错误码：`HYDRAULICS_INVALID_GEOMETRY`、`HYDRAULICS_UNSOLVABLE_SPLIT`、
   `HYDRAULICS_TRACER_OVERFLOW`。
+
+## 9. Rust parity（v0.11.11）
+
+- `rust/crates/aquapilot-core/src/hydraulics.rs` 按本文口径移植：阻力分流、
+  沿程/阀/堰阻力、泵 H-Q、分段 CSTR、示踪剂 RTD、质量守恒账、系列聚合与快照。
+- 黄金 `rust/golden/hydraulics-48h.json`：6 条边、48 个 1 min 步长，
+  900/850/1000 m³/h 阶跃、进水 60 kg 示踪剂脉冲。
+- `tests/hydraulics_parity.rs` 对纯函数、边字段、各段示踪剂/5 组分、RTD 与
+  系列聚合逐项比对，相对容差 1e-12；`examples/hydraulics.rs` 为烟测入口。
+- 边界仍同第 7 节：Rust 目前是模块级 parity，不是全厂同输入出水/库存/
+  三本账对比，也不是闭环管网平差。
