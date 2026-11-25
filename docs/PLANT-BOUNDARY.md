@@ -258,5 +258,6 @@ RAS 硝酸盐在二沉池/回流管内的反硝化显式记入 N₂；RAS 底流
   对每行每字段、库存与诊断做 1e-12 比对。
 - 属性测试覆盖 500 步残差恒等式、`closed` 阈值一致性、非负累计项；关闭泥线时
   滤液回流为零、沼气 COD 为零，`reset` 清空账本与库存种子。
-- 边界：三本账模块已 parity，但整厂 production `stepNetwork` 轨迹逐态 replay
-  尚未完成，不能据此把 M1 总里程碑标为完成。
+- 边界：三本账模块已 parity；整厂 production `stepNetwork` 轨迹逐态 replay
+  已由 v0.11.14 补齐（96 步 × 15 min，见 `docs/PLANT-REPLAY.md`），M1 三项
+  退出条件满足。本文件只描述三本账口径，不把 M2 的 soak/服务端迁移混入。

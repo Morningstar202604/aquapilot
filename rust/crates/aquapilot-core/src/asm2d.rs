@@ -222,7 +222,7 @@ impl Default for Params {
             k_pha: 0.1,
             k_pre: 1.0,
             k_red: 0.6,
-            k_amm: 0.08,
+            k_amm: 0.008,
             theta: 1.06,
             t_ref: 20.0,
         }
@@ -342,7 +342,14 @@ impl Stoichiometry {
         set(Process::HydrolysisXS, Component::SNH4, p.i_n_xs - p.i_n_si);
         set(Process::HydrolysisXS, Component::SPO4, p.i_p_xs);
 
-        // ammonification intentionally empty (reference is empty as well)
+        // ammonification: S_F -> 0.3 S_A + 0.7 S_I, bound organic N released as NH4.
+        // The earlier scaffold left this process empty; the TS oracle has carried
+        // these coefficients since the plant COD/N close-out and a production
+        // trace exposes the drift immediately (S_I/S_F diverge in one 15 min step).
+        set(Process::Ammonification, Component::SF, -1.0);
+        set(Process::Ammonification, Component::SA, 0.3);
+        set(Process::Ammonification, Component::SI, 0.7);
+        set(Process::Ammonification, Component::SNH4, p.i_n_si);
         // storage_PHA_anaerobic
         set(Process::StoragePHAAerobic, Component::SA, -1.0);
         set(Process::StoragePHAAerobic, Component::XPHA, p.y_pha);
@@ -541,7 +548,7 @@ impl Params {
         let mut p = *self;
         p.y_pha = 0.2;
         p.q_pha = 3.0;
-        p.q_pp = 1.5;
+        p.q_pp = 20.0;
         p.mu_pao = 1.0;
         p.b_pao = 0.2;
         p.b_h = 0.4;
@@ -576,6 +583,32 @@ pub fn step_cstr(state: &State, influent: &State, params: &Params, opts: CstrOpt
             + (influent.get(c) - state.get(c)) * dilution.min(1.0)
             + reaction * opts.dt_hours;
         next.set(c, value.max(0.0));
+    }
+    // Mirror the TS CSTR's aerobic luxury phosphate uptake. Without it the
+    // single-tank slice cannot close the anaerobic-release / aerobic-uptake loop.
+    if state.get(Component::SO) > 0.5 && next.get(Component::XPAO) > 1e-6 {
+        let pha = next.get(Component::XPHA).max(0.0);
+        let pha_lim =
+            0.1 + 0.9 * ((pha - 0.01).max(0.0) / (p.k_pha + (pha - 0.01).max(0.0) + 1e-6));
+        let po4_lim = next.get(Component::SPO4) / (p.k_p + next.get(Component::SPO4) + 1e-6);
+        let uptake =
+            (p.q_pp * next.get(Component::XPAO) * pha_lim * po4_lim * opts.dt_hours).max(0.0);
+        if uptake > 1e-9 {
+            next.set(Component::XPP, next.get(Component::XPP) + uptake);
+            next.set(
+                Component::XPHA,
+                (next.get(Component::XPHA) - uptake / p.y_pao).max(0.0),
+            );
+            next.set(
+                Component::SPO4,
+                (next.get(Component::SPO4) - uptake * p.i_p_pp).max(0.0),
+            );
+            next.set(
+                Component::SO,
+                (next.get(Component::SO) - uptake / p.y_pao).max(0.0),
+            );
+        }
+        next.set(Component::SO, next.get(Component::SO).max(1.0));
     }
     next
 }

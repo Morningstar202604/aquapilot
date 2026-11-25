@@ -11,6 +11,7 @@
 - [x] M1 hydraulics / transport parity (resistance split, pump/valve/weir, segmented CSTR, tracer RTD; 48-step TS golden)
 - [x] M1 hydraulics randomized differential fuzz + property invariants (64 state / 191 edge / 64 split / 64 geometry cases)
 - [x] M1 plant boundary COD/N/P mass books parity (96-step golden + residual/flag properties)
+- [x] M1 production `stepNetwork` trace replay (96 steps × 15 min, ASM2d + Takács + ADM1 + 三本账 + 出水/库存/生物量)
 - [x] WP2 30 d COD/N/P balance closure
 - [ ] M2 Rust server / AI / CLI
 - [ ] M3 frontend / industrial acceptance
@@ -23,18 +24,27 @@
 
 ## Latest verifiable state
 
-- `cargo test`: 21 unit + 18 integration/parity/fuzz (ASM1 4, ASM2d 2, Takács 1, ADM1 1, sludge-line 1, hydraulics 3, hydraulics fuzz 3, plant boundary 3) = 39, all pass
+- `cargo test`: 21 unit + 20 integration/parity/fuzz (ASM1 4, ASM2d 3, Takács 1, ADM1 1, ASM2d network 1, sludge-line 1, hydraulics 6, plant boundary 3, plant replay 1) = 41, all pass
 - `cargo clippy --all-targets -- -D warnings`: clean
-- `npx vitest run --coverage`: 1736 passed / 1736 (143 files); WP2 30 d COD/N/P 三账闭合；覆盖率 94.10/82.06/95.21（阈值 90/81/95 未下调）
+- `npx vitest run --coverage`: 1739 passed / 1739 (144 files); WP2 30 d COD/N/P 三账闭合；覆盖率 94.11/82.15/95.23（阈值 90/81/95 未下调）
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
-- Latest release: `v0.11.13` (plant boundary mass-book parity; M1 replay gate still open); prior `v0.11.12`, `v0.11.11`, `v0.11.10`, `v0.11.9`, `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
-- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release；v0.11.9 清掉 Node20 告警；v0.11.10 接入 ADM1 泥线；v0.11.11 接入水力/输运；v0.11.12 加随机差分并修掉分流截流后的丢流量；v0.11.13 补齐三本账 Rust parity
+- Latest release: `v0.11.14` (production trace replay; M1 gates met); prior `v0.11.13`, `v0.11.12`, `v0.11.11`, `v0.11.10`, `v0.11.9`, `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
+- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release；v0.11.9 清掉 Node20 告警；v0.11.10 接入 ADM1 泥线；v0.11.11 接入水力/输运；v0.11.12 加随机差分并修掉分流截流后的丢流量；v0.11.13 补齐三本账 Rust parity；v0.11.14 整厂 96 步 production replay 通过
 
 ## Rule
 
 Every turn must land a code/test/golden commit or explicitly record a blocker;
 do not repeat the same probe without a code change.
+
+## 2026-11-25 整厂 production 轨迹 replay（v0.11.14）
+
+- 新增 `src/sim/networkTrace.ts`，给 `stepNetwork` 加可选 trace hook：在生产路径捕获 ASM2d 反应器 pre/post、边流量/回流、二沉池 Takács 剖面、ADM1 泥线 27 组分与气体、三本账真实 `BalanceInput`、出水/库存/生物量。未传 hook 不克隆。
+- 新增 `scripts/gen-plant-replay.ts` 与 `rust/golden/plant-replay-96step.json`：seed 21、20 d spin-up、`carbonDose=8`、96 步 × 15 min。
+- 新增 `rust/crates/aquapilot-core/src/plant_replay.rs` 与 `tests/plant_replay_parity.rs`：逐步复算 5 反应器 19 组分、flux、二沉池、泥线、三本账、出水/库存/生物量；实测最大绝对残差 1.73e-9，测试容差 1e-8（模块 golden 仍为 1e-12）。
+- 修复 Rust 四个真实 parity 缺陷：ASM2d ammonification 化学计量缺失、`k_amm` 放大 10 倍、速率缓存未按 0.1 ℃ 取整、`o2_transferred_kg_h` 重复除 `dt_h`；另修复 CSTR `q_pp=1.5` 与缺失好氧磷 uptake。
+- `asm2d-network-48h`、`asm2d-cstr-24h` 原为 stale golden 且 Rust 测试硬编码不读文件；已用当前 TS 重生成，测试改为直接读 golden，新增 `asm2d-cstr-aerobic-30h.json`。
+- M1：六项模块切片 + 水力随机差分 + 三本账 + 整厂 production replay 全部通过；M1 三项退出条件满足。M2 未开始。
 
 ## 2026-11-25 全厂三本账 Rust parity (v0.11.13)
 
@@ -42,7 +52,7 @@ do not repeat the same probe without a code change.
 - 新增 `rust/golden/plant-boundary-96step.json`：96 个 0.5 h 步，交替使用组分负荷与标量负荷，含动态泥线进料、库存变化与显式钳制损失。
 - `tests/plant_boundary_parity.rs`：96 步每行每字段、库存、诊断逐项 1e-12 比对；另有 500 步残差/闭合标志属性测试、关闭泥线零回流与 reset 测试。
 - M1：六项模块切片 + 水力随机差分 + 三本账 parity 完成；整厂 production `stepNetwork` 轨迹逐态 replay 仍未做，M1 总里程碑不关闭。M2 未开始。
-- `cargo test` 39 项全过；`cargo fmt/clippy` 通过；TS 1736/1736 不变。
+- `cargo test` 41 项全过；`cargo fmt/clippy` 通过；TS 1739/1739 不变。
 
 ## 2026-11-25 水力随机差分、分流修复 (v0.11.12)
 

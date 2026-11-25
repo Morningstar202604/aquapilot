@@ -12,5 +12,6 @@ pub mod asm2d;
 pub mod hydraulics;
 pub mod network;
 pub mod plant_boundary;
+pub mod plant_replay;
 pub mod sludge_line;
 pub mod takacs;

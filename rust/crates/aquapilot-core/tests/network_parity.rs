@@ -8,222 +8,30 @@ use aquapilot_core::asm2d::{Params, State};
 use aquapilot_core::network::{
     Edge, Influent, Network, Reactor, ReactorKind, Recycle, StepOptions,
 };
+use serde_json::Value;
+use std::fs;
 
-const INITIAL: [[f64; 19]; 5] = [
-    [
-        0.0,
-        25.272,
-        30.888,
-        24.96,
-        31.5,
-        0.0,
-        0.0,
-        4.6,
-        0.16,
-        62.400000000000006,
-        0.0,
-        117.936,
-        25.272000000000002,
-        6.3180000000000005,
-        3.7908,
-        25.272000000000002,
-        0.0,
-        0.0,
-        0.0,
-    ],
-    [
-        0.0,
-        25.272,
-        30.888,
-        24.96,
-        31.5,
-        0.0,
-        0.0,
-        4.6,
-        0.16,
-        62.400000000000006,
-        0.0,
-        117.936,
-        25.272000000000002,
-        6.3180000000000005,
-        3.7908,
-        25.272000000000002,
-        0.0,
-        0.0,
-        0.0,
-    ],
-    [
-        0.0,
-        25.272,
-        30.888,
-        24.96,
-        31.5,
-        0.0,
-        0.0,
-        4.6,
-        0.16,
-        62.400000000000006,
-        0.0,
-        117.936,
-        25.272000000000002,
-        6.3180000000000005,
-        3.7908,
-        25.272000000000002,
-        0.0,
-        0.0,
-        0.0,
-    ],
-    [
-        0.0,
-        25.272,
-        30.888,
-        24.96,
-        31.5,
-        0.0,
-        0.0,
-        4.6,
-        0.16,
-        62.400000000000006,
-        0.0,
-        117.936,
-        25.272000000000002,
-        6.3180000000000005,
-        3.7908,
-        25.272000000000002,
-        0.0,
-        0.0,
-        0.0,
-    ],
-    [
-        0.0,
-        25.272,
-        30.888,
-        24.96,
-        31.5,
-        0.0,
-        0.0,
-        4.6,
-        0.16,
-        62.400000000000006,
-        0.0,
-        117.936,
-        25.272000000000002,
-        6.3180000000000005,
-        3.7908,
-        25.272000000000002,
-        0.0,
-        0.0,
-        0.0,
-    ],
+const COMPONENT_KEYS: [&str; 19] = [
+    "S_O", "S_F", "S_A", "S_I", "S_NH4", "S_N2", "S_NO3", "S_PO4", "S_ALK", "X_I", "X_S", "X_H",
+    "X_PAO", "X_PP", "X_PHA", "X_AUT", "X_TSS", "X_MEOH", "X_MEP",
 ];
 
-const EXPECTED_FINAL: [[f64; 19]; 5] = [
-    [
-        0.02,
-        28.268581943466472,
-        1.1198581684915163,
-        27.957023402299534,
-        24.565022717870214,
-        0.45897944861226625,
-        0.0,
-        7.16778902579393,
-        0.3732351055544686,
-        199.4825955777896,
-        159.4124183894864,
-        597.3874327521708,
-        99.09672209932943,
-        38.97107727943005,
-        19.599370593366295,
-        70.63562980495718,
-        0.0,
-        0.0,
-        5.12887240243496,
-    ],
-    [
-        0.02,
-        36.832501306190395,
-        0.05585709795095791,
-        27.921648967964487,
-        24.883469593184504,
-        0.4331029084351714,
-        0.0,
-        7.251407180454371,
-        0.36614368423035065,
-        186.7076212675449,
-        152.8446719142293,
-        543.6196629016273,
-        91.65681303509727,
-        31.547099669262536,
-        20.893947341025594,
-        65.88841944829502,
-        0.0,
-        0.0,
-        5.208788100834045,
-    ],
-    [
-        5.574328675444471,
-        1.1501791228741136,
-        0.00032309697456384037,
-        27.85724711338105,
-        0.44592886797271647,
-        1.7220207746729759,
-        20.742812326534956,
-        3.227326711748098,
-        0.0,
-        171.07141355374972,
-        60.35862525521907,
-        559.2818568657557,
-        90.02943112181501,
-        40.6151835004575,
-        0.05,
-        65.33870956789984,
-        0.0,
-        0.0,
-        4.889077190963722,
-    ],
-    [
-        6.874659757280131,
-        3.2301093000948136,
-        5.046825569409152e-06,
-        27.76702478164308,
-        0.005506581167036731,
-        2.092382268920826,
-        20.854434924190723,
-        0.6481110569628897,
-        4.871833272573342e-05,
-        156.47893566273046,
-        18.10834439181104,
-        523.9773101062917,
-        84.43936091372173,
-        47.9987854240175,
-        0.05,
-        60.00983673461502,
-        0.0,
-        0.0,
-        4.354085119987303,
-    ],
-    [
-        6.789741269734349,
-        9.09924894748197,
-        1.0473319383187445e-07,
-        27.63865873311577,
-        0.0008203626835595871,
-        2.095782568439773,
-        21.17545100601267,
-        0.009718432048623878,
-        0.0,
-        142.87207484312682,
-        4.950539922358606,
-        472.09909253683946,
-        77.76405093014363,
-        47.04637002370482,
-        0.05,
-        54.984726605031376,
-        0.0,
-        0.0,
-        3.78114516124405,
-    ],
-];
+fn load_matrix(key: &str) -> [[f64; 19]; 5] {
+    let raw = fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../golden/asm2d-network-48h.json"
+    ))
+    .expect("network golden");
+    let golden: Value = serde_json::from_str(&raw).expect("parse network golden");
+    let rows = golden[key].as_array().expect("golden rows");
+    let mut out = [[0.0; 19]; 5];
+    for (i, row) in rows.iter().enumerate() {
+        for (j, name) in COMPONENT_KEYS.iter().enumerate() {
+            out[i][j] = row[name].as_f64().expect("component value");
+        }
+    }
+    out
+}
 
 fn state(row: [f64; 19]) -> State {
     State { v: row }
@@ -231,12 +39,14 @@ fn state(row: [f64; 19]) -> State {
 
 #[test]
 fn network_48h_matches_ts_golden() {
+    let initial = load_matrix("initial");
+    let expected_final = load_matrix("final");
     let reactors = vec![
         Reactor {
             id: "anaerobic".into(),
             kind: ReactorKind::Anaerobic,
             volume: 3000.0,
-            state: state(INITIAL[0]),
+            state: state(initial[0]),
             kla: 0.0,
             integral: 0.0,
             o2_demand: 0.0,
@@ -245,7 +55,7 @@ fn network_48h_matches_ts_golden() {
             id: "anoxic".into(),
             kind: ReactorKind::Anoxic,
             volume: 4500.0,
-            state: state(INITIAL[1]),
+            state: state(initial[1]),
             kla: 0.0,
             integral: 0.0,
             o2_demand: 0.0,
@@ -254,7 +64,7 @@ fn network_48h_matches_ts_golden() {
             id: "aerobic1".into(),
             kind: ReactorKind::Aerobic,
             volume: 5750.0,
-            state: state(INITIAL[2]),
+            state: state(initial[2]),
             kla: 0.0,
             integral: 0.0,
             o2_demand: 0.0,
@@ -263,7 +73,7 @@ fn network_48h_matches_ts_golden() {
             id: "aerobic2".into(),
             kind: ReactorKind::Aerobic,
             volume: 5750.0,
-            state: state(INITIAL[3]),
+            state: state(initial[3]),
             kla: 0.0,
             integral: 0.0,
             o2_demand: 0.0,
@@ -272,7 +82,7 @@ fn network_48h_matches_ts_golden() {
             id: "aerobic3".into(),
             kind: ReactorKind::Aerobic,
             volume: 5750.0,
-            state: state(INITIAL[4]),
+            state: state(initial[4]),
             kla: 0.0,
             integral: 0.0,
             o2_demand: 0.0,
@@ -333,6 +143,8 @@ fn network_48h_matches_ts_golden() {
         suppression: 1.0,
         do_setpoint: 2.0,
         aeration_capacity: 0.976,
+        ras_p_exact: None,
+        carbon_dose: 0.0,
     };
     for _ in 0..48 {
         net.step(inf, 4428.0, &Params::default(), opts);
@@ -342,7 +154,7 @@ fn network_48h_matches_ts_golden() {
             .state
             .v
             .iter()
-            .zip(EXPECTED_FINAL[i].iter())
+            .zip(expected_final[i].iter())
             .enumerate()
         {
             assert!(

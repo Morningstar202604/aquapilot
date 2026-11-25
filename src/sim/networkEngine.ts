@@ -9,7 +9,9 @@ import { clampControls, effluentMarginRows, qualityScore } from './metrics';
 import { KINETICS, DESIGN_MLSS, TARIFF } from './kinetics';
 import { BSM1_SETTLER, createSettler, stepSettler } from './takacs';
 import type { NetworkSimState, ReactorState, KineticModel } from './networkTypes';
+import type { NetworkStepTrace, NetworkTraceHook } from './networkTrace';
 export type { NetworkSimState, ReactorState, EffluentStats, KineticModel } from './networkTypes';
+export type { NetworkStepTrace, NetworkTraceHook } from './networkTrace';
 import {
   aerationCapacityOf,
   diurnal,
@@ -420,6 +422,8 @@ interface StepContext {
   clar: NetworkSimState['clarifier'];
   lastReactor: ReactorState;
   byId: Map<string, ReactorState>;
+  /** 显式开启时记录本步各子模块的真实输入/输出；未开启为 undefined。 */
+  trace?: NetworkStepTrace;
 }
 
 /** 阶段 1：进水与调蓄。返回本步实际进厂流量。 */
@@ -626,6 +630,45 @@ function solveReactors(ctx: StepContext): {
             (asm2dPConcentration(lastAsm) * clarifierFeedFlow - state.effluent.tp * Qe) / Math.max(1e-9, Qr + Qw),
           )
         : undefined;
+    const asmTracePre = ctx.trace
+      ? {
+          reactors: state.reactors.map((r) => ({
+            id: r.id,
+            kind: r.kind,
+            volume: r.volume,
+            state: { ...(r.asm2d as NonNullable<typeof r.asm2d>) },
+            kla: r.kla,
+            integral: r.doIntegral ?? 0,
+          })),
+          order: [...net.order],
+          edges: net.edges.map((e) => ({
+            id: e.id,
+            from: e.from,
+            to: e.to,
+            flow: flows.edgeFlow.get(e.id) ?? 0,
+            recycleKind: e.recycleKind ?? null,
+          })),
+          influent: {
+            flow: influent.flow,
+            cod: influent.cod,
+            nh: influent.nh,
+            tn: influent.tn,
+            tp: influent.tp,
+            ss: influent.ss,
+            alkalinity: influent.alkalinity,
+          },
+          xRas: clar.xRas,
+          rasPExact: rasPExact ?? null,
+          xBiomass,
+          temperatureC: T,
+          dtH,
+          bioP: state.bioPRemoval,
+          carbonDose: state.controls.carbonDose,
+          aerationCapacity: state.aerationCapacity,
+          doSetpoint: state.controls.doSetpoint,
+          suppression: sup,
+        }
+      : undefined;
     const flux = stepAsm2dNetwork({
       reactors: state.reactors,
       byId,
@@ -643,6 +686,34 @@ function solveReactors(ctx: StepContext): {
       doSetpoint: state.controls.doSetpoint,
       suppression: sup,
     });
+    if (ctx.trace && asmTracePre) {
+      ctx.trace.asm2d = {
+        ...asmTracePre,
+        expected: {
+          reactors: state.reactors.map((r) => ({
+            id: r.id,
+            state: { ...(r.asm2d as NonNullable<typeof r.asm2d>) },
+            kla: r.kla,
+            integral: r.doIntegral ?? 0,
+            o2Demand: r.o2Demand,
+          })),
+          flux: {
+            o2DemandKgH: flux.o2DemandKgH,
+            o2HeteroKgH: flux.o2HeteroKgH,
+            o2NitroKgH: flux.o2NitroKgH,
+            o2TransferredKgH: flux.o2TransferredKgH,
+            nhOxidizedKgH: flux.nhOxidizedKgH,
+            denitrifiedNKgH: flux.denitrifiedNKgH,
+            clampCodKgH: flux.clampCodKgH,
+            clampNKgH: flux.clampNKgH,
+            clampPKgH: flux.clampPKgH,
+            endogenousOxKgH: flux.endogenousOxKgH,
+            biomassCodKg: flux.biomassCodKg,
+            clampedCount: flux.clampedCount,
+          },
+        },
+      };
+    }
     // COD 氧化只计好氧过程 S_O<0 的异养/PAO 耗氧（1 g O₂ ≡ 1 g COD，1:1，不再除 o2PerCod）；
     // 自养硝化耗氧（o2Nitro）单独一行，不进 COD 账。裂解（lysis）是活体→X_S 的 COD 转移，
     // 不耗 O₂、不计入氧化行（否则同一份生物量 COD 先当氧化、再随 X_S 被氧化，重复计账）。
@@ -969,8 +1040,18 @@ function solveClarifier(ctx: StepContext): { clarifierInflow: number; wasted: nu
       : xBiomass;
 
   const allClarifiers = state.clarifiers ?? [ctx.clar];
-  for (const clar of allClarifiers) {
+  allClarifiers.forEach((clar, index) => {
     const settlerCfg = { ...BSM1_SETTLER, area: clar.area, depth: clar.depth };
+    const settlerTrace = ctx.trace
+      ? {
+          index,
+          cfg: { ...settlerCfg },
+          state: { x: [...clar.settler.x] },
+          feed: { flow: clarifierInflow * 24, concentration: feedSolids },
+          underflow: { flow: underflow * 24 },
+          dtDays: dtMin / 1440,
+        }
+      : undefined;
 
     const settlerResult = stepSettler(
       clar.settler,
@@ -998,7 +1079,22 @@ function solveClarifier(ctx: StepContext): { clarifierInflow: number; wasted: nu
     // 池内固体存量（供界面显示）
     const meanX = settlerResult.state.x.reduce((a, b) => a + b, 0) / settlerResult.state.x.length;
     clar.sludgeMassKg = (meanX * clar.area * clar.depth) / 1000;
-  }
+
+    if (ctx.trace && settlerTrace) {
+      if (!ctx.trace.settlers) ctx.trace.settlers = [];
+      ctx.trace.settlers.push({
+        ...settlerTrace,
+        expected: {
+          state: { x: [...settlerResult.state.x] },
+          xEffluent: settlerResult.xEffluent,
+          xUnderflow: settlerResult.xUnderflow,
+          solidsLoading: settlerResult.solidsLoading,
+          blanketM: clar.blanketM,
+          sludgeMassKg: clar.sludgeMassKg,
+        },
+      });
+    }
+  });
 
   const first = allClarifiers[0] ?? ctx.clar;
   const solidsIn = (clarifierInflow * xBiomass) / 1000;
@@ -1178,11 +1274,17 @@ function raiseLimitAlarms(state: NetworkSimState): void {
  * 七个阶段按固定顺序执行；每个阶段只碰自己那一块状态，
  * 因此可以单独测试，也不会再出现"改出水逻辑却误伤生物量"的情况。
  */
-export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin = 1): NetworkSimState {
+export function stepNetwork(
+  state: NetworkSimState,
+  topo: ProcessTopology,
+  dtMin = 1,
+  trace?: NetworkTraceHook,
+): NetworkSimState {
   if (dtMin <= 0) return state;
   const dtH = dtMin / 60;
   state.timeMin += dtMin;
   state.rngCount += 1;
+  const traceStep: NetworkStepTrace | undefined = trace ? { timeMin: state.timeMin, dtMin } : undefined;
 
   // 编译缓存随状态走：同一拓扑对象不反复编译；换对象（含克隆）按身份判重后重编译一次
   if (topo !== state.topo) {
@@ -1358,6 +1460,7 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
     clar: state.clarifier,
     lastReactor,
     byId,
+    trace: traceStep,
   };
 
   const oxidized = solveReactors(ctx);
@@ -1365,23 +1468,69 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
   const { wasted } = solveClarifier(ctx);
   solveBiomass(ctx, oxidized, wasted);
   const pacDose = solveEffluent(ctx);
+  if (traceStep) {
+    const solubleCod = lastReactor.asm2d
+      ? lastReactor.asm2d.S_I + lastReactor.asm2d.S_F + lastReactor.asm2d.S_A
+      : lastReactor.asm1
+        ? lastReactor.asm1.S_I + lastReactor.asm1.S_S
+        : lastReactor.cod;
+    traceStep.effluent = {
+      pacDose,
+      xEff: ctx.clar.xEff,
+      Qe,
+      temperatureC: T,
+      last: {
+        nh: lastReactor.nh,
+        no3: lastReactor.no3,
+        tp: lastReactor.tp,
+        alkalinity: lastReactor.alkalinity,
+        solubleCod,
+      },
+      expected: { ...state.effluent },
+    };
+    traceStep.biomass = {
+      Q,
+      Qw,
+      xRas: ctx.clar.xRas,
+      volumeBio: state.volume.bio,
+      influentBod: influent.bod,
+      expected: {
+        biomassKg: state.biomassKg,
+        srtDays: state.srtDays,
+        fmRatio: state.fmRatio,
+      },
+    };
+  }
   solveEnergyAndCost(ctx, oxidized.o2TransferredKgH, wasted, pacDose, oxidized.balancedOxidizedKgH);
 
   // ── WP2 泥线：WAS → 浓缩 → 消化 → 脱水；滤液回流到首端，负荷并入进水 ──
   const rawInfluent = { ...state.influent };
   if (state.plant?.enabled) {
-    const filtrate = stepSludgeLine(
-      state.plant.sludgeLine,
-      {
-        wasFlowM3h: Qw,
-        feedSsKgM3: ctx.clar.xRas,
-        feedCodKgM3: lastReactor.cod,
-        feedNKgM3: lastReactor.nh + lastReactor.no3,
-        feedPKgM3: lastReactor.tp,
-        ambientTempC: T,
-      },
-      dtH,
-    );
+    const sludgeFeed = {
+      wasFlowM3h: Qw,
+      feedSsKgM3: ctx.clar.xRas,
+      feedCodKgM3: lastReactor.cod,
+      feedNKgM3: lastReactor.nh + lastReactor.no3,
+      feedPKgM3: lastReactor.tp,
+      ambientTempC: T,
+    };
+    const sludgeTrace = ctx.trace
+      ? {
+          initial: structuredClone(state.plant.sludgeLine),
+          feed: sludgeFeed,
+          dtH,
+        }
+      : undefined;
+    const filtrate = stepSludgeLine(state.plant.sludgeLine, sludgeFeed, dtH);
+    if (ctx.trace && sludgeTrace) {
+      ctx.trace.sludge = {
+        ...sludgeTrace,
+        expected: {
+          state: structuredClone(state.plant.sludgeLine),
+          filtrate: { ...filtrate },
+        },
+      };
+    }
     if (filtrate.flowM3h > 1e-6 && Q > 1e-6) {
       state.influent.nh += (filtrate.nh4NKgM3 * filtrate.flowM3h) / Q;
       state.influent.tn += (filtrate.nh4NKgM3 * filtrate.flowM3h) / Q;
@@ -1476,7 +1625,7 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
         wastePKg: kgPer(asm2dPConcentration(rasAsm) * 0.98, Qw),
       };
     }
-    updatePlantBalance(state.plant, {
+    const balanceInput = {
       influent: rawInfluent,
       effluent: state.effluent,
       dtH,
@@ -1489,11 +1638,52 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
       clampPKgH: oxidized.clampPKgH,
       wastedDryKg: wasted,
       component,
-    });
+    };
+    if (ctx.trace) {
+      ctx.trace.balance = {
+        initial: {
+          cod: structuredClone(state.plant.balance.cod),
+          n: structuredClone(state.plant.balance.n),
+          p: structuredClone(state.plant.balance.p),
+          inventory: structuredClone(state.plant.inventory),
+          errors: structuredClone(state.plant.errors),
+        },
+        input: structuredClone(balanceInput),
+        expected: {
+          cod: structuredClone(state.plant.balance.cod),
+          n: structuredClone(state.plant.balance.n),
+          p: structuredClone(state.plant.balance.p),
+          inventory: structuredClone(state.plant.inventory),
+          errors: structuredClone(state.plant.errors),
+        },
+      };
+    }
+    updatePlantBalance(state.plant, balanceInput);
+    if (ctx.trace?.balance) {
+      ctx.trace.balance.expected = {
+        cod: structuredClone(state.plant.balance.cod),
+        n: structuredClone(state.plant.balance.n),
+        p: structuredClone(state.plant.balance.p),
+        inventory: structuredClone(state.plant.inventory),
+        errors: structuredClone(state.plant.errors),
+      };
+    }
+    if (traceStep && lastReactor.asm2d && state.modelMode === 'asm2d') {
+      traceStep.inventory = {
+        initialBiomassKg: state.biomassKg,
+        reactors: state.reactors
+          .filter((r) => r.asm2d)
+          .map((r) => ({ volume: r.volume, state: { ...(r.asm2d as NonNullable<typeof r.asm2d>) } })),
+        clarifierSludgeKg: state.clarifier.sludgeMassKg,
+        clarifierFeedState: { ...lastReactor.asm2d },
+        expected: { codKg: invCod, nKg: invN, pKg: invP, ppPKg: invPpP },
+      };
+    }
   }
 
   raiseLimitAlarms(state);
 
+  if (traceStep) trace?.(traceStep);
   return state;
 }
 

@@ -8,7 +8,7 @@ module passes the golden-corpus parity gate.
 | Module | Rust | Parity |
 |---|---|---|
 | ASM2d components / processes / stoichiometry / rates | complete | CSTR 24 h exact (`tests/asm2d_parity.rs`) |
-| ASM2d CSTR | complete | exact, `<=1e-12` |
+| ASM2d CSTR | complete | anaerobic 24 h + aerobic 30 h exact, `<=1e-12` |
 | aeration / DO PI | complete | unit tests + `kla` trace in 5-pool network parity |
 | ASM2d aggregate mapping | complete | unit-level mapping |
 | ASM2d network (5-pool slice) | complete for the 5-pool A²/O fixture | 48 h exact all 19 components / 5 reactors (`tests/network_parity.rs`) |
@@ -20,11 +20,12 @@ module passes the golden-corpus parity gate.
 | hydraulics / transport (resistance split, pump / valve / weir, segmented CSTR, tracer RTD) | complete | 48 × 1 min fixture exact, `tests/hydraulics_parity.rs` |
 | hydraulics randomized fuzz / property invariants | complete | 64 state (191 edges) / 64 split / 64 geometry cases, `tests/hydraulics_fuzz_parity.rs` |
 | plant boundary COD/N/P mass books | complete | 96 half-hour steps exact, `tests/plant_boundary_parity.rs`; 500-step residual invariants |
+| full plant production `stepNetwork` replay | complete for the fixed 96-step trajectory | 96 × 15 min replay; max absolute residual 1.73e-9, gate 1e-8 (`tests/plant_replay_parity.rs`) |
 | server / AI / CLI (M2) | not started | — |
 
 The ASM1 fixture is `golden/asm1-reaction.json` (20 °C and 15 °C reaction vectors).
-The exact CSTR fixtures are `golden/asm2d-cstr-24h.json` and
-`golden/asm1-cstr-24h.json`; the ASM1 network fixture is
+The exact CSTR fixtures are `golden/asm2d-cstr-24h.json`,
+`golden/asm2d-cstr-aerobic-30h.json` and `golden/asm1-cstr-24h.json`; the ASM1 network fixture is
 `golden/asm1-network-48h.json`, generated from `src/sim/asm1Network.ts`.
 The ASM2d network fixture is `golden/asm2d-network-48h.json`, covering 5 reactors,
 1546 m³/h feed, 454 m³/h RAS, 48 h at 0.5 h steps. It locks the fixed edge-flow
@@ -39,7 +40,13 @@ and state parity including RTD moments and train aggregation. The fuzz fixture
 it caught a real mass loss when a branch hit its capacity cap, now fixed in both
 implementations with iterative capped allocation. `golden/plant-boundary-96step.json`
 replays alternate component/scalar load paths, sludge filtrate recycle, inventory
-deltas and clamp losses over 96 half-hour steps. `serde_json` is a dev-dependency
+deltas and clamp losses over 96 half-hour steps. `golden/plant-replay-96step.json`
+is the full production `stepNetwork` trace: 20 d spin-up, carbon dose 8, then
+96 × 15 min steps with ASM2d reactors, Takács settlers, ADM1 sludge line and the
+three mass books. `tests/plant_replay_parity.rs` rebuilds each production input
+and compares every state/flux plus the effluent, inventory and biomass projections;
+module fixtures keep 1e-12, the closed-loop replay uses 1e-8 absolute with an
+observed worst residual of 1.73e-9. `serde_json` is a dev-dependency
 only, used to read the fixtures.
 
 ## Commands
@@ -51,5 +58,6 @@ cargo run -p aquapilot-core --example cstr
 cargo run -p aquapilot-core --example network
 ```
 
-Rules: no `unsafe`; no floating-point tolerance loosening; every module gets a
-Rust unit test and a TS-golden parity test.
+Rules: no `unsafe`; no ad-hoc tolerance loosening (module fixtures stay at 1e-12,
+the closed-loop replay's 1e-8 is documented with its measured 1.73e-9 residual);
+every module gets a Rust unit test and a TS-golden parity test.

@@ -4,6 +4,39 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.14] — 2026-11-25
+
+### Added
+
+- `src/sim/networkTrace.ts` + `stepNetwork` 可选 trace hook：在生产路径捕获
+  ASM2d 反应器 pre/post state、边流量/回流、二沉池 10 层剖面、泥线 ADM1 27
+  组分与气体、三本账真实 `BalanceInput`、出水/库存/生物量投影；不传 hook 时零克隆。
+- `scripts/gen-plant-replay.ts` 与 `rust/golden/plant-replay-96step.json`：
+  seed 21、20 d spin-up、`carbonDose=8`、96 步 × 15 min 的整厂 production 轨迹。
+- `rust/crates/aquapilot-core/src/plant_replay.rs`：生产出水 clamps、逐池
+  ASM2d 库存、MLSS/SRT/F-M 的 Rust 投影。
+- `tests/plant_replay_parity.rs`：96 步逐态 replay，覆盖反应器 19 组分/flux、
+  Takács 剖面、ADM1 泥线、三本账 row/inventory/error、出水/库存/生物量。
+- `golden/asm2d-cstr-aerobic-30h.json` 与对应 Rust 测试，锁定 CSTR 好氧段
+  磷酸盐 uptake 后处理。
+
+### Fixed
+
+- Rust ASM2d `ammonification` 补齐 `S_F:-1 / S_A:0.3 / S_I:0.7 / S_NH4:i_N_SI`；
+  `k_amm` 由 0.08 改为与 TS 一致的 0.008。
+- Rust 网络反应路径按 TS 的 0.1 ℃ 速率缓存口径取整；曝气仍用真实温度。
+- Rust `o2_transferred_kg_h` 去掉重复 `/dt_h`，修复 4 倍偏大。
+- Rust CSTR `q_pp` 由 1.5 改为 20.0，并补齐好氧段磷 uptake / PHA 消耗 / DO 下限。
+- `network_parity` 与 `asm2d_parity` 改为直接读取 golden fixture，移除过期硬编码；
+  重生成 `asm2d-network-48h.json` 与 `asm2d-cstr-24h.json`。
+
+### Verification
+
+- TypeScript 1,739/1,739（144 文件）；Rust 41 项（21 单元 + 20 集成/parity/fuzz）。
+- 整厂 replay 的实测最大绝对残差 1.73e-9，测试容差 1e-8（模块 golden 仍为 1e-12）。
+- M1 三项退出条件（模块逐点 parity、同输入整厂误差、无 unsafe/panic/fuzz）已满足；
+  M2 的 HTTP/WS 迁移、AI/看门狗与 7×24 soak 未在本版冒充完成。
+
 ## [0.11.13] — 2026-11-25
 
 ### Added

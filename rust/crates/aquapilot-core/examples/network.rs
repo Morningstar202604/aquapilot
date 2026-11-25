@@ -75,6 +75,8 @@ fn main() {
         suppression: 1.0,
         do_setpoint: 2.0,
         aeration_capacity: 0.976,
+        ras_p_exact: None,
+        carbon_dose: 0.0,
     };
     println!("initial {:?}", net.reactors[0].state.v);
     for _ in 0..48 {

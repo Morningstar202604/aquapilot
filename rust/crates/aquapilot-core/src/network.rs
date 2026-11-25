@@ -81,6 +81,11 @@ pub struct StepOptions {
     pub suppression: f64,
     pub do_setpoint: f64,
     pub aeration_capacity: f64,
+    /// 二沉池底流总磷（gP/m³）。生产引擎按进料/出水/底流闭合后传入；
+    /// 给出时 RAS 颗粒态 P 补足到该值，否则像 TS 一样跳过 P 修正。
+    pub ras_p_exact: Option<f64>,
+    /// 缺氧区外加碳源（mg/L，以 S_A 计）。只进 anoxic 池，与生产引擎一致。
+    pub carbon_dose: f64,
 }
 
 const BOUNDS: [f64; 19] = [
@@ -236,6 +241,12 @@ impl Network {
         let n_sub = ((opts.dt_h / sub_h).ceil() as usize).clamp(1, 120);
         let sub_dt = opts.dt_h / n_sub as f64;
         let sub_days = sub_dt / 24.0;
+        // The TS network caches rate closures by 0.1 °C buckets; match that
+        // numerical contract so a production trace does not inherit a 1e-3 drift.
+        let rate_opts = StepOptions {
+            temperature_c: (opts.temperature_c * 10.0).round() / 10.0,
+            ..opts
+        };
         let mut total_mass = Flux::default();
 
         let last_state = self
@@ -263,6 +274,7 @@ impl Network {
         };
 
         for idx in self.order.clone() {
+            let dt_h = opts.dt_h.max(1e-9);
             let mut q_in = 0.0;
             let mut asm_in = State::zero();
             for e in self.edges.iter().filter(|e| e.to == idx) {
@@ -287,6 +299,12 @@ impl Network {
                         }
                         s.set(Component::SNO3, 0.0);
                         s.set(Component::SO, 0.0);
+                        if let Some(exact) = opts.ras_p_exact {
+                            let current = p_concentration(&s, params);
+                            let adjusted =
+                                s.get(Component::XPP) + (exact - current) / params.i_p_pp;
+                            s.set(Component::XPP, adjusted.max(0.0));
+                        }
                         s
                     }
                     (Recycle::Internal, _) => last_state,
@@ -318,6 +336,10 @@ impl Network {
             if q_in <= 0.0 {
                 continue;
             }
+            if self.reactors[idx].kind == ReactorKind::Anoxic && opts.carbon_dose > 0.0 {
+                let sa = asm_in.get(Component::SA) + opts.carbon_dose;
+                asm_in.set(Component::SA, sa);
+            }
 
             let reactor = &mut self.reactors[idx];
             let q_over_v = q_in / reactor.volume.max(1e-9);
@@ -334,7 +356,7 @@ impl Network {
                     reactor.state.set(Component::SO, opts.do_setpoint);
                 }
                 let (vector, local_flux) =
-                    reaction_vector(&reactor.state, params, &stoich, reactor.kind, opts);
+                    reaction_vector(&reactor.state, params, &stoich, reactor.kind, rate_opts);
                 let mut next = State::zero();
                 for c in COMPONENTS {
                     let advect = q_over_v * sub_dt * (asm_in.get(c) - reactor.state.get(c));
@@ -424,6 +446,7 @@ impl Network {
                 None
             };
             reactor.o2_demand = our_h.max(0.0);
+            total_mass.o2_demand_kg_h += (o2_hetero_mass + o2_nitro_mass) / dt_h;
 
             total_mass.o2_hetero_kg_h += o2_hetero_mass;
             total_mass.o2_nitro_kg_h += o2_nitro_mass;
@@ -433,7 +456,7 @@ impl Network {
             total_mass.clamp_n_kg_h += clamp_n_mass;
             total_mass.clamp_p_kg_h += clamp_p_mass;
             if let Some(a) = aeration {
-                total_mass.o2_transferred_kg_h += a.o2_transferred_kg_h / opts.dt_h.max(1e-9);
+                total_mass.o2_transferred_kg_h += a.o2_transferred_kg_h;
             }
         }
 
@@ -445,7 +468,6 @@ impl Network {
         total_mass.clamp_cod_kg_h /= dt;
         total_mass.clamp_n_kg_h /= dt;
         total_mass.clamp_p_kg_h /= dt;
-        total_mass.o2_demand_kg_h = total_mass.o2_hetero_kg_h + total_mass.o2_nitro_kg_h;
         total_mass
     }
 }
@@ -575,6 +597,8 @@ mod tests {
                     suppression: 1.0,
                     do_setpoint: 2.0,
                     aeration_capacity: 0.976,
+                    ras_p_exact: None,
+                    carbon_dose: 0.0,
                 },
             );
         }
