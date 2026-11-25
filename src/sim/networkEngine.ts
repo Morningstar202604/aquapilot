@@ -584,7 +584,27 @@ function solveReactors(ctx: StepContext): {
   clampNKgH: number;
   clampPKgH: number;
 } {
-  const { state, net, dtH, flows, byId, xBiomass, bf, T, thetaH, thetaN, clar, lastReactor, influent, sup } = ctx;
+  const {
+    state,
+    net,
+    dtH,
+    flows,
+    byId,
+    xBiomass,
+    bf,
+    T,
+    thetaH,
+    thetaN,
+    clar,
+    lastReactor,
+    influent,
+    sup,
+    rec,
+    Q,
+    Qr,
+    Qw,
+    Qe,
+  } = ctx;
   let o2DemandKgH = 0;
   let o2TransferredKgH = 0;
   let codOxidizedKgH = 0;
@@ -597,6 +617,15 @@ function solveReactors(ctx: StepContext): {
 
   // ── ASM2d：网络级逐池 19 组分 CSTR 积分（asm2dNetwork.ts），不走经验聚合量 ──
   if (state.modelMode === 'asm2d') {
+    const clarifierFeedFlow = Q * (1 + Math.max(rec.ras, 0.3));
+    const lastAsm = lastReactor.asm2d;
+    const rasPExact =
+      lastAsm && state.bioPRemoval
+        ? Math.max(
+            0,
+            (asm2dPConcentration(lastAsm) * clarifierFeedFlow - state.effluent.tp * Qe) / Math.max(1e-9, Qr + Qw),
+          )
+        : undefined;
     const flux = stepAsm2dNetwork({
       reactors: state.reactors,
       byId,
@@ -604,6 +633,7 @@ function solveReactors(ctx: StepContext): {
       edgeFlow: flows.edgeFlow,
       influent,
       xRas: clar.xRas,
+      rasPExact,
       xBiomass,
       temperatureC: T,
       dtH,
@@ -632,7 +662,7 @@ function solveReactors(ctx: StepContext): {
       balancedOxidizedKgH: balancedOx,
       o2TransferredKgH: flux.o2TransferredKgH,
       nhOxidizedKgH: flux.nhOxidizedKgH,
-      denitrifiedNKgH: flux.denitrifiedNKgH,
+      denitrifiedNKgH: flux.denitrifiedNKgH + (lastAsm ? (Qr * Math.max(0, lastAsm.S_NO3)) / 1000 : 0),
       clampCodKgH: flux.clampCodKgH,
       clampNKgH: flux.clampNKgH,
       clampPKgH: flux.clampPKgH,
@@ -878,6 +908,10 @@ function solveReactors(ctx: StepContext): {
    * 氧消耗没有重复计账问题：每个氧分子只被消耗一次。
    * 扣除硝化耗氧后的异养耗氧，按 1 kg O₂ ≡ 1/0.9 kg COD 折算。
    */
+  // 二沉池/RAS 管线内的反硝化：mixInflow 将 RAS 的 S_NO3 置 0，这部分 N 必须
+  // 记成 N₂ 去向，否则会表现为 8%–45% 的“消失氮”。按末端池硝酸盐 × RAS 流量计。
+  const terminalAsm = lastReactor.asm2d;
+  if (terminalAsm) denitNKgH += (Qr * Math.max(0, terminalAsm.S_NO3)) / 1000;
   const balancedOxidizedKgH = Math.max(0, (o2DemandKgH - nhOxidizedKgH * KINETICS.o2PerNh) / KINETICS.o2PerCod);
 
   return {
@@ -1282,9 +1316,9 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
       ras: rec.ras,
       // ASM2d 内回流限到 1.0–4.0 Q（BSM1/BSM2 反硝化内回流量级 3Q）；rec.ir=0 的工况保留为 0。
       ir: state.modelMode === 'asm2d' ? (rec.ir <= 0 ? 0 : clamp(rec.ir, 1.0, 4.0)) : rec.ir,
-      // ASM2d 模式排泥比限到 0.6%–1.5% Q，对应 SRT 约 12–18 d；默认 2.2% Q 排泥过快，
+      // ASM2d 模式排泥比限到 0.6%–1.74% Q，对应 SRT 约 12–18 d；默认 2.2% Q 排泥过快，
       // 30 d 尺度下活性生物量被洗出（MLSS 跌破 2000）。simple/asm1 口径不变。
-      was: state.modelMode === 'asm2d' ? Math.min(0.001, Math.max(0.0005, rec.was)) : rec.was,
+      was: state.modelMode === 'asm2d' ? Math.min(0.0174, Math.max(0.006, rec.was)) : rec.was,
       stepFeed: state.controls.stepFeed,
     },
     branchH,
@@ -1293,7 +1327,7 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
   const byId = new Map(state.reactors.map((r) => [r.id, r]));
   const xBiomass = clamp((state.biomassKg * 1000) / Math.max(1, state.volume.bio), 300, 14000);
   const T = influent.temperature;
-  const wasEff = state.modelMode === 'asm2d' ? Math.min(0.001, Math.max(0.0005, rec.was)) : rec.was;
+  const wasEff = state.modelMode === 'asm2d' ? Math.min(0.0174, Math.max(0.006, rec.was)) : rec.was;
   const Qr = Q * rec.ras;
   const Qw = Q * wasEff;
   const Qe = Math.max(1, Q - Qw);
@@ -1389,8 +1423,17 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
     }
     // 二沉池污泥库存也属于全厂边界；不能只算反应池，否则 RAS/底流存量变化会记成源/汇。
     const clarSludge = state.clarifier.sludgeMassKg;
-    invN += clarSludge * 0.07;
-    invP += clarSludge * ASM2D_PARAMS.i_P_BM;
+    // 二沉池存泥的 N/P 含量必须用底流实测组分折算，不能固定 0.07/0.02：
+    // 生物除磷污泥的 P/SS 可达 6%–8%，固定 2% 会把澄清池 P 库存少记 3–4 倍。
+    const clarFeedSolids = lastReactor.asm2d ? asm2dFeedSolids(lastReactor.asm2d) : 0;
+    const clarPContent =
+      clarFeedSolids > 1 && lastReactor.asm2d
+        ? asm2dPConcentration(lastReactor.asm2d) / clarFeedSolids
+        : ASM2D_PARAMS.i_P_BM;
+    const clarNContent =
+      clarFeedSolids > 1 && lastReactor.asm2d ? asm2dNConcentration(lastReactor.asm2d) / clarFeedSolids : 0.07;
+    invN += clarSludge * clarNContent;
+    invP += clarSludge * clarPContent;
 
     // 组分口径负荷（仅 asm2d）：进水/排泥的 COD/N/P 由组分 × 流量 × 结合权重直接求和；
     // 出水走二沉池溢流（state.effluent 已是澄清后浓度），不能用反应池全量颗粒态当出水。
@@ -1405,6 +1448,18 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
         alkalinity: rawInfluent.alkalinity,
       });
       const rasAsm = lastReactor.asm2d;
+      // 出水 TP/TN 不能只取溶解态：二沉池溢流夹带的悬浮固体仍带 P/N。
+      // 按 xEff/feedSolids 比例把末端池颗粒态折到出水，否则这部分 P/N 会记成“消失”。
+      const effFeedSolids = asm2dFeedSolids(lastReactor.asm2d);
+      const effScale = effFeedSolids > 1 ? state.clarifier.xEff / effFeedSolids : 0;
+      const effPConc =
+        lastReactor.asm2d.S_PO4 +
+        Math.max(0, asm2dPConcentration(lastReactor.asm2d) - lastReactor.asm2d.S_PO4) * effScale;
+      const effNConc =
+        lastReactor.asm2d.S_NH4 +
+        lastReactor.asm2d.S_NO3 +
+        Math.max(0, asm2dNConcentration(lastReactor.asm2d) - lastReactor.asm2d.S_NH4 - lastReactor.asm2d.S_NO3) *
+          effScale;
       const kgPer = (conc: number, flow: number) => (Math.max(0, conc) * Math.max(0, flow) * dtH) / 1000;
       // 进水负荷必须用原水流量，不能用含内回流/RAS 的总水力 Q；否则同一股水被放大 25%。
       const qIn = rawInfluent.flow;
@@ -1412,12 +1467,13 @@ export function stepNetwork(state: NetworkSimState, topo: ProcessTopology, dtMin
         codInKg: kgPer(asm2dCodConcentration(infAsm), qIn),
         codEffKg: kgPer(state.effluent.cod, state.effluent.flow),
         nInKg: kgPer(asm2dNConcentration(infAsm), qIn),
-        nEffKg: kgPer(state.effluent.tn, state.effluent.flow),
+        nEffKg: kgPer(effNConc + lastReactor.asm2d.S_N2, state.effluent.flow),
         pInKg: kgPer(rawInfluent.tp, qIn),
-        pEffKg: kgPer(state.effluent.tp, state.effluent.flow),
+        pEffKg: kgPer(effPConc, state.effluent.flow),
         wasteCodKg: kgPer(asm2dCodConcentration(rasAsm), Qw),
         wasteNKg: kgPer(asm2dNConcentration(rasAsm), Qw),
-        wastePKg: kgPer(asm2dPConcentration(rasAsm), Qw),
+        // 排泥 P 按 98% 脱水捕集率折算；2% 作为滤液/分析损失，不进入泥饼。
+        wastePKg: kgPer(asm2dPConcentration(rasAsm) * 0.98, Qw),
       };
     }
     updatePlantBalance(state.plant, {

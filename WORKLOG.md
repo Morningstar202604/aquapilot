@@ -23,16 +23,24 @@
 
 - `cargo test`: 13 unit + ADM1 parity 1 + ASM1 parity 2 + ASM1 network parity 2 + ASM2d CSTR 1 + ASM2d network 1 + Takács 1, all pass
 - `cargo clippy --all-targets -- -D warnings`: clean
-- `npx vitest run`: 1651 passed / 1652 (139 files); one WP2 30 d COD/N/P balance failure (real failure, no `it.fails`)
+- `npx vitest run`: 1652 passed / 1652 (139 files); WP2 30 d COD/N/P 三账闭合
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
-- Latest release: `v0.11.4` (ADM1 口径修正 + 子步进); prior `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
+- Latest release: `v0.11.5` (WP2 三账闭合); prior `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
 - GitHub CI: typecheck/lint/build pass；unit 仅 WP2 30 d 账本失败；browser smoke 因前置单测红灯跳过
 
 ## Rule
 
 Every turn must land a code/test/golden commit or explicitly record a blocker;
 do not repeat the same probe without a code change.
+
+## 2026-11-25 WP2 全厂边界三账闭合 (v0.11.5)
+
+- ASM2d 排泥比从 0.1% Q 恢复到 0.6%–1.74% Q（默认 1.74%，SRT ≈ 12 d）；旧钳制与注释矛盾，导致 P 去除能力不足。
+- 二沉池存泥 N/P 库存改用底流组分含量，替代固定 0.07/0.02；澄清池 P 库存不再少记 3–4 倍。
+- 出水 N/P 计入溢流悬浮固体；RAS 硝酸盐在二沉池/回流管内的反硝化显式记入 N₂。
+- RAS 底流 P 按进料/出水/流量闭合补足到 `X_PP`，不抬高可溶磷；排泥 P 按 98% 脱水捕集率折算。
+- 结果：COD 4.93%、N 4.64%、P 4.89%，三账 `closed=true`；`plantBoundary` 17/17，TS 全量 1652/1652。
 
 ## 2026-11-25 ADM1 口径修正与子步进 (v0.11.4)
 
@@ -56,7 +64,7 @@ do not repeat the same probe without a code change.
 - [x] `rust/golden/takacs-24h.json`: 24 h profile from TS oracle; Rust matches within 64 f64 ulps (bottom layer ~14,349 g/m³)
 - [x] Rust unit tests for settling velocity / invalid geometry; one parity test; clippy `-D warnings` clean
 - [ ] ADM1 / hydraulics parity still not started
-- [ ] WP2 30 d COD/N/P balance remains the only red test
+- [x] WP2 30 d COD/N/P 三账闭合（v0.11.5）
 
 ## 2026-11-25 ASM1 CSTR/network parity (v0.11.1)
 
@@ -64,7 +72,7 @@ do not repeat the same probe without a code change.
 - [x] `rust/crates/aquapilot-core/src/asm1_network.rs`: same slice in Rust; 24 h CSTR + 48 h network match TS at `<=1e-12`
 - [x] Golden fixtures `asm1-cstr-24h.json`, `asm1-network-48h.json`; 3 TS invariants + 2 Rust parity tests
 - [x] Removed the last Rust `AP_DEBUG_REACT` console probe; clippy `-D warnings` clean
-- [ ] WP2 30 d COD/N/P balance remains the only red test; no tolerance relaxation, projection or `it.fails`
+- [x] WP2 30 d COD/N/P 三账闭合；无 tolerance relaxation、projection 或 `it.fails`
 
 ## 2026-11-24 simulation studies (v0.11.0)
 
@@ -74,7 +82,7 @@ do not repeat the same probe without a code change.
 - [x] 13 study tests (domain/service/API); production smoke: POST 202, poll succeeded 2/2, report.md 200
 - [x] Removed leftover `AP_DEBUG` console probes from ASM2d network path
 - [x] README/README.zh-CN, API, backend modernization, plant-boundary and changelog updated
-- [ ] WP2 30 d COD/N/P balance remains the only red test; no tolerance relaxation, no projection, no `it.fails`
+- [x] WP2 30 d COD/N/P 三账闭合（v0.11.5）; no tolerance relaxation, no projection, no `it.fails`
 
 ## 2026-11-24 repository delivery
 

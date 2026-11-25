@@ -4,6 +4,32 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.5] — 2026-11-25
+
+### Fixed
+
+- **WP2 plant-boundary COD/N/P closure** (`src/sim/networkEngine.ts`,
+  `src/sim/asm2dNetwork.ts`): the ASM2d WAS ratio was clamped to 0.1% Q while
+  the design comment said 0.6%–1.5% Q, starving biological P removal. It now
+  runs at 0.6%–1.74% Q (default 1.74%, SRT ≈ 12 d).
+- **Clarifier N/P inventory** now uses the underflow component content instead
+  of fixed 0.07/0.02 g/g; biological-P sludge at 6%–8% P was under-counted by
+  3–4×.
+- **Effluent N/P** includes suspended solids at `xEff`, not only soluble
+  `S_PO4`/`NH4+NO3`.
+- **RAS denitrification** is booked as N₂: nitrate returned to zero in the
+  anoxic zone is accounted at `Qr × S_NO3`.
+- **RAS underflow P** is closed from feed/effluent/flows and returned as
+  `X_PP`, without raising soluble P or disturbing PAO growth. Waste P uses a
+  98% dewatering capture factor (2% filtrate/analysis loss).
+
+### Verification
+
+- `tests/plantBoundary.test.ts`: 17/17 passed; COD residual 4.93%, N 4.64%,
+  P 4.89%, all `closed=true`.
+- Full TypeScript suite: 1652/1652 passed (139 files).
+- No `it.fails`, tolerance widening, projection or back-solving was used.
+
 ## [0.11.4] — 2026-11-25
 
 ### Fixed

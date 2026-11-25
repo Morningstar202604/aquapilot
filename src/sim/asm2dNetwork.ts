@@ -18,6 +18,7 @@ import {
   ASM2D_PROCESSES,
   buildAsm2dRates,
   buildAsm2dStoichiometry,
+  asm2dPConcentration,
   emptyAsm2dState,
   fromAsm2d,
   influentToAsm2d,
@@ -111,6 +112,8 @@ export interface StepAsm2dNetworkArgs {
   influent: { flow: number; cod: number; nh: number; tn: number; tp: number; ss: number; alkalinity: number };
   /** Takács 底流浓度 g/m³，用于 RAS 颗粒态浓缩缩放 */
   xRas: number;
+  /** 二沉池底流总磷 gP/m³（按进料/出水/流量闭合），用于 RAS P 补足 */
+  rasPExact?: number;
   /** 混合液生物量固体浓度 g/m³（首次初始化组分时播种生物量用） */
   xBiomass: number;
   temperatureC: number;
@@ -138,6 +141,7 @@ function mixInflow(
   last: ReactorState | undefined,
   xRas: number,
   influent: StepAsm2dNetworkArgs['influent'],
+  rasPExact?: number,
 ): { qIn: number; asmIn: Asm2dState } {
   let qIn = 0;
   let asmIn = emptyAsm2dState();
@@ -154,6 +158,13 @@ function mixInflow(
       const base = last.asm2d;
       src = { ...base };
       for (const c of PARTICULATE) src[c] = base[c] * rasRatio;
+      // 二沉池底流的磷质量按进料/出水/底流流量闭合；沉降模型只给总固体，
+      // 不反算组分时 P 会以 4% 级差异在澄清池里凭空消失。补足差额到 X_PP，
+      // 不抬高 RAS 可溶磷，避免把 P 修正变成 PAO 生长扰动。
+      if (rasPExact !== undefined) {
+        const currentP = asm2dPConcentration(src);
+        src.X_PP = Math.max(0, src.X_PP + (rasPExact - currentP) / ASM2D_PARAMS.i_P_PP);
+      }
       // 二沉池底流按缺氧/无溶解氧处理：RAS 携带的好氧末段硝酸盐在二沉池内反硝化，
       // 不回流到厌氧池抑制 PAO 的 PHA 储存；固体生物量照常回流量级。
       src.S_NO3 = 0;
@@ -389,7 +400,7 @@ export function stepAsm2dNetwork(args: StepAsm2dNetworkArgs): Asm2dNetworkFluxes
 
     const incoming = net.incomingByReactor[id] ?? [];
     const last = reactors[reactors.length - 1];
-    const { qIn, asmIn } = mixInflow(incoming, edgeFlow, byId, last, xRas, influent);
+    const { qIn, asmIn } = mixInflow(incoming, edgeFlow, byId, last, xRas, influent, args.rasPExact);
     if (reactor.kind === 'anoxic' && carbonDose > 0) {
       asmIn.S_A += carbonDose;
     }
