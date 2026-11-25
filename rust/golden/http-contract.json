@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "scripts/gen-http-contract.ts",
+  "oracle": "src/server（TypeScript 生产服务）",
+  "note": "M2-1 的接口契约快照；Rust 服务端逐条实现前不得把本文件当成已完成迁移。",
+  "sources": {
+    "src/server/apiRoutes.ts": "4791e055f0e3ae9fed552acb6ae0caf1db5d4bc2258042cec58467f168b40c1a",
+    "src/server/httpRoutes.ts": "b65bfa8d184871da60ecf281dc0a5f5cded645ce9fdcb5c227ad4cc3798ae7a7",
+    "src/server/openapi.ts": "de5a280baf5176fd3456bf2678eaa4f59e45dfff1fb520a2828ce6e5f0ca8849",
+    "src/server/index.ts": "2995aa7b51f3558405528247aed804c3171d2efafa71e226acd18d8f75847e74",
+    "src/shared/protocol.ts": "93e7b0e3851f57ad4d8744807e511902161ddb01ab0f9509d23fd1c235159aef",
+    "src/server/routes/assets.ts": "21b3948f1fadeba1a2ec0b3d772cff749fbdeccdc763764135726dbdc7b490aa",
+    "src/server/routes/protocols.ts": "7998e6e726ed9865665587d3ea602f4eca1fd5a2e10abb3c8d4deb2464366241",
+    "src/server/routes/calibration.ts": "b18000743ada354d449d9aa7659a1569bbe79ae7ae3af20cf9e648154dbbdbca"
+  },
+  "http": {
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "public": [
+      "/api/auth-required",
+      "/api/health",
+      "/api/openapi.json"
+    ],
+    "legacy": [
+      "/api/assets",
+      "/api/assets/{id}",
+      "/api/auth-required",
+      "/api/calibration/uncertainty",
+      "/api/compliance/report",
+      "/api/compliance/samples",
+      "/api/control/interlocks",
+      "/api/export/decisions.csv",
+      "/api/export/report.md",
+      "/api/export/reviews.csv",
+      "/api/export/snapshots.csv",
+      "/api/health",
+      "/api/history/alarms",
+      "/api/history/decisions",
+      "/api/history/reviews",
+      "/api/history/snapshots",
+      "/api/history/stats",
+      "/api/hydraulics",
+      "/api/hydraulics/tracer",
+      "/api/instruments",
+      "/api/limits",
+      "/api/metrics",
+      "/api/models",
+      "/api/plant/balance",
+      "/api/presets",
+      "/api/protocols/audit",
+      "/api/protocols/status",
+      "/api/protocols/tags",
+      "/api/snapshot",
+      "/api/standards",
+      "/api/topology",
+      "/api/topology/history"
+    ],
+    "legacyPrefixes": [
+      "/api/assets",
+      "/api/calibration",
+      "/api/protocols"
+    ],
+    "meta": [
+      "/api/openapi.json"
+    ],
+    "versioned": [
+      "/api/v1/experiments",
+      "/api/v1/experiments/{id}",
+      "/api/v1/experiments/{id}/cancel",
+      "/api/v1/experiments/{id}/report.md",
+      "/api/v1/experiments/{id}/samples.csv",
+      "/api/v1/studies",
+      "/api/v1/studies/{id}",
+      "/api/v1/studies/{id}/cancel",
+      "/api/v1/studies/{id}/report.md"
+    ],
+    "mcp": [
+      "/mcp"
+    ],
+    "unauthorizedStatus": 401,
+    "methodNotAllowedStatus": 405,
+    "unknownApiStatus": 404
+  },
+  "ws": {
+    "path": "/ws",
+    "maxPayloadBytes": 524288,
+    "clientTypes": [
+      "agentConfig",
+      "aiEnabled",
+      "analysis",
+      "applyRecommendation",
+      "calibration",
+      "chat",
+      "control",
+      "dismissRecommendation",
+      "hello",
+      "influent",
+      "llmConfig",
+      "model",
+      "preset",
+      "refreshDecision",
+      "scenario",
+      "sim",
+      "speed",
+      "topology",
+      "watchdog"
+    ],
+    "serverTypes": [
+      "agentConfig",
+      "analysis",
+      "calibration",
+      "chat",
+      "decision",
+      "influent",
+      "llmConfig",
+      "notice",
+      "simState",
+      "snapshot",
+      "snapshotPatch",
+      "topology",
+      "topologyHistory",
+      "watchdog"
+    ]
+  }
+}

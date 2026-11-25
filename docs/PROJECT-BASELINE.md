@@ -1,7 +1,7 @@
 # AquaPilot 项目基线（Project Baseline）
 
 > 文档类型：工业级项目基线 / 单一事实源  
-> 基线日期：2026-11-25  
+> 基线日期：2026-11-26  
 > 维护责任：项目负责人（架构、仿真、交付同一责任人）  
 > 变更规则：任何影响范围、接口、质量门禁的变更，必须在本文件、`docs/INDUSTRIAL-READINESS-PLAN.md`、`CHANGELOG.md` 同一提交内同步，禁止只在聊天记录里口头约定。
 
@@ -9,11 +9,11 @@
 
 | 层级          | 版本     | 提交   | 状态                                    |
 | ------------- | -------- | ------ | --------------------------------------- |
-| 本地 `main`   | `0.11.15` | `HEAD` | M2-2 Rust ops 能力交付；M1 仍关闭 |
-| 五平台 `main` | `0.11.15` | `HEAD` | 待推送后复核 |
+| 本地 `main`   | `0.11.16` | `HEAD` | M2-1 HTTP/WS 契约冻结；服务端未实现 |
+| 五平台 `main` | `0.11.16` | `HEAD` | 待推送后复核 |
 | 当前工作树    | clean    | —      | 全部回归门禁通过 |
 
-一致性结论：`v0.11.15` 推送后须用 `git ls-remote` 复核到同一提交；
+一致性结论：`v0.11.16` 推送后须用 `git ls-remote` 复核到同一提交；
 若后续再改动，必须重新推送并复验，不能沿用本文的旧哈希。
 
 核对命令：
@@ -63,7 +63,7 @@ git log --oneline --decorate -3
 | `tsc --noEmit`                | 通过                                     |
 | `lint` / `prettier` / `build` | 通过                                     |
 | 研究领域/服务/API             | 13 项测试通过                            |
-| Rust 内核                     | 58 项（34 单元 + 24 集成/parity/fuzz）   |
+| Rust 内核                     | 64 项（34 单元 + 30 集成/parity/fuzz）   |
 | ASM1 CSTR/网络                | 3 项 TS 不变量 + Rust 1e-12 parity 通过  |
 | 整厂 production replay        | 96 步 × 15 min；最大残差 1.73e-9，容差 1e-8 |
 | M2-2 Rust ops parity          | 14 watchdog / 5 decision / 2 rate / 9 URL  |
@@ -117,7 +117,7 @@ WP2 门禁：
 | WP9  | 回归、构建、浏览器验收、文档                             | 已完成（本地），但 WP2 红灯使总验收不成立 | `docs/INDUSTRIAL-READINESS-PLAN.md` §3.6                   |
 | 基础 | 拓扑编辑、工艺画布、趋势、回放、AI 对话、CLI、单文件 exe | 已存在                                    | `src/client/*`、`src/cli.ts`、`scripts/build-exe.mjs`      |
 
-“已完成（本地）”不等于“远程已合并”。五平台 `main` 已一致到 v0.11.14；v0.11.15 待推送后复核。
+“已完成（本地）”不等于“远程已合并”。截至 v0.11.15，五平台 `main` 与 tag 已一致；v0.11.16 待推送后复核。
 
 ## 3. 待开发任务池
 
@@ -134,7 +134,7 @@ WP2 门禁：
 
 ### P1 — 工业级能力（进行中）
 
-当前进度：P1-01 的 TS→Rust 六项模块切片（ASM1/ASM2d/ADM1 CSTR/ADM1 泥线/Takács/水力输运）均已 parity，水力模块已有随机差分与属性不变量，三本账已有 96 步 parity，整厂 production `stepNetwork` 轨迹 96 步逐态 replay 已通过；M1 三项退出条件已满足，P1-01 可标完成。v0.11.15 完成 M2-2 的 Rust AI Provider / 哈希链审计 / 限流 / 看门狗（17 项测试，TS oracle 逐项 parity）；P1-03 仍缺 24 h 墙钟 soak 报告。P1-04 3D 厂区未开始；P1-05/06 持续迭代。
+当前进度：P1-01 的 TS→Rust 六项模块切片（ASM1/ASM2d/ADM1 CSTR/ADM1 泥线/Takács/水力输运）均已 parity，水力模块已有随机差分与属性不变量，三本账已有 96 步 parity，整厂 production `stepNetwork` 轨迹 96 步逐态 replay 已通过；M1 三项退出条件已满足，P1-01 可标完成。v0.11.15 完成 M2-2 的 Rust AI Provider / 哈希链审计 / 限流 / 看门狗（17 项测试，TS oracle 逐项 parity）；v0.11.16 冻结 HTTP/WS 契约（32 legacy / 9 versioned / 19→14 WS），但 Rust 服务端尚未实现；P1-03 仍缺 24 h 墙钟 soak 报告。P1-04 3D 厂区未开始；P1-05/06 持续迭代。
 
 | ID    | 任务               | 完成定义                                                   |
 | ----- | ------------------ | ---------------------------------------------------------- |
@@ -179,16 +179,17 @@ WP2 门禁：
 
 ### M2 — 服务端与 AI 编排迁移
 
-状态：**M2-2 已完成（v0.11.15）；M2-1 / M2-3 未完成，M2 总里程碑不关闭。**
+状态：**M2-1 契约冻结、M2-2 已完成（v0.11.16）；M2-1 服务端与 M2-3 未完成，M2 总里程碑不关闭。**
 
 | 退出条件 | 状态 | 证据 |
 | --- | --- | --- |
-| HTTP/WS/协议/持久化接口契约不变 | **未完成** | 生产服务端仍是 TypeScript；Rust HTTP/WS 迁移未开始 |
+| HTTP/WS/协议/持久化接口契约不变 | **未完成** | `rust/golden/http-contract.json` 已冻结 32 legacy / 9 versioned / 19→14 WS；Rust 服务端尚未实现，生产监听仍是 TypeScript |
 | AI Provider、审计、限流、看门狗在目标语言中可用 | **已满足** | `rust/crates/aquapilot-ops` + `tests/ops_parity.rs`；见 `docs/M2-SERVICES.md` |
-| 7×24 soak 测试通过，内存/句柄无增长 | **未完成** | `scripts/soak.ts` 已具备真实墙钟采样；尚无 24 h 通过记录 |
+| 7×24 soak 测试通过，内存/句柄无增长 | **未完成** | `scripts/soak.ts` 已具备真实墙钟采样与 boot id 防伪；上一轮 TS soak 因宿主重启中断，无有效 24 h 记录 |
 
 M2-2 不是服务端迁移：crate 尚未接线到生产入口。不得用“Rust 已有 ops crate”
-冒充“HTTP/WS 已迁移”，也不得用 1 分钟 soak 冒充 24 h。
+冒充“HTTP/WS 已迁移”，也不得用 1 分钟 soak 或跨重启样本冒充 24 h。
+M2-1 的契约 crate 是迁移义务清单，不是服务端实现。
 
 ### M3 — 3D 与全自动推演
 

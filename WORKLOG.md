@@ -14,9 +14,8 @@
 - [x] M1 production `stepNetwork` trace replay (96 steps × 15 min, ASM2d + Takács + ADM1 + 三本账 + 出水/库存/生物量)
 - [x] WP2 30 d COD/N/P balance closure
 - [x] M2-2 Rust AI provider / hash-chain audit / rate limit / watchdog (TS oracle parity)
-- [ ] M2-1 Rust HTTP/WS server migration
-- [ ] M2-3 7×24 wall-clock soak / RSS + FD acceptance
-- [ ] M3 frontend / industrial acceptance
+- [ ] M2-1 Rust HTTP/WS server migration（契约已冻结，服务端未实现）
+- [ ] M2-3 7×24 wall-clock soak / RSS + FD acceptance- [ ] M3 frontend / industrial acceptance
 - [ ] M4 optional zero-TypeScript migration
 - [x] B1 reproducible experiments / durable queue
 - [x] B2 OpenAPI 3.1 + RFC 9457 + idempotency
@@ -26,18 +25,26 @@
 
 ## Latest verifiable state
 
-- `cargo test`: 34 unit + 24 integration/parity/fuzz = 58, all pass (core 41 + ops 13 unit + 4 parity)
+- `cargo test`: 34 unit + 30 integration/parity/fuzz = 64, all pass (core 41 + ops 17 + contract 6)
 - `cargo clippy --all-targets -- -D warnings`: clean
 - `npx vitest run --coverage`: 1739 passed / 1739 (144 files); WP2 30 d COD/N/P 三账闭合；覆盖率 94.11/82.15/95.23（阈值 90/81/95 未下调）
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
-- Latest release: `v0.11.15` (Rust M2-2 ops crate; M2 not closed); prior `v0.11.14` (production trace replay; M1 gates met), `v0.11.13`, `v0.11.12`, `v0.11.11`, `v0.11.10`, `v0.11.9`, `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
-- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release；v0.11.9 清掉 Node20 告警；v0.11.10 接入 ADM1 泥线；v0.11.11 接入水力/输运；v0.11.12 加随机差分并修掉分流截流后的丢流量；v0.11.13 补齐三本账 Rust parity；v0.11.14 整厂 96 步 production replay 通过；v0.11.15 M2-2 ops crate 58 项 Rust 全过
+- Latest release: `v0.11.16` (M2-1 HTTP/WS contract freeze + soak boot guard; M2 not closed); prior `v0.11.15` (Rust M2-2 ops crate), `v0.11.14` (production trace replay; M1 gates met), `v0.11.13`, `v0.11.12`, `v0.11.11`, `v0.11.10`, `v0.11.9`, `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
+- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release；v0.11.9 清掉 Node20 告警；v0.11.10 接入 ADM1 泥线；v0.11.11 接入水力/输运；v0.11.12 加随机差分并修掉分流截流后的丢流量；v0.11.13 补齐三本账 Rust parity；v0.11.14 整厂 96 步 production replay 通过；v0.11.15 M2-2 ops crate 58 项 Rust 全过；v0.11.16 冻结 HTTP/WS 契约 64 项 Rust 全过
 
 ## Rule
 
 Every turn must land a code/test/golden commit or explicitly record a blocker;
 do not repeat the same probe without a code change.
+
+## 2026-11-26 M2-1 契约冻结（v0.11.16）
+
+- 新增 `scripts/gen-http-contract.ts`：扫描 `apiRoutes.ts`、`httpRoutes.ts`、`openapi.ts`、路由模块与 `protocol.ts`，冻结 32 条 legacy 路由、3 个别名前缀、9 条版本化路由、3 个公开端点、`/mcp`、`/ws`、19 类客户端消息、14 类服务端消息、512 KiB 帧上限与 8 个源文件 SHA-256。
+- 新增 `rust/crates/aquapilot-contract`：读取 `rust/golden/http-contract.json`，6 项测试锁定条数、公开端点归属、路径前缀、版本化参数风格、WS 标签唯一性与源文件哈希。该 crate 不是服务端实现，只声明 M2-1 的迁移义务。
+- `npm run gen:http-contract -- --check` 纳入 `npm run ci`；源文件改动而 golden 未更新会直接失败。
+- `scripts/soak.ts` 增加防覆盖与 boot id 证据：已有 `samples.csv` 拒绝启动；`run.json` 记录启动时 boot id；结束时 boot id 变化则 `hostRebooted=true`、`passed=false`。`.gitignore` 增加 `/soak/`。1 分钟 smoke 采到 6 个样本、FD 25→25、`hostRebooted=false`，`passed=false` 仍按设计只作 harness 验证。
+- v0.11.15 的 TS soak 在 2026-11-26 00:02 宿主重启时中断（约 24 分钟、25 个样本），未生成 `summary.json`，不计入 M2-3。M2-1 服务端、M2-3 24 h 均未完成，M2 不关闭。
 
 ## 2026-11-25 M2-2：Rust ops 能力（v0.11.15）
 

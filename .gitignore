@@ -28,6 +28,7 @@ test-results.json
 # Anchored to the repository root: `src/sim/data/` holds tracked reference data and must not be caught here.
 /data/
 /backups/
+/soak/
 .ci-*.db
 .ci-*
 

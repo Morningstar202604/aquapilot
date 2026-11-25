@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.11.16] — 2026-11-26
+
+### Added
+
+- `scripts/gen-http-contract.ts` 与 `rust/golden/http-contract.json`：从 TS 生产服务
+  冻结 M2-1 的 HTTP/WS 契约——32 条 legacy 路由、3 个别名前缀、9 条版本化路由、
+  3 个公开端点、`/mcp`、`/ws`、19 类客户端消息、14 类服务端消息与 512 KiB
+  WS 帧上限；同时记录 8 个源文件 SHA-256。
+- 新增 Rust crate `rust/crates/aquapilot-contract`：只读加载 golden，暴露
+  `all_http_paths()` 与 6 项契约完整性测试。它明确是**迁移义务清单**，不是
+  已完成的 Rust 服务端。
+- `npm run gen:http-contract -- --check` 纳入本地 `npm run ci`；TS 路由/协议
+  改动而 golden 未重生成时门禁直接失败，防止契约静默漂移。
+
+### Changed
+
+- `scripts/soak.ts` 拒绝覆盖已有 `samples.csv`，并把 `run.json`、启动时的
+  `/proc/sys/kernel/random/boot_id` 写入证据目录；结束时若宿主 boot id 变化，
+  报告 `hostRebooted` 并判失败，不再让跨重启的样本冒充连续 24 h。
+- `.gitignore` 增加 `/soak/`：soak 证据默认写到仓库根目录的忽略区，避免再次
+  被 `git add -A` 误带进发布提交。
+
+### Verification
+
+- Rust 64 项全过（58 + 6 契约测试）；`cargo fmt/clippy` 干净。
+- `npm run gen:http-contract -- --check` 通过：32 legacy / 9 versioned / 19→14 WS。
+- **M2 仍未关闭**：本版只完成 M2-1 的契约冻结与门禁，Rust HTTP/WS 服务端尚未
+  实现；M2-3 24 h soak 仍无有效证据，上一轮 TS soak 因宿主重启中断，未计入。
+
 ## [0.11.15] — 2026-11-25
 
 ### Added

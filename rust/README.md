@@ -22,8 +22,9 @@ module passes the golden-corpus parity gate.
 | plant boundary COD/N/P mass books | complete | 96 half-hour steps exact, `tests/plant_boundary_parity.rs`; 500-step residual invariants |
 | full plant production `stepNetwork` replay | complete for the fixed 96-step trajectory | 96 × 15 min replay; max absolute residual 1.73e-9, gate 1e-8 (`tests/plant_replay_parity.rs`) |
 | M2-2 AI provider / audit / rate limit / watchdog | complete in `aquapilot-ops` | TS oracle parity: 14 watchdog inputs, 5 decisions, 2 rate sequences, 9 URL cases (`tests/ops_parity.rs`) |
-| M2-1 HTTP/WS server migration | not started | TypeScript server remains the only public listener |
-| M2-3 7×24 soak | harness only | `scripts/soak.ts`; no 24 h wall-clock acceptance yet |
+| M2-1 HTTP/WS contract | frozen in `aquapilot-contract` | 32 legacy / 9 versioned / 19→14 WS; server not implemented |
+| M2-1 HTTP/WS server migration | not implemented | TypeScript server remains the only public listener |
+| M2-3 7×24 soak | harness only, boot guard added | `scripts/soak.ts`; no valid 24 h wall-clock acceptance yet |
 
 The ASM1 fixture is `golden/asm1-reaction.json` (20 °C and 15 °C reaction vectors).
 The exact CSTR fixtures are `golden/asm2d-cstr-24h.json`,
@@ -50,11 +51,19 @@ and compares every state/flux plus the effluent, inventory and biomass projectio
 module fixtures keep 1e-12, the closed-loop replay uses 1e-8 absolute with an
 observed worst residual of 1.73e-9. `serde_json` is a dev-dependency only in `aquapilot-core`, used to read the fixtures; `aquapilot-ops` uses it at runtime for audit/provider JSON.
 
+`golden/http-contract.json` is generated from the TypeScript server by
+`npm run gen:http-contract` and loaded by `aquapilot-contract`. It freezes
+32 legacy routes, 3 prefix families, 9 versioned routes, public endpoints,
+`/mcp`, `/ws`, 19 client / 14 server WS tags and 512 KiB frame cap. The crate
+does not implement a listener; it is the obligation list M2-1 must satisfy.
+`npm run gen:http-contract -- --check` is part of `npm run ci`.
+
 ## Commands
 
 ```bash
 cargo test
 cargo test -p aquapilot-ops --all-targets
+cargo test -p aquapilot-contract --all-targets
 cargo clippy --all-targets -- -D warnings
 cargo run -p aquapilot-core --example cstr
 cargo run -p aquapilot-core --example network

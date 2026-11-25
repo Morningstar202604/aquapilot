@@ -1,8 +1,8 @@
-# M2 服务能力：Rust 侧 AI Provider、审计、限流、看门狗
+# M2 服务能力：Rust 侧 AI Provider、审计、限流、看门狗与 HTTP/WS 契约
 
-> 状态：M2-2 已交付（v0.11.15）；M2-1 HTTP/WS 迁移、M2-3 7×24 soak 未完成。
-> 本文只记录已经在 `rust/crates/aquapilot-ops` 中实现、可测试的能力，不把
-> “crate 已存在”写成“服务端已迁移”。
+> 状态：M2-2 已交付（v0.11.15）；M2-1 仅完成契约冻结（v0.11.16），服务端未实现；
+> M2-3 7×24 soak 未完成。
+> 本文只记录已经实现、可测试的能力，不把“crate 已存在”写成“服务端已迁移”。
 
 ## 1. 为什么先做 M2-2
 
@@ -86,8 +86,10 @@ cargo clippy --all-targets -- -D warnings
 ```
 
 - `aquapilot-ops`：13 单元 + 4 parity = 17 项；
-- 整仓 Rust：58 项（34 单元 + 24 集成/parity）；
-- oracle 生成：`npm run gen:ops-cases` → `rust/golden/ops-cases.json`。
+- `aquapilot-contract`：6 项契约完整性测试；
+- 整仓 Rust：64 项（34 单元 + 30 集成/parity）；
+- oracle 生成：`npm run gen:ops-cases` → `rust/golden/ops-cases.json`；
+  `npm run gen:http-contract` → `rust/golden/http-contract.json`。
 
 ## 4. soak harness（M2-3 前置，不等于 M2-3 通过）
 
@@ -98,16 +100,41 @@ cargo clippy --all-targets -- -D warnings
   `/proc/<pid>/fd` 的句柄数；
 - 探活 `/api/health?deep=1` 与 `/api/snapshot`，每 5 个样本开一次真实 WS，
   发 `hello` 并等 `snapshot`；
-- 输出 `samples.csv` 与 `summary.json`；
+- 输出 `samples.csv`、`run.json` 与 `summary.json`；
 - 验收默认 `SOAK_MINUTES=1440`（24 h），通过条件：至少 24 h、0 探针错误、
-  预热后 RSS 增长 ≤10%、线性斜率 ≤1 MiB/h、FD 增长 ≤2。
+  预热后 RSS 增长 ≤10%、线性斜率 ≤1 MiB/h、FD 增长 ≤2；
+- 防伪：拒绝覆盖已有 `samples.csv`；`run.json` 记录启动时宿主 boot id，
+  结束时 boot id 变化则判 `hostRebooted`、`passed=false`，跨重启样本不能拼成
+  连续 24 h。
 
 已跑过的 1 分钟快速跑只证明 harness 能采到 RSS/FD/WS，**不能**写进 24 h
-验收。M2-3 必须在目标服务上跑满 24 h 墙钟后再签。
+验收。v0.11.15 的 TS soak 在 2026-11-26 00:02 宿主重启时中断（约 24 分钟、
+25 个样本），没有 `summary.json`，不计入 M2-3。M2-3 必须在目标服务上跑满
+连续 24 h 墙钟后再签。
 
-## 5. 明确未做
+## 5. M2-1 契约冻结（v0.11.16，不等于迁移完成）
+
+`scripts/gen-http-contract.ts` 从 TS 生产服务冻结
+`rust/golden/http-contract.json`：
+
+- 32 条 legacy 路由（含 `/api/assets/{id}` 模板）与 3 个 `startsWith` 前缀；
+- 9 条 `/api/v1/*` 版本化路由与 `/api/openapi.json`；
+- 3 个公开端点（`/api/auth-required`、`/api/health`、`/api/openapi.json`）；
+- `/mcp`、`/ws`、512 KiB WS 帧上限；
+- 19 类客户端消息、14 类服务端消息；
+- 8 个 TS 源文件的 SHA-256。
+
+`rust/crates/aquapilot-contract` 只读加载这份 golden，测试锁定条数、公开端点
+归属、路径前缀、版本化参数风格与 WS 标签唯一性。`npm run gen:http-contract
+-- --check` 已接入本地 CI：TS 契约改动而 golden 未重生成会直接失败。
+
+该 crate 是**迁移义务清单**，不是 HTTP/WS 服务端。生产监听仍然是
+TypeScript；M2-1 未完成。
+
+## 6. 明确未做
 
 - HTTP/WS 路由、鉴权、持久化、实验/研究 API 仍在 TypeScript 服务端；
 - `aquapilot-ops` 尚未接线到生产服务端（当前是独立 crate + 测试）；
+- `aquapilot-contract` 只冻结契约，Rust 监听、路由、鉴权、WS 会话尚未实现；
 - 7×24 soak 未跑满，M2-3 未签；
-- 因以上三项，M2 总里程碑仍未关闭。
+- 因以上四项，M2 总里程碑仍未关闭。

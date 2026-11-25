@@ -8,7 +8,8 @@
  * to exercise hello/snapshot and disconnect handling.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { WebSocket } from 'ws';
 
@@ -19,13 +20,40 @@ const EXTERNAL_BASE = process.env.SOAK_BASE?.trim();
 const TOKEN = process.env.SOAK_TOKEN ?? process.env.AQUAPILOT_TOKEN ?? '';
 const BASE = EXTERNAL_BASE ?? `http://127.0.0.1:${PORT}`;
 const authSuffix = TOKEN ? `?token=${encodeURIComponent(TOKEN)}` : '';
-const OUT_DIR = process.env.SOAK_OUT ?? `soak/${new Date().toISOString().replace(/[:.]/g, '-')}`;
+const OUT_DIR = resolve(process.env.SOAK_OUT ?? `soak/${new Date().toISOString().replace(/[:.]/g, '-')}`);
 const WARMUP_S = Number(process.env.SOAK_WARMUP_S ?? 60);
+const BOOT_ID = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
 
 if (!Number.isFinite(MINUTES) || MINUTES <= 0) throw new Error('SOAK_MINUTES must be > 0');
 mkdirSync(OUT_DIR, { recursive: true });
 const csvPath = `${OUT_DIR}/samples.csv`;
-writeFileSync(csvPath, 'elapsed_s,rss_kb,threads,fds,health_ms,snapshot_ms,snapshot_bytes,time_min,ws_ms,status,error\n');
+if (existsSync(csvPath)) {
+  throw new Error(
+    `refusing to overwrite existing soak: ${csvPath}. A 24 h run is evidence, not a scratch file; use a new SOAK_OUT.`,
+  );
+}
+writeFileSync(
+  csvPath,
+  'elapsed_s,rss_kb,threads,fds,health_ms,snapshot_ms,snapshot_bytes,time_min,ws_ms,status,error\n',
+);
+writeFileSync(
+  `${OUT_DIR}/run.json`,
+  `${JSON.stringify(
+    {
+      startedAt: new Date().toISOString(),
+      bootId: BOOT_ID,
+      minutes: MINUTES,
+      intervalMs: INTERVAL_MS,
+      warmupS: WARMUP_S,
+      base: BASE,
+      external: Boolean(EXTERNAL_BASE),
+      node: process.version,
+      platform: process.platform,
+    },
+    null,
+    2,
+  )}\n`,
+);
 
 let child: ChildProcess | null = null;
 let stopping = false;
@@ -152,6 +180,8 @@ interface Summary {
   fdEnd: number;
   fdGrowth: number;
   threadsMax: number;
+  bootId: string;
+  hostRebooted: boolean;
   passed: boolean;
   note: string;
 }
@@ -180,12 +210,22 @@ function summarize(durationMinutes: number): Summary {
   const meanRss = window.reduce((sum, row) => sum + row.rss, 0) / Math.max(1, window.length);
   const slope =
     window.reduce((sum, row) => sum + (row.t - meanT) * (row.rss - meanRss), 0) /
-    Math.max(1, window.reduce((sum, row) => sum + (row.t - meanT) ** 2, 0));
+    Math.max(
+      1,
+      window.reduce((sum, row) => sum + (row.t - meanT) ** 2, 0),
+    );
   const errors = rows.filter((row) => row[10] !== '').length;
   const fdGrowth = last && first ? last.fds - first.fds : 0;
   const threadsMax = Math.max(...numeric.map((row) => row.threads), 0);
+  const currentBoot = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
+  const hostRebooted = currentBoot !== BOOT_ID;
   const passed =
-    durationMinutes >= 24 * 60 && errors === 0 && rssGrowthPct <= 10 && slope * 3600 <= 1024 && fdGrowth <= 2;
+    !hostRebooted &&
+    durationMinutes >= 24 * 60 &&
+    errors === 0 &&
+    rssGrowthPct <= 10 &&
+    slope * 3600 <= 1024 &&
+    fdGrowth <= 2;
   return {
     durationMinutes,
     samples: rows.length,
@@ -199,10 +239,14 @@ function summarize(durationMinutes: number): Summary {
     fdEnd: last?.fds ?? 0,
     fdGrowth,
     threadsMax,
+    bootId: BOOT_ID,
+    hostRebooted,
     passed,
-    note: passed
-      ? '24 h wall-clock soak passed'
-      : 'NOT ACCEPTED: requires >=24 h wall-clock, zero probe errors, RSS growth <=10%, slope <=1 MiB/h and FD growth <=2',
+    note: hostRebooted
+      ? 'NOT ACCEPTED: host rebooted during the soak window; continuity is broken, start a new run'
+      : passed
+        ? '24 h wall-clock soak passed'
+        : 'NOT ACCEPTED: requires >=24 h wall-clock, zero probe errors, RSS growth <=10%, slope <=1 MiB/h and FD growth <=2',
   };
 }
 
