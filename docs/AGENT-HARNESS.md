@@ -40,9 +40,9 @@
 ## 4. 结论：AquaPilot 缺什么（优先级）
 
 1. **P0 — MCP Streamable HTTP server 端点**：当前外部 agent 只能走 webhook/内部 API，无法被任何框架直连。实现 `POST /mcp` 后即进入全框架生态（见第 5 节最小实现）。
-2. **P1 — 工具面重塑为 MCP 风格**：仿 sqlite 六工具模式，将仿真器封装为 `list_scenarios`（内省）/ `get_state` / `step` / `set_influent`（写）/ `reset`（破坏性）/ `get_metrics`，读写分离、inputSchema 完整、执行错误用 `isError: true` 返回业务信息（如曝气量超限）。
+2. **P1 — 工具面已按 MCP 风格落地**：当前 20 个工具，内省用 `list_scenarios` / `plant_state` / `get_metrics`，写用 `set_control` / `start_scenario` / `clear_scenario`，破坏性用 `reset_sim`；实验与研究队列各有创建/查询/列表/取消，study 另有报告。读写分离、`inputSchema` 完整、业务失败用 `isError: true` 返回。
 3. **P1 — structuredContent/outputSchema**：仿真状态查询返回 `structuredContent` + 同步 text 副本，让外部 agent 无需解析散文。
-4. **P2 — 安全对齐**：MCP 端点复用现有 SSRF 防护经验；验证 Origin、校验全部工具输入、限流、输出脱敏（规范 MUST 项）。
+4. **P2 — 安全对齐已落地**：MCP 端点校验 Origin、按工具分级鉴权、60 req/min/IP、错误不回异常栈；SSRF 防护仍由 webhook 钩子复用。
 5. **P3 — AG-UI 类事件流标准化**：现有 WS 事件流可保持，暂不必实现 AG-UI。
 6. **不建议**：A2A/ACP（定位不符）。
 

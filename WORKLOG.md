@@ -26,8 +26,8 @@
 - `npx vitest run --coverage`: 1734 passed / 1734 (143 files); WP2 30 d COD/N/P 三账闭合；覆盖率 94.07/82.02/95.22
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
-- Latest release: `v0.11.8` (Rust CI + docs hygiene); prior `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
-- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release，并清掉 `allow_updates` 非法输入与 Node20 弃用告警
+- Latest release: `v0.11.9` (Node24 action upgrade); prior `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
+- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release 并清掉 `allow_updates` 非法输入；v0.11.9 把 JS actions 全部升级到 Node24 构建，Node20 告警才真正消失
 
 ## Rule
 

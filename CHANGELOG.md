@@ -4,6 +4,23 @@ All notable changes to AquaPilot are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.9] — 2026-11-25
+
+### Fixed
+
+- **Node 20 deprecation annotations actually removed.** `v0.11.8` only set
+  `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`, so the runner still reported
+  `actions/checkout@v4` and `actions/setup-node@v4` as Node 20 actions forced
+  onto Node 24. This release upgrades every JavaScript action to a Node 24
+  build: checkout v5, setup-node v5, upload-artifact v6, setup-buildx v4,
+  login v4, metadata v6, build-push v7 and action-gh-release v3, all pinned by
+  commit SHA. The force flag is no longer needed and was removed.
+
+### Verification
+
+- Workflow YAML parses; `npm run ci` ALL GREEN; e2e six widths 0 errors.
+- Full suite unchanged at 1,734/1,734 (143 files).
+
 ## [0.11.8] — 2026-11-25
 
 ### Fixed

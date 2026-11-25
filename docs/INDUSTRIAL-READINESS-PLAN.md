@@ -1,6 +1,6 @@
 # AquaPilot 工业级仿真实施计划
 
-> 版本：2026-11-25（历史计划；文档状态截至 v0.11.8）
+> 版本：2026-11-25（历史计划；文档状态截至 v0.11.9）
 > 基线：`05c5642`（v0.9.0，MIT，仅 `main`）  
 > 本文件保留 2026-11-24 的计划口径；实际已按批次推送五平台，当前状态以 `docs/PROJECT-BASELINE.md` 为准。
 
@@ -179,8 +179,8 @@ npx jscpd ...                 37,698 行，0 克隆，0 重复行
 - 并发压测下 `wsAgentConfigAuth.integration.test.ts` 的 tsx 冷启动会超过 10 s，健康轮询上限由 40×250 ms 提到 240×250 ms（断言不放宽），全量套件恢复全绿。
 - 服务端冒烟（`PORT=5199 AQUAPILOT_PERSIST=0 node dist/server/index.mjs`）：`/api/health`、`/api/snapshot`、`/api/hydraulics`、`/api/instruments`、`/api/control/interlocks`、`/api/assets`、`/api/plant/balance`、`/api/protocols/tags`、`/api/compliance/report` 均 200；`/api/calibration/uncertainty` 409 `CALIBRATION_INSUFFICIENT_DATA`（无剖面数据，符合契约）。
 - 浏览器冒烟（Chromium）：侧栏 12 个页签；工业页 4 个子视图（合规 / 资产 / 协议 / 仪表联锁）；仪表 25 测点、0 异常，`measured` 与 `truth` 逐位一致；快照、仪表、联锁三处 `timeMin` 对齐（t=42 min）。
-- 提交方式：单次统一 commit（不 push、不建分支），版本 `0.10.0`（历史记录；当前 v0.11.8 已推送五平台）。
-- **当前门禁（v0.11.8）**：143 文件 / 1734 用例全部通过，0 预期失败；覆盖率 94.07/82.02/95.22（阈值 90/81/95）。见 `docs/PROJECT-BASELINE.md` §1.3。
+- 提交方式：单次统一 commit（不 push、不建分支），版本 `0.10.0`（历史记录；当前 v0.11.9 已推送五平台）。
+- **当前门禁（v0.11.9）**：143 文件 / 1734 用例全部通过，0 预期失败；覆盖率 94.07/82.02/95.22（阈值 90/81/95）。见 `docs/PROJECT-BASELINE.md` §1.3。
 
 
 ### 3.7 语言迁移 M1：Rust 仿真内核切片（2026-11-24）
