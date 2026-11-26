@@ -1,14 +1,19 @@
 //! AquaPilot whole-plant runtime, M1b.
 //!
-//! This crate is the start of the missing `networkEngine` port: it owns pure
-//! forcing and influent synthesis first. It is not a substitute for the TS
-//! engine and does not expose a server or `PlantSnapshot` yet.
+//! Owned layers: pure forcing/influent, phases 4–7 (biomass/effluent/energy/cost),
+//! and effluent metrics/alarms. This is not a whole-plant engine yet: `createNetworkState`,
+//! `stepNetwork` orchestration and `PlantSnapshot` remain TS-only.
 
 #![forbid(unsafe_code)]
 
+pub mod alarms;
 pub mod forcing;
 pub mod influent;
+pub mod metrics;
+pub mod output;
+pub mod phases;
 
+pub use alarms::{Alarm, AlarmRuleInput, Severity, evaluate_alarms};
 pub use forcing::{
     Controls, Recycle, ScenarioSpec, ScenarioType, aeration_capacity, diurnal, mixed,
     recycle_factors, scenario_envelope, seasonal_temperature, toxic_suppression,
@@ -16,4 +21,14 @@ pub use forcing::{
 pub use influent::{
     Influent, InfluentContext, InfluentSeries, SeriesSample, Uncertainty, derive_influent,
     sample_at,
+};
+pub use metrics::{
+    EffluentMetric, MarginRow, clamp, effluent_margin_rows, estimate_margin, quality_score,
+    worst_ratio,
+};
+pub use output::{DischargeStandard, Effluent, EffluentLimits};
+pub use phases::{
+    Asm1Biomass, Asm1Soluble, Asm2dBiomass, Asm2dSoluble, BiomassInput, BiomassOutput,
+    BiomassReactor, Cost, EffluentInput, EffluentSolution, Energy, EnergyInput, EnergyOutput,
+    ModelMode, Totals, solve_biomass, solve_effluent, solve_energy_and_cost, total_blower_power,
 };

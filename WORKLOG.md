@@ -1,5 +1,13 @@
 # AquaPilot Work Log
 
+## 2026-11-26 — v0.11.18 M1b output phases
+
+- 新增 `output.rs`、`metrics.rs`、`alarms.rs`、`phases.rs`：`solveBiomass`（simple/ASM1/ASM2d）、`solveEffluent`（含 PAC 化学药剂短缺截断）、`solveEnergyAndCost`（日清零/累计三本账）、`qualityScore`/margin、9 条告警规则。
+- `scripts/gen-sim-phases.ts` 生成 `rust/golden/sim-phases.json`：metrics 12、alarms 12、effluent 48、biomass 36、energy 24；5 个源文件 SHA-256 锁定。
+- `tests/phases_parity.rs` 6 项测试逐字段一致；`serde_json` 开启 `float_roundtrip` 解决 1 ULP 假失败。
+- Rust 85 项（44 单元 + 41 集成/parity）全过，fmt/clippy 干净；TS 1739/1739 不变。
+- 仍未完成：`createNetworkState`、`resolveHydraulics`/`solveReactors`/`solveClarifier`、`stepNetwork` 编排与 `PlantSnapshot`。M1b 任务仍 in_progress，M2-1 继续 blocked。
+
 ## Current milestone
 
 - [x] M0 Rust workspace, ASM2d CSTR + 5-pool network parity
@@ -16,7 +24,8 @@
 - [x] M2-2 Rust AI provider / hash-chain audit / rate limit / watchdog (TS oracle parity)
 - [ ] M1b Rust whole-plant `networkEngine` closed loop (forcing/influent parity done, `stepNetwork` not ported)
 - [ ] M2-1 Rust HTTP/WS server migration（契约已冻结，服务端未实现，blocked by M1b）
-- [ ] M2-3 7×24 wall-clock soak / RSS + FD acceptance- [ ] M3 frontend / industrial acceptance
+- [ ] M2-3 7×24 wall-clock soak / RSS + FD acceptance
+- [ ] M3 frontend / industrial acceptance
 - [ ] M4 optional zero-TypeScript migration
 - [x] B1 reproducible experiments / durable queue
 - [x] B2 OpenAPI 3.1 + RFC 9457 + idempotency
@@ -32,8 +41,8 @@
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
 - M2-3 soak: v0.11.16 TS run 于 2026-11-26 01:58 CST 启动，02:16 最后样本（19 个、18 分钟），无 `summary.json`；进程已消失，宿主 boot id 已变化，不计入 24 h
-- Latest release: `v0.11.17` (M1b forcing/influent parity; `stepNetwork` not ported; M2 not closed); prior `v0.11.16` (M2-1 HTTP/WS contract freeze + soak boot guard), prior `v0.11.15` (Rust M2-2 ops crate), `v0.11.14` (production trace replay; M1 gates met), `v0.11.13`, `v0.11.12`, `v0.11.11`, `v0.11.10`, `v0.11.9`, `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
-- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release；v0.11.9 清掉 Node20 告警；v0.11.10 接入 ADM1 泥线；v0.11.11 接入水力/输运；v0.11.12 加随机差分并修掉分流截流后的丢流量；v0.11.13 补齐三本账 Rust parity；v0.11.14 整厂 96 步 production replay 通过；v0.11.15 M2-2 ops crate 58 项 Rust 全过；v0.11.16 冻结 HTTP/WS 契约 64 项 Rust 全过；v0.11.17 M1b forcing/influent parity 74 项 Rust 全过
+- Latest release: `v0.11.18` (M1b output phases 4–7 parity; `stepNetwork` not ported; M2 not closed); prior `v0.11.16` (M2-1 HTTP/WS contract freeze + soak boot guard), prior `v0.11.15` (Rust M2-2 ops crate), `v0.11.14` (production trace replay; M1 gates met), `v0.11.13`, `v0.11.12`, `v0.11.11`, `v0.11.10`, `v0.11.9`, `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
+- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release；v0.11.9 清掉 Node20 告警；v0.11.10 接入 ADM1 泥线；v0.11.11 接入水力/输运；v0.11.12 加随机差分并修掉分流截流后的丢流量；v0.11.13 补齐三本账 Rust parity；v0.11.14 整厂 96 步 production replay 通过；v0.11.15 M2-2 ops crate 58 项 Rust 全过；v0.11.16 冻结 HTTP/WS 契约 64 项 Rust 全过；v0.11.17 M1b forcing/influent parity 74 项 Rust 全过；v0.11.18 输出阶段 4–7 85 项 Rust 全过
 
 ## Rule
 

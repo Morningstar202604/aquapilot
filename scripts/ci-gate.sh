@@ -44,6 +44,7 @@ step "3/11 TypeScript 严格检查"
 npm run typecheck > /dev/null 2>&1 && pass "0 错误" || fail "类型检查失败"
 npm run gen:http-contract -- --check > /dev/null 2>&1 && pass "HTTP/WS 契约 golden 未漂移" || fail "契约漂移：运行 npm run gen:http-contract 并审阅 diff"
 npm run gen:sim-forcing -- --check > /dev/null 2>&1 && pass "M1b forcing/influent golden 未漂移" || fail "仿真 golden 漂移：运行 npm run gen:sim-forcing 并审阅 diff"
+npm run gen:sim-phases -- --check > /dev/null 2>&1 && pass "M1b phases golden 未漂移" || fail "阶段 golden 漂移：运行 npm run gen:sim-phases 并审阅 diff"
 
 step "4/11 严格未使用检查 + 格式"
 npx tsc --noEmit --noUnusedLocals --noUnusedParameters > /dev/null 2>&1 && pass "无未使用代码" || fail "存在未使用变量/导入"

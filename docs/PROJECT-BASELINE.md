@@ -9,11 +9,11 @@
 
 | 层级          | 版本     | 提交   | 状态                                    |
 | ------------- | -------- | ------ | --------------------------------------- |
-| 本地 `main`   | `0.11.17` | `HEAD` | M1b forcing/influent parity；stepNetwork 未移植 |
-| 五平台 `main` | `0.11.17` | `HEAD` | 待推送后复核 |
+| 本地 `main`   | `0.11.18` | `HEAD` | M1b 输出阶段 parity；stepNetwork 未移植 |
+| 五平台 `main` | `0.11.18` | `HEAD` | 待推送后复核 |
 | 当前工作树    | clean    | —      | 全部回归门禁通过 |
 
-一致性结论：`v0.11.17` 推送后须用 `git ls-remote` 复核到同一提交；
+一致性结论：`v0.11.18` 推送后须用 `git ls-remote` 复核到同一提交；
 若后续再改动，必须重新推送并复验，不能沿用本文的旧哈希。
 
 核对命令：
@@ -63,7 +63,7 @@ git log --oneline --decorate -3
 | `tsc --noEmit`                | 通过                                     |
 | `lint` / `prettier` / `build` | 通过                                     |
 | 研究领域/服务/API             | 13 项测试通过                            |
-| Rust 内核                     | 74 项（34 单元 + 40 集成/parity/fuzz）   |
+| Rust 内核                     | 85 项（44 单元 + 41 集成/parity/fuzz）   |
 | ASM1 CSTR/网络                | 3 项 TS 不变量 + Rust 1e-12 parity 通过  |
 | 整厂 production replay        | 96 步 × 15 min；最大残差 1.73e-9，容差 1e-8 |
 | M2-2 Rust ops parity          | 14 watchdog / 5 decision / 2 rate / 9 URL  |
@@ -117,7 +117,7 @@ WP2 门禁：
 | WP9  | 回归、构建、浏览器验收、文档                             | 已完成（本地），但 WP2 红灯使总验收不成立 | `docs/INDUSTRIAL-READINESS-PLAN.md` §3.6                   |
 | 基础 | 拓扑编辑、工艺画布、趋势、回放、AI 对话、CLI、单文件 exe | 已存在                                    | `src/client/*`、`src/cli.ts`、`scripts/build-exe.mjs`      |
 
-“已完成（本地）”不等于“远程已合并”。截至 v0.11.16，五平台 `main` 与 tag 已一致；v0.11.17 待推送后复核。
+“已完成（本地）”不等于“远程已合并”。截至 v0.11.17，五平台 `main` 与 tag 已一致；v0.11.18 待推送后复核。
 
 ## 3. 待开发任务池
 
@@ -134,7 +134,7 @@ WP2 门禁：
 
 ### P1 — 工业级能力（进行中）
 
-当前进度：P1-01 的 TS→Rust 六项模块切片（ASM1/ASM2d/ADM1 CSTR/ADM1 泥线/Takács/水力输运）均已 parity，水力模块已有随机差分与属性不变量，三本账已有 96 步 parity，整厂 production `stepNetwork` 轨迹 96 步逐态 replay 已通过；M1 的模块切片与预捕获 replay 完成，但整厂闭环未被 Rust 独立执行，M1b 正在补此缺口，P1-01 暂不整体标完成。v0.11.15 完成 M2-2 的 Rust AI Provider / 哈希链审计 / 限流 / 看门狗（17 项测试，TS oracle 逐项 parity）；v0.11.16 冻结 HTTP/WS 契约（32 legacy / 9 versioned / 19→14 WS），但 Rust 服务端尚未实现；v0.11.17 补 M1b 的 forcing/influent parity，整厂 `stepNetwork` 仍未移植；P1-03 仍缺 24 h 墙钟 soak 报告。P1-04 3D 厂区未开始；P1-05/06 持续迭代。
+当前进度：P1-01 的 TS→Rust 六项模块切片（ASM1/ASM2d/ADM1 CSTR/ADM1 泥线/Takács/水力输运）均已 parity，水力模块已有随机差分与属性不变量，三本账已有 96 步 parity，整厂 production `stepNetwork` 轨迹 96 步逐态 replay 已通过；M1 的模块切片与预捕获 replay 完成，但整厂闭环未被 Rust 独立执行，M1b 正在补此缺口，P1-01 暂不整体标完成。v0.11.15 完成 M2-2 的 Rust AI Provider / 哈希链审计 / 限流 / 看门狗（17 项测试，TS oracle 逐项 parity）；v0.11.16 冻结 HTTP/WS 契约（32 legacy / 9 versioned / 19→14 WS），但 Rust 服务端尚未实现；v0.11.17 补 M1b 的 forcing/influent parity；v0.11.18 补 `solveBiomass`/`solveEffluent`/`solveEnergyAndCost`/metrics/alarms 纯函数；整厂 `stepNetwork` 仍未移植；P1-03 仍缺 24 h 墙钟 soak 报告。P1-04 3D 厂区未开始；P1-05/06 持续迭代。
 
 | ID    | 任务               | 完成定义                                                   |
 | ----- | ------------------ | ---------------------------------------------------------- |
@@ -180,15 +180,19 @@ WP2 门禁：
 
 ### M1b — 整厂 networkEngine 闭环移植（进行中）
 
-状态：**纯强迫/进水层已 parity（v0.11.17）；状态构造与 `stepNetwork` 未移植。**
+状态：**强迫/进水与输出阶段 4–7 已 parity（v0.11.18）；状态构造与 `stepNetwork` 未移植。**
 
 | 层 | 状态 | 证据 |
 | --- | --- | --- |
 | `forcing.ts` 强迫函数 | **已满足** | 112 组 TS oracle 逐项一致，`tests/forcing_parity.rs` |
 | `deriveInfluent` / `sampleAt` | **已满足** | 1098 组合成/真实序列/uncertainty 用例一致 |
+| phase 4 `solveBiomass` | **已满足（纯函数）** | 36 组 simple/ASM1/ASM2d 用例一致 |
+| phase 5 `solveEffluent` | **已满足（纯函数）** | 48 组出水与 PAC 截断用例一致 |
+| phase 6 `solveEnergyAndCost` | **已满足（纯函数）** | 24 组能耗/成本/三本账积分用例一致 |
+| phase 7 告警规则 + 出水评分 | **已满足（纯函数）** | 12 组 metrics、12 组三种标准告警用例一致 |
 | `createNetworkState` / `NetworkSimState` | **未完成** | 依赖拓扑编译、水力、仪表、资产、控制层、全厂边界 |
-| `stepNetwork` 七阶段编排 | **未完成** | 反应器、二沉池、生物量、出水、能耗、报警尚未移植 |
-| `PlantSnapshot` / 趋势 / 快照 | **未完成** | Rust 仍无服务端可消费的整厂快照 |
+| `resolveHydraulics` / `solveReactors` / `solveClarifier` | **未完成** | phase 1–3 尚未移植，`stepNetwork` 无法闭环 |
+| `stepNetwork` 七阶段编排 + `PlantSnapshot` | **未完成** | 尚无整厂顺序执行、趋势与快照 |
 
 M1b 的退出条件是 Rust 能独立跑完整整厂闭环，并与 TS 在同输入下逐态对齐；
 不是重复模块测试，也不是拿 TS pre-state replay 冒充闭环。M1b 完成前，M2-1

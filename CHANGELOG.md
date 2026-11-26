@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.11.18] — 2026-11-26
+
+### Added
+
+- `aquapilot-sim` 继续补 M1b 的 `stepNetwork` 输出阶段，并保持 TS oracle 逐字段 parity：
+  - phase 4 `solveBiomass`：simple / ASM1 / ASM2d 三种生物量口径、SRT 与 F/M。
+  - phase 5 `solveEffluent`：ASM1/ASM2d 溶解性 COD、SS/NH/TN/TP/pH，以及化学药剂短缺时 PAC 截断。
+  - phase 6 `solveEnergyAndCost`：鼓风机/搅拌/泵功率、日清零、累计成本与三本账积分。
+  - `metrics.ts`：`qualityScore`、`effluentMarginRows`、`worstRatio`、`estimateMargin`。
+  - `alarmRules.ts`：9 条活跃告警规则、三种排放标准文案与 `LIVE-*` 告警结构。
+- 新增 `scripts/gen-sim-phases.ts` 与 `rust/golden/sim-phases.json`：12 组 metrics、12 组告警、48 组出水、36 组生物量、24 组能耗用例；`tests/phases_parity.rs` 6 项测试逐字段比对。
+- `npm run gen:sim-phases -- --check` 纳入 `npm run ci`。
+- `serde_json` 启用 `float_roundtrip`：默认解析器会把 `12502.364791666667` 读成相邻 f64，启用后 golden 小数可精确还原，不需要放宽 `1e-12` 门禁。
+
+### Changed
+
+- `src/sim/networkEngine.ts` 导出 `solveBiomass`、`solveEffluent`、`solveEnergyAndCost`，仅供 oracle 直接调用；函数体与生产路径未变。
+
+### Verification
+
+- Rust 85 项全过（core 41 + ops 17 + contract 6 + sim 21）；`cargo fmt/clippy` 干净。
+- TS 1739/1739（144 文件）不变；`npm run typecheck` 通过。
+- **M1b 仍未关闭**：`createNetworkState`、`NetworkSimState` 依赖、`resolveHydraulics`/`solveReactors`/`solveClarifier`、`stepNetwork` 编排与 `PlantSnapshot` 仍未移植。当前完成的是输出阶段纯函数，不是整厂闭环。
+- **M2-1 仍被 M1b 阻塞**，M2-3 仍无有效 24 h soak。
+
 ## [0.11.17] — 2026-11-26
 
 ### Added

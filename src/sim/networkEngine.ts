@@ -1108,7 +1108,7 @@ function solveClarifier(ctx: StepContext): { clarifierInflow: number; wasted: nu
 }
 
 /** 阶段 4：生物量与 SRT。 */
-function solveBiomass(
+export function solveBiomass(
   ctx: StepContext,
   oxidized: { o2DemandKgH: number; codOxidizedKgH: number; balancedOxidizedKgH: number; nhOxidizedKgH: number },
   wasted: number,
@@ -1165,7 +1165,7 @@ function solveBiomass(
 }
 
 /** 阶段 5：出水水质。 */
-function solveEffluent(ctx: StepContext): number {
+export function solveEffluent(ctx: StepContext): number {
   const { state, T, clar, lastReactor, Qe } = ctx;
   // 出水
   const pacAllowed = !(
@@ -1203,7 +1203,7 @@ function solveEffluent(ctx: StepContext): number {
 }
 
 /** 阶段 6：能耗与成本。 */
-function solveEnergyAndCost(
+export function solveEnergyAndCost(
   ctx: StepContext,
   o2TransferredKgH: number,
   wasted: number,

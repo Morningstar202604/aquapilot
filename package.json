@@ -1,6 +1,6 @@
 {
   "name": "aquapilot",
-  "version": "0.11.17",
+  "version": "0.11.18",
   "private": true,
   "allowScripts": {
     "esbuild": true
@@ -37,7 +37,8 @@
     "gen:ops-cases": "tsx scripts/gen-ops-cases.ts",
     "gen:http-contract": "tsx scripts/gen-http-contract.ts",
     "soak": "tsx scripts/soak.ts",
-    "gen:sim-forcing": "tsx scripts/gen-sim-forcing.ts"
+    "gen:sim-forcing": "tsx scripts/gen-sim-forcing.ts",
+    "gen:sim-phases": "tsx scripts/gen-sim-phases.ts"
   },
   "dependencies": {
     "@xyflow/react": "13.0.2",
