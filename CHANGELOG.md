@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.11.19] — 2026-11-26
+
+### Added
+
+- M1b phase 1 移植：`resolve_hydraulics` 保存暴雨调蓄状态机（16,000 m³ 上限、雨后 320 m³/h 缓释、200 m³/h 最低进厂流量），并原样返回本步进水。
+- 告警历史 `AlarmLedger`：45 分钟同码去重、`A0001` 序号、80 条上限；`raise_limit_alarms` 把 `evaluate_alarms` 与历史写入串起来。
+- 新增 `scripts/gen-sim-step.ts` 与 `rust/golden/sim-step.json`：10 组调蓄、7 组告警历史；`tests/step_parity.rs` 4 项测试比对进水全字段、调蓄水位、告警全字段与序号。
+- `serde_json` 之外新增 `sha2` dev-dependency，测试会实际计算 3 个 TS 源文件 SHA-256，而不是只检查哈希长度。
+
+### Changed
+
+- `src/sim/networkEngine.ts` 导出 `resolveHydraulics`、`pushAlarm` 供 oracle 调用；函数体未改。
+- `npm run gen:sim-step -- --check` 纳入 `npm run ci`。
+
+### Verification
+
+- Rust 95 项全过（50 单元 + 45 集成/parity）；`cargo fmt/clippy` 干净。
+- TS 1739/1739（144 文件）不变；`npm run typecheck` 通过。
+- **M1b 仍未关闭**：phase 2 `solveReactors`、phase 3 `solveClarifier`、`aggregateInflow`、`stepNetwork` 编排与 `PlantSnapshot` 仍未移植。当前完成的是 phase 1、4–7 与告警历史，不是整厂闭环。
+- **M2-1 仍被 M1b 阻塞**，M2-3 仍无有效 24 h soak。
+
 ## [0.11.18] — 2026-11-26
 
 ### Added

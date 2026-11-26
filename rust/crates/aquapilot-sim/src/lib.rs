@@ -6,18 +6,22 @@
 
 #![forbid(unsafe_code)]
 
+pub mod alarm_ledger;
 pub mod alarms;
 pub mod forcing;
+pub mod hydraulics;
 pub mod influent;
 pub mod metrics;
 pub mod output;
 pub mod phases;
 
+pub use alarm_ledger::{ALARM_DEDUP_WINDOW_MIN, ALARM_HISTORY_LIMIT, AlarmLedger};
 pub use alarms::{Alarm, AlarmRuleInput, Severity, evaluate_alarms};
 pub use forcing::{
     Controls, Recycle, ScenarioSpec, ScenarioType, aeration_capacity, diurnal, mixed,
     recycle_factors, scenario_envelope, seasonal_temperature, toxic_suppression,
 };
+pub use hydraulics::{HydraulicInput, HydraulicOutput, resolve_hydraulics};
 pub use influent::{
     Influent, InfluentContext, InfluentSeries, SeriesSample, Uncertainty, derive_influent,
     sample_at,

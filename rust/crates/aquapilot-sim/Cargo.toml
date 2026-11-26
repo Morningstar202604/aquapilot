@@ -10,6 +10,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 
 [dev-dependencies]
 serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
+sha2 = "0.10"
 
 [lints]
 workspace = true

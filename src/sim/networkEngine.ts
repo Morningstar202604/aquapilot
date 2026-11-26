@@ -367,7 +367,7 @@ function recycleOf(state: NetworkSimState): { ras: number; ir: number; was: numb
   return recycleFactors(state.controls, state.scenario, state.timeMin);
 }
 
-function pushAlarm(
+export function pushAlarm(
   state: NetworkSimState,
   severity: 'warning' | 'critical',
   code: string,
@@ -427,7 +427,10 @@ interface StepContext {
 }
 
 /** 阶段 1：进水与调蓄。返回本步实际进厂流量。 */
-function resolveHydraulics(state: NetworkSimState, dtH: number): { influent: NetworkSimState['influent']; Q: number } {
+export function resolveHydraulics(
+  state: NetworkSimState,
+  dtH: number,
+): { influent: NetworkSimState['influent']; Q: number } {
   const influent = deriveInfluent(state);
   const stormActive = state.scenario?.type === 'storm' && scenarioEnvelope(state.scenario, state.timeMin) > 0.05;
   const storeFrac = stormActive ? state.controls.stormStore : 0;

@@ -1,7 +1,7 @@
 # M2 服务能力：Rust 侧 AI Provider、审计、限流、看门狗与 HTTP/WS 契约
 
 > 状态：M2-2 已交付（v0.11.15）；M2-1 仅完成契约冻结（v0.11.16），服务端未实现
-> 且被 M1b 整厂引擎阻塞（v0.11.17–0.11.18 仅完成纯函数层）；M2-3 7×24 soak 未完成。
+> 且被 M1b 整厂引擎阻塞（v0.11.17–0.11.19 仅完成纯函数层）；M2-3 7×24 soak 未完成。
 > 本文只记录已经实现、可测试的能力，不把“crate 已存在”写成“服务端已迁移”。
 
 ## 1. 为什么先做 M2-2
@@ -87,7 +87,7 @@ cargo clippy --all-targets -- -D warnings
 
 - `aquapilot-ops`：13 单元 + 4 parity = 17 项；
 - `aquapilot-contract`：6 项契约完整性测试；
-- 整仓 Rust：85 项（44 单元 + 41 集成/parity）；
+- 整仓 Rust：95 项（50 单元 + 45 集成/parity）；
 - oracle 生成：`npm run gen:ops-cases` → `rust/golden/ops-cases.json`；
   `npm run gen:http-contract` → `rust/golden/http-contract.json`。
 
@@ -131,8 +131,8 @@ cargo clippy --all-targets -- -D warnings
 该 crate 是**迁移义务清单**，不是 HTTP/WS 服务端。生产监听仍然是
 TypeScript；M2-1 未完成。
 
-M2-1 的 Rust 服务端若要自带仿真，必须先有 M1b 的整厂闭环。v0.11.17–0.11.18 只完成
-`aquapilot-sim` 的 forcing/influent 与输出阶段纯函数（112/96/1098 + 12/12/48/36/24 组 oracle），
+M2-1 的 Rust 服务端若要自带仿真，必须先有 M1b 的整厂闭环。v0.11.17–0.11.19 只完成
+`aquapilot-sim` 的 forcing/influent、phase 1 调蓄与输出阶段纯函数（112/96/1098 + 12/12/48/36/24 + 10/7 组 oracle），
 `createNetworkState`/`stepNetwork`/`PlantSnapshot` 仍未移植；因此 M2-1 服务端
 继续 blocked by M1b，不能用契约 crate 或纯函数 crate 冒充服务端。
 

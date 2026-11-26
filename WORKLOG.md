@@ -1,5 +1,13 @@
 # AquaPilot Work Log
 
+## 2026-11-26 — v0.11.19 M1b phase 1 + alarm history
+
+- 新增 `hydraulics.rs`：`resolveHydraulics` 的暴雨调蓄、16,000 m³ 上限、雨后 320 m³/h 缓释、200 m³/h 最低进厂流量全部移植。
+- 新增 `alarm_ledger.rs`：45 分钟同码去重、`A0001` 序号、80 条上限；`raise_limit_alarms` 串联 `evaluate_alarms`。
+- `scripts/gen-sim-step.ts` 生成 10 组调蓄、7 组告警历史 oracle；`tests/step_parity.rs` 4 项测试，源哈希实际计算 SHA-256。
+- Rust 95 项（50 单元 + 45 集成/parity）全过，fmt/clippy 干净；TS 1739/1739 不变。
+- 仍未完成：`aggregateInflow`、`solveReactors`、`solveClarifier`、`stepNetwork` 编排、`createNetworkState`、`PlantSnapshot`。
+
 ## 2026-11-26 — v0.11.18 M1b output phases
 
 - 新增 `output.rs`、`metrics.rs`、`alarms.rs`、`phases.rs`：`solveBiomass`（simple/ASM1/ASM2d）、`solveEffluent`（含 PAC 化学药剂短缺截断）、`solveEnergyAndCost`（日清零/累计三本账）、`qualityScore`/margin、9 条告警规则。
@@ -41,8 +49,8 @@
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
 - M2-3 soak: v0.11.16 TS run 于 2026-11-26 01:58 CST 启动，02:16 最后样本（19 个、18 分钟），无 `summary.json`；进程已消失，宿主 boot id 已变化，不计入 24 h
-- Latest release: `v0.11.18` (M1b output phases 4–7 parity; `stepNetwork` not ported; M2 not closed); prior `v0.11.16` (M2-1 HTTP/WS contract freeze + soak boot guard), prior `v0.11.15` (Rust M2-2 ops crate), `v0.11.14` (production trace replay; M1 gates met), `v0.11.13`, `v0.11.12`, `v0.11.11`, `v0.11.10`, `v0.11.9`, `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
-- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release；v0.11.9 清掉 Node20 告警；v0.11.10 接入 ADM1 泥线；v0.11.11 接入水力/输运；v0.11.12 加随机差分并修掉分流截流后的丢流量；v0.11.13 补齐三本账 Rust parity；v0.11.14 整厂 96 步 production replay 通过；v0.11.15 M2-2 ops crate 58 项 Rust 全过；v0.11.16 冻结 HTTP/WS 契约 64 项 Rust 全过；v0.11.17 M1b forcing/influent parity 74 项 Rust 全过；v0.11.18 输出阶段 4–7 85 项 Rust 全过
+- Latest release: `v0.11.19` (M1b phase 1 + alarm history parity; `stepNetwork` not ported; M2 not closed); prior `v0.11.16` (M2-1 HTTP/WS contract freeze + soak boot guard), prior `v0.11.15` (Rust M2-2 ops crate), `v0.11.14` (production trace replay; M1 gates met), `v0.11.13`, `v0.11.12`, `v0.11.11`, `v0.11.10`, `v0.11.9`, `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
+- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release；v0.11.9 清掉 Node20 告警；v0.11.10 接入 ADM1 泥线；v0.11.11 接入水力/输运；v0.11.12 加随机差分并修掉分流截流后的丢流量；v0.11.13 补齐三本账 Rust parity；v0.11.14 整厂 96 步 production replay 通过；v0.11.15 M2-2 ops crate 58 项 Rust 全过；v0.11.16 冻结 HTTP/WS 契约 64 项 Rust 全过；v0.11.17 M1b forcing/influent parity 74 项 Rust 全过；v0.11.18 输出阶段 4–7 85 项 Rust 全过；v0.11.19 phase 1/告警历史 95 项 Rust 全过
 
 ## Rule
 
