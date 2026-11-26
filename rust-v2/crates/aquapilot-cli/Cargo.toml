@@ -1,0 +1,17 @@
+[package]
+name = "aquapilot-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "aquapilot-v2"
+path = "src/main.rs"
+
+[dependencies]
+aquapilot-domain = { path = "../aquapilot-domain" }
+aquapilot-engine = { path = "../aquapilot-engine" }
+aquapilot-model = { path = "../aquapilot-model" }
+clap.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

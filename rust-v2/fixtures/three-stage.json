@@ -1,0 +1,85 @@
+{
+  "name": "three-stage-anaerobic-anoxic-aerobic",
+  "units": [
+    {
+      "id": "in",
+      "name": "进水",
+      "type": "influent",
+      "flow_m3_h": 1000.0,
+      "water": {
+        "cod": 400.0,
+        "nh4_n": 30.0,
+        "no3_n": 2.0,
+        "tp": 4.0,
+        "ss": 200.0,
+        "alkalinity": 200.0,
+        "do": 0.5,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "ana",
+      "name": "厌氧池",
+      "type": "anaerobic",
+      "volume_m3": 12000.0,
+      "initial": {
+        "cod": 3500.0,
+        "nh4_n": 30.0,
+        "no3_n": 2.0,
+        "tp": 4.0,
+        "do": 0.05,
+        "alkalinity": 200.0,
+        "mlss": 2500.0,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "anx",
+      "name": "缺氧池",
+      "type": "anoxic",
+      "volume_m3": 12000.0,
+      "initial": {
+        "cod": 3500.0,
+        "nh4_n": 30.0,
+        "no3_n": 2.0,
+        "tp": 4.0,
+        "do": 0.1,
+        "alkalinity": 200.0,
+        "mlss": 2500.0,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "aer",
+      "name": "好氧池",
+      "type": "aerobic",
+      "volume_m3": 24000.0,
+      "kla_h": 100.0,
+      "initial": {
+        "cod": 3500.0,
+        "nh4_n": 30.0,
+        "no3_n": 2.0,
+        "tp": 4.0,
+        "do": 2.0,
+        "alkalinity": 200.0,
+        "mlss": 2500.0,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "out",
+      "name": "出水",
+      "type": "effluent"
+    }
+  ],
+  "connections": [
+    {"id": "in-ana", "from": "in", "to": "ana", "flow_m3_h": 1000.0},
+    {"id": "ana-anx", "from": "ana", "to": "anx", "flow_m3_h": 1000.0},
+    {"id": "anx-aer", "from": "anx", "to": "aer", "flow_m3_h": 1000.0},
+    {"id": "aer-out", "from": "aer", "to": "out", "flow_m3_h": 1000.0}
+  ],
+  "metadata": {
+    "purpose": "V2-0 multi-reactor series smoke fixture",
+    "source": "clean-room"
+  }
+}

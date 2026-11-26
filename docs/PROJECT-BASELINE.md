@@ -1,5 +1,8 @@
 # AquaPilot 项目基线（Project Baseline）
 
+> **历史基线（2026-11-26）**：本文件描述的是 TypeScript 产品 + 旧 Rust parity 线的基线，不是 v2 重构计划。  
+> v2 的目标、阶段与 cutover gate 见 [`docs/ROADMAP-V2.md`](ROADMAP-V2.md)；clean-room 规则见 [`docs/CLEAN-ROOM.md`](CLEAN-ROOM.md)。
+
 > 文档类型：工业级项目基线 / 单一事实源  
 > 基线日期：2026-11-26  
 > 维护责任：项目负责人（架构、仿真、交付同一责任人）  

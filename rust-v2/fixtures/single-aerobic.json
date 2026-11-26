@@ -1,0 +1,61 @@
+{
+  "name": "single-aerobic",
+  "units": [
+    {
+      "id": "in",
+      "name": "进水",
+      "type": "influent",
+      "flow_m3_h": 1000.0,
+      "water": {
+        "cod": 400.0,
+        "nh4_n": 30.0,
+        "no3_n": 2.0,
+        "tp": 4.0,
+        "ss": 200.0,
+        "alkalinity": 200.0,
+        "do": 1.0,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "a",
+      "name": "好氧池",
+      "type": "aerobic",
+      "volume_m3": 36000.0,
+      "kla_h": 100.0,
+      "initial": {
+        "cod": 3500.0,
+        "nh4_n": 30.0,
+        "no3_n": 2.0,
+        "tp": 4.0,
+        "do": 2.0,
+        "alkalinity": 200.0,
+        "mlss": 2500.0,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "out",
+      "name": "出水",
+      "type": "effluent"
+    }
+  ],
+  "connections": [
+    {
+      "id": "in-a",
+      "from": "in",
+      "to": "a",
+      "flow_m3_h": 1000.0
+    },
+    {
+      "id": "a-out",
+      "from": "a",
+      "to": "out",
+      "flow_m3_h": 1000.0
+    }
+  ],
+  "metadata": {
+    "purpose": "V2-0 single aerobic CSTR smoke fixture",
+    "source": "clean-room"
+  }
+}

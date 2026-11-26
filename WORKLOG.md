@@ -1,5 +1,15 @@
 # AquaPilot Work Log
 
+## 2026-11-26 — v2 路线切换：放弃逐模块 parity，启动 clean-room Rust
+
+- 新增 `docs/ROADMAP-V2.md`：v2 的架构、纵向切片、时间盒、停止线、cutover gate 与状态表。
+- 新增 `docs/CLEAN-ROOM.md`：禁止读取/复制旧 `src/sim`、`src/server`、`src/client` 与 `rust/` 源码；只允许产品规格、公开文献和黑盒行为。
+- 旧 `rust/` parity 线冻结在 v0.11.23；不再新增切片，不再为它发版本。
+- 新建 `rust-v2/`：domain / model / engine / cli 四个 crate，ASM1 13 组分、单池与三段串联 CSTR、固定 KLa、CLI、两套 clean-room fixture。
+- V2-0 验证：`cargo fmt --check`、`cargo clippy -D warnings`、`cargo test` 全绿；单池 24 h 与三段串联 24 h 均输出有限值，NH 下降。
+- V2-0 明确未做：二沉池、RAS/内回流、DO 控制器、ASM2d/ADM1、三本账闭合、HTTP/WS、实验队列、界面、24 h soak。
+
+
 ## 2026-11-26 — v0.11.23 M1b ASM1 reactor reaction integration
 
 - 新增 `asm1reactors.rs`：13 组分 CSTR、初始化、碳源、TP 示踪、`fromAsm1`、三层抑制、KLa 曝气闭环。
