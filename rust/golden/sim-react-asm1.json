@@ -1,0 +1,1747 @@
+{
+  "schema": "aquapilot.sim.react-asm1.v1",
+  "generatedBy": "scripts/gen-sim-react-asm1.ts",
+  "oracle": "solveReactors (ASM1 branch)",
+  "note": "One step; ASM2d branch excluded. ASM1 initialization uses max(cod,150)+MLSS mapping.",
+  "sources": {
+    "src/sim/networkEngine.ts": "6f3a55bdfee6ecb082571e9937f3732d33b84107847cf385be86f82d81cfd253",
+    "src/sim/asm1.ts": "f70759b3d8a3c7e377efb2fc2e2d6487c3fdd043a0d1ff1d1ebb4430177dc05e",
+    "src/sim/asm1Mapping.ts": "9f9c4e5d060e08bf4cc2c60a24f26f1f762fda8088e142e0980b5f8e7f9054a6",
+    "src/sim/aeration.ts": "170807bc5ceca9f9d61dfc4b05e5f31b970ccc3830f367b060c2a4c6d31bb9d3",
+    "src/sim/config.ts": "bb65c22f67b17f2ed080f1f98671a87ce0104be303a56f0eca3967c214af5ac0"
+  },
+  "cases": [
+    {
+      "name": "aerobic-single",
+      "reactors": [
+        {
+          "id": "a",
+          "kind": "aerobic",
+          "volume": 1000,
+          "cod": 300,
+          "nh": 30,
+          "no3": 3,
+          "tp": 2,
+          "doLevel": 2,
+          "alkalinity": 200,
+          "asm1": null
+        }
+      ],
+      "order": [
+        "a"
+      ],
+      "edges": [
+        {
+          "id": "feed",
+          "from": "plant",
+          "to": "a"
+        }
+      ],
+      "flows": {
+        "feed": 1000
+      },
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "bf": 1,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 0,
+      "doSetpoint": 2,
+      "aerationCapacity": 1,
+      "suppression": 1,
+      "xBiomass": 3400,
+      "xRas": 0,
+      "output": {
+        "reactors": [
+          {
+            "id": "a",
+            "kind": "aerobic",
+            "volume": 1000,
+            "cod": 3699.420789979984,
+            "nh": 28.467617101899073,
+            "no3": 4.184868508255507,
+            "tp": 2.0459016393442626,
+            "doLevel": 0.02,
+            "alkalinity": 202,
+            "temperature": 20,
+            "o2Demand": 585.652590996573,
+            "kla": 18,
+            "doIntegral": 0,
+            "inflow": 1000,
+            "asm1": {
+              "S_I": 24.16,
+              "S_S": 41.475124314471174,
+              "X_I": 60.4,
+              "X_S": 4.9968571666666675,
+              "X_B_H": 2855.9056333759713,
+              "X_B_A": 712.3773614562081,
+              "X_P": 0.10581366666666667,
+              "S_O": 0.02,
+              "S_NO": 4.184868508255507,
+              "S_NH": 28.467617101899073,
+              "S_ND": 2.5272,
+              "X_ND": 4.622400871666667,
+              "S_ALK": 4.04
+            }
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 585.652590996573,
+          "codOxidizedKgH": 773.0925411317296,
+          "balancedOxidizedKgH": 153.39244481922088,
+          "nhOxidizedKgH": 97.94297388605563,
+          "o2TransferredKgH": 127.8,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    },
+    {
+      "name": "anaerobic-single",
+      "reactors": [
+        {
+          "id": "a",
+          "kind": "anaerobic",
+          "volume": 800,
+          "cod": 300,
+          "nh": 40,
+          "no3": 1,
+          "tp": 6,
+          "doLevel": 0.1,
+          "alkalinity": 280,
+          "asm1": null
+        }
+      ],
+      "order": [
+        "a"
+      ],
+      "edges": [
+        {
+          "id": "feed",
+          "from": "plant",
+          "to": "a"
+        }
+      ],
+      "flows": {
+        "feed": 1000
+      },
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "bf": 1,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 0,
+      "doSetpoint": 2,
+      "aerationCapacity": 1,
+      "suppression": 1,
+      "xBiomass": 3400,
+      "xRas": 0,
+      "output": {
+        "reactors": [
+          {
+            "id": "a",
+            "kind": "anaerobic",
+            "volume": 800,
+            "cod": 3686.5404980389853,
+            "nh": 39.71188959832776,
+            "no3": 0.7648969745825026,
+            "tp": 5.975510204081632,
+            "doLevel": 0,
+            "alkalinity": 280.8333333333333,
+            "temperature": 20,
+            "o2Demand": 170.14045921184956,
+            "kla": 0,
+            "doIntegral": 0,
+            "inflow": 1000,
+            "asm1": {
+              "S_I": 24.2,
+              "S_S": 45.436657033163755,
+              "X_I": 60.5,
+              "X_S": 5.941857166666667,
+              "X_B_H": 2841.241706454447,
+              "X_B_A": 709.1144637180412,
+              "X_P": 0.10581366666666667,
+              "S_O": 0,
+              "S_NO": 0.7648969745825026,
+              "S_NH": 39.71188959832776,
+              "S_ND": 3.347933333333333,
+              "X_ND": 6.094900871666667,
+              "S_ALK": 5.616666666666666
+            }
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 136.11236736947964,
+          "codOxidizedKgH": 432.64046240813985,
+          "balancedOxidizedKgH": 101.32496628739706,
+          "nhOxidizedKgH": 9.829299280267458,
+          "o2TransferredKgH": 0,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    },
+    {
+      "name": "anoxic-carbon-60",
+      "reactors": [
+        {
+          "id": "a",
+          "kind": "anoxic",
+          "volume": 250,
+          "cod": 220,
+          "nh": 25,
+          "no3": 6,
+          "tp": 3,
+          "doLevel": 0.2,
+          "alkalinity": 220,
+          "asm1": null
+        }
+      ],
+      "order": [
+        "a"
+      ],
+      "edges": [
+        {
+          "id": "feed",
+          "from": "plant",
+          "to": "a"
+        }
+      ],
+      "flows": {
+        "feed": 1000
+      },
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "bf": 1,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 60,
+      "doSetpoint": 2,
+      "aerationCapacity": 0,
+      "suppression": 1,
+      "xBiomass": 3400,
+      "xRas": 0,
+      "output": {
+        "reactors": [
+          {
+            "id": "a",
+            "kind": "anoxic",
+            "volume": 250,
+            "cod": 3502.6327382523573,
+            "nh": 24.97042828239405,
+            "no3": 5.5830506561024045,
+            "tp": 3.1125,
+            "doLevel": 0,
+            "alkalinity": 226.6666666666667,
+            "temperature": 20,
+            "o2Demand": 257.1718420038315,
+            "kla": 0,
+            "doIntegral": 0,
+            "inflow": 1000,
+            "asm1": {
+              "S_I": 18.666666666666668,
+              "S_S": 35.24579803880597,
+              "X_I": 46.666666666666664,
+              "X_S": 16.336857166666668,
+              "X_B_H": 2709.638081980667,
+              "X_B_A": 675.9728540662178,
+              "X_P": 0.10581366666666667,
+              "S_O": 0,
+              "S_NO": 5.5830506561024045,
+              "S_NH": 24.97042828239405,
+              "S_ND": 2.171,
+              "X_ND": 3.9674008716666664,
+              "S_ALK": 4.533333333333334
+            }
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 64.29296050095788,
+          "codOxidizedKgH": 161.3130294179104,
+          "balancedOxidizedKgH": 13.328688065633282,
+          "nhOxidizedKgH": 11.44357576408926,
+          "o2TransferredKgH": 0,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    },
+    {
+      "name": "anoxic-no-carbon",
+      "reactors": [
+        {
+          "id": "a",
+          "kind": "anoxic",
+          "volume": 250,
+          "cod": 220,
+          "nh": 25,
+          "no3": 6,
+          "tp": 3,
+          "doLevel": 0.2,
+          "alkalinity": 220,
+          "asm1": null
+        }
+      ],
+      "order": [
+        "a"
+      ],
+      "edges": [
+        {
+          "id": "feed",
+          "from": "plant",
+          "to": "a"
+        }
+      ],
+      "flows": {
+        "feed": 1000
+      },
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "bf": 1,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 0,
+      "doSetpoint": 2,
+      "aerationCapacity": 0,
+      "suppression": 1,
+      "xBiomass": 3400,
+      "xRas": 0,
+      "output": {
+        "reactors": [
+          {
+            "id": "a",
+            "kind": "anoxic",
+            "volume": 250,
+            "cod": 3498.6327382523573,
+            "nh": 24.97042828239405,
+            "no3": 5.5830506561024045,
+            "tp": 3.1125,
+            "doLevel": 0,
+            "alkalinity": 226.6666666666667,
+            "temperature": 20,
+            "o2Demand": 257.1718420038315,
+            "kla": 0,
+            "doIntegral": 0,
+            "inflow": 1000,
+            "asm1": {
+              "S_I": 18.666666666666668,
+              "S_S": 31.245798038805972,
+              "X_I": 46.666666666666664,
+              "X_S": 16.336857166666668,
+              "X_B_H": 2709.638081980667,
+              "X_B_A": 675.9728540662178,
+              "X_P": 0.10581366666666667,
+              "S_O": 0,
+              "S_NO": 5.5830506561024045,
+              "S_NH": 24.97042828239405,
+              "S_ND": 2.171,
+              "X_ND": 3.9674008716666664,
+              "S_ALK": 4.533333333333334
+            }
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 64.29296050095788,
+          "codOxidizedKgH": 161.3130294179104,
+          "balancedOxidizedKgH": 13.328688065633282,
+          "nhOxidizedKgH": 11.44357576408926,
+          "o2TransferredKgH": 0,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    },
+    {
+      "name": "aerobic-low-do",
+      "reactors": [
+        {
+          "id": "a",
+          "kind": "aerobic",
+          "volume": 1000,
+          "cod": 400,
+          "nh": 40,
+          "no3": 4,
+          "tp": 2,
+          "doLevel": 0.3,
+          "alkalinity": 240,
+          "asm1": null
+        }
+      ],
+      "order": [
+        "a"
+      ],
+      "edges": [
+        {
+          "id": "feed",
+          "from": "plant",
+          "to": "a"
+        }
+      ],
+      "flows": {
+        "feed": 1200
+      },
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 15,
+        "alkalinity": 320
+      },
+      "bf": 0.8,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 0,
+      "doSetpoint": 2,
+      "aerationCapacity": 0.6,
+      "suppression": 1,
+      "xBiomass": 3400,
+      "xRas": 0,
+      "output": {
+        "reactors": [
+          {
+            "id": "a",
+            "kind": "aerobic",
+            "volume": 1000,
+            "cod": 3734.35009460139,
+            "nh": 39.4442496529952,
+            "no3": 3.9446616221532427,
+            "tp": 2.054901960784314,
+            "doLevel": 0.02,
+            "alkalinity": 241.6,
+            "temperature": 15,
+            "o2Demand": 221.74809244059395,
+            "kla": 10.799999999999999,
+            "doIntegral": 0.028333333333333332,
+            "inflow": 1200,
+            "asm1": {
+              "S_I": 32.032,
+              "S_S": 62.845656621879854,
+              "X_I": 80.08,
+              "X_S": 5.393500161271382,
+              "X_B_H": 2844.1563899340827,
+              "X_B_A": 709.7679826527414,
+              "X_P": 0.07456523141490286,
+              "S_O": 0.02,
+              "S_NO": 3.9446616221532427,
+              "S_NH": 39.4442496529952,
+              "S_ND": 3.53302703006038,
+              "X_ND": 6.063683709886126,
+              "S_ALK": 4.832
+            }
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 221.74809244059395,
+          "codOxidizedKgH": 553.5806026872089,
+          "balancedOxidizedKgH": 101.44149699097346,
+          "nhOxidizedKgH": 28.545020820288364,
+          "o2TransferredKgH": 100.97999999999999,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    },
+    {
+      "name": "aerobic-no-aeration",
+      "reactors": [
+        {
+          "id": "a",
+          "kind": "aerobic",
+          "volume": 400,
+          "cod": 100,
+          "nh": 10,
+          "no3": 2,
+          "tp": 2,
+          "doLevel": 0.5,
+          "alkalinity": 200,
+          "asm1": null
+        }
+      ],
+      "order": [
+        "a"
+      ],
+      "edges": [
+        {
+          "id": "feed",
+          "from": "plant",
+          "to": "a"
+        }
+      ],
+      "flows": {
+        "feed": 500
+      },
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "bf": 1,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 0,
+      "doSetpoint": 2,
+      "aerationCapacity": 0,
+      "suppression": 1,
+      "xBiomass": 3400,
+      "xRas": 0,
+      "output": {
+        "reactors": [
+          {
+            "id": "a",
+            "kind": "aerobic",
+            "volume": 400,
+            "cod": 3618.859675501868,
+            "nh": 9.278032827324548,
+            "no3": 2.5307581133442922,
+            "tp": 2.0571428571428574,
+            "doLevel": 0,
+            "alkalinity": 202.5,
+            "temperature": 20,
+            "o2Demand": 365.866030596885,
+            "kla": 0,
+            "doIntegral": 0,
+            "inflow": 500,
+            "asm1": {
+              "S_I": 12.45,
+              "S_S": 18.26045540378889,
+              "X_I": 31.125,
+              "X_S": 5.941857166666667,
+              "X_B_H": 2841.7366365461285,
+              "X_B_A": 709.2399127186178,
+              "X_P": 0.10581366666666667,
+              "S_O": 0,
+              "S_NO": 2.5307581133442922,
+              "S_NH": 9.278032827324548,
+              "S_ND": 0.8932333333333333,
+              "X_ND": 1.6886508716666666,
+              "S_ALK": 4.05
+            }
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 146.346412238754,
+          "codOxidizedKgH": 234.04907030906665,
+          "balancedOxidizedKgH": 8.612280821900558,
+          "nhOxidizedKgH": 30.32721214421083,
+          "o2TransferredKgH": 0,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    },
+    {
+      "name": "aerobic-low-alkalinity",
+      "reactors": [
+        {
+          "id": "a",
+          "kind": "aerobic",
+          "volume": 900,
+          "cod": 60,
+          "nh": 30,
+          "no3": 2,
+          "tp": 2,
+          "doLevel": 2,
+          "alkalinity": 40,
+          "asm1": null
+        }
+      ],
+      "order": [
+        "a"
+      ],
+      "edges": [
+        {
+          "id": "feed",
+          "from": "plant",
+          "to": "a"
+        }
+      ],
+      "flows": {
+        "feed": 900
+      },
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 80
+      },
+      "bf": 1,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 0,
+      "doSetpoint": 2,
+      "aerationCapacity": 1,
+      "suppression": 1,
+      "xBiomass": 3400,
+      "xRas": 0,
+      "output": {
+        "reactors": [
+          {
+            "id": "a",
+            "kind": "aerobic",
+            "volume": 900,
+            "cod": 3632.2649180341677,
+            "nh": 29.50141406605292,
+            "no3": 2.3659728865021994,
+            "tp": 2.0459016393442626,
+            "doLevel": 0.02,
+            "alkalinity": 40.666666666666664,
+            "temperature": 20,
+            "o2Demand": 312.50143156674335,
+            "kla": 18,
+            "doIntegral": 0,
+            "inflow": 900,
+            "asm1": {
+              "S_I": 12.36,
+              "S_S": 17.653181947997247,
+              "X_I": 30.9,
+              "X_S": 4.9968571666666675,
+              "X_B_H": 2854.0778347615087,
+              "X_B_A": 712.1712304913287,
+              "X_P": 0.10581366666666667,
+              "S_O": 0.02,
+              "S_NO": 2.3659728865021994,
+              "S_NH": 29.50141406605292,
+              "S_ND": 2.5272,
+              "X_ND": 4.622400871666667,
+              "S_ALK": 0.8133333333333334
+            }
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 281.25128841006904,
+          "codOxidizedKgH": 548.4681748081488,
+          "balancedOxidizedKgH": 148.3691684784536,
+          "nhOxidizedKgH": 32.3236404331424,
+          "o2TransferredKgH": 115.02,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    },
+    {
+      "name": "aerobic-high-ammonia",
+      "reactors": [
+        {
+          "id": "a",
+          "kind": "aerobic",
+          "volume": 900,
+          "cod": 90,
+          "nh": 80,
+          "no3": 3,
+          "tp": 2,
+          "doLevel": 2,
+          "alkalinity": 80,
+          "asm1": null
+        }
+      ],
+      "order": [
+        "a"
+      ],
+      "edges": [
+        {
+          "id": "feed",
+          "from": "plant",
+          "to": "a"
+        }
+      ],
+      "flows": {
+        "feed": 900
+      },
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 70,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 140
+      },
+      "bf": 1,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 0,
+      "doSetpoint": 2,
+      "aerationCapacity": 1,
+      "suppression": 1,
+      "xBiomass": 3400,
+      "xRas": 0,
+      "output": {
+        "reactors": [
+          {
+            "id": "a",
+            "kind": "aerobic",
+            "volume": 900,
+            "cod": 3632.320544709474,
+            "nh": 79.8195677509518,
+            "no3": 3.5654503591226763,
+            "tp": 2.0459016393442626,
+            "doLevel": 0.02,
+            "alkalinity": 81,
+            "temperature": 20,
+            "o2Demand": 368.4205211089103,
+            "kla": 18,
+            "doIntegral": 0,
+            "inflow": 900,
+            "asm1": {
+              "S_I": 12.36,
+              "S_S": 17.664623010797502,
+              "X_I": 30.9,
+              "X_S": 4.9968571666666675,
+              "X_B_H": 2854.0701692494326,
+              "X_B_A": 712.2230816159109,
+              "X_P": 0.10581366666666667,
+              "S_O": 0.02,
+              "S_NO": 3.5654503591226763,
+              "S_NH": 79.8195677509518,
+              "S_ND": 6.695866666666666,
+              "X_ND": 12.082400871666668,
+              "S_ALK": 1.62
+            }
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 331.5784689980193,
+          "codOxidizedKgH": 547.8503574169349,
+          "balancedOxidizedKgH": 364.6459984198945,
+          "nhOxidizedKgH": 0.7433414486026764,
+          "o2TransferredKgH": 115.02,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    },
+    {
+      "name": "toxic-suppression-0.2",
+      "reactors": [
+        {
+          "id": "a",
+          "kind": "aerobic",
+          "volume": 1000,
+          "cod": 200,
+          "nh": 25,
+          "no3": 3,
+          "tp": 2,
+          "doLevel": 2,
+          "alkalinity": 180,
+          "asm1": null
+        }
+      ],
+      "order": [
+        "a"
+      ],
+      "edges": [
+        {
+          "id": "feed",
+          "from": "plant",
+          "to": "a"
+        }
+      ],
+      "flows": {
+        "feed": 1000
+      },
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "bf": 1,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 0,
+      "doSetpoint": 2,
+      "aerationCapacity": 1,
+      "suppression": 0.2,
+      "xBiomass": 3400,
+      "xRas": 0,
+      "output": {
+        "reactors": [
+          {
+            "id": "a",
+            "kind": "aerobic",
+            "volume": 1000,
+            "cod": 3656.453355179064,
+            "nh": 25.016396381361197,
+            "no3": 2.959709254025052,
+            "tp": 2.0459016393442626,
+            "doLevel": 2,
+            "alkalinity": 182.33333333333334,
+            "temperature": 20,
+            "o2Demand": 106.91483273276046,
+            "kla": 15.05842714545922,
+            "doIntegral": 0,
+            "inflow": 1000,
+            "asm1": {
+              "S_I": 16.293333333333333,
+              "S_S": 31.581029973870972,
+              "X_I": 40.733333333333334,
+              "X_S": 4.295933427153206,
+              "X_B_H": 2851.3651302140793,
+              "X_B_A": 712.1397311210196,
+              "X_P": 0.0448637762741918,
+              "S_O": 2,
+              "S_NO": 2.959709254025052,
+              "S_NH": 25.016396381361197,
+              "S_ND": 2.3384043967438504,
+              "X_ND": 3.823036732918305,
+              "S_ALK": 3.646666666666667
+            }
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 106.91483273276046,
+          "codOxidizedKgH": 304.7382015677416,
+          "balancedOxidizedKgH": 67.93413389111232,
+          "nhOxidizedKgH": 10.01621711832809,
+          "o2TransferredKgH": 106.91483273276046,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    },
+    {
+      "name": "toxic-suppression-zero",
+      "reactors": [
+        {
+          "id": "a",
+          "kind": "aerobic",
+          "volume": 1000,
+          "cod": 200,
+          "nh": 25,
+          "no3": 3,
+          "tp": 2,
+          "doLevel": 2,
+          "alkalinity": 180,
+          "asm1": null
+        }
+      ],
+      "order": [
+        "a"
+      ],
+      "edges": [
+        {
+          "id": "feed",
+          "from": "plant",
+          "to": "a"
+        }
+      ],
+      "flows": {
+        "feed": 1000
+      },
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "bf": 1,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 0,
+      "doSetpoint": 2,
+      "aerationCapacity": 1,
+      "suppression": 0,
+      "xBiomass": 3400,
+      "xRas": 0,
+      "output": {
+        "reactors": [
+          {
+            "id": "a",
+            "kind": "aerobic",
+            "volume": 1000,
+            "cod": 3658.116666666667,
+            "nh": 25.183333333333334,
+            "no3": 2.95,
+            "tp": 2.0459016393442626,
+            "doLevel": 2,
+            "alkalinity": 182.33333333333334,
+            "temperature": 20,
+            "o2Demand": 0,
+            "kla": 0,
+            "doIntegral": 0,
+            "inflow": 1000,
+            "asm1": {
+              "S_I": 16.293333333333333,
+              "S_S": 36.66,
+              "X_I": 40.733333333333334,
+              "X_S": 3.7800000000000002,
+              "X_B_H": 2848.52,
+              "X_B_A": 712.13,
+              "X_P": 0,
+              "S_O": 2,
+              "S_NO": 2.95,
+              "S_NH": 25.183333333333334,
+              "S_ND": 2.5183333333333335,
+              "X_ND": 3.7775,
+              "S_ALK": 3.646666666666667
+            }
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 0,
+          "codOxidizedKgH": 0,
+          "balancedOxidizedKgH": 0,
+          "nhOxidizedKgH": 0,
+          "o2TransferredKgH": 0,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    },
+    {
+      "name": "series-three",
+      "reactors": [
+        {
+          "id": "ana",
+          "kind": "anaerobic",
+          "volume": 800,
+          "cod": 300,
+          "nh": 40,
+          "no3": 1,
+          "tp": 6,
+          "doLevel": 0.1,
+          "alkalinity": 280,
+          "asm1": null
+        },
+        {
+          "id": "anx",
+          "kind": "anoxic",
+          "volume": 900,
+          "cod": 220,
+          "nh": 25,
+          "no3": 6,
+          "tp": 3,
+          "doLevel": 0.2,
+          "alkalinity": 220,
+          "asm1": null
+        },
+        {
+          "id": "aer",
+          "kind": "aerobic",
+          "volume": 1600,
+          "cod": 120,
+          "nh": 8,
+          "no3": 2,
+          "tp": 1,
+          "doLevel": 2,
+          "alkalinity": 180,
+          "asm1": null
+        }
+      ],
+      "order": [
+        "ana",
+        "anx",
+        "aer"
+      ],
+      "edges": [
+        {
+          "id": "feed",
+          "from": "plant",
+          "to": "ana"
+        },
+        {
+          "id": "e1",
+          "from": "ana",
+          "to": "anx"
+        },
+        {
+          "id": "e2",
+          "from": "anx",
+          "to": "aer"
+        }
+      ],
+      "flows": {
+        "feed": 1000,
+        "e1": 1000,
+        "e2": 1000
+      },
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "bf": 1,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 40,
+      "doSetpoint": 2,
+      "aerationCapacity": 1,
+      "suppression": 1,
+      "xBiomass": 3400,
+      "xRas": 0,
+      "output": {
+        "reactors": [
+          {
+            "id": "ana",
+            "kind": "anaerobic",
+            "volume": 800,
+            "cod": 3686.5404980389853,
+            "nh": 39.71188959832776,
+            "no3": 0.7648969745825026,
+            "tp": 5.975510204081632,
+            "doLevel": 0,
+            "alkalinity": 280.8333333333333,
+            "temperature": 20,
+            "o2Demand": 170.14045921184956,
+            "kla": 0,
+            "doIntegral": 0,
+            "inflow": 1000,
+            "asm1": {
+              "S_I": 24.2,
+              "S_S": 45.436657033163755,
+              "X_I": 60.5,
+              "X_S": 5.941857166666667,
+              "X_B_H": 2841.241706454447,
+              "X_B_A": 709.1144637180412,
+              "X_P": 0.10581366666666667,
+              "S_O": 0,
+              "S_NO": 0.7648969745825026,
+              "S_NH": 39.71188959832776,
+              "S_ND": 3.347933333333333,
+              "X_ND": 6.094900871666667,
+              "S_ALK": 5.616666666666666
+            }
+          },
+          {
+            "id": "anx",
+            "kind": "anoxic",
+            "volume": 900,
+            "cod": 3718.8597845123386,
+            "nh": 24.50953734902975,
+            "no3": 5.886104303779858,
+            "tp": 3.0541001855287564,
+            "doLevel": 0,
+            "alkalinity": 221.12654320987656,
+            "temperature": 20,
+            "o2Demand": 257.1718420038315,
+            "kla": 0,
+            "doIntegral": 0,
+            "inflow": 1000,
+            "asm1": {
+              "S_I": 17.722222222222225,
+              "S_S": 29.694625020901597,
+              "X_I": 44.30555555555556,
+              "X_S": 1.3268915586419756,
+              "X_B_H": 2901.7292246927864,
+              "X_B_A": 723.9734922832185,
+              "X_P": 0.10777317901234568,
+              "S_O": 0,
+              "S_NO": 5.886104303779858,
+              "S_NH": 24.50953734902975,
+              "S_ND": 2.1133691358024693,
+              "X_ND": 3.900824961882716,
+              "S_ALK": 4.422530864197531
+            }
+          },
+          {
+            "id": "aer",
+            "kind": "aerobic",
+            "volume": 1600,
+            "cod": 3687.244175760056,
+            "nh": 6.459449985327626,
+            "no3": 3.184295363271558,
+            "tp": 1.0211762905724613,
+            "doLevel": 0.02,
+            "alkalinity": 180.42840149176956,
+            "temperature": 20,
+            "o2Demand": 505.9277971586714,
+            "kla": 18,
+            "doIntegral": 0,
+            "inflow": 1000,
+            "asm1": {
+              "S_I": 12.059606481481481,
+              "S_S": 16.87110714616312,
+              "X_I": 30.149016203703702,
+              "X_S": 1.2306789537358542,
+              "X_B_H": 2902.4092772064123,
+              "X_B_A": 724.4175534646108,
+              "X_P": 0.10693630394804526,
+              "S_O": 0.02,
+              "S_NO": 3.184295363271558,
+              "S_NH": 6.459449985327626,
+              "S_ND": 0.6849342618312757,
+              "X_ND": 1.3355344650196115,
+              "S_ALK": 3.608568029835391
+            }
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 1177.0515006268022,
+          "codOxidizedKgH": 1988.4357073018593,
+          "balancedOxidizedKgH": 213.93689591450362,
+          "nhOxidizedKgH": 215.42851078856648,
+          "o2TransferredKgH": 204.48,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    },
+    {
+      "name": "series-ras-internal",
+      "reactors": [
+        {
+          "id": "ana",
+          "kind": "anaerobic",
+          "volume": 800,
+          "cod": 300,
+          "nh": 40,
+          "no3": 1,
+          "tp": 6,
+          "doLevel": 0.1,
+          "alkalinity": 280,
+          "asm1": null
+        },
+        {
+          "id": "anx",
+          "kind": "anoxic",
+          "volume": 900,
+          "cod": 220,
+          "nh": 25,
+          "no3": 6,
+          "tp": 3,
+          "doLevel": 0.2,
+          "alkalinity": 220,
+          "asm1": null
+        },
+        {
+          "id": "aer",
+          "kind": "aerobic",
+          "volume": 1600,
+          "cod": 120,
+          "nh": 8,
+          "no3": 2,
+          "tp": 1,
+          "doLevel": 2,
+          "alkalinity": 180,
+          "asm1": null
+        }
+      ],
+      "order": [
+        "ana",
+        "anx",
+        "aer"
+      ],
+      "edges": [
+        {
+          "id": "feed",
+          "from": "plant",
+          "to": "ana"
+        },
+        {
+          "id": "e1",
+          "from": "ana",
+          "to": "anx"
+        },
+        {
+          "id": "e2",
+          "from": "anx",
+          "to": "aer"
+        },
+        {
+          "id": "ras",
+          "from": "aer",
+          "to": "ana",
+          "recycleKind": "ras"
+        },
+        {
+          "id": "ir",
+          "from": "aer",
+          "to": "anx",
+          "recycleKind": "internal"
+        }
+      ],
+      "flows": {
+        "feed": 1000,
+        "e1": 1000,
+        "e2": 1000,
+        "ras": 800,
+        "ir": 400
+      },
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "bf": 1,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 40,
+      "doSetpoint": 2,
+      "aerationCapacity": 1,
+      "suppression": 0.8,
+      "xBiomass": 3400,
+      "xRas": 9000,
+      "output": {
+        "reactors": [
+          {
+            "id": "ana",
+            "kind": "anaerobic",
+            "volume": 800,
+            "cod": 3631.1766496992022,
+            "nh": 39.75058947814937,
+            "no3": 0.6887973008336192,
+            "tp": 5.895582329317268,
+            "doLevel": 0,
+            "alkalinity": 281.5,
+            "temperature": 20,
+            "o2Demand": 130.8606081269897,
+            "kla": 0,
+            "doIntegral": 0,
+            "inflow": 1800,
+            "asm1": {
+              "S_I": 24.36,
+              "S_S": 46.74822096865381,
+              "X_I": 60.9,
+              "X_S": 9.575732254306413,
+              "X_B_H": 2792.455832544147,
+              "X_B_A": 697.0437567795464,
+              "X_P": 0.0931071525483836,
+              "S_O": 0,
+              "S_NO": 0.6887973008336192,
+              "S_NH": 39.75058947814937,
+              "S_ND": 3.409227402913654,
+              "X_ND": 6.072003759836609,
+              "S_ALK": 5.63
+            }
+          },
+          {
+            "id": "anx",
+            "kind": "anoxic",
+            "volume": 900,
+            "cod": 3693.9985645854863,
+            "nh": 24.81108823347371,
+            "no3": 5.706036400873161,
+            "tp": 3.037826395836052,
+            "doLevel": 0,
+            "alkalinity": 221.87962962962965,
+            "temperature": 20,
+            "o2Demand": 194.6877542432084,
+            "kla": 0,
+            "doIntegral": 0,
+            "inflow": 1400,
+            "asm1": {
+              "S_I": 17.843703703703707,
+              "S_S": 31.417227514489625,
+              "X_I": 44.60925925925926,
+              "X_S": 2.92806062938616,
+              "X_B_H": 2878.7389933546065,
+              "X_B_A": 718.3664887649636,
+              "X_P": 0.09483135907705738,
+              "S_O": 0,
+              "S_NO": 5.706036400873161,
+              "S_NH": 24.81108823347371,
+              "S_ND": 2.165127819467583,
+              "X_ND": 3.8997260516854353,
+              "S_ALK": 4.437592592592593
+            }
+          },
+          {
+            "id": "aer",
+            "kind": "aerobic",
+            "volume": 1600,
+            "cod": 3687.2327372362824,
+            "nh": 6.962954540206718,
+            "no3": 2.7485589746334997,
+            "tp": 1.0210085195447014,
+            "doLevel": 0.02,
+            "alkalinity": 180.43624614197532,
+            "temperature": 20,
+            "o2Demand": 371.1709235798458,
+            "kla": 18,
+            "doIntegral": 0,
+            "inflow": 1000,
+            "asm1": {
+              "S_I": 12.060871913580247,
+              "S_S": 17.96134991707696,
+              "X_I": 30.15217978395062,
+              "X_S": 1.1012328858625176,
+              "X_B_H": 2901.5830292298424,
+              "X_B_A": 724.2799785267645,
+              "X_P": 0.09409497920543627,
+              "S_O": 0.02,
+              "S_NO": 2.7485589746334997,
+              "S_NH": 6.962954540206718,
+              "S_ND": 0.6990655620355182,
+              "X_ND": 1.3226259062083325,
+              "S_ALK": 3.608724922839506
+            }
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 873.7809430482326,
+          "codOxidizedKgH": 1778.5109641659328,
+          "balancedOxidizedKgH": 206.70794885455052,
+          "nhOxidizedKgH": 150.49098229302783,
+          "o2TransferredKgH": 204.48,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    },
+    {
+      "name": "isolated-reactor",
+      "reactors": [
+        {
+          "id": "a",
+          "kind": "aerobic",
+          "volume": 1000,
+          "cod": 50,
+          "nh": 10,
+          "no3": 1,
+          "tp": 2,
+          "doLevel": 2,
+          "alkalinity": 200,
+          "asm1": null
+        }
+      ],
+      "order": [
+        "a"
+      ],
+      "edges": [],
+      "flows": {},
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "bf": 1,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 0,
+      "doSetpoint": 2,
+      "aerationCapacity": 1,
+      "suppression": 1,
+      "xBiomass": 3400,
+      "xRas": 0,
+      "output": {
+        "reactors": [
+          {
+            "id": "a",
+            "kind": "aerobic",
+            "volume": 1000,
+            "cod": 50,
+            "nh": 10,
+            "no3": 1,
+            "tp": 2,
+            "doLevel": 2,
+            "alkalinity": 200,
+            "temperature": 20,
+            "o2Demand": 0,
+            "kla": 0,
+            "doIntegral": 0,
+            "inflow": 0,
+            "asm1": null
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 0,
+          "codOxidizedKgH": 0,
+          "balancedOxidizedKgH": 0,
+          "nhOxidizedKgH": 0,
+          "o2TransferredKgH": 0,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    },
+    {
+      "name": "two-feed-mix",
+      "reactors": [
+        {
+          "id": "a",
+          "kind": "aerobic",
+          "volume": 500,
+          "cod": 60,
+          "nh": 12,
+          "no3": 2,
+          "tp": 1.5,
+          "doLevel": 2,
+          "alkalinity": 210,
+          "asm1": null
+        }
+      ],
+      "order": [
+        "a"
+      ],
+      "edges": [
+        {
+          "id": "f1",
+          "from": "plant",
+          "to": "a"
+        },
+        {
+          "id": "f2",
+          "from": "plant",
+          "to": "a"
+        }
+      ],
+      "flows": {
+        "f1": 600,
+        "f2": 400
+      },
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "bf": 1,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 0,
+      "doSetpoint": 2,
+      "aerationCapacity": 1,
+      "suppression": 1,
+      "xBiomass": 3400,
+      "xRas": 0,
+      "output": {
+        "reactors": [
+          {
+            "id": "a",
+            "kind": "aerobic",
+            "volume": 500,
+            "cod": 3577.9582363694003,
+            "nh": 11.094913209280161,
+            "no3": 3.1331778604043956,
+            "tp": 1.6064516129032256,
+            "doLevel": 0.02,
+            "alkalinity": 213.66666666666669,
+            "temperature": 20,
+            "o2Demand": 520.4067555752237,
+            "kla": 18,
+            "doIntegral": 0,
+            "inflow": 1000,
+            "asm1": {
+              "S_I": 12.72,
+              "S_S": 18.46680794630202,
+              "X_I": 31.8,
+              "X_S": 8.776857166666668,
+              "X_B_H": 2805.7954053426447,
+              "X_B_A": 700.2933522471201,
+              "X_P": 0.10581366666666667,
+              "S_O": 0.02,
+              "S_NO": 3.1331778604043956,
+              "S_NH": 11.094913209280161,
+              "S_ND": 1.08688,
+              "X_ND": 2.0274008716666665,
+              "S_ALK": 4.273333333333333
+            }
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 260.2033777876118,
+          "codOxidizedKgH": 304.59576161093946,
+          "balancedOxidizedKgH": 29.373309755468835,
+          "nhOxidizedKgH": 51.152603721595156,
+          "o2TransferredKgH": 63.9,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    },
+    {
+      "name": "warm-aerobic",
+      "reactors": [
+        {
+          "id": "a",
+          "kind": "aerobic",
+          "volume": 600,
+          "cod": 80,
+          "nh": 18,
+          "no3": 3,
+          "tp": 1.2,
+          "doLevel": 1.5,
+          "alkalinity": 150,
+          "asm1": null
+        }
+      ],
+      "order": [
+        "a"
+      ],
+      "edges": [
+        {
+          "id": "feed",
+          "from": "plant",
+          "to": "a"
+        }
+      ],
+      "flows": {
+        "feed": 1400
+      },
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 30,
+        "alkalinity": 320
+      },
+      "bf": 1.2,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 0,
+      "doSetpoint": 2.5,
+      "aerationCapacity": 0.9,
+      "suppression": 1,
+      "xBiomass": 3400,
+      "xRas": 0,
+      "output": {
+        "reactors": [
+          {
+            "id": "a",
+            "kind": "aerobic",
+            "volume": 600,
+            "cod": 3557.108228352132,
+            "nh": 14.611103303024402,
+            "no3": 6.106250811979708,
+            "tp": 1.33475935828877,
+            "doLevel": 0.02,
+            "alkalinity": 156.61111111111111,
+            "temperature": 30,
+            "o2Demand": 1249.884034909985,
+            "kla": 16.2,
+            "doIntegral": 0.016666666666666666,
+            "inflow": 1400,
+            "asm1": {
+              "S_I": 12.84,
+              "S_S": 9.03667746825472,
+              "X_I": 32.1,
+              "X_S": 11.29277063524119,
+              "X_B_H": 2794.994896018413,
+              "X_B_A": 696.6288606967238,
+              "X_P": 0.21502353349923387,
+              "S_O": 0.02,
+              "S_NO": 6.106250811979708,
+              "S_NH": 14.611103303024402,
+              "S_ND": 1.3001555948203585,
+              "X_ND": 3.023248886501722,
+              "S_ALK": 3.1322222222222225
+            }
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 749.930420945991,
+          "codOxidizedKgH": 714.7196111428301,
+          "balancedOxidizedKgH": 85.80570706618384,
+          "nhOxidizedKgH": 147.20028109112155,
+          "o2TransferredKgH": 63.18,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    },
+    {
+      "name": "preinitialized-asm1",
+      "reactors": [
+        {
+          "id": "a",
+          "kind": "aerobic",
+          "volume": 1000,
+          "cod": 300,
+          "nh": 30,
+          "no3": 3,
+          "tp": 2,
+          "doLevel": 2,
+          "alkalinity": 200,
+          "asm1": {
+            "S_I": 72,
+            "S_S": 162,
+            "X_I": 180,
+            "X_S": 0,
+            "X_B_H": 3578.4,
+            "X_B_A": 894.6,
+            "X_P": 0,
+            "S_O": 1.8,
+            "S_NO": 4,
+            "S_NH": 12,
+            "S_ND": 1.2000000000000002,
+            "X_ND": 1.7999999999999998,
+            "S_ALK": 3.2
+          }
+        }
+      ],
+      "order": [
+        "a"
+      ],
+      "edges": [
+        {
+          "id": "feed",
+          "from": "plant",
+          "to": "a"
+        }
+      ],
+      "flows": {
+        "feed": 1000
+      },
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "bf": 1,
+      "dtH": 0.016666666666666666,
+      "carbonDose": 0,
+      "doSetpoint": 2,
+      "aerationCapacity": 0.8,
+      "suppression": 1,
+      "xBiomass": 4200,
+      "xRas": 0,
+      "output": {
+        "reactors": [
+          {
+            "id": "a",
+            "kind": "aerobic",
+            "volume": 1000,
+            "cod": 4806.496993325086,
+            "nh": 10.03240348170794,
+            "no3": 5.208644117865337,
+            "tp": 2.0459016393442626,
+            "doLevel": 0.02,
+            "alkalinity": 162.66666666666666,
+            "temperature": 20,
+            "o2Demand": 731.6216375188574,
+            "kla": 14.4,
+            "doIntegral": 0.0033333333333333327,
+            "inflow": 1000,
+            "asm1": {
+              "S_I": 71.36,
+              "S_S": 141.1571415210039,
+              "X_I": 178.4,
+              "X_S": 5.2831765,
+              "X_B_H": 3530.2192151809277,
+              "X_B_A": 879.9467491231538,
+              "X_P": 0.13071100000000002,
+              "S_O": 0.02,
+              "S_NO": 5.208644117865337,
+              "S_NH": 10.03240348170794,
+              "S_ND": 1.00144,
+              "X_ND": 1.9926716649999998,
+              "S_ALK": 3.2533333333333334
+            }
+          }
+        ],
+        "flux": {
+          "o2DemandKgH": 731.6216375188574,
+          "codOxidizedKgH": 1164.1715087397665,
+          "balancedOxidizedKgH": 91.58519133686063,
+          "nhOxidizedKgH": 142.05579109752358,
+          "o2TransferredKgH": 105.12,
+          "denitrifiedNKgH": 0,
+          "clampCodKgH": 0,
+          "clampNKgH": 0,
+          "clampPKgH": 0
+        }
+      }
+    }
+  ]
+}

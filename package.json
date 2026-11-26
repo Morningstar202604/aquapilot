@@ -1,6 +1,6 @@
 {
   "name": "aquapilot",
-  "version": "0.11.22",
+  "version": "0.11.23",
   "private": true,
   "allowScripts": {
     "esbuild": true
@@ -42,7 +42,8 @@
     "gen:sim-step": "tsx scripts/gen-sim-step.ts",
     "gen:sim-inflow": "tsx scripts/gen-sim-inflow.ts",
     "gen:sim-asm1-inflow": "tsx scripts/gen-sim-asm1-inflow.ts",
-    "gen:sim-react-simple": "tsx scripts/gen-sim-react-simple.ts"
+    "gen:sim-react-simple": "tsx scripts/gen-sim-react-simple.ts",
+    "gen:sim-react-asm1": "tsx scripts/gen-sim-react-asm1.ts"
   },
   "dependencies": {
     "@xyflow/react": "13.0.2",

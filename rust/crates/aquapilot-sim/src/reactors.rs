@@ -85,6 +85,9 @@ pub struct ReactorFlux {
     pub o2_transferred_kg_h: f64,
     pub nh_oxidized_kg_h: f64,
     pub denitrified_n_kg_h: f64,
+    pub clamp_cod_kg_h: f64,
+    pub clamp_n_kg_h: f64,
+    pub clamp_p_kg_h: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]

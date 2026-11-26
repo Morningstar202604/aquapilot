@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.11.23] — 2026-11-26
+
+### Added
+
+- M1b phase 2 第四刀：`solveReactors` 的 `asm1` 分支移植为 `solve_reactors_asm1`。包含 13 组分 CSTR 输运、首次进入时的 `max(cod,150)+MLSS` 初始化、缺氧区外加碳源、ASM1 无磷时的 TP 惰性示踪，以及 `fromAsm1` 聚合量回写。
+- 复用 `aquapilot-core::asm1` 的化学计量与温度 Arrhenius 速率，并在 sim 层补上 TS 的三层抑制：外部毒性（自养平方、异养开方）、pH 胁迫、游离氨抑制；温度速率按 TS 的 0.1 ℃ 分档缓存语义取整。
+- ASM1 池的 DO 不再贴设定值，改用 `stepAeration` 的 KLa/积分/速率限幅闭环，实际氧传递计入 `o2TransferredKgH`；非曝气池按 `exp(-3dt)` 衰减。
+- 新增 `scripts/gen-sim-react-asm1.ts` 与 `rust/golden/sim-react-asm1.json`：16 组一步用例，覆盖好氧/厌氧/缺氧、碳源 0/60、低 DO、无曝气、低碱度、高氨氮、毒性 0.2/0、三池串联、RAS/内回流、孤立池、双进水、30 ℃ 与预初始化 ASM1；`tests/react_asm1_parity.rs` 3 项测试逐池比对 11 个聚合字段 + 13 个 ASM1 组分 + 9 个 flux 字段，并校验 5 个源文件 SHA-256。
+
+### Changed
+
+- `aquapilot-sim` 新增对 `aquapilot-core` 的路径依赖，复用已验证的 ASM1 速率与曝气模型，不复制第二套常数。
+- `npm run gen:sim-react-asm1 -- --check` 纳入 `npm run ci`；`ReactorFlux` 补齐 3 个钳制计数字段，simple 分支保持为 0。
+
+### Verification
+
+- Rust 119 项全过（60 单元 + 59 集成/parity）；`cargo fmt/clippy` 干净。
+- TS 1739/1739（144 文件）不变；`npm run typecheck` 通过。
+- **只完成 `solveReactors` 的 `asm1` 分支**。ASM2d 网络逐池积分、`solveClarifier`、`stepNetwork`、`createNetworkState`、`PlantSnapshot` 仍未移植；M1b 不因本切片关闭。
+- **M2-1 仍被 M1b 阻塞**，M2-3 仍无有效 24 h soak。
+
 ## [0.11.22] — 2026-11-26
 
 ### Added

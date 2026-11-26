@@ -1,5 +1,13 @@
 # AquaPilot Work Log
 
+## 2026-11-26 — v0.11.23 M1b ASM1 reactor reaction integration
+
+- 新增 `asm1reactors.rs`：13 组分 CSTR、初始化、碳源、TP 示踪、`fromAsm1`、三层抑制、KLa 曝气闭环。
+- 复用 `aquapilot-core` 的 ASM1 速率与曝气模型；温度按 0.1 ℃ 分档，抑制用原始温度。
+- `scripts/gen-sim-react-asm1.ts` 生成 16 组 oracle；`tests/react_asm1_parity.rs` 3 项测试，13 组分 + 11 聚合字段 + 9 flux 全部 `1e-12` 内一致。
+- Rust 119 项（60 单元 + 59 集成/parity）全过，fmt/clippy 干净；TS 1739/1739 不变。
+- 只完成 `solveReactors` 的 `asm1` 分支；ASM2d 逐池积分、`solveClarifier`、`stepNetwork` 仍未完成。
+
 ## 2026-11-26 — v0.11.22 M1b simple reactor integration
 
 - 新增 `kinetics.rs` / `reactors.rs`：简单模型 17 个常数、三类池型积分、DO 曝气闭环、缺氧区碳源、非好氧衰减与 6 项 flux 累加。
@@ -70,8 +78,8 @@
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
 - M2-3 soak: v0.11.16 TS run 于 2026-11-26 01:58 CST 启动，02:16 最后样本（19 个、18 分钟），无 `summary.json`；进程已消失，宿主 boot id 已变化，不计入 24 h
-- Latest release: `v0.11.22` (M1b simple reactor integration parity; `stepNetwork` not ported; M2 not closed); prior `v0.11.16` (M2-1 HTTP/WS contract freeze + soak boot guard), prior `v0.11.15` (Rust M2-2 ops crate), `v0.11.14` (production trace replay; M1 gates met), `v0.11.13`, `v0.11.12`, `v0.11.11`, `v0.11.10`, `v0.11.9`, `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
-- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release；v0.11.9 清掉 Node20 告警；v0.11.10 接入 ADM1 泥线；v0.11.11 接入水力/输运；v0.11.12 加随机差分并修掉分流截流后的丢流量；v0.11.13 补齐三本账 Rust parity；v0.11.14 整厂 96 步 production replay 通过；v0.11.15 M2-2 ops crate 58 项 Rust 全过；v0.11.16 冻结 HTTP/WS 契约 64 项 Rust 全过；v0.11.17 M1b forcing/influent parity 74 项 Rust 全过；v0.11.18 输出阶段 4–7 85 项 Rust 全过；v0.11.19 phase 1/告警历史 95 项 Rust 全过；v0.11.20 入流聚合 101 项 Rust 全过；v0.11.21 ASM1 入流 108 项 Rust 全过；v0.11.22 simple 反应器积分 113 项 Rust 全过
+- Latest release: `v0.11.23` (M1b ASM1 reactor reaction integration parity; `stepNetwork` not ported; M2 not closed); prior `v0.11.16` (M2-1 HTTP/WS contract freeze + soak boot guard), prior `v0.11.15` (Rust M2-2 ops crate), `v0.11.14` (production trace replay; M1 gates met), `v0.11.13`, `v0.11.12`, `v0.11.11`, `v0.11.10`, `v0.11.9`, `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
+- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release；v0.11.9 清掉 Node20 告警；v0.11.10 接入 ADM1 泥线；v0.11.11 接入水力/输运；v0.11.12 加随机差分并修掉分流截流后的丢流量；v0.11.13 补齐三本账 Rust parity；v0.11.14 整厂 96 步 production replay 通过；v0.11.15 M2-2 ops crate 58 项 Rust 全过；v0.11.16 冻结 HTTP/WS 契约 64 项 Rust 全过；v0.11.17 M1b forcing/influent parity 74 项 Rust 全过；v0.11.18 输出阶段 4–7 85 项 Rust 全过；v0.11.19 phase 1/告警历史 95 项 Rust 全过；v0.11.20 入流聚合 101 项 Rust 全过；v0.11.21 ASM1 入流 108 项 Rust 全过；v0.11.22 simple 反应器积分 113 项 Rust 全过；v0.11.23 ASM1 反应器积分 119 项 Rust 全过
 
 ## Rule
 
