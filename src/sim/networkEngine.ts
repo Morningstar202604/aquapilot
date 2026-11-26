@@ -267,7 +267,7 @@ export function createNetworkState(
 
 export { scenarioEnvelope };
 
-function deriveInfluent(state: NetworkSimState): NetworkSimState['influent'] {
+export function deriveInfluent(state: NetworkSimState): NetworkSimState['influent'] {
   const rng = mulberry32(state.seed * 31 + state.rngCount * 7919 + Math.floor(state.timeMin * 13));
   const d = diurnal(state.timeMin);
   const noise = (s: number) => 1 + rng.normal() * s;

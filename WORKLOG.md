@@ -14,7 +14,8 @@
 - [x] M1 production `stepNetwork` trace replay (96 steps × 15 min, ASM2d + Takács + ADM1 + 三本账 + 出水/库存/生物量)
 - [x] WP2 30 d COD/N/P balance closure
 - [x] M2-2 Rust AI provider / hash-chain audit / rate limit / watchdog (TS oracle parity)
-- [ ] M2-1 Rust HTTP/WS server migration（契约已冻结，服务端未实现）
+- [ ] M1b Rust whole-plant `networkEngine` closed loop (forcing/influent parity done, `stepNetwork` not ported)
+- [ ] M2-1 Rust HTTP/WS server migration（契约已冻结，服务端未实现，blocked by M1b）
 - [ ] M2-3 7×24 wall-clock soak / RSS + FD acceptance- [ ] M3 frontend / industrial acceptance
 - [ ] M4 optional zero-TypeScript migration
 - [x] B1 reproducible experiments / durable queue
@@ -25,18 +26,27 @@
 
 ## Latest verifiable state
 
-- `cargo test`: 34 unit + 30 integration/parity/fuzz = 64, all pass (core 41 + ops 17 + contract 6)
+- `cargo test`: 34 unit + 40 integration/parity/fuzz = 74, all pass (core 41 + ops 17 + contract 6 + sim 10)
 - `cargo clippy --all-targets -- -D warnings`: clean
 - `npx vitest run --coverage`: 1739 passed / 1739 (144 files); WP2 30 d COD/N/P 三账闭合；覆盖率 94.11/82.15/95.23（阈值 90/81/95 未下调）
 - `npm run typecheck && npm run lint && npm run format && npm run build`: pass
 - `npm run e2e`: pass (17 nodes, 3 charts, 6 panels, 6 topbar widths, 0 console errors)
-- Latest release: `v0.11.16` (M2-1 HTTP/WS contract freeze + soak boot guard; M2 not closed); prior `v0.11.15` (Rust M2-2 ops crate), `v0.11.14` (production trace replay; M1 gates met), `v0.11.13`, `v0.11.12`, `v0.11.11`, `v0.11.10`, `v0.11.9`, `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
-- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release；v0.11.9 清掉 Node20 告警；v0.11.10 接入 ADM1 泥线；v0.11.11 接入水力/输运；v0.11.12 加随机差分并修掉分流截流后的丢流量；v0.11.13 补齐三本账 Rust parity；v0.11.14 整厂 96 步 production replay 通过；v0.11.15 M2-2 ops crate 58 项 Rust 全过；v0.11.16 冻结 HTTP/WS 契约 64 项 Rust 全过
+- M2-3 soak: v0.11.16 TS run 于 2026-11-26 01:58 CST 启动，02:16 最后样本（19 个、18 分钟），无 `summary.json`；进程已消失，宿主 boot id 已变化，不计入 24 h
+- Latest release: `v0.11.17` (M1b forcing/influent parity; `stepNetwork` not ported; M2 not closed); prior `v0.11.16` (M2-1 HTTP/WS contract freeze + soak boot guard), prior `v0.11.15` (Rust M2-2 ops crate), `v0.11.14` (production trace replay; M1 gates met), `v0.11.13`, `v0.11.12`, `v0.11.11`, `v0.11.10`, `v0.11.9`, `v0.11.8`, `v0.11.7`, `v0.11.6`, `v0.11.5`, `v0.11.4`, `v0.11.3`, `v0.11.2`, `v0.11.1`, `v0.11.0`
+- GitHub CI: v0.11.7 全绿；v0.11.8 把 `cargo fmt/clippy/test` 纳入 CI 与 Release；v0.11.9 清掉 Node20 告警；v0.11.10 接入 ADM1 泥线；v0.11.11 接入水力/输运；v0.11.12 加随机差分并修掉分流截流后的丢流量；v0.11.13 补齐三本账 Rust parity；v0.11.14 整厂 96 步 production replay 通过；v0.11.15 M2-2 ops crate 58 项 Rust 全过；v0.11.16 冻结 HTTP/WS 契约 64 项 Rust 全过；v0.11.17 M1b forcing/influent parity 74 项 Rust 全过
 
 ## Rule
 
 Every turn must land a code/test/golden commit or explicitly record a blocker;
 do not repeat the same probe without a code change.
+
+## 2026-11-26 M1b forcing/influent 纯层 parity（v0.11.17）
+
+- 新增 `rust/crates/aquapilot-sim`：`forcing.ts` 的七类强迫函数、`deriveInfluent` 的合成与真实序列分支、`sampleAt` 的循环插值/夹紧、Mulberry32 与 JS `>>> 0` 语义移植到 Rust；全部 `#![forbid(unsafe_code)]`。
+- 新增 `scripts/gen-sim-forcing.ts` 与 `rust/golden/sim-forcing.json`：112 组 forcing（8 场景 × 14 时间点）、96 组回流（4 控制 × 8 场景 × 3 时间）、1098 组进水（9 场景含 null × 3 seed × 4 rngCount × 5 时间 × 2 uncertainty + 18 组真实/单点/空序列）。
+- `tests/forcing_parity.rs` 五项测试锁定条数、7 个源文件哈希、forcing/recycle/influent 全字段 1e-12 一致；`cargo test -p aquapilot-sim` 10 项全过。
+- `npm run gen:sim-forcing -- --check` 接入 `npm run ci`；`src/sim/networkEngine.ts` 仅导出 `deriveInfluent` 供 oracle 调用，行为不变。
+- **未完成**：`createNetworkState`、`NetworkSimState` 依赖、`stepNetwork` 七阶段、`PlantSnapshot` 仍未移植；Rust 不能独立跑整厂闭环，M1b 保持 in_progress，M2-1 继续 blocked。
 
 ## 2026-11-26 M2-1 契约冻结（v0.11.16）
 

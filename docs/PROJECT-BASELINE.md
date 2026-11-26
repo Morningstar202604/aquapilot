@@ -9,11 +9,11 @@
 
 | 层级          | 版本     | 提交   | 状态                                    |
 | ------------- | -------- | ------ | --------------------------------------- |
-| 本地 `main`   | `0.11.16` | `HEAD` | M2-1 HTTP/WS 契约冻结；服务端未实现 |
-| 五平台 `main` | `0.11.16` | `HEAD` | 待推送后复核 |
+| 本地 `main`   | `0.11.17` | `HEAD` | M1b forcing/influent parity；stepNetwork 未移植 |
+| 五平台 `main` | `0.11.17` | `HEAD` | 待推送后复核 |
 | 当前工作树    | clean    | —      | 全部回归门禁通过 |
 
-一致性结论：`v0.11.16` 推送后须用 `git ls-remote` 复核到同一提交；
+一致性结论：`v0.11.17` 推送后须用 `git ls-remote` 复核到同一提交；
 若后续再改动，必须重新推送并复验，不能沿用本文的旧哈希。
 
 核对命令：
@@ -63,7 +63,7 @@ git log --oneline --decorate -3
 | `tsc --noEmit`                | 通过                                     |
 | `lint` / `prettier` / `build` | 通过                                     |
 | 研究领域/服务/API             | 13 项测试通过                            |
-| Rust 内核                     | 64 项（34 单元 + 30 集成/parity/fuzz）   |
+| Rust 内核                     | 74 项（34 单元 + 40 集成/parity/fuzz）   |
 | ASM1 CSTR/网络                | 3 项 TS 不变量 + Rust 1e-12 parity 通过  |
 | 整厂 production replay        | 96 步 × 15 min；最大残差 1.73e-9，容差 1e-8 |
 | M2-2 Rust ops parity          | 14 watchdog / 5 decision / 2 rate / 9 URL  |
@@ -117,7 +117,7 @@ WP2 门禁：
 | WP9  | 回归、构建、浏览器验收、文档                             | 已完成（本地），但 WP2 红灯使总验收不成立 | `docs/INDUSTRIAL-READINESS-PLAN.md` §3.6                   |
 | 基础 | 拓扑编辑、工艺画布、趋势、回放、AI 对话、CLI、单文件 exe | 已存在                                    | `src/client/*`、`src/cli.ts`、`scripts/build-exe.mjs`      |
 
-“已完成（本地）”不等于“远程已合并”。截至 v0.11.15，五平台 `main` 与 tag 已一致；v0.11.16 待推送后复核。
+“已完成（本地）”不等于“远程已合并”。截至 v0.11.16，五平台 `main` 与 tag 已一致；v0.11.17 待推送后复核。
 
 ## 3. 待开发任务池
 
@@ -134,7 +134,7 @@ WP2 门禁：
 
 ### P1 — 工业级能力（进行中）
 
-当前进度：P1-01 的 TS→Rust 六项模块切片（ASM1/ASM2d/ADM1 CSTR/ADM1 泥线/Takács/水力输运）均已 parity，水力模块已有随机差分与属性不变量，三本账已有 96 步 parity，整厂 production `stepNetwork` 轨迹 96 步逐态 replay 已通过；M1 三项退出条件已满足，P1-01 可标完成。v0.11.15 完成 M2-2 的 Rust AI Provider / 哈希链审计 / 限流 / 看门狗（17 项测试，TS oracle 逐项 parity）；v0.11.16 冻结 HTTP/WS 契约（32 legacy / 9 versioned / 19→14 WS），但 Rust 服务端尚未实现；P1-03 仍缺 24 h 墙钟 soak 报告。P1-04 3D 厂区未开始；P1-05/06 持续迭代。
+当前进度：P1-01 的 TS→Rust 六项模块切片（ASM1/ASM2d/ADM1 CSTR/ADM1 泥线/Takács/水力输运）均已 parity，水力模块已有随机差分与属性不变量，三本账已有 96 步 parity，整厂 production `stepNetwork` 轨迹 96 步逐态 replay 已通过；M1 的模块切片与预捕获 replay 完成，但整厂闭环未被 Rust 独立执行，M1b 正在补此缺口，P1-01 暂不整体标完成。v0.11.15 完成 M2-2 的 Rust AI Provider / 哈希链审计 / 限流 / 看门狗（17 项测试，TS oracle 逐项 parity）；v0.11.16 冻结 HTTP/WS 契约（32 legacy / 9 versioned / 19→14 WS），但 Rust 服务端尚未实现；v0.11.17 补 M1b 的 forcing/influent parity，整厂 `stepNetwork` 仍未移植；P1-03 仍缺 24 h 墙钟 soak 报告。P1-04 3D 厂区未开始；P1-05/06 持续迭代。
 
 | ID    | 任务               | 完成定义                                                   |
 | ----- | ------------------ | ---------------------------------------------------------- |
@@ -168,8 +168,9 @@ WP2 门禁：
 
 ### M1 — 确定性内核迁移
 
-状态：**退出条件已满足（v0.11.14，2026-11-25）**。整厂 production replay 见
-`docs/PLANT-REPLAY.md`；M1 关闭不推导 M2 完成。
+状态：**模块 parity 与预捕获 production replay 已满足（v0.11.14，2026-11-25）；整厂闭环另立 M1b**。整厂 production replay 见
+`docs/PLANT-REPLAY.md`；replay 重建的是 TS 捕获的每步 pre-state，不等于 Rust 自己跑
+`stepNetwork`。M1 关闭不推导 M2 完成。
 
 退出条件：
 
@@ -177,15 +178,31 @@ WP2 门禁：
 - 新旧内核在同一输入下出水、库存、三本账误差在约定容差内；
 - 不引入 `unsafe`；无 panic 泄漏到服务层；fuzz/属性测试通过。
 
+### M1b — 整厂 networkEngine 闭环移植（进行中）
+
+状态：**纯强迫/进水层已 parity（v0.11.17）；状态构造与 `stepNetwork` 未移植。**
+
+| 层 | 状态 | 证据 |
+| --- | --- | --- |
+| `forcing.ts` 强迫函数 | **已满足** | 112 组 TS oracle 逐项一致，`tests/forcing_parity.rs` |
+| `deriveInfluent` / `sampleAt` | **已满足** | 1098 组合成/真实序列/uncertainty 用例一致 |
+| `createNetworkState` / `NetworkSimState` | **未完成** | 依赖拓扑编译、水力、仪表、资产、控制层、全厂边界 |
+| `stepNetwork` 七阶段编排 | **未完成** | 反应器、二沉池、生物量、出水、能耗、报警尚未移植 |
+| `PlantSnapshot` / 趋势 / 快照 | **未完成** | Rust 仍无服务端可消费的整厂快照 |
+
+M1b 的退出条件是 Rust 能独立跑完整整厂闭环，并与 TS 在同输入下逐态对齐；
+不是重复模块测试，也不是拿 TS pre-state replay 冒充闭环。M1b 完成前，M2-1
+服务端不具备自带仿真的前提。
+
 ### M2 — 服务端与 AI 编排迁移
 
-状态：**M2-1 契约冻结、M2-2 已完成（v0.11.16）；M2-1 服务端与 M2-3 未完成，M2 总里程碑不关闭。**
+状态：**M2-1 契约冻结、M2-2 已完成（v0.11.16）；M2-1 服务端因 M1b 未完成而继续阻塞，M2-3 未完成，M2 总里程碑不关闭。**
 
 | 退出条件 | 状态 | 证据 |
 | --- | --- | --- |
 | HTTP/WS/协议/持久化接口契约不变 | **未完成** | `rust/golden/http-contract.json` 已冻结 32 legacy / 9 versioned / 19→14 WS；Rust 服务端尚未实现，生产监听仍是 TypeScript |
 | AI Provider、审计、限流、看门狗在目标语言中可用 | **已满足** | `rust/crates/aquapilot-ops` + `tests/ops_parity.rs`；见 `docs/M2-SERVICES.md` |
-| 7×24 soak 测试通过，内存/句柄无增长 | **未完成** | `scripts/soak.ts` 已具备真实墙钟采样与 boot id 防伪；上一轮 TS soak 因宿主重启中断，无有效 24 h 记录 |
+| 7×24 soak 测试通过，内存/句柄无增长 | **未完成** | `scripts/soak.ts` 已具备真实墙钟采样与 boot id 防伪；v0.11.15 与 v0.11.16 两轮 TS soak 均中断（v0.11.16 仅 19 个样本、18 分钟，无 `summary.json`，进程已消失且宿主 boot id 已变化），无有效 24 h 记录 |
 
 M2-2 不是服务端迁移：crate 尚未接线到生产入口。不得用“Rust 已有 ops crate”
 冒充“HTTP/WS 已迁移”，也不得用 1 分钟 soak 或跨重启样本冒充 24 h。

@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.11.17] — 2026-11-26
+
+### Added
+
+- 新增 Rust crate `rust/crates/aquapilot-sim`，开始补 M1 未覆盖的整厂
+  `networkEngine` 闭环：本版先移植纯外部强迫与进水合成层。
+  - `diurnal`、`seasonalTemperature`、`scenarioEnvelope`、`toxicSuppression`、
+    `aerationCapacity`、`recycleFactors`、`mixed` 与 TS `src/sim/forcing.ts`
+    逐函数对齐。
+  - `deriveInfluent` 的合成进水分支、真实 `influentSeries` 循环插值分支、
+    uncertainty 缩放、Mulberry32 随机序列与 JS `>>> 0` 语义全部移植。
+  - `sampleAt` 的循环窗口、二分查找、物理区间夹紧与单点/空序列回退一并移植。
+- `scripts/gen-sim-forcing.ts` 与 `rust/golden/sim-forcing.json`：从 TS oracle
+  冻结 112 组 forcing、96 组回流、1098 组进水（含 8 类场景、ramp 边界、
+  真实序列、单点、空序列与 uncertainty）；`tests/forcing_parity.rs` 逐项比对。
+- `npm run gen:sim-forcing -- --check` 纳入 `npm run ci`，TS 强迫/进水逻辑
+  改动而 golden 未重生成会直接失败。
+
+### Changed
+
+- `src/sim/networkEngine.ts` 导出 `deriveInfluent`，仅用于 golden oracle 直接
+  调用；函数体与运行路径不变，不改变生产行为。
+
+### Verification
+
+- Rust 74 项全过（core 41 + ops 17 + contract 6 + sim 10）；`cargo fmt/clippy` 干净。
+- TS 1739/1739（144 文件）不变；`npm run typecheck` 通过。
+- **M1b 未关闭**：本版只完成纯强迫/进水的 parity，`createNetworkState`、
+  `stepNetwork` 编排、`PlantSnapshot`、水力/回流/控制/趋势/快照尚未移植；
+  Rust 仍不能独立跑整厂闭环，M2-1 继续被 M1b 阻塞。
+- **M2-3 仍无有效证据**：v0.11.16 TS soak 于 01:58 CST 启动，02:16 最后样本
+  （19 个、18 分钟），无 `summary.json`；进程已消失，宿主 boot id 已变化，
+  该轮不计入 24 h。
+
 ## [0.11.16] — 2026-11-26
 
 ### Added

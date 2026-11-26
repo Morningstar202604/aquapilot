@@ -1,7 +1,17 @@
 [workspace]
 resolver = "2"
-members = ["crates/aquapilot-core", "crates/aquapilot-ops", "crates/aquapilot-contract"]
-default-members = ["crates/aquapilot-core", "crates/aquapilot-ops", "crates/aquapilot-contract"]
+members = [
+    "crates/aquapilot-core",
+    "crates/aquapilot-ops",
+    "crates/aquapilot-contract",
+    "crates/aquapilot-sim",
+]
+default-members = [
+    "crates/aquapilot-core",
+    "crates/aquapilot-ops",
+    "crates/aquapilot-contract",
+    "crates/aquapilot-sim",
+]
 
 [workspace.package]
 edition = "2024"
