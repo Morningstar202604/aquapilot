@@ -75,10 +75,65 @@ impl RecycleKind {
     pub fn is_none(self) -> bool {
         matches!(self, Self::None)
     }
+
+    /// RAS and internal recycle are back-edges in the forward process sort.
+    /// WAS goes forward to the waste sink and therefore does not form a cycle.
+    pub fn is_back_edge(self) -> bool {
+        matches!(self, Self::Ras | Self::Internal)
+    }
+}
+
+/// Takács-style hindered settling parameters. `a` and `b` are per g/m3;
+/// the velocity law is `v_max * (exp(-a X) - exp(-b X))`, with `a < b`.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SettlerParams {
+    pub v_max_m_per_d: f64,
+    pub x_max_g_per_m3: f64,
+    pub x_min_g_per_m3: f64,
+    pub a_per_g_per_m3: f64,
+    pub b_per_g_per_m3: f64,
+}
+
+impl Default for SettlerParams {
+    fn default() -> Self {
+        Self {
+            v_max_m_per_d: 474.0,
+            x_max_g_per_m3: 10_000.0,
+            x_min_g_per_m3: 0.001,
+            a_per_g_per_m3: 0.0005,
+            b_per_g_per_m3: 0.001,
+        }
+    }
+}
+
+/// Clarifier geometry and settler configuration extracted from `UnitKind`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ClarifierSpec {
+    pub area_m2: f64,
+    pub depth_m: f64,
+    pub layers: usize,
+    pub feed_layer: usize,
+    pub settling: SettlerParams,
 }
 
 fn default_kla() -> f64 {
     0.0
+}
+
+fn default_do_setpoint() -> f64 {
+    0.0
+}
+
+fn default_layers() -> usize {
+    10
+}
+
+fn default_feed_layer() -> usize {
+    5
+}
+
+fn default_settler() -> SettlerParams {
+    SettlerParams::default()
 }
 
 /// A unit operation in the flowsheet.
@@ -95,10 +150,14 @@ pub enum UnitKind {
     Aerobic {
         volume_m3: f64,
         initial: ReactorInitial,
-        /// Fixed volumetric oxygen transfer coefficient, 1/h. V2-0 uses fixed
-        /// KLa; the DO controller replaces it in V2-1.
+        /// Maximum volumetric oxygen transfer coefficient, 1/h. When
+        /// `do_setpoint` is zero this is used as a fixed KLa; otherwise it is
+        /// the upper bound of the DO controller.
         #[serde(default = "default_kla")]
         kla_h: f64,
+        /// Dissolved oxygen setpoint, mg/L. Zero keeps the fixed-KLa behavior.
+        #[serde(default = "default_do_setpoint")]
+        do_setpoint: f64,
     },
     Anoxic {
         volume_m3: f64,
@@ -111,8 +170,16 @@ pub enum UnitKind {
     Clarifier {
         area_m2: f64,
         depth_m: f64,
+        #[serde(default = "default_layers")]
+        layers: usize,
+        #[serde(default = "default_feed_layer")]
+        feed_layer: usize,
+        #[serde(default = "default_settler")]
+        settling: SettlerParams,
     },
     Effluent,
+    /// Sludge-wasting sink. V2-1 routes WAS here; the sludge line is V2-2.
+    Waste,
 }
 
 impl UnitKind {
@@ -137,6 +204,33 @@ impl UnitKind {
         matches!(self, Self::Effluent)
     }
 
+    pub fn is_waste(&self) -> bool {
+        matches!(self, Self::Waste)
+    }
+
+    pub fn is_clarifier(&self) -> bool {
+        matches!(self, Self::Clarifier { .. })
+    }
+
+    pub fn clarifier_spec(&self) -> Option<ClarifierSpec> {
+        match self {
+            Self::Clarifier {
+                area_m2,
+                depth_m,
+                layers,
+                feed_layer,
+                settling,
+            } => Some(ClarifierSpec {
+                area_m2: *area_m2,
+                depth_m: *depth_m,
+                layers: *layers,
+                feed_layer: *feed_layer,
+                settling: *settling,
+            }),
+            _ => None,
+        }
+    }
+
     pub fn volume_m3(&self) -> Option<f64> {
         match self {
             Self::Aerobic { volume_m3, .. }
@@ -158,6 +252,13 @@ impl UnitKind {
     pub fn kla_h(&self) -> f64 {
         match self {
             Self::Aerobic { kla_h, .. } => *kla_h,
+            _ => 0.0,
+        }
+    }
+
+    pub fn do_setpoint(&self) -> f64 {
+        match self {
+            Self::Aerobic { do_setpoint, .. } => *do_setpoint,
             _ => 0.0,
         }
     }

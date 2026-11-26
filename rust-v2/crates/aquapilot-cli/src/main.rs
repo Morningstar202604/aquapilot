@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             for reactor in &compiled.reactors {
                 println!(
-                    "  {} [{}] V={:.1} m3, HRT={:.2} h, KLa={:.1} 1/h",
+                    "  {} [{}] V={:.1} m3, HRT={:.2} h, KLa={:.1} 1/h, DO setpoint={:.2}",
                     reactor.id,
                     reactor.kind.label(),
                     reactor.volume_m3,
@@ -65,7 +65,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .iter()
                             .map(|item| item.flow_m3_h)
                             .sum::<f64>(),
-                    reactor.kla_h
+                    reactor.kla_h,
+                    reactor.do_setpoint
+                );
+            }
+            for clarifier in &compiled.clarifiers {
+                println!(
+                    "  {} [clarifier] A={:.1} m2, depth={:.1} m, feed={:.1} m3/h, RAS={:.1}, WAS={:.1}",
+                    clarifier.id,
+                    clarifier.area_m2,
+                    clarifier.depth_m,
+                    clarifier.feed_flow_m3_h,
+                    clarifier.ras_flow_m3_h,
+                    clarifier.was_flow_m3_h
                 );
             }
         }
@@ -102,10 +114,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     snapshot.effluent.ss,
                     snapshot.effluent.dissolved_oxygen
                 );
+                for clarifier in &snapshot.clarifiers {
+                    println!(
+                        "clarifier {}: feed TSS={:.1}, underflow TSS={:.1}, overflow TSS={:.1} mg/L",
+                        clarifier.id, clarifier.feed_tss, clarifier.underflow_tss, clarifier.overflow_tss
+                    );
+                }
+                if let Some(waste) = &snapshot.waste {
+                    println!(
+                        "waste: flow={:.1} m3/h, COD={:.1} mg/L, SS={:.1} mg/L",
+                        waste.flow_m3_h, waste.cod, waste.ss
+                    );
+                }
                 println!(
-                    "COD ledger: in={:.1} kg, out={:.1} kg, inventory change={:.1} kg, unaccounted={:.1} kg",
+                    "COD ledger: in={:.1} kg, out={:.1} kg, waste={:.1} kg, inventory change={:.1} kg, unaccounted={:.1} kg",
                     snapshot.mass_balance.inflow_cod_kg,
                     snapshot.mass_balance.effluent_cod_kg,
+                    snapshot.mass_balance.waste_cod_kg,
                     snapshot.mass_balance.inventory_change_kg,
                     snapshot.mass_balance.unaccounted_cod_kg
                 );

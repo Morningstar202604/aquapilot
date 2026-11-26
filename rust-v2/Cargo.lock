@@ -87,7 +87,9 @@ dependencies = [
 name = "aquapilot-model"
 version = "0.0.1"
 dependencies = [
+ "aquapilot-domain",
  "serde",
+ "thiserror",
 ]
 
 [[package]]

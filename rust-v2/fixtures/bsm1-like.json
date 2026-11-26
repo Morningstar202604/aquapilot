@@ -1,0 +1,195 @@
+{
+  "name": "bsm1-like-asm1",
+  "units": [
+    {
+      "id": "in",
+      "name": "进水",
+      "type": "influent",
+      "flow_m3_h": 1000.0,
+      "water": {
+        "cod": 400.0,
+        "nh4_n": 30.0,
+        "no3_n": 0.0,
+        "tp": 4.0,
+        "ss": 200.0,
+        "alkalinity": 220.0,
+        "do": 0.5,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "anx1",
+      "name": "缺氧池1",
+      "type": "anoxic",
+      "volume_m3": 1000.0,
+      "initial": {
+        "cod": 3500.0,
+        "nh4_n": 30.0,
+        "no3_n": 2.0,
+        "tp": 4.0,
+        "do": 0.1,
+        "alkalinity": 220.0,
+        "mlss": 2500.0,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "anx2",
+      "name": "缺氧池2",
+      "type": "anoxic",
+      "volume_m3": 1000.0,
+      "initial": {
+        "cod": 3500.0,
+        "nh4_n": 30.0,
+        "no3_n": 2.0,
+        "tp": 4.0,
+        "do": 0.1,
+        "alkalinity": 220.0,
+        "mlss": 2500.0,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "aer1",
+      "name": "好氧池1",
+      "type": "aerobic",
+      "volume_m3": 2000.0,
+      "kla_h": 100.0,
+      "do_setpoint": 2.0,
+      "initial": {
+        "cod": 3500.0,
+        "nh4_n": 30.0,
+        "no3_n": 2.0,
+        "tp": 4.0,
+        "do": 2.0,
+        "alkalinity": 220.0,
+        "mlss": 2500.0,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "aer2",
+      "name": "好氧池2",
+      "type": "aerobic",
+      "volume_m3": 2000.0,
+      "kla_h": 100.0,
+      "do_setpoint": 2.0,
+      "initial": {
+        "cod": 3500.0,
+        "nh4_n": 30.0,
+        "no3_n": 2.0,
+        "tp": 4.0,
+        "do": 2.0,
+        "alkalinity": 220.0,
+        "mlss": 2500.0,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "aer3",
+      "name": "好氧池3",
+      "type": "aerobic",
+      "volume_m3": 2000.0,
+      "kla_h": 100.0,
+      "do_setpoint": 2.0,
+      "initial": {
+        "cod": 3500.0,
+        "nh4_n": 30.0,
+        "no3_n": 2.0,
+        "tp": 4.0,
+        "do": 2.0,
+        "alkalinity": 220.0,
+        "mlss": 2500.0,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "clr",
+      "name": "二沉池",
+      "type": "clarifier",
+      "area_m2": 5500.0,
+      "depth_m": 4.0,
+      "layers": 10,
+      "feed_layer": 5
+    },
+    {
+      "id": "out",
+      "name": "出水",
+      "type": "effluent"
+    },
+    {
+      "id": "waste",
+      "name": "剩余污泥",
+      "type": "waste"
+    }
+  ],
+  "connections": [
+    {
+      "id": "in-anx1",
+      "from": "in",
+      "to": "anx1",
+      "flow_m3_h": 1000.0
+    },
+    {
+      "id": "anx1-anx2",
+      "from": "anx1",
+      "to": "anx2",
+      "flow_m3_h": 3500.0
+    },
+    {
+      "id": "anx2-aer1",
+      "from": "anx2",
+      "to": "aer1",
+      "flow_m3_h": 3500.0
+    },
+    {
+      "id": "aer1-aer2",
+      "from": "aer1",
+      "to": "aer2",
+      "flow_m3_h": 3500.0
+    },
+    {
+      "id": "aer2-aer3",
+      "from": "aer2",
+      "to": "aer3",
+      "flow_m3_h": 3500.0
+    },
+    {
+      "id": "aer3-clr",
+      "from": "aer3",
+      "to": "clr",
+      "flow_m3_h": 2000.0
+    },
+    {
+      "id": "aer3-anx1",
+      "from": "aer3",
+      "to": "anx1",
+      "flow_m3_h": 1500.0,
+      "recycle": "internal"
+    },
+    {
+      "id": "clr-out",
+      "from": "clr",
+      "to": "out",
+      "flow_m3_h": 970.0
+    },
+    {
+      "id": "clr-anx1",
+      "from": "clr",
+      "to": "anx1",
+      "flow_m3_h": 1000.0,
+      "recycle": "ras"
+    },
+    {
+      "id": "clr-waste",
+      "from": "clr",
+      "to": "waste",
+      "flow_m3_h": 30.0,
+      "recycle": "was"
+    }
+  ],
+  "metadata": {
+    "purpose": "V2-1 whole-plant ASM1 smoke fixture with RAS and internal recycle",
+    "source": "clean-room, BSM1-like layout"
+  }
+}

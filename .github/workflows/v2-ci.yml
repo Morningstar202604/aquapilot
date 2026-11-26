@@ -34,6 +34,8 @@ jobs:
         run: cargo run -q -p aquapilot-cli -- validate fixtures/single-aerobic.json
       - name: Smoke three-stage series
         run: cargo run -q -p aquapilot-cli -- simulate fixtures/three-stage.json --minutes 1440 --json > /tmp/three-stage.json
+      - name: Smoke BSM1-like 30 days
+        run: cargo run -q -p aquapilot-cli -- simulate fixtures/bsm1-like.json --minutes 43200 --json > /tmp/bsm1-30d.json
       - name: Assert finite snapshot
         run: |
           python3 - <<'PY'
@@ -43,5 +45,14 @@ jobs:
           assert len(s['reactors']) == 3
           for value in (s['effluent']['cod'], s['effluent']['nh4_n'], s['effluent']['do']):
               assert isinstance(value, (int, float)) and value == value
+
+          b = json.load(open('/tmp/bsm1-30d.json'))
+          assert b['step_count'] == 43200
+          assert len(b['reactors']) == 5
+          assert len(b['clarifiers']) == 1
+          assert b['effluent']['cod'] < 60.0
+          assert b['effluent']['ss'] < 20.0
+          assert b['effluent']['nh4_n'] < 5.0
+          assert all(2000.0 <= r['mlss'] <= 4000.0 for r in b['reactors'])
           print('v2 smoke ok')
           PY

@@ -21,6 +21,8 @@ pub enum TopologyError {
     InvalidFlow(String),
     #[error("unit {0} contains a negative or non-finite concentration")]
     InvalidConcentration(String),
+    #[error("clarifier {0} has invalid geometry or settler parameters")]
+    InvalidClarifier(String),
     #[error("topology has no influent unit")]
     NoInfluent,
     #[error("topology has no effluent unit")]
@@ -88,13 +90,24 @@ impl PlantTopology {
                     return Err(TopologyError::InvalidConcentration(unit.id.to_string()));
                 }
             }
-            if let UnitKind::Clarifier { area_m2, depth_m } = &unit.kind {
-                if !area_m2.is_finite()
-                    || *area_m2 <= 0.0
-                    || !depth_m.is_finite()
-                    || *depth_m <= 0.0
-                {
-                    return Err(TopologyError::InvalidVolume(unit.id.to_string()));
+            if let Some(spec) = unit.kind.clarifier_spec() {
+                let layers_ok = (2..=100).contains(&spec.layers);
+                let feed_ok = spec.feed_layer > 0 && spec.feed_layer < spec.layers;
+                let geometry_ok = spec.area_m2.is_finite()
+                    && spec.area_m2 > 0.0
+                    && spec.depth_m.is_finite()
+                    && spec.depth_m > 0.0;
+                let settling_ok = spec.settling.v_max_m_per_d.is_finite()
+                    && spec.settling.v_max_m_per_d > 0.0
+                    && spec.settling.x_max_g_per_m3.is_finite()
+                    && spec.settling.x_max_g_per_m3 > spec.settling.x_min_g_per_m3
+                    && spec.settling.x_min_g_per_m3 >= 0.0
+                    && spec.settling.a_per_g_per_m3.is_finite()
+                    && spec.settling.b_per_g_per_m3.is_finite()
+                    && spec.settling.a_per_g_per_m3 > 0.0
+                    && spec.settling.a_per_g_per_m3 < spec.settling.b_per_g_per_m3;
+                if !(layers_ok && feed_ok && geometry_ok && settling_ok) {
+                    return Err(TopologyError::InvalidClarifier(unit.id.to_string()));
                 }
             }
         }
@@ -149,7 +162,7 @@ impl PlantTopology {
         let mut adjacency: BTreeMap<UnitId, Vec<UnitId>> = BTreeMap::new();
 
         for connection in &self.connections {
-            if !connection.recycle.is_none() {
+            if connection.recycle.is_back_edge() {
                 continue;
             }
             adjacency

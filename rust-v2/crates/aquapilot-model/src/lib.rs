@@ -4,6 +4,8 @@
 //! All concentrations are mg/L (= g/m3); rates are g/m3/h. Parameter values
 //! are stored per day and converted inside `reaction_rates`.
 
+pub mod settler;
+
 use serde::{Deserialize, Serialize};
 
 /// The 13 ASM1 state variables.
@@ -118,9 +120,33 @@ impl Asm1State {
         self.si + self.ss + self.xi + self.xs + self.xbh + self.xba + self.xp
     }
 
+    /// Particulate COD that can be captured by a clarifier.
+    pub fn particulate_cod(&self) -> f64 {
+        self.xi + self.xs + self.xbh + self.xba + self.xp
+    }
+
     /// Suspended solids at the conventional 1.42 g COD/g VSS conversion.
     pub fn suspended_solids(&self) -> f64 {
-        (self.xi + self.xs + self.xbh + self.xba + self.xp) / 1.42
+        self.particulate_cod() / 1.42
+    }
+
+    /// Return a copy with the particulate fraction scaled to a target TSS.
+    /// Soluble components are untouched; this is how a clarifier overflow or
+    /// underflow stream is reconstructed from its layer TSS.
+    pub fn with_particulate_tss(&self, target_tss: f64) -> Self {
+        let current = self.suspended_solids();
+        let factor = if current > 1e-12 {
+            (target_tss.max(0.0) / current).clamp(0.0, 100.0)
+        } else {
+            0.0
+        };
+        let mut next = *self;
+        next.xi *= factor;
+        next.xs *= factor;
+        next.xbh *= factor;
+        next.xba *= factor;
+        next.xp *= factor;
+        next
     }
 
     pub fn total_nitrogen(&self) -> f64 {

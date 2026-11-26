@@ -1,5 +1,17 @@
 # AquaPilot Work Log
 
+## 2026-11-27 — V2-1 首版：整厂 ASM1、二沉池、RAS/内回流、DO 控制
+
+- `aquapilot-domain` 新增 `Waste` 沉泥汇、10 层二沉池几何与 `SettlerParams`。
+- `aquapilot-model` 新增 Takács 风格 10 层有限体积二沉池：feed layer、上/下流、hindered settling、逐层质量积分与流量校核。
+- `aquapilot-engine` 编译支持多反应器、RAS、内回流、WAS、二沉池；反应器入流可来自进水、上游池或二沉池底流。
+- 新增 DO 控制器：按设定值调节 KLa，输出实际 KLa；RAS 底流按缺氧处理（DO 置 0）。
+- 新增 `fixtures/bsm1-like.json`：2 缺氧 + 3 好氧 + 二沉池，Q=1000 m3/h，RAS 1000，内回流 1500，WAS 30。
+- 30 天 / 43,200 步：出水 COD 59.14、SS 12.22、NH4-N 0.239 mg/L；MLSS 2741–2790；二沉池 feed/underflow/overflow TSS 2789.8/5407.8/12.2。
+- 质量门：16 项测试全过（model 10 + engine 6），fmt/clippy 干净；30 天测试 debug 约 0.3 s。
+- 明确未做：官方 BSM1 Table 6 对照、pH/碱度限制、ASM2d/ADM1、氧化项入账、HTTP/WS、界面、24 h soak。
+
+
 ## 2026-11-26 — v2 路线切换：放弃逐模块 parity，启动 clean-room Rust
 
 - 新增 `docs/ROADMAP-V2.md`：v2 的架构、纵向切片、时间盒、停止线、cutover gate 与状态表。
