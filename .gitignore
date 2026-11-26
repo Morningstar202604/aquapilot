@@ -47,4 +47,3 @@ reports/
 .workbuddy/
 
 # Rust build output
-/rust/target/

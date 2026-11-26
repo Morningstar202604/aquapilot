@@ -1,5 +1,7 @@
 # WP3 水力学与多系列：模型边界与口径
 
+> **实现说明（2026-11-27）**：旧 `rust/` 实现路径已删除；本文保留产品水力口径，v2 实现见 `rust-v2/`。
+
 > 版本：2026-11-25
 > 归属：`src/sim/hydraulics.ts`、`src/sim/network.ts`、`src/sim/networkEngine.ts`、
 > `src/sim/networkTypes.ts`、`src/server/routes/hydraulics.ts`、`src/shared/protocol.ts`、

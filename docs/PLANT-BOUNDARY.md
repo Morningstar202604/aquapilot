@@ -1,5 +1,7 @@
 # WP2 全厂边界：ASM2d 生物除磷 + ADM1 泥线闭环
 
+> **实现说明（2026-11-27）**：旧 `rust/` 实现路径已删除；本文保留 ASM2d/ADM1 三本账口径，v2 实现见 `rust-v2/`。
+
 > 适用范围：`src/sim/asm2d.ts`、`src/sim/asm2dNetwork.ts`、`src/sim/adm1.ts`、
 > `src/sim/sludgeLine.ts`、`src/sim/plantBoundary.ts`、主引擎 `networkEngine.ts` 的 `asm2d` 路径。
 > 本文只描述代码内可验证的口径；现场验收门见 `docs/INDUSTRIAL-READINESS-PLAN.md` 第 6 节。

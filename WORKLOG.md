@@ -8,8 +8,11 @@
 - 新增 DO 控制器：按设定值调节 KLa，输出实际 KLa；RAS 底流按缺氧处理（DO 置 0）。
 - 新增 `fixtures/bsm1-like.json`：2 缺氧 + 3 好氧 + 二沉池，Q=1000 m3/h，RAS 1000，内回流 1500，WAS 30。
 - 30 天 / 43,200 步：出水 COD 59.14、SS 12.22、NH4-N 0.239 mg/L；MLSS 2741–2790；二沉池 feed/underflow/overflow TSS 2789.8/5407.8/12.2。
-- 质量门：16 项测试全过（model 10 + engine 6），fmt/clippy 干净；30 天测试 debug 约 0.3 s。
-- 明确未做：官方 BSM1 Table 6 对照、pH/碱度限制、ASM2d/ADM1、氧化项入账、HTTP/WS、界面、24 h soak。
+- 质量门：18 项测试全过（model 11 + engine 7），fmt/clippy 干净；30 天测试 debug 约 0.3 s。
+- 删除旧 `rust/` parity 工程、旧 golden 生成脚本、旧 CI/release 的 Rust parity 门禁；TypeScript 产品保留为 cutover 过渡运行时，历史只在 v0.11.23 tag。
+- 新增官方 BSM1 几何 fixture：1000/1000/1333/1333/1333 m3、1500 m2 二沉池、Q0 18446 m3/d、RAS 18446、内回流 55338、WAS 385、15 ℃。
+- 官方 BSM1 30 天首跑：SS 12.96、NH4-N 0.222、NO3-N 0、DO 6.900、MLSS 5213–5219；与 Table 6 的 DO/NO3/MLSS 偏差明显，未通过，需先做参数集与 KLa 标定。
+- 明确未做：官方 BSM1 Table 6 标定、pH/碱度限制、ASM2d/ADM1、氧化项入账、HTTP/WS、界面、24 h soak。
 
 
 ## 2026-11-26 — v2 路线切换：放弃逐模块 parity，启动 clean-room Rust

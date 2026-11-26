@@ -74,7 +74,12 @@ impl PlantTopology {
                     }
                 })
                 .transpose()?;
-            if let UnitKind::Influent { flow_m3_h, water } = &unit.kind {
+            if let UnitKind::Influent {
+                flow_m3_h,
+                water,
+                composition,
+            } = &unit.kind
+            {
                 if !flow_m3_h.is_finite() || *flow_m3_h <= 0.0 {
                     return Err(TopologyError::InvalidFlow(format!(
                         "{} (influent flow)",
@@ -82,6 +87,9 @@ impl PlantTopology {
                     )));
                 }
                 if !water.is_valid() {
+                    return Err(TopologyError::InvalidConcentration(unit.id.to_string()));
+                }
+                if composition.is_some_and(|values| !finite_non_negative(&values)) {
                     return Err(TopologyError::InvalidConcentration(unit.id.to_string()));
                 }
             }
@@ -240,7 +248,10 @@ impl RawWaterValidation for crate::units::ReactorInitial {
             self.dissolved_oxygen,
             self.alkalinity,
             self.mlss,
-        ]) && self.temperature_c.is_finite()
+        ]) && self
+            .composition
+            .is_none_or(|values| finite_non_negative(&values))
+            && self.temperature_c.is_finite()
             && (-5.0..=60.0).contains(&self.temperature_c)
     }
 }

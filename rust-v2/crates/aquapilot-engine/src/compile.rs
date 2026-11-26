@@ -113,14 +113,19 @@ impl CompiledPlant {
                     .kind
                     .initial()
                     .expect("reactor kind carries initial state");
-                let initial_state = Asm1State::from_aggregates(
-                    initial.cod,
-                    initial.nh4_n,
-                    initial.no3_n,
-                    initial.dissolved_oxygen,
-                    initial.alkalinity,
-                    initial.mlss,
-                    initial.temperature_c,
+                let initial_state = initial.composition.map_or_else(
+                    || {
+                        Asm1State::from_aggregates(
+                            initial.cod,
+                            initial.nh4_n,
+                            initial.no3_n,
+                            initial.dissolved_oxygen,
+                            initial.alkalinity,
+                            initial.mlss,
+                            initial.temperature_c,
+                        )
+                    },
+                    Asm1State::from_values,
                 );
                 reactor_index.insert(unit.id.clone(), reactors.len());
                 reactors.push(CompiledReactor {
@@ -291,16 +296,25 @@ impl CompiledPlant {
         }
 
         let influent = influents[0];
-        let (influent_flow_m3_h, raw_water) = match &influent.kind {
-            UnitKind::Influent { flow_m3_h, water } => (*flow_m3_h, water.clone()),
+        let (influent_flow_m3_h, raw_water, influent_composition) = match &influent.kind {
+            UnitKind::Influent {
+                flow_m3_h,
+                water,
+                composition,
+            } => (*flow_m3_h, water.clone(), *composition),
             _ => unreachable!("influent filter guarantees kind"),
         };
-        let influent_water = Asm1State::from_raw_water(
-            raw_water.cod,
-            raw_water.nh4_n,
-            raw_water.no3_n,
-            raw_water.dissolved_oxygen,
-            raw_water.alkalinity,
+        let influent_water = influent_composition.map_or_else(
+            || {
+                Asm1State::from_raw_water(
+                    raw_water.cod,
+                    raw_water.nh4_n,
+                    raw_water.no3_n,
+                    raw_water.dissolved_oxygen,
+                    raw_water.alkalinity,
+                )
+            },
+            Asm1State::from_values,
         );
 
         let effluent = effluents[0];

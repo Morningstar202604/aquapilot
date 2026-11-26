@@ -94,24 +94,6 @@ jobs:
           echo
           kill $SERVER_PID
 
-  rust:
-    permissions:
-      contents: read
-    name: Rust core (fmt + clippy + parity)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - name: Install Rust 1.100.0
-        run: rustup toolchain install 1.100.0 --profile minimal --component rustfmt,clippy
-      - name: Format
-        run: cargo +1.100.0 fmt --manifest-path rust/Cargo.toml --check
-      - name: Clippy
-        run: cargo +1.100.0 clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
-      - name: Unit and golden parity tests
-        run: cargo +1.100.0 test --manifest-path rust/Cargo.toml
-
   e2e:
     permissions:
       contents: read

@@ -65,7 +65,33 @@ fixture：`rust-v2/fixtures/bsm1-like.json`
 
 未解释项包含氧化，**本阶段不声称 COD 闭合**。三本账与氧化项属于 V2-2。
 
-## 2. 质量门
+## 2. 官方 BSM1 几何首跑（未标定）
+
+fixture：`rust-v2/fixtures/bsm1-official.json`
+
+采用 BSM1 公开几何与稳定进水组分：
+
+- 反应器：1000 / 1000 / 1333 / 1333 / 1333 m3；
+- 二沉池：1500 m2、4 m、10 层、feed layer 6；
+- 流量：Q0 18,446 m3/d、RAS 18,446、内回流 55,338、WAS 385；
+- 进水：S_I 30、S_S 69.5、X_I 51.2、X_S 202.32、X_BH 28.17、S_NH 31.56、S_ND 6.95、X_ND 10.59、S_ALK 350 mg/L as CaCO3；
+- 15 ℃；前两池缺氧，后三池 KLa 10 / 10 / 3.5 h-1。
+
+30 天首跑结果：
+
+| 指标 | V2 首跑 | BSM1 Table 6 | 判断 |
+| --- | --- | --- | --- |
+| 出水 SS | 12.96 mg/L | 12.50 mg/L | 接近 |
+| 出水 NH4-N | 0.222 mg/L | 1.733 mg/L | 偏低 |
+| 出水 NO3-N | 0.000 mg/L | 10.415 mg/L | 明显偏低 |
+| 出水 DO | 6.900 mg/L | 0.491 mg/L | 明显偏高 |
+| 出水碱度 | 79.4 mg/L as CaCO3（约 1.59 mol/m3） | 4.13 mol/m3 | 偏低 |
+| 反应器 MLSS | 5213–5219 mg/L | 约 2500 mg/L 量级 | 偏高 |
+| 二沉池 underflow TSS | 10,211.6 mg/L | 6,394 mg/L | 偏高 |
+
+结论：**几何、组分、流量已对齐，但动力学/曝气/污泥库存尚未标定，不能声称通过 BSM1 Table 6。** 主要偏差指向缺氧区反硝化过强、好氧区氧转移过高、污泥产率/衰减参数与 BSM1 15 ℃ 参数集不一致。下一步应先做参数集与 KLa 的标定，再谈 Table 6 门禁。
+
+## 3. 质量门
 
 ```bash
 cd rust-v2
@@ -74,11 +100,11 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-2026-11-27 结果：16 项测试全过（model 10 + engine 6），fmt/clippy 干净。30 天测试在 debug 模式下约 0.3 s 完成。
+2026-11-27 结果：18 项测试全过（model 11 + engine 7），fmt/clippy 干净。30 天测试在 debug 模式下约 0.3 s 完成。
 
-## 3. 未做与边界
+## 4. 未做与边界
 
-- 不是官方 BSM1 几何与进水组分，不能直接对照 BSM1 Table 6；官方基准是 V2-1 的后续补强项。
+- 官方 BSM1 几何 fixture 已跑通，但 Table 6 尚未通过；参数标定是 V2-1 的收口项。
 - 没有真实管网水力求解；连接流量仍是显式给定。
 - 没有 pH/碱度限制；碱度会被钳制到 0，当前只作诊断，不阻断。
 - 没有 ASM2d/ADM1、没有氧化项入账、没有 24 h soak、没有 HTTP/WS 与界面。

@@ -34,6 +34,8 @@ jobs:
         run: cargo run -q -p aquapilot-cli -- validate fixtures/single-aerobic.json
       - name: Smoke three-stage series
         run: cargo run -q -p aquapilot-cli -- simulate fixtures/three-stage.json --minutes 1440 --json > /tmp/three-stage.json
+      - name: Smoke official BSM1 fixture
+        run: cargo run -q -p aquapilot-cli -- validate fixtures/bsm1-official.json
       - name: Smoke BSM1-like 30 days
         run: cargo run -q -p aquapilot-cli -- simulate fixtures/bsm1-like.json --minutes 43200 --json > /tmp/bsm1-30d.json
       - name: Assert finite snapshot

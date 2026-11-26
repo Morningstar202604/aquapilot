@@ -644,6 +644,7 @@ mod tests {
             alkalinity: 200.0,
             mlss: 2500.0,
             temperature_c: 20.0,
+            composition: None,
         }
     }
 
@@ -657,6 +658,7 @@ mod tests {
                     kind: UnitKind::Influent {
                         flow_m3_h: 1000.0,
                         water: water(),
+                        composition: None,
                     },
                 },
                 Unit {
@@ -778,6 +780,30 @@ mod tests {
         )
         .expect_err("dt > 1 should fail");
         assert!(matches!(error, EngineError::InvalidConfig(_)));
+    }
+
+    #[test]
+    fn bsm1_official_plant_runs_for_thirty_days() {
+        let topology: PlantTopology =
+            serde_json::from_str(include_str!("../../../fixtures/bsm1-official.json"))
+                .expect("official BSM1 fixture should parse");
+        let snapshot = simulate(
+            &topology,
+            SimulationConfig {
+                dt_min: 1.0,
+                duration_min: 30.0 * 1440.0,
+            },
+            Asm1Params::default(),
+        )
+        .expect("official BSM1 plant should run");
+        assert_eq!(snapshot.step_count, 43200);
+        assert_eq!(snapshot.reactors.len(), 5);
+        assert_eq!(snapshot.clarifiers.len(), 1);
+        assert!(snapshot.effluent.cod.is_finite());
+        assert!(snapshot.effluent.ss.is_finite());
+        assert!(snapshot.effluent.nh4_n.is_finite());
+        assert!(snapshot.clarifiers[0].underflow_tss > snapshot.clarifiers[0].overflow_tss);
+        assert!(snapshot.effluent.dissolved_oxygen.is_finite());
     }
 
     #[test]

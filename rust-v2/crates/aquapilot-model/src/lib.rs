@@ -65,6 +65,26 @@ impl Asm1State {
         ]
     }
 
+    /// Construct from the canonical 13-value order used by fixtures:
+    /// `[S_I, S_S, X_I, X_S, X_BH, X_BA, X_P, S_O, S_NO, S_NH, S_ND, X_ND, S_ALK]`.
+    pub fn from_values(values: [f64; 13]) -> Self {
+        Self {
+            si: values[0],
+            ss: values[1],
+            xi: values[2],
+            xs: values[3],
+            xbh: values[4],
+            xba: values[5],
+            xp: values[6],
+            so: values[7],
+            sno: values[8],
+            snh: values[9],
+            snd: values[10],
+            xnd: values[11],
+            salk: values[12],
+        }
+    }
+
     pub fn is_finite_non_negative(&self) -> bool {
         self.values()
             .iter()
@@ -311,6 +331,26 @@ impl Asm1Rates {
             self.snh, self.snd, self.xnd, self.salk,
         ]
     }
+
+    /// Construct from the canonical 13-value order used by fixtures:
+    /// `[S_I, S_S, X_I, X_S, X_BH, X_BA, X_P, S_O, S_NO, S_NH, S_ND, X_ND, S_ALK]`.
+    pub fn from_values(values: [f64; 13]) -> Self {
+        Self {
+            si: values[0],
+            ss: values[1],
+            xi: values[2],
+            xs: values[3],
+            xbh: values[4],
+            xba: values[5],
+            xp: values[6],
+            so: values[7],
+            sno: values[8],
+            snh: values[9],
+            snd: values[10],
+            xnd: values[11],
+            salk: values[12],
+        }
+    }
 }
 
 /// Rate structure exposed for diagnostics and tests.
@@ -472,6 +512,16 @@ mod tests {
         assert_eq!(rates.ss, 0.0);
         assert_eq!(rates.xbh, 0.0);
         assert_eq!(rates.xba, 0.0);
+    }
+
+    #[test]
+    fn explicit_values_roundtrip() {
+        let values = [
+            30.0, 69.5, 51.2, 202.32, 28.17, 0.0, 0.0, 0.0, 0.0, 31.56, 6.95, 10.59, 350.0,
+        ];
+        let state = Asm1State::from_values(values);
+        assert_eq!(state.values(), values);
+        assert!(state.is_finite_non_negative());
     }
 
     #[test]

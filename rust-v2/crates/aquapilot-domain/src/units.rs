@@ -29,6 +29,11 @@ pub struct ReactorInitial {
     pub alkalinity: f64,
     pub mlss: f64,
     pub temperature_c: f64,
+    /// Optional explicit ASM1 state in canonical order:
+    /// `[S_I, S_S, X_I, X_S, X_BH, X_BA, X_P, S_O, S_NO, S_NH, S_ND, X_ND, S_ALK]`.
+    /// When present, the engine uses it instead of the aggregate mapping.
+    #[serde(default)]
+    pub composition: Option<[f64; 13]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -146,6 +151,10 @@ pub enum UnitKind {
     Influent {
         flow_m3_h: f64,
         water: RawWater,
+        /// Optional explicit ASM1 state in canonical order. Benchmark
+        /// fixtures use it to pin the published influent fractionation.
+        #[serde(default)]
+        composition: Option<[f64; 13]>,
     },
     Aerobic {
         volume_m3: f64,
