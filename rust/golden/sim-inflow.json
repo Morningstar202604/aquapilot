@@ -4,7 +4,7 @@
   "oracle": "aggregateInflow",
   "note": "Phase 2 slice: flow-weighted aggregate reactor inflow. Not solveReactors.",
   "sources": {
-    "src/sim/networkEngine.ts": "0bb14543145c72e6208a13a0a4518072e5e91d60d0685ea4cd61c7abe8e13f72",
+    "src/sim/networkEngine.ts": "2431c1a35f7f07ea17981ea50f5155b6960b872ccc5cbf4d0762802682e2831b",
     "src/sim/forcing.ts": "f4ddb260d9ce2ba5d0db89ce8d478811500757e57dbb451ec756509022819d0b"
   },
   "cases": [

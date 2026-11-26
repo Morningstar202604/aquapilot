@@ -8,6 +8,7 @@
 
 pub mod alarm_ledger;
 pub mod alarms;
+pub mod asm1mix;
 pub mod forcing;
 pub mod hydraulics;
 pub mod inflow;
@@ -18,6 +19,7 @@ pub mod phases;
 
 pub use alarm_ledger::{ALARM_DEDUP_WINDOW_MIN, ALARM_HISTORY_LIMIT, AlarmLedger};
 pub use alarms::{Alarm, AlarmRuleInput, Severity, evaluate_alarms};
+pub use asm1mix::{Asm1State, aggregate_asm1_inflow, influent_to_asm1, to_asm1};
 pub use forcing::{
     Controls, Recycle, ScenarioSpec, ScenarioType, aeration_capacity, diurnal, mixed,
     recycle_factors, scenario_envelope, seasonal_temperature, toxic_suppression,

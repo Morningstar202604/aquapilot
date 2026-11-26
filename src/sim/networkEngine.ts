@@ -512,7 +512,7 @@ export function aggregateInflow(
  * 用未浓缩的浓度会让每个池的颗粒物被"稀释"，生物量持续流失。
  * Takács 模型已经算出真实的回流浓度 xRas，这里按它的浓缩倍数缩放颗粒态。
  */
-function aggregateAsm1Inflow(
+export function aggregateAsm1Inflow(
   incoming: CompiledEdge[],
   edgeFlow: Map<string, number>,
   byId: Map<string, ReactorState>,

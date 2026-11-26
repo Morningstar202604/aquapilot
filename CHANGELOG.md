@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.11.21] — 2026-11-26
+
+### Added
+
+- M1b phase 2 第二刀：`aggregate_asm1_inflow` 移植 ASM1 13 组分入流混合，包含 RAS 颗粒态按二沉池浓缩倍数放大、内回流末端取水、上游池状态、厂外进水回退与不足 1 g/m³ 时的比例兜底。
+- 同步移植 `toAsm1` / `influentToAsm1` 映射：进水无活性生物量、MLSS 路径按 0.75×COD_PER_VSS 估算生物量、总 COD 拆分与 S_ALK 换算。
+- 新增 `scripts/gen-sim-asm1-inflow.ts` 与 `rust/golden/sim-asm1-inflow.json`：8 组映射、2 组进水映射、12 组混合入流；`tests/asm1_inflow_parity.rs` 5 项测试逐组分比对 13 维状态与 4 个源文件 SHA-256。
+
+### Changed
+
+- `src/sim/networkEngine.ts` 导出 `aggregateAsm1Inflow` 供 oracle 调用；函数体未改。
+- `npm run gen:sim-asm1-inflow -- --check` 纳入 `npm run ci`。
+
+### Verification
+
+- Rust 108 项全过（55 单元 + 53 集成/parity）；`cargo fmt/clippy` 干净。
+- TS 1739/1739（144 文件）不变；`npm run typecheck` 通过。
+- **M1b 仍未关闭**：ASM1 入流混合完成，不等于反应器求解。`solveReactors` 的反应/曝气积分、`solveClarifier`、`stepNetwork`、`createNetworkState`、`PlantSnapshot` 仍未移植。
+- **M2-1 仍被 M1b 阻塞**，M2-3 仍无有效 24 h soak。
+
 ## [0.11.20] — 2026-11-26
 
 ### Added

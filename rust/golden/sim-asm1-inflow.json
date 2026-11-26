@@ -1,0 +1,1062 @@
+{
+  "schema": "aquapilot.sim.asm1-inflow.v1",
+  "generatedBy": "scripts/gen-sim-asm1-inflow.ts",
+  "oracle": "toAsm1 + influentToAsm1 + aggregateAsm1Inflow",
+  "note": "Phase 2 ASM1 mixing slice. Not solveReactors / reaction integration.",
+  "sources": {
+    "src/sim/networkEngine.ts": "2431c1a35f7f07ea17981ea50f5155b6960b872ccc5cbf4d0762802682e2831b",
+    "src/sim/asm1.ts": "f70759b3d8a3c7e377efb2fc2e2d6487c3fdd043a0d1ff1d1ebb4430177dc05e",
+    "src/sim/asm1Mapping.ts": "9f9c4e5d060e08bf4cc2c60a24f26f1f762fda8088e142e0980b5f8e7f9054a6",
+    "src/sim/units.ts": "5aa3ab718fe5a3f8ee8cb94780c22553c8a61b3c7cb5f998401429c4f90c1550"
+  },
+  "mappings": [
+    {
+      "name": "influent-typical",
+      "input": {
+        "cod": 420,
+        "nh": 36,
+        "no3": 0,
+        "doLevel": 0,
+        "alkalinity": 320,
+        "mlss": 0
+      },
+      "output": [
+        33.6,
+        75.6,
+        84,
+        226.8,
+        0,
+        0,
+        0,
+        0,
+        0,
+        36,
+        3.6,
+        5.3999999999999995,
+        6.4
+      ]
+    },
+    {
+      "name": "influent-low-cod-clamp",
+      "input": {
+        "cod": 1,
+        "nh": 8,
+        "no3": 0,
+        "doLevel": 0,
+        "alkalinity": 60,
+        "mlss": 0
+      },
+      "output": [
+        0.08,
+        0.18,
+        0.2,
+        0.54,
+        0,
+        0,
+        0,
+        0,
+        0,
+        8,
+        0.8,
+        1.2,
+        1.2
+      ]
+    },
+    {
+      "name": "influent-zero-cod",
+      "input": {
+        "cod": 0,
+        "nh": 8,
+        "no3": 0,
+        "doLevel": 0,
+        "alkalinity": 60,
+        "mlss": 0
+      },
+      "output": [
+        0.08,
+        0.18,
+        0.2,
+        0.54,
+        0,
+        0,
+        0,
+        0,
+        0,
+        8,
+        0.8,
+        1.2,
+        1.2
+      ]
+    },
+    {
+      "name": "mixed-liquor",
+      "input": {
+        "cod": 900,
+        "nh": 2,
+        "no3": 8,
+        "doLevel": 2,
+        "alkalinity": 180,
+        "mlss": 2500
+      },
+      "output": [
+        72,
+        162,
+        180,
+        0,
+        2130,
+        532.5,
+        0,
+        2,
+        8,
+        2,
+        0.2,
+        0.3,
+        3.6
+      ]
+    },
+    {
+      "name": "mixed-liquor-heavy",
+      "input": {
+        "cod": 1200,
+        "nh": 1,
+        "no3": 5,
+        "doLevel": 3,
+        "alkalinity": 200,
+        "mlss": 6000
+      },
+      "output": [
+        96,
+        216,
+        240,
+        0,
+        5112,
+        1278,
+        0,
+        3,
+        5,
+        1,
+        0.1,
+        0.15,
+        4
+      ]
+    },
+    {
+      "name": "biomass-exceeds-remaining",
+      "input": {
+        "cod": 100,
+        "nh": 5,
+        "no3": 1,
+        "doLevel": 1,
+        "alkalinity": 100,
+        "mlss": 4000
+      },
+      "output": [
+        8,
+        18,
+        20,
+        0,
+        3408,
+        852,
+        0,
+        1,
+        1,
+        5,
+        0.5,
+        0.75,
+        2
+      ]
+    },
+    {
+      "name": "no-nitrate",
+      "input": {
+        "cod": 300,
+        "nh": 20,
+        "no3": 0,
+        "doLevel": 0,
+        "alkalinity": 250,
+        "mlss": 1000
+      },
+      "output": [
+        24,
+        54,
+        60,
+        0,
+        852,
+        213,
+        0,
+        0,
+        0,
+        20,
+        2,
+        3,
+        5
+      ]
+    },
+    {
+      "name": "high-alkalinity",
+      "input": {
+        "cod": 500,
+        "nh": 40,
+        "no3": 3,
+        "doLevel": 1.5,
+        "alkalinity": 500,
+        "mlss": 0
+      },
+      "output": [
+        40,
+        90,
+        100,
+        270,
+        0,
+        0,
+        0,
+        1.5,
+        3,
+        40,
+        4,
+        6,
+        10
+      ]
+    }
+  ],
+  "influentMappings": [
+    {
+      "name": "feed",
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "output": [
+        33.6,
+        75.6,
+        84,
+        226.8,
+        0,
+        0,
+        0,
+        0,
+        0,
+        36,
+        3.6,
+        5.3999999999999995,
+        6.4
+      ]
+    },
+    {
+      "name": "low-alk",
+      "influent": {
+        "flow": 2000,
+        "cod": 90,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 60
+      },
+      "output": [
+        7.2,
+        16.2,
+        18,
+        48.6,
+        0,
+        0,
+        0,
+        0,
+        0,
+        36,
+        3.6,
+        5.3999999999999995,
+        1.2
+      ]
+    }
+  ],
+  "inflow": [
+    {
+      "name": "external-single",
+      "edges": [
+        {
+          "id": "e1",
+          "from": "plant"
+        }
+      ],
+      "flows": {
+        "e1": 1000
+      },
+      "reactors": {},
+      "lastAsm1": null,
+      "xRas": 0,
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "output": [
+        33.6,
+        75.6,
+        84,
+        226.8,
+        0,
+        0,
+        0,
+        0,
+        0,
+        36,
+        3.6,
+        5.3999999999999995,
+        6.4
+      ]
+    },
+    {
+      "name": "reactor-single",
+      "edges": [
+        {
+          "id": "e1",
+          "from": "a"
+        }
+      ],
+      "flows": {
+        "e1": 500
+      },
+      "reactors": {
+        "a": [
+          10,
+          40,
+          80,
+          120,
+          600,
+          60,
+          0,
+          2,
+          8,
+          2,
+          0,
+          0,
+          5
+        ]
+      },
+      "lastAsm1": null,
+      "xRas": 0,
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "output": [
+        10,
+        40,
+        80,
+        120,
+        600,
+        60,
+        0,
+        2,
+        8,
+        2,
+        0,
+        0,
+        5
+      ]
+    },
+    {
+      "name": "ras-ratio-3",
+      "edges": [
+        {
+          "id": "ras",
+          "from": "a",
+          "recycleKind": "ras"
+        }
+      ],
+      "flows": {
+        "ras": 800
+      },
+      "reactors": {
+        "a": [
+          10,
+          40,
+          80,
+          120,
+          600,
+          60,
+          0,
+          2,
+          8,
+          2,
+          0,
+          0,
+          5
+        ]
+      },
+      "lastAsm1": [
+        30,
+        10,
+        200,
+        100,
+        1100,
+        80,
+        0,
+        1.5,
+        9,
+        1,
+        0,
+        0,
+        6
+      ],
+      "xRas": 600,
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "output": [
+        30,
+        10,
+        200,
+        100,
+        1100,
+        80,
+        0,
+        1.5,
+        9,
+        1,
+        0,
+        0,
+        6
+      ]
+    },
+    {
+      "name": "ras-ratio-cap-6",
+      "edges": [
+        {
+          "id": "ras",
+          "from": "a",
+          "recycleKind": "ras"
+        }
+      ],
+      "flows": {
+        "ras": 800
+      },
+      "reactors": {
+        "a": [
+          10,
+          40,
+          80,
+          120,
+          600,
+          60,
+          0,
+          2,
+          8,
+          2,
+          0,
+          0,
+          5
+        ]
+      },
+      "lastAsm1": [
+        30,
+        10,
+        200,
+        100,
+        1100,
+        80,
+        0,
+        1.5,
+        9,
+        1,
+        0,
+        0,
+        6
+      ],
+      "xRas": 3000,
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "output": [
+        30,
+        10,
+        405.4054054054054,
+        202.7027027027027,
+        2229.72972972973,
+        162.1621621621622,
+        0,
+        1.5,
+        9,
+        1,
+        0,
+        0,
+        6
+      ]
+    },
+    {
+      "name": "ras-ratio-floor-1",
+      "edges": [
+        {
+          "id": "ras",
+          "from": "a",
+          "recycleKind": "ras"
+        }
+      ],
+      "flows": {
+        "ras": 800
+      },
+      "reactors": {
+        "a": [
+          10,
+          40,
+          80,
+          120,
+          600,
+          60,
+          0,
+          2,
+          8,
+          2,
+          0,
+          0,
+          5
+        ]
+      },
+      "lastAsm1": [
+        30,
+        10,
+        200,
+        100,
+        1100,
+        80,
+        0,
+        1.5,
+        9,
+        1,
+        0,
+        0,
+        6
+      ],
+      "xRas": 100,
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "output": [
+        30,
+        10,
+        200,
+        100,
+        1100,
+        80,
+        0,
+        1.5,
+        9,
+        1,
+        0,
+        0,
+        6
+      ]
+    },
+    {
+      "name": "ras-thin-feed",
+      "edges": [
+        {
+          "id": "ras",
+          "from": "a",
+          "recycleKind": "ras"
+        }
+      ],
+      "flows": {
+        "ras": 800
+      },
+      "reactors": {
+        "a": [
+          10,
+          40,
+          80,
+          120,
+          600,
+          60,
+          0,
+          2,
+          8,
+          2,
+          0,
+          0,
+          5
+        ]
+      },
+      "lastAsm1": [
+        0,
+        0,
+        0.2,
+        0.1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        7
+      ],
+      "xRas": 5,
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "output": [
+        0,
+        0,
+        0.2,
+        0.1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        7
+      ]
+    },
+    {
+      "name": "internal-terminal",
+      "edges": [
+        {
+          "id": "ir",
+          "from": "a",
+          "recycleKind": "internal"
+        }
+      ],
+      "flows": {
+        "ir": 1200
+      },
+      "reactors": {
+        "a": [
+          10,
+          40,
+          80,
+          120,
+          600,
+          60,
+          0,
+          2,
+          8,
+          2,
+          0,
+          0,
+          5
+        ]
+      },
+      "lastAsm1": [
+        30,
+        10,
+        200,
+        100,
+        1100,
+        80,
+        0,
+        1.5,
+        9,
+        1,
+        0,
+        0,
+        6
+      ],
+      "xRas": 600,
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "output": [
+        30,
+        10,
+        200,
+        100,
+        1100,
+        80,
+        0,
+        1.5,
+        9,
+        1,
+        0,
+        0,
+        6
+      ]
+    },
+    {
+      "name": "two-reactor-mix",
+      "edges": [
+        {
+          "id": "e1",
+          "from": "a"
+        },
+        {
+          "id": "e2",
+          "from": "b"
+        }
+      ],
+      "flows": {
+        "e1": 300,
+        "e2": 700
+      },
+      "reactors": {
+        "a": [
+          10,
+          40,
+          80,
+          120,
+          600,
+          60,
+          0,
+          2,
+          8,
+          2,
+          0,
+          0,
+          5
+        ],
+        "b": [
+          20,
+          80,
+          160,
+          90,
+          900,
+          30,
+          0,
+          1,
+          5,
+          5,
+          0,
+          0,
+          4
+        ]
+      },
+      "lastAsm1": null,
+      "xRas": 0,
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "output": [
+        17,
+        68,
+        136,
+        99,
+        810,
+        39,
+        0,
+        1.3,
+        5.9,
+        4.1,
+        0,
+        0,
+        4.3
+      ]
+    },
+    {
+      "name": "feed-ras-ir-mix",
+      "edges": [
+        {
+          "id": "feed",
+          "from": "plant"
+        },
+        {
+          "id": "ras",
+          "from": "plant",
+          "recycleKind": "ras"
+        },
+        {
+          "id": "ir",
+          "from": "plant",
+          "recycleKind": "internal"
+        }
+      ],
+      "flows": {
+        "feed": 1000,
+        "ras": 800,
+        "ir": 400
+      },
+      "reactors": {},
+      "lastAsm1": [
+        30,
+        10,
+        200,
+        100,
+        1100,
+        80,
+        0,
+        1.5,
+        9,
+        1,
+        0,
+        0,
+        6
+      ],
+      "xRas": 600,
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "output": [
+        31.636363636363637,
+        39.81818181818182,
+        147.27272727272728,
+        157.63636363636363,
+        600,
+        43.63636363636363,
+        0,
+        0.8181818181818182,
+        4.909090909090909,
+        16.90909090909091,
+        1.6363636363636365,
+        2.454545454545454,
+        6.181818181818182
+      ]
+    },
+    {
+      "name": "zero-flow-skip",
+      "edges": [
+        {
+          "id": "e1",
+          "from": "a"
+        },
+        {
+          "id": "e2",
+          "from": "b"
+        }
+      ],
+      "flows": {
+        "e1": 0,
+        "e2": 600
+      },
+      "reactors": {
+        "a": [
+          10,
+          40,
+          80,
+          120,
+          600,
+          60,
+          0,
+          2,
+          8,
+          2,
+          0,
+          0,
+          5
+        ],
+        "b": [
+          20,
+          80,
+          160,
+          90,
+          900,
+          30,
+          0,
+          1,
+          5,
+          5,
+          0,
+          0,
+          4
+        ]
+      },
+      "lastAsm1": null,
+      "xRas": 0,
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "output": [
+        20,
+        80,
+        160,
+        90,
+        900,
+        30,
+        0,
+        1,
+        5,
+        5,
+        0,
+        0,
+        4
+      ]
+    },
+    {
+      "name": "unknown-source",
+      "edges": [
+        {
+          "id": "e1",
+          "from": "missing"
+        }
+      ],
+      "flows": {
+        "e1": 700
+      },
+      "reactors": {},
+      "lastAsm1": null,
+      "xRas": 0,
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "output": [
+        33.6,
+        75.6,
+        84,
+        226.8,
+        0,
+        0,
+        0,
+        0,
+        0,
+        36,
+        3.6,
+        5.3999999999999995,
+        6.4
+      ]
+    },
+    {
+      "name": "ras-without-terminal",
+      "edges": [
+        {
+          "id": "ras",
+          "from": "a",
+          "recycleKind": "ras"
+        }
+      ],
+      "flows": {
+        "ras": 500
+      },
+      "reactors": {
+        "a": [
+          10,
+          40,
+          80,
+          120,
+          600,
+          60,
+          0,
+          2,
+          8,
+          2,
+          0,
+          0,
+          5
+        ]
+      },
+      "lastAsm1": null,
+      "xRas": 600,
+      "influent": {
+        "flow": 2000,
+        "cod": 420,
+        "bod": 180,
+        "nh": 36,
+        "tn": 50,
+        "tp": 4.8,
+        "ss": 190,
+        "temperature": 20,
+        "alkalinity": 320
+      },
+      "output": [
+        10,
+        40,
+        80,
+        120,
+        600,
+        60,
+        0,
+        2,
+        8,
+        2,
+        0,
+        0,
+        5
+      ]
+    }
+  ]
+}
