@@ -5,7 +5,7 @@
   "note": "M1b pure forcing/influent parity. Not a whole-plant step parity and not M2 completion.",
   "sources": {
     "src/sim/forcing.ts": "f4ddb260d9ce2ba5d0db89ce8d478811500757e57dbb451ec756509022819d0b",
-    "src/sim/networkEngine.ts": "2431c1a35f7f07ea17981ea50f5155b6960b872ccc5cbf4d0762802682e2831b",
+    "src/sim/networkEngine.ts": "6f3a55bdfee6ecb082571e9937f3732d33b84107847cf385be86f82d81cfd253",
     "src/sim/influentSeries.ts": "dc6f8226ccd054be9e0466b393f7569e2da5313bf3e33dfd875bc966929eed1d",
     "src/sim/config.ts": "bb65c22f67b17f2ed080f1f98671a87ce0104be303a56f0eca3967c214af5ac0",
     "src/sim/rng.ts": "c0d4a8fabde60931f028e5eeaa82462acbf062845d2c9579204ab13099cbd1f6",

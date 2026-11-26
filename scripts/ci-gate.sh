@@ -48,6 +48,7 @@ npm run gen:sim-phases -- --check > /dev/null 2>&1 && pass "M1b phases golden �
 npm run gen:sim-step -- --check > /dev/null 2>&1 && pass "M1b phase1/alarm golden 未漂移" || fail "phase1 golden 漂移：运行 npm run gen:sim-step 并审阅 diff"
 npm run gen:sim-inflow -- --check > /dev/null 2>&1 && pass "M1b 入流聚合 golden 未漂移" || fail "入流聚合 golden 漂移：运行 npm run gen:sim-inflow 并审阅 diff"
 npm run gen:sim-asm1-inflow -- --check > /dev/null 2>&1 && pass "M1b ASM1 入流 golden 未漂移" || fail "ASM1 入流 golden 漂移：运行 npm run gen:sim-asm1-inflow 并审阅 diff"
+npm run gen:sim-react-simple -- --check > /dev/null 2>&1 && pass "M1b simple 反应器 golden 未漂移" || fail "simple 反应器 golden 漂移：运行 npm run gen:sim-react-simple 并审阅 diff"
 
 step "4/11 严格未使用检查 + 格式"
 npx tsc --noEmit --noUnusedLocals --noUnusedParameters > /dev/null 2>&1 && pass "无未使用代码" || fail "存在未使用变量/导入"

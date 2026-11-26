@@ -9,11 +9,11 @@
 
 | 层级          | 版本     | 提交   | 状态                                    |
 | ------------- | -------- | ------ | --------------------------------------- |
-| 本地 `main`   | `0.11.21` | `HEAD` | M1b phase 1、聚合/ASM1 入流、4–7 parity；stepNetwork 未移植 |
-| 五平台 `main` | `0.11.21` | `HEAD` | 待推送后复核 |
+| 本地 `main`   | `0.11.22` | `HEAD` | M1b phase 1、聚合/ASM1 入流、simple 反应器；stepNetwork 未移植 |
+| 五平台 `main` | `0.11.22` | `HEAD` | 待推送后复核 |
 | 当前工作树    | clean    | —      | 全部回归门禁通过 |
 
-一致性结论：`v0.11.21` 推送后须用 `git ls-remote` 复核到同一提交；
+一致性结论：`v0.11.22` 推送后须用 `git ls-remote` 复核到同一提交；
 若后续再改动，必须重新推送并复验，不能沿用本文的旧哈希。
 
 核对命令：
@@ -63,7 +63,7 @@ git log --oneline --decorate -3
 | `tsc --noEmit`                | 通过                                     |
 | `lint` / `prettier` / `build` | 通过                                     |
 | 研究领域/服务/API             | 13 项测试通过                            |
-| Rust 内核                     | 108 项（55 单元 + 53 集成/parity/fuzz）   |
+| Rust 内核                     | 113 项（57 单元 + 56 集成/parity/fuzz）   |
 | ASM1 CSTR/网络                | 3 项 TS 不变量 + Rust 1e-12 parity 通过  |
 | 整厂 production replay        | 96 步 × 15 min；最大残差 1.73e-9，容差 1e-8 |
 | M2-2 Rust ops parity          | 14 watchdog / 5 decision / 2 rate / 9 URL  |
@@ -117,7 +117,7 @@ WP2 门禁：
 | WP9  | 回归、构建、浏览器验收、文档                             | 已完成（本地），但 WP2 红灯使总验收不成立 | `docs/INDUSTRIAL-READINESS-PLAN.md` §3.6                   |
 | 基础 | 拓扑编辑、工艺画布、趋势、回放、AI 对话、CLI、单文件 exe | 已存在                                    | `src/client/*`、`src/cli.ts`、`scripts/build-exe.mjs`      |
 
-“已完成（本地）”不等于“远程已合并”。截至 v0.11.20，五平台 `main` 与 tag 已一致；v0.11.21 待推送后复核。
+“已完成（本地）”不等于“远程已合并”。截至 v0.11.21，五平台 `main` 与 tag 已一致；v0.11.22 待推送后复核。
 
 ## 3. 待开发任务池
 
@@ -134,7 +134,7 @@ WP2 门禁：
 
 ### P1 — 工业级能力（进行中）
 
-当前进度：P1-01 的 TS→Rust 六项模块切片（ASM1/ASM2d/ADM1 CSTR/ADM1 泥线/Takács/水力输运）均已 parity，水力模块已有随机差分与属性不变量，三本账已有 96 步 parity，整厂 production `stepNetwork` 轨迹 96 步逐态 replay 已通过；M1 的模块切片与预捕获 replay 完成，但整厂闭环未被 Rust 独立执行，M1b 正在补此缺口，P1-01 暂不整体标完成。v0.11.15 完成 M2-2 的 Rust AI Provider / 哈希链审计 / 限流 / 看门狗（17 项测试，TS oracle 逐项 parity）；v0.11.16 冻结 HTTP/WS 契约（32 legacy / 9 versioned / 19→14 WS），但 Rust 服务端尚未实现；v0.11.17 补 M1b 的 forcing/influent parity；v0.11.18 补 `solveBiomass`/`solveEffluent`/`solveEnergyAndCost`/metrics/alarms 纯函数；v0.11.19 补 phase 1 调蓄与告警历史；v0.11.20 补 `aggregateInflow`；v0.11.21 补 ASM1 13 组分入流与 `toAsm1`；整厂 `stepNetwork` 仍未移植；P1-03 仍缺 24 h 墙钟 soak 报告。P1-04 3D 厂区未开始；P1-05/06 持续迭代。
+当前进度：P1-01 的 TS→Rust 六项模块切片（ASM1/ASM2d/ADM1 CSTR/ADM1 泥线/Takács/水力输运）均已 parity，水力模块已有随机差分与属性不变量，三本账已有 96 步 parity，整厂 production `stepNetwork` 轨迹 96 步逐态 replay 已通过；M1 的模块切片与预捕获 replay 完成，但整厂闭环未被 Rust 独立执行，M1b 正在补此缺口，P1-01 暂不整体标完成。v0.11.15 完成 M2-2 的 Rust AI Provider / 哈希链审计 / 限流 / 看门狗（17 项测试，TS oracle 逐项 parity）；v0.11.16 冻结 HTTP/WS 契约（32 legacy / 9 versioned / 19→14 WS），但 Rust 服务端尚未实现；v0.11.17 补 M1b 的 forcing/influent parity；v0.11.18 补 `solveBiomass`/`solveEffluent`/`solveEnergyAndCost`/metrics/alarms 纯函数；v0.11.19 补 phase 1 调蓄与告警历史；v0.11.20 补 `aggregateInflow`；v0.11.21 补 ASM1 13 组分入流与 `toAsm1`；v0.11.22 补 `solveReactors` 的 simple 分支；整厂 `stepNetwork` 仍未移植；P1-03 仍缺 24 h 墙钟 soak 报告。P1-04 3D 厂区未开始；P1-05/06 持续迭代。
 
 | ID    | 任务               | 完成定义                                                   |
 | ----- | ------------------ | ---------------------------------------------------------- |
@@ -180,7 +180,7 @@ WP2 门禁：
 
 ### M1b — 整厂 networkEngine 闭环移植（进行中）
 
-状态：**强迫/进水、phase 1 调蓄、聚合/ASM1 入流、phase 4–7、告警历史已 parity（v0.11.21）；反应器求解、二沉池与 `stepNetwork` 未移植。**
+状态：**强迫/进水、phase 1 调蓄、聚合/ASM1 入流、simple 反应器积分、phase 4–7、告警历史已 parity（v0.11.22）；ASM1/ASM2d 反应积分、二沉池与 `stepNetwork` 未移植。**
 
 | 层 | 状态 | 证据 |
 | --- | --- | --- |

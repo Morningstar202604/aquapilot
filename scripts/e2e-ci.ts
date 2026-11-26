@@ -195,8 +195,17 @@ try {
   const portLayers = await page.locator('.port-layer[data-unit]').count();
   if (portLayers < 10) fail(`port layers should expose data-unit, got ${portLayers}`);
   await page.getByRole('button', { name: '版本' }).click();
-  await page.waitForTimeout(600);
-  const versionRows = await page.locator('[data-version]').count();
+  /**
+   * 版本历史走 WebSocket 的 topologyHistory 消息，不是页面本地状态。
+   * 固定 600ms 在冷启动时偶发为空（v0.11.22 首跑即撞到），这里轮询到
+   * 基线出现或 5s 超时，失败仍如实报 0，不用加长 sleep 掩盖竞态。
+   */
+  let versionRows = 0;
+  for (let i = 0; i < 20; i++) {
+    versionRows = await page.locator('[data-version]').count();
+    if (versionRows > 0) break;
+    await page.waitForTimeout(250);
+  }
   if (versionRows < 1) fail(`version history should list at least the boot baseline, got ${versionRows}`);
   await page.screenshot({ path: `${OUT}/ci-editor.png` });
   await page.getByRole('button', { name: '运行监视' }).click();

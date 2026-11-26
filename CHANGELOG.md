@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.11.22] — 2026-11-26
+
+### Added
+
+- M1b phase 2 第三刀：`solveReactors` 的 `simple` 分支移植为 `solve_reactors_simple`，覆盖厌氧/缺氧/好氧三类池型的 COD、NH、NO3、TP 与碱度积分，DO 的 `klaNeed → effective → doTarget → tau → clamp` 曝气闭环，非好氧池自然衰减，以及 `codIn` 碳源外加只作用于缺氧区。
+- 新增 `kinetics.rs`，冻结简单模型的 17 个速率/化学计量常数（`kCod*`、`kNit`、`kDen`、`kPRel`、`kPUp`、`ks*`、`o2PerCod`、`o2PerNh`、`alkPerNh`、`alkPerNo3`、`nitrateYieldPerNitrifiedN`、`doSat20`）。
+- 新增 `scripts/gen-sim-react-simple.ts` 与 `rust/golden/sim-react-simple.json`：aerobic/anaerobic/anoxic、碳源 0/60、低/高 DO、无曝气、低碱度、三池串联、三池带 RAS/内回流、孤立池、双进水、30 ℃ 共 13 组；`tests/react_simple_parity.rs` 3 项测试比对每个池 10 个状态字段与 6 个 flux 字段，并校验 3 个源文件 SHA-256。
+- `kinetics`、`reactors` 挂入 `aquapilot-sim` 公共 API，导出 `ReactorKind`、`SimpleReactorState`、`SimpleReactorsInput`、`ReactorFlux`、`solve_reactors_simple`。
+
+### Changed
+
+- `src/sim/networkEngine.ts` 导出 `solveReactors` 供 oracle 调用；函数体未改。
+- `npm run gen:sim-react-simple -- --check` 纳入 `npm run ci`；重新生成全部 6 份 sim golden，源哈希随 `networkEngine.ts` 导出同步刷新。
+
+### Verification
+
+- Rust 113 项全过（57 单元 + 56 集成/parity）；`cargo fmt/clippy` 干净。
+- TS 1739/1739（144 文件）不变；`npm run typecheck` 通过。
+- **只完成 `solveReactors` 的 `simple` 分支**。ASM1 / ASM2d 反应积分分支、`solveClarifier`、`stepNetwork`、`createNetworkState`、`PlantSnapshot` 仍未移植；M1b 不因本切片关闭。
+- **M2-1 仍被 M1b 阻塞**，M2-3 仍无有效 24 h soak。
+
 ## [0.11.21] — 2026-11-26
 
 ### Added

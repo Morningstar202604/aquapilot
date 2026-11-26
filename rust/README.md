@@ -22,6 +22,8 @@ module passes the golden-corpus parity gate.
 | plant boundary COD/N/P mass books | complete | 96 half-hour steps exact, `tests/plant_boundary_parity.rs`; 500-step residual invariants |
 | full plant production `stepNetwork` replay | complete for the fixed 96-step trajectory | 96 × 15 min replay; max absolute residual 1.73e-9, gate 1e-8 (`tests/plant_replay_parity.rs`) |
 | M1b forcing / influent pure layer | complete | 112 forcing + 96 recycle + 1098 influent cases exact (`tests/forcing_parity.rs`) |
+| M1b inflow aggregation / ASM1 mixing | complete | 12 aggregate + 8 mapping + 2 influent mapping + 12 ASM1 mixing cases exact (`tests/inflow_parity.rs`, `tests/asm1_inflow_parity.rs`) |
+| M1b simple reactor integration | complete for the `simple` branch | 13 cases, 10 state + 6 flux fields per reactor exact (`tests/react_simple_parity.rs`); ASM1/ASM2d branches still TS-only |
 | M1b whole-plant closed-loop engine | not implemented | `createNetworkState` / `stepNetwork` / `PlantSnapshot` still TS-only |
 | M2-2 AI provider / audit / rate limit / watchdog | complete in `aquapilot-ops` | TS oracle parity: 14 watchdog inputs, 5 decisions, 2 rate sequences, 9 URL cases (`tests/ops_parity.rs`) |
 | M2-1 HTTP/WS contract | frozen in `aquapilot-contract` | 32 legacy / 9 versioned / 19→14 WS; server not implemented |

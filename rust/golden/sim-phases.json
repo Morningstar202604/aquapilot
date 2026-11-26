@@ -4,7 +4,7 @@
   "oracle": "metrics.ts + alarmRules.ts + solveBiomass + solveEffluent",
   "note": "M1b phase 4/5 and metrics/alarms parity. Minimal pre-state, not a whole-plant step.",
   "sources": {
-    "src/sim/networkEngine.ts": "2431c1a35f7f07ea17981ea50f5155b6960b872ccc5cbf4d0762802682e2831b",
+    "src/sim/networkEngine.ts": "6f3a55bdfee6ecb082571e9937f3732d33b84107847cf385be86f82d81cfd253",
     "src/sim/metrics.ts": "d30e1be9b63ffc8d4e766631b3270927fe343501ce53ab75a58da35a67c74623",
     "src/sim/alarmRules.ts": "e851c603b21665c01766c66a3e7c2c6aeb37fc61619d27959fd7a7e15d4aa0c2",
     "src/sim/standards.ts": "e0036e62fe6ec7d82603ef42d48a8118589a6472f0456035128bf5b8d61dd8a7",

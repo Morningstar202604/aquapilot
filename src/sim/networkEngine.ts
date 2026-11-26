@@ -576,7 +576,7 @@ export function aggregateAsm1Inflow(
  * ASM1 模式下溶解态随水进出、颗粒态由二沉池截留决定——
  * 这个区别写在这里，而不是散在循环里。
  */
-function solveReactors(ctx: StepContext): {
+export function solveReactors(ctx: StepContext): {
   o2DemandKgH: number;
   codOxidizedKgH: number;
   /** 质量平衡专用：按实际耗氧折算，不受内回流重复计账影响 */

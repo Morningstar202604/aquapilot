@@ -4,7 +4,7 @@
   "oracle": "toAsm1 + influentToAsm1 + aggregateAsm1Inflow",
   "note": "Phase 2 ASM1 mixing slice. Not solveReactors / reaction integration.",
   "sources": {
-    "src/sim/networkEngine.ts": "2431c1a35f7f07ea17981ea50f5155b6960b872ccc5cbf4d0762802682e2831b",
+    "src/sim/networkEngine.ts": "6f3a55bdfee6ecb082571e9937f3732d33b84107847cf385be86f82d81cfd253",
     "src/sim/asm1.ts": "f70759b3d8a3c7e377efb2fc2e2d6487c3fdd043a0d1ff1d1ebb4430177dc05e",
     "src/sim/asm1Mapping.ts": "9f9c4e5d060e08bf4cc2c60a24f26f1f762fda8088e142e0980b5f8e7f9054a6",
     "src/sim/units.ts": "5aa3ab718fe5a3f8ee8cb94780c22553c8a61b3c7cb5f998401429c4f90c1550"

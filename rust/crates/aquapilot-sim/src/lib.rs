@@ -13,9 +13,11 @@ pub mod forcing;
 pub mod hydraulics;
 pub mod inflow;
 pub mod influent;
+pub mod kinetics;
 pub mod metrics;
 pub mod output;
 pub mod phases;
+pub mod reactors;
 
 pub use alarm_ledger::{ALARM_DEDUP_WINDOW_MIN, ALARM_HISTORY_LIMIT, AlarmLedger};
 pub use alarms::{Alarm, AlarmRuleInput, Severity, evaluate_alarms};
@@ -41,4 +43,7 @@ pub use phases::{
     Asm1Biomass, Asm1Soluble, Asm2dBiomass, Asm2dSoluble, BiomassInput, BiomassOutput,
     BiomassReactor, Cost, EffluentInput, EffluentSolution, Energy, EnergyInput, EnergyOutput,
     ModelMode, Totals, solve_biomass, solve_effluent, solve_energy_and_cost, total_blower_power,
+};
+pub use reactors::{
+    ReactorFlux, ReactorKind, SimpleReactorState, SimpleReactorsInput, solve_reactors_simple,
 };
