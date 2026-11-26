@@ -3,7 +3,7 @@ name = "aquapilot-sim"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Rust whole-plant runtime for AquaPilot M1b: forcing and influent first"
+description = "Rust whole-plant runtime for AquaPilot M1b"
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }

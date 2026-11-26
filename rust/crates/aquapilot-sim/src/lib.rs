@@ -10,6 +10,7 @@ pub mod alarm_ledger;
 pub mod alarms;
 pub mod forcing;
 pub mod hydraulics;
+pub mod inflow;
 pub mod influent;
 pub mod metrics;
 pub mod output;
@@ -22,6 +23,9 @@ pub use forcing::{
     recycle_factors, scenario_envelope, seasonal_temperature, toxic_suppression,
 };
 pub use hydraulics::{HydraulicInput, HydraulicOutput, resolve_hydraulics};
+pub use inflow::{
+    IncomingEdge, InflowComposition, ReactorComposition, RecycleKind, aggregate_inflow,
+};
 pub use influent::{
     Influent, InfluentContext, InfluentSeries, SeriesSample, Uncertainty, derive_influent,
     sample_at,

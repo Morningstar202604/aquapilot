@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.11.20] — 2026-11-26
+
+### Added
+
+- M1b phase 2 第一刀：`aggregate_inflow` 移植 flow-weighted 反应器入流聚合，覆盖厂外来水、上游反应器、RAS/内回流末端取水、未知源回退、零/负流量跳过与边顺序。
+- 新增 `scripts/gen-sim-inflow.ts` 与 `rust/golden/sim-inflow.json`：12 组入流用例；`tests/inflow_parity.rs` 3 项测试比对 6 个聚合字段与 2 个源文件 SHA-256。
+
+### Changed
+
+- `src/sim/networkEngine.ts` 导出 `aggregateInflow` 供 oracle 调用；函数体未改。
+- `npm run gen:sim-inflow -- --check` 纳入 `npm run ci`。
+
+### Verification
+
+- Rust 101 项全过（53 单元 + 48 集成/parity）；`cargo fmt/clippy` 干净。
+- TS 1739/1739（144 文件）不变；`npm run typecheck` 通过。
+- **M1b 仍未关闭**：此刻只完成聚合入流，`solveReactors`（含 ASM1/ASM2d 分支）、`aggregateAsm1Inflow`、`solveClarifier`、`stepNetwork`、`createNetworkState`、`PlantSnapshot` 仍未移植。
+- **M2-1 仍被 M1b 阻塞**，M2-3 仍无有效 24 h soak。
+
 ## [0.11.19] — 2026-11-26
 
 ### Added

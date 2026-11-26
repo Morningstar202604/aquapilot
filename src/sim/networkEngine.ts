@@ -457,7 +457,7 @@ export function resolveHydraulics(
  * - 来自其他反应器：取源池当前值；
  * - 厂外来水（初沉出水等）：取本步进水，硝酸盐按背景值 0.3。
  */
-function aggregateInflow(
+export function aggregateInflow(
   incoming: CompiledEdge[],
   edgeFlow: Map<string, number>,
   byId: Map<string, ReactorState>,

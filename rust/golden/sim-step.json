@@ -4,7 +4,7 @@
   "oracle": "resolveHydraulics + pushAlarm",
   "note": "M1b phase 1 and alarm-history parity. Minimal pre-state, not a whole-plant step.",
   "sources": {
-    "src/sim/networkEngine.ts": "9da956f1d9d8c6fd32e8523fc76c36920017bb3330e330f204b43f89094ce881",
+    "src/sim/networkEngine.ts": "0bb14543145c72e6208a13a0a4518072e5e91d60d0685ea4cd61c7abe8e13f72",
     "src/sim/forcing.ts": "f4ddb260d9ce2ba5d0db89ce8d478811500757e57dbb451ec756509022819d0b",
     "src/sim/influentSeries.ts": "dc6f8226ccd054be9e0466b393f7569e2da5313bf3e33dfd875bc966929eed1d"
   },
