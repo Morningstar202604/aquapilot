@@ -6,7 +6,7 @@
 - Clean-room 规则：`../docs/CLEAN-ROOM.md`
 - 旧 `rust/` 已冻结为 v0.11.23 的历史 checkpoint，v2 不读取、不复制它的源码。
 
-## 当前状态：V2-1 已完成，V2-2 ASM2d 与 ADM1 核心已落
+## 当前状态：V2-1 已完成，V2-2 回流闭环已落，PAC 未做
 
 V2-1 已完成并推送：ASM1 五池整厂、Takács 10 层二沉池、RAS/内回流/WAS、DO 控制、BSM1-like 与官方 BSM1 对照、22 项测试。
 
@@ -18,8 +18,9 @@ V2-2 当前已落：
 - 多系列：`aquapilot-model::asm2d_parallel` 支持多个独立 A2O 系列并行运行并汇总全厂出水与三本账；`a2o-asm2d-2train.json` 为 2×500 m3/h 示例，系列各自拥有二沉池、RAS/WAS；
 - `aquapilot-model::adm1`：24 个动力学组分 + 2 个强离子状态、22 个过程、强离子 pH/电荷平衡、准稳态气相、COD/N 双账；10 天 tutorial 残差 -0.01% / -0.00%；
 - `aquapilot-model::adm1_sludge`：重力浓缩 + ADM1 消化 + 机械脱水 + 沼气 + 磷示踪的独立泥线，20 天 COD/N/P 账残差 0.00% / 0.00% / 0.00%；
-- `aquapilot-model::asm2d_sludge`：单向接口，把 A2O 二沉池底流按 COD/N/P 守恒翻译成 ADM1 进料；CLI `asm2d-sludge` 可一次跑完 A2O + 泥线；滤液尚未回流，P 路由未闭环；
-- 尚未实现：滤液回流与 P 路由闭环、PAC。
+- `aquapilot-model::asm2d_sludge`：ASM2d 与 ADM1 的双向翻译，A2O 二沉池底流按 COD/N/P 守恒进入泥线，泥线回流液按 COD/N/P 守恒翻回 ASM2d；CLI `asm2d-sludge` 可跑单向接入；
+- `aquapilot-model::asm2d_adm1_loop`：把浓缩溢流与滤液合并后接回 A2O 进水，successive substitution 迭代到回流状态稳定；整厂 COD/N/P 三本账以外部进水为输入，出水、泥饼、沼气、库存为输出；CLI `asm2d-loop`；
+- 尚未实现：PAC、HTTP/WS 服务、实验队列、界面、24 h soak。
 
 30 天 A2O ASM2d 实测（`fixtures/a2o-asm2d.json`）：
 
@@ -37,7 +38,22 @@ V2-2 当前已落：
 | N 账残差 | 1.09%（closed） |
 | P 账残差 | 1.52%（closed） |
 
-两系列各 500 m3/h、反应器与二沉池按 1/2 缩放后，汇总出水与三本账残差与单系列一致，证明多系列汇总路径可用。当前仍不能把 V2-2 表述为完成：A2O 排泥已单向接入 ADM1 泥线，但滤液尚未回流、P 路由未闭环，PAC 未实现。
+两系列各 500 m3/h、反应器与二沉池按 1/2 缩放后，汇总出水与三本账残差与单系列一致，证明多系列汇总路径可用。
+
+回流闭环 30 天实测（`asm2d-loop`，浓缩溢流 + 滤液合并回流）：
+
+| 指标 | 实测 |
+| --- | --- |
+| 迭代 / 回流 | 4 次收敛，19.884 m3/h |
+| 回流 COD / N / P | 1366.3 / 202.709 / 160.359 mg/L |
+| A2O 出水 COD / TN / TP / SS | 53.61 / 10.587 / 3.872 / 11.69 mg/L |
+| 消化 pH / 沼气 / CH4 | 7.884 / 1093.6 m3/d / 60.4% |
+| 泥饼 / 滤液 | 2.78 m3/d / 117.22 m3/d |
+| 整厂 COD / N / P 残差 | -1.03% / 2.19% / 0.71%，均 closed |
+
+60 天稳态检查：整厂 COD / N / P 残差 -1.64% / 1.15% / 0.40%，均 closed；A2O 出水 TP 3.555 mg/L。P 质量账已闭环，但出水 TP 仍高，需要 PAC 或强化泥线 P 截留，不能把“P 账闭合”当成“P 达标”。
+
+当前仍不能把 V2-2 表述为完成：回流闭环与整厂三本账已跑通，PAC 未实现，出水 TP 未达常见排放限值。
 
 ![V2 30 天质量账 dashboard](../docs/screenshots/v2-30d-dashboard.png)
 
@@ -56,6 +72,7 @@ cargo run -p aquapilot-cli -- asm2d-parallel fixtures/a2o-asm2d-2train.json --mi
 cargo run -p aquapilot-cli -- adm1 fixtures/adm1-tutorial.json --days 10 --dt 0.002 --out /tmp/adm1.json
 cargo run -p aquapilot-cli -- sludge-line fixtures/adm1-sludge-line.json --days 20 --dt 0.002 --out /tmp/adm1-sludge.json
 cargo run -p aquapilot-cli -- asm2d-sludge fixtures/a2o-asm2d.json --minutes 43200 --sludge-days 20 --out /tmp/a2o-sludge.json
+cargo run -p aquapilot-cli -- asm2d-loop fixtures/a2o-asm2d.json --minutes 43200 --dt 1 --sludge-days 30 --sludge-dt 0.002 --max-iterations 6 --relaxation 1.0 --out /tmp/a2o-loop.json
 ```
 
 质量门：
@@ -83,5 +100,5 @@ rust-v2/
 - `dt` 上限 1 min；负值/非有限值在物理下界钳制并输出 `ASM1_STATE_CLAMPED` 诊断。
 - 二沉池是 10 层有限体积 Takács 风格模型；RAS 底流按缺氧处理（DO 置 0），WAS 进沉泥汇。
 - ASM1 COD 账只做到“进水/出水/排泥/库存变化/未解释项”，氧化项尚未入账，因此**不声称闭合**。
-- ASM2d A2O 的 COD/N/P 三本账在当前 fixture 均闭合；ADM1 核心与独立泥线的 COD/N/P 账也闭合，但两者尚未接入同一整厂边界，不能合并声称 V2-2 完成。
-- 未实现：ADM1 滤液回流与 P 路由闭环、PAC、HTTP/WS 服务、实验队列、界面、24 h soak；官方 BSM1 参数集仍未全部通过 Table 6，只有校准候选在 ±20% 内通过。
+- ASM2d A2O、ADM1 泥线、回流闭环的整厂 COD/N/P 三本账在 30 天 fixture 均闭合；闭合是质量账闭合，不等于出水指标达标。
+- 未实现：PAC、HTTP/WS 服务、实验队列、界面、24 h soak；官方 BSM1 参数集仍未全部通过 Table 6，只有校准候选在 ±20% 内通过。

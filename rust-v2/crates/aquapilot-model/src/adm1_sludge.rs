@@ -80,6 +80,30 @@ impl Default for DewateringConfig {
     }
 }
 
+/// Flow-weighted merge of two sludge streams, used when thickener overflow and
+/// filtrate return to the same plant head.
+pub fn merge_sludge_streams(a: SludgeStream, b: SludgeStream) -> SludgeStream {
+    let flow = a.flow_m3_per_d + b.flow_m3_per_d;
+    if flow <= 1.0e-12 {
+        return SludgeStream {
+            flow_m3_per_d: 0.0,
+            state: Adm1State::default(),
+            phosphorus_kg_per_m3: 0.0,
+        };
+    }
+    let a_values = a.state.values;
+    let b_values = b.state.values;
+    let mut values = [0.0; crate::adm1::ADM1_STATE_COMPONENTS];
+    for i in 0..crate::adm1::ADM1_STATE_COMPONENTS {
+        values[i] = (a_values[i] * a.flow_m3_per_d + b_values[i] * b.flow_m3_per_d) / flow;
+    }
+    SludgeStream {
+        flow_m3_per_d: flow,
+        state: Adm1State::new(values),
+        phosphorus_kg_per_m3: (a.phosphorus_kg_per_d() + b.phosphorus_kg_per_d()) / flow,
+    }
+}
+
 pub fn default_digester_seed() -> Adm1State {
     let mut state = Adm1State::default();
     for (i, value) in [

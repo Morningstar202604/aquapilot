@@ -7,6 +7,7 @@
 pub mod adm1;
 pub mod adm1_sludge;
 pub mod asm2d;
+pub mod asm2d_adm1_loop;
 pub mod asm2d_parallel;
 pub mod asm2d_plant;
 pub mod asm2d_sludge;

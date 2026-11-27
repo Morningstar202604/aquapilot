@@ -5,6 +5,7 @@ use aquapilot_engine::{simulate, CompiledPlant, SimulationConfig, Simulator};
 use aquapilot_model::adm1::{simulate_adm1, Adm1Config};
 use aquapilot_model::adm1_sludge::{simulate_sludge_line, SludgeLineConfig};
 use aquapilot_model::asm2d::Asm2dParams;
+use aquapilot_model::asm2d_adm1_loop::{simulate_asm2d_adm1_loop, Asm2dAdm1LoopConfig};
 use aquapilot_model::asm2d_parallel::{simulate_asm2d_parallel, Asm2dParallelConfig};
 use aquapilot_model::asm2d_plant::{simulate_asm2d, Asm2dPlantConfig, Asm2dSimulationConfig};
 use aquapilot_model::asm2d_sludge::{simulate_asm2d_sludge, Asm2dSludgeConfig};
@@ -118,6 +119,35 @@ enum Command {
         /// Sludge-line time step in days.
         #[arg(long, default_value_t = 0.002)]
         sludge_dt: f64,
+        /// Optional output path for the JSON snapshot.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Print the full snapshot JSON to stdout.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run A2O + ADM1 sludge line with filtrate returned to the A2O influent.
+    Asm2dLoop {
+        /// Path to the ASM2d plant JSON file.
+        config: PathBuf,
+        /// A2O duration in minutes.
+        #[arg(long, default_value_t = 43200.0)]
+        minutes: f64,
+        /// A2O time step in minutes, at most 1.0.
+        #[arg(long, default_value_t = 1.0)]
+        dt: f64,
+        /// Sludge-line duration in days.
+        #[arg(long, default_value_t = 20.0)]
+        sludge_days: f64,
+        /// Sludge-line time step in days.
+        #[arg(long, default_value_t = 0.002)]
+        sludge_dt: f64,
+        /// Maximum successive-substitution iterations.
+        #[arg(long, default_value_t = 4)]
+        max_iterations: usize,
+        /// Successive-substitution relaxation (0-1].
+        #[arg(long, default_value_t = 0.5)]
+        relaxation: f64,
         /// Optional output path for the JSON snapshot.
         #[arg(long)]
         out: Option<PathBuf>,
@@ -300,6 +330,88 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "{} ledger: in={:.1} kg, out={:.1} kg, gas={:.1} kg, inventory={:.1} kg, residual={:.2}%, closed={}",
                         name, ledger.input_kg, ledger.output_kg, ledger.gas_kg, ledger.inventory_kg,
                         ledger.residual * 100.0, ledger.closed
+                    );
+                }
+            }
+            if let Some(path) = out {
+                std::fs::write(&path, serde_json::to_string_pretty(&snapshot)?)?;
+                eprintln!("snapshot written to {}", path.display());
+            }
+        }
+        Command::Asm2dLoop {
+            config,
+            minutes,
+            dt,
+            sludge_days,
+            sludge_dt,
+            max_iterations,
+            relaxation,
+            out,
+            json,
+        } => {
+            let text = std::fs::read_to_string(&config)?;
+            let plant: Asm2dPlantConfig = serde_json::from_str(&text)?;
+            let loop_config = Asm2dAdm1LoopConfig {
+                plant,
+                sludge: Asm2dSludgeConfig::default(),
+                max_iterations,
+                relaxation,
+                tolerance: 1.0e-3,
+            };
+            let snapshot = simulate_asm2d_adm1_loop(
+                &loop_config,
+                Asm2dSimulationConfig {
+                    dt_min: dt,
+                    duration_min: minutes,
+                },
+                sludge_days,
+                sludge_dt,
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&snapshot)?);
+            } else {
+                println!(
+                    "loop: {} iterations, converged={}, recycle={:.3} m3/h",
+                    snapshot.iterations, snapshot.converged, snapshot.recycle_flow_m3_h
+                );
+                println!(
+                    "recycle: COD={:.1} mg/L, N={:.3}, P={:.3}",
+                    snapshot.recycle_cod_mg_l,
+                    snapshot.recycle_nitrogen_mg_l,
+                    snapshot.recycle_phosphorus_mg_l
+                );
+                println!(
+                    "A2O: effluent COD={:.2} NH4-N={:.3} TN={:.3} TP={:.3} SS={:.2} mg/L, flow={:.1} m3/h",
+                    snapshot.asm2d.effluent.cod,
+                    snapshot.asm2d.effluent.nh4_n,
+                    snapshot.asm2d.effluent.tn,
+                    snapshot.asm2d.effluent.tp,
+                    snapshot.asm2d.effluent.ss,
+                    snapshot.asm2d.effluent.flow_m3_h
+                );
+                println!(
+                    "digester: pH={:.3}, biogas={:.1} m3/d, CH4={:.1}%, cake={:.2} m3/d, filtrate={:.2} m3/d",
+                    snapshot.sludge.line.digester.ph,
+                    snapshot.sludge.line.digester.biogas_m3_per_d,
+                    snapshot.sludge.line.digester.methane_fraction * 100.0,
+                    snapshot.sludge.line.cake.flow_m3_per_d,
+                    snapshot.sludge.line.filtrate.flow_m3_per_d
+                );
+                for (name, ledger) in [
+                    ("COD", &snapshot.whole_balance.cod),
+                    ("N", &snapshot.whole_balance.nitrogen),
+                    ("P", &snapshot.whole_balance.phosphorus),
+                ] {
+                    println!(
+                        "whole {} ledger: in={:.1}, effluent={:.1}, cake={:.1}, gas={:.1}, inventory={:.1}, residual={:.2}%, closed={}",
+                        name,
+                        ledger.input_kg,
+                        ledger.effluent_kg,
+                        ledger.cake_kg,
+                        ledger.gas_kg,
+                        ledger.inventory_kg,
+                        ledger.residual * 100.0,
+                        ledger.closed
                     );
                 }
             }

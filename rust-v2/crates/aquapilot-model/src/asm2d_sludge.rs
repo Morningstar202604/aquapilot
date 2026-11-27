@@ -11,7 +11,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::adm1::{Adm1Gas, Adm1Params, Adm1State, S_AC, S_AN, S_CAT, S_I, S_IC, S_IN, S_SU, X_C};
+use crate::adm1::{
+    Adm1Gas, Adm1Params, Adm1State, S_AC, S_AN, S_CAT, S_I, S_IC, S_IN, S_SU, X_AA, X_AC, X_C,
+    X_C4, X_FA, X_H2, X_I, X_PRO, X_SU,
+};
 use crate::adm1_sludge::{
     default_digester_gas, default_digester_seed, simulate_sludge_line, DewateringConfig,
     SludgeLineConfig, SludgeLineSnapshot, SludgeStream, ThickenerConfig,
@@ -97,6 +100,39 @@ pub fn adm1_feed_from_asm2d(state: &Asm2dState, flow_m3_per_d: f64) -> (SludgeSt
     )
 }
 
+/// Translate ADM1 filtrate back to an ASM2d recycle stream, preserving COD,
+/// total N and total P at the return boundary.
+pub fn asm2d_state_from_adm1(state: &Adm1State, phosphorus_kg_per_m3: f64) -> Asm2dState {
+    let mut result = Asm2dState::zeros();
+    result.sf = state.values[S_SU] * 1000.0;
+    result.sa = state.values[S_AC] * 1000.0;
+    result.si = state.values[S_I] * 1000.0;
+    result.xs = state.values[X_C] * 1000.0;
+    result.xi = state.values[X_I] * 1000.0;
+    result.xh = (state.values[X_SU]
+        + state.values[X_AA]
+        + state.values[X_FA]
+        + state.values[X_C4]
+        + state.values[X_PRO]
+        + state.values[X_AC]
+        + state.values[X_H2])
+        * 1000.0;
+    result.salk = 300.0;
+
+    let target_n = state.nitrogen() * 1000.0;
+    let mapped_n = 0.01 * result.si
+        + 0.03 * result.sf
+        + 0.02 * result.xi
+        + 0.04 * result.xs
+        + 0.07 * result.xh;
+    result.snh4 = (target_n - mapped_n).max(0.0);
+
+    let target_p = phosphorus_kg_per_m3 * 1000.0;
+    let mapped_p = 0.01 * result.sf + 0.01 * result.xi + 0.01 * result.xs + 0.02 * result.xh;
+    result.spo4 = (target_p - mapped_p).max(0.0);
+    result
+}
+
 pub fn simulate_asm2d_sludge(
     asm2d_underflow: &Asm2dState,
     was_flow_m3_h: f64,
@@ -173,6 +209,16 @@ mod tests {
         assert!((feed.state.nitrogen() - state.total_nitrogen() / 1000.0).abs() < 1.0e-9);
         assert!((feed.phosphorus_kg_per_m3 - state.total_phosphorus() / 1000.0).abs() < 1.0e-9);
         assert!(feed.state.values[S_AA] == 0.0);
+    }
+
+    #[test]
+    fn reverse_mapping_preserves_cod_n_and_p() {
+        let state = waste_state();
+        let (feed, _) = adm1_feed_from_asm2d(&state, 480.0);
+        let back = asm2d_state_from_adm1(&feed.state, feed.phosphorus_kg_per_m3);
+        assert!((back.total_cod() - state.total_cod()).abs() < 1.0e-6);
+        assert!((back.total_nitrogen() - state.total_nitrogen()).abs() < 1.0e-6);
+        assert!((back.total_phosphorus() - state.total_phosphorus()).abs() < 1.0e-6);
     }
 
     #[test]

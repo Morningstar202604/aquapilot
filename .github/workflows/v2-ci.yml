@@ -48,6 +48,8 @@ jobs:
         run: cargo run -q -p aquapilot-cli -- sludge-line fixtures/adm1-sludge-line.json --days 20 --dt 0.002 --json > /tmp/adm1-sludge.json
       - name: Smoke A2O to ADM1 one-way coupling
         run: cargo run -q -p aquapilot-cli -- asm2d-sludge fixtures/a2o-asm2d.json --minutes 43200 --sludge-days 20 --json > /tmp/a2o-sludge.json
+      - name: Smoke A2O + ADM1 closed recycle loop
+        run: cargo run -q -p aquapilot-cli -- asm2d-loop fixtures/a2o-asm2d.json --minutes 43200 --dt 1 --sludge-days 30 --sludge-dt 0.002 --max-iterations 6 --relaxation 1.0 --json > /tmp/a2o-loop.json
       - name: Assert finite snapshot
         run: |
           python3 - <<'PY'
@@ -98,5 +100,19 @@ jobs:
           for name in ('cod_balance', 'nitrogen_balance', 'phosphorus_balance'):
               assert cs['line'][name]['closed'] is True
               assert abs(cs['line'][name]['residual']) < 0.02
+
+          lp = json.load(open('/tmp/a2o-loop.json'))
+          assert lp['converged'] is True
+          assert lp['iterations'] <= 6
+          assert lp['recycle_flow_m3_h'] > 0.0
+          expected = (lp['sludge']['line']['thickener_overflow']['flow_m3_per_d']
+                      + lp['sludge']['line']['filtrate']['flow_m3_per_d']) / 24.0
+          assert abs(lp['recycle_flow_m3_h'] - expected) < 1.0e-9
+          assert lp['asm2d']['effluent']['cod'] < 60.0
+          assert lp['asm2d']['effluent']['nh4_n'] < 2.0
+          assert lp['asm2d']['effluent']['ss'] < 20.0
+          for name in ('cod', 'nitrogen', 'phosphorus'):
+              assert lp['whole_balance'][name]['closed'] is True
+              assert abs(lp['whole_balance'][name]['residual']) < 0.05
           print('v2 smoke ok')
           PY
