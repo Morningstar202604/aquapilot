@@ -154,27 +154,28 @@ fixture：`rust-v2/fixtures/a2o-asm2d.json`，CLI：`aquapilot-v2 asm2d`。
 
 | 指标 | 实测 |
 | --- | --- |
-| 出水 COD | 43.98 mg/L |
-| 出水 S_S | 1.199 mg/L |
-| 出水 NH4-N | 0.673 mg/L |
-| 出水 NO3-N | 8.149 mg/L |
-| 出水 TN | 9.719 mg/L |
-| 出水 TP | 1.214 mg/L |
-| 出水 PO4-P | 0.215 mg/L |
-| 出水 SS | 11.45 mg/L |
+| 出水 COD | 44.17 mg/L |
+| 出水 S_S | 1.347 mg/L |
+| 出水 NH4-N | 0.771 mg/L |
+| 出水 NO3-N | 8.094 mg/L |
+| 出水 TN | 9.767 mg/L |
+| 出水 TP | 1.004 mg/L |
+| 出水 PO4-P | 0.068 mg/L |
+| 出水 SS | 11.44 mg/L |
 | 出水 DO | 2.000 mg/L |
-| 二沉池 feed / underflow / overflow TSS | 3139.4 / 6146.3 / 11.5 mg/L |
-| COD 账残差 | 1.73%（closed） |
-| N 账残差 | 14.55%（open） |
-| P 账残差 | 17.45%（open） |
+| 二沉池 feed / underflow / overflow TSS | 3093.95 / 6056.61 / 11.44 mg/L |
+| COD 账残差 | 1.98%（closed） |
+| N 账残差 | 1.09%（closed） |
+| P 账残差 | 1.52%（closed） |
 
 ASM2d 实现覆盖 19 组分（18 个独立动力学状态 + 由颗粒组分导出的 `X_TSS`）与 21 个过程：好氧/缺氧/厌氧水解，`S_F`/`S_A` 异养生长与反硝化，发酵，异养溶菌，PAO 的 PHA 储存、好氧/缺氧 PP 储存、好氧/缺氧生长、PAO/PP/PHA 溶菌，自养好氧生长与溶菌，化学沉淀与再溶解。化学计量矩阵与速率方程来自公开 ASM2d 资料；`X_TSS` 不作为独立动力学状态，避免与 COD 组分重复计量。
 
 当前边界：
 
-- COD 账已将异养/PAO 氧耗与反硝化 COD 计入氧化行，达到 5% 闭合门限；
-- N/P 账尚未闭合，不能把本 fixture 当作 V2-2 最终验收；
-- ADM1 泥线、PAC、多系列二沉池尚未开始。
+- COD 账已将异养/PAO 氧耗与反硝化 COD 计入氧化行，残差 1.98%；
+- N 账按 `rates.sn2` 记气态氮，残差 1.09%；
+- P 账在修正 `X_S` 的 N 计量、引入二沉池颗粒组分池与正性保持子步后，残差 1.52%；
+- 三本账在单系列 A2O fixture 上均 `closed=true`，但 ADM1 泥线、PAC、多系列二沉池尚未开始，不能把本 fixture 当作完整 V2-2 验收。
 
 ## 4. 质量门
 
@@ -185,7 +186,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-2026-11-27 结果：33 项测试全过（model 25 + engine 8），fmt/clippy 干净。ASM1 30 天测试在 debug 模式下约 0.3–0.4 s 完成；ASM2d A2O 30 天约 0.5 s 完成。
+2026-11-27 结果：34 项测试全过（model 26 + engine 8），fmt/clippy 干净。ASM1 30 天测试在 debug 模式下约 0.3–0.4 s 完成；ASM2d A2O 30 天约 0.6 s 完成。
 
 ## 5. 未做与边界
 

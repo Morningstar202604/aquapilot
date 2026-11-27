@@ -224,6 +224,74 @@ fn compile_flows(config: &Asm2dPlantConfig) -> Result<PlantFlows, Asm2dPlantErro
     })
 }
 
+/// Particulate component masses held in the settler, in kg. The settler's
+/// TSS profile is computed by the Takacs layer model; this pool carries the
+/// component composition so overflow/underflow and the plant ledger do not
+/// revalue stored sludge at the current feed composition.
+#[derive(Debug, Clone)]
+struct SettlerSolids {
+    masses: [f64; 9],
+}
+
+const SETTLER_PARTICULATE_FIELDS: [usize; 9] = [9, 10, 11, 12, 13, 14, 15, 16, 17];
+
+impl SettlerSolids {
+    fn from_state(state: &Asm2dState, volume_m3: f64) -> Self {
+        let mut masses = [0.0; 9];
+        for (slot, field) in SETTLER_PARTICULATE_FIELDS.iter().enumerate() {
+            masses[slot] = component(state, *field) * volume_m3 / 1000.0;
+        }
+        Self { masses }
+    }
+
+    fn tss_kg(&self) -> f64 {
+        0.75 * (self.masses[0] + self.masses[1])
+            + 0.90 * (self.masses[2] + self.masses[3] + self.masses[6])
+            + self.masses[4]
+            + self.masses[5]
+            + self.masses[7]
+            + self.masses[8]
+    }
+
+    fn fractions(&self) -> [f64; 9] {
+        let total = self.tss_kg();
+        if total <= 1e-12 {
+            return [0.0; 9];
+        }
+        let mut fractions = [0.0; 9];
+        for (slot, mass) in self.masses.iter().enumerate() {
+            fractions[slot] = (*mass / total).clamp(0.0, 1.0);
+        }
+        fractions
+    }
+
+    fn output_state(&self, feed: &Asm2dState, target_tss: f64) -> Asm2dState {
+        let mut state = *feed;
+        let fractions = self.fractions();
+        for (slot, field) in SETTLER_PARTICULATE_FIELDS.iter().enumerate() {
+            set_component(&mut state, *field, fractions[slot] * target_tss);
+        }
+        state
+    }
+
+    fn update(
+        &mut self,
+        feed: &Asm2dState,
+        feed_flow_m3_h: f64,
+        dt_h: f64,
+        overflow_kg: f64,
+        underflow_kg: f64,
+        output_fractions: [f64; 9],
+    ) {
+        let feed_factor = feed_flow_m3_h * dt_h / 1000.0;
+        for (slot, field) in SETTLER_PARTICULATE_FIELDS.iter().enumerate() {
+            self.masses[slot] += component(feed, *field) * feed_factor;
+            self.masses[slot] -= output_fractions[slot] * (overflow_kg + underflow_kg);
+            self.masses[slot] = self.masses[slot].max(0.0);
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct ClarifierFlow {
     feed: Asm2dState,
@@ -338,6 +406,7 @@ pub struct Asm2dSimulator {
     state: Vec<Asm2dState>,
     clarifier_state: ClarifierState,
     clarifier_flow: ClarifierFlow,
+    settler_solids: SettlerSolids,
     controllers: Vec<Option<AerationController>>,
     last_kla: Vec<f64>,
     time_min: f64,
@@ -392,13 +461,19 @@ impl Asm2dSimulator {
             config.clarifier.feed_layer,
             feed.suspended_solids(),
         )?;
+        let settler_volume = config.clarifier.area_m2 * config.clarifier.depth_m;
+        let settler_solids = SettlerSolids::from_state(&feed, settler_volume);
+        let initial_tss = feed.suspended_solids();
+        let settler_overflow = settler_solids.output_state(&feed, initial_tss);
+        let mut settler_underflow = settler_solids.output_state(&feed, initial_tss);
+        settler_underflow.so = 0.0;
         let clarifier_flow = ClarifierFlow {
             feed,
-            overflow: feed,
-            underflow: feed.with_particulate_tss(config.clarifier.ras_flow_m3_h.max(1.0)),
+            overflow: settler_overflow,
+            underflow: settler_underflow,
             output: ClarifierOutput {
-                overflow_tss: feed.suspended_solids(),
-                underflow_tss: feed.suspended_solids(),
+                overflow_tss: initial_tss,
+                underflow_tss: initial_tss,
                 overflow_flow_m3_h: flows.clarifier_overflow_flow_m3_h,
                 underflow_flow_m3_h: flows.clarifier_underflow_flow_m3_h,
                 overflow_mass_kg: 0.0,
@@ -440,6 +515,7 @@ impl Asm2dSimulator {
             state,
             clarifier_state,
             clarifier_flow,
+            settler_solids,
             controllers,
             last_kla,
             time_min: 0.0,
@@ -490,19 +566,59 @@ impl Asm2dSimulator {
             scale_state(&mut mixed, 1.0 / total_flow);
 
             let dilution_per_h = total_flow / reactor.volume_m3;
-            let rates = reaction_rates(&previous[index], &self.params, temperature_c);
-            let processes = process_rates(&previous[index], &self.params, temperature_c);
             let mut next = previous[index];
-            for field in 0..18 {
-                let mixed_value = component(&mixed, field);
-                let previous_value = component(&previous[index], field);
-                let rate = component_rate(&rates, field);
-                set_component(
-                    &mut next,
-                    field,
-                    previous_value
-                        + dt_h * (dilution_per_h * (mixed_value - previous_value) + rate),
-                );
+            let mut remaining_h = dt_h;
+            let mut oxygen_step_kg = 0.0;
+            let mut gas_step_kg = 0.0;
+            // Positivity-preserving sub-stepping: explicit Euler can otherwise
+            // drive S_PO4 below zero when PAO storage consumes the last
+            // phosphate in a step, and clamping that back to zero would create
+            // phosphorus in the ledger. Halving the reaction step keeps all
+            // stoichiometric couplings intact.
+            while remaining_h > 1e-12 {
+                let mut h = remaining_h;
+                let mut accepted = false;
+                for _ in 0..24 {
+                    let rates = reaction_rates(&next, &self.params, temperature_c);
+                    let processes = process_rates(&next, &self.params, temperature_c);
+                    let mut candidate = next;
+                    for field in 0..18 {
+                        let mixed_value = component(&mixed, field);
+                        let previous_value = component(&next, field);
+                        let rate = component_rate(&rates, field);
+                        set_component(
+                            &mut candidate,
+                            field,
+                            previous_value
+                                + h * (dilution_per_h * (mixed_value - previous_value) + rate),
+                        );
+                    }
+                    if candidate.spo4 < -1e-9 && h > 1e-9 {
+                        h *= 0.5;
+                        continue;
+                    }
+                    candidate.clamp_non_negative();
+                    // COD oxidation is the heterotrophic / PAO oxygen demand.
+                    // Autotrophic oxygen demand belongs to nitrification and
+                    // must not be booked as organic COD oxidation.
+                    let cod_oxygen = 0.6
+                        * (processes.hetero_growth_sf
+                            + processes.hetero_growth_sa
+                            + processes.pao_aero_growth)
+                        + 0.2 * processes.aero_storage_pp;
+                    oxygen_step_kg += cod_oxygen.max(0.0) * reactor.volume_m3 * h / 1000.0;
+                    // Dinitrogen strips immediately; book reaction production
+                    // and zero the liquid pool to avoid double counting.
+                    gas_step_kg += rates.sn2.max(0.0) * reactor.volume_m3 * h / 1000.0;
+                    candidate.sn2 = 0.0;
+                    next = candidate;
+                    remaining_h -= h;
+                    accepted = true;
+                    break;
+                }
+                if !accepted {
+                    return Err(Asm2dPlantError::NonFinite(self.time_min));
+                }
             }
 
             if reactor.kind.is_aerobic() && reactor.kla_h > 0.0 {
@@ -524,21 +640,8 @@ impl Asm2dSimulator {
             if !next.is_finite_non_negative() {
                 return Err(Asm2dPlantError::NonFinite(self.time_min));
             }
-            // COD oxidation is the heterotrophic / PAO oxygen demand. The
-            // autotrophic oxygen demand belongs to nitrification and must not
-            // be booked as organic COD oxidation.
-            let cod_oxygen = 0.6
-                * (processes.hetero_growth_sf
-                    + processes.hetero_growth_sa
-                    + processes.pao_aero_growth)
-                + 0.2 * processes.aero_storage_pp;
-            self.oxygen_consumed_kg += cod_oxygen.max(0.0) * reactor.volume_m3 * dt_h / 1000.0;
-            // Dinitrogen strips to the gas phase. Booking the reaction
-            // production (rather than the small residual S_N2 left after the
-            // explicit step) avoids double-counting the same nitrogen in the
-            // liquid and gas ledgers.
-            self.denitrified_n_kg += rates.sn2.max(0.0) * reactor.volume_m3 * dt_h / 1000.0;
-            next.sn2 = 0.0;
+            self.oxygen_consumed_kg += oxygen_step_kg;
+            self.denitrified_n_kg += gas_step_kg;
             self.state[index] = next;
         }
 
@@ -557,9 +660,32 @@ impl Asm2dSimulator {
             },
             &self.config.clarifier.settling,
         )?;
-        let overflow = feed.with_particulate_tss(output.overflow_tss);
-        let mut underflow = feed.with_particulate_tss(output.underflow_tss);
+        let output_fractions = self.settler_solids.fractions();
+        // Use the solids mass integrated by the Takacs sub-stepping for the
+        // stream composition. The instantaneous layer TSS can differ from the
+        // step-average, and using it here would make the component pool and
+        // the effluent/waste ledger debit different masses.
+        let overflow_tss = if self.flows.clarifier_overflow_flow_m3_h * dt_h > 0.0 {
+            output.overflow_mass_kg / (self.flows.clarifier_overflow_flow_m3_h * dt_h) * 1000.0
+        } else {
+            0.0
+        };
+        let underflow_tss = if self.flows.clarifier_underflow_flow_m3_h * dt_h > 0.0 {
+            output.underflow_mass_kg / (self.flows.clarifier_underflow_flow_m3_h * dt_h) * 1000.0
+        } else {
+            0.0
+        };
+        let overflow = self.settler_solids.output_state(&feed, overflow_tss);
+        let mut underflow = self.settler_solids.output_state(&feed, underflow_tss);
         underflow.so = 0.0;
+        self.settler_solids.update(
+            &feed,
+            self.flows.clarifier_feed_flow_m3_h,
+            dt_h,
+            output.overflow_mass_kg,
+            output.underflow_mass_kg,
+            output_fractions,
+        );
         self.clarifier_flow = ClarifierFlow {
             feed,
             overflow,
@@ -735,9 +861,14 @@ impl Asm2dSimulator {
             inventory[2] += reactor.volume_m3 * state.total_phosphorus() / 1000.0;
         }
         let volume = self.config.clarifier.area_m2 * self.config.clarifier.depth_m;
-        let avg_tss = self.clarifier_state.layers.iter().sum::<f64>()
-            / self.clarifier_state.layers.len() as f64;
-        let state = self.clarifier_flow.feed.with_particulate_tss(avg_tss);
+        let mut state = self.clarifier_flow.feed;
+        for (slot, field) in SETTLER_PARTICULATE_FIELDS.iter().enumerate() {
+            set_component(
+                &mut state,
+                *field,
+                self.settler_solids.masses[slot] / volume * 1000.0,
+            );
+        }
         inventory[0] += volume * state.total_cod() / 1000.0;
         inventory[1] += volume * state.total_nitrogen() / 1000.0;
         inventory[2] += volume * state.total_phosphorus() / 1000.0;
@@ -1021,6 +1152,39 @@ mod tests {
             snapshot.reactors[0].state.spo4
         );
         assert!(snapshot.reactors[0].state.xpha > 40.0);
+    }
+
+    #[test]
+    fn a2o_fixture_closes_three_ledgers() {
+        let config: Asm2dPlantConfig =
+            serde_json::from_str(include_str!("../../../fixtures/a2o-asm2d.json"))
+                .expect("A2O fixture");
+        let snapshot = simulate_asm2d(
+            config,
+            Asm2dSimulationConfig {
+                dt_min: 1.0,
+                duration_min: 43_200.0,
+            },
+            Asm2dParams::default(),
+        )
+        .expect("30 day A2O run");
+        assert!(snapshot.mass_balance.cod.closed);
+        assert!(snapshot.mass_balance.nitrogen.closed);
+        assert!(snapshot.mass_balance.phosphorus.closed);
+        for ledger in [
+            &snapshot.mass_balance.cod,
+            &snapshot.mass_balance.nitrogen,
+            &snapshot.mass_balance.phosphorus,
+        ] {
+            assert!(
+                ledger.residual_fraction < 0.05,
+                "ledger residual {} exceeds 5%",
+                ledger.residual_fraction
+            );
+        }
+        assert!(snapshot.effluent.cod < 60.0);
+        assert!(snapshot.effluent.tp < 2.0);
+        assert!(snapshot.effluent.nh4_n < 2.0);
     }
 
     #[test]

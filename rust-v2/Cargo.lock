@@ -89,6 +89,7 @@ version = "0.0.1"
 dependencies = [
  "aquapilot-domain",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

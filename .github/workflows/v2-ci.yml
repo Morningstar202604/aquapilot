@@ -66,7 +66,8 @@ jobs:
           assert a['effluent']['nh4_n'] < 2.0
           assert a['effluent']['tp'] < 2.0
           assert a['effluent']['ss'] < 20.0
-          assert a['mass_balance']['cod']['closed'] is True
-          assert a['mass_balance']['cod']['residual_fraction'] < 0.05
+          for name in ('cod', 'nitrogen', 'phosphorus'):
+              assert a['mass_balance'][name]['closed'] is True
+              assert a['mass_balance'][name]['residual_fraction'] < 0.05
           print('v2 smoke ok')
           PY

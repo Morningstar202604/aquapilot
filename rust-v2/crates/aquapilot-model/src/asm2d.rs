@@ -174,7 +174,7 @@ impl Asm2dState {
             + 0.01 * self.si
             + 0.03 * self.sf
             + 0.02 * self.xi
-            + 0.08 * self.xs
+            + 0.04 * self.xs
             + 0.07 * (self.xh + self.xpao + self.xaut)
     }
 
