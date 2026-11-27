@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::asm2d::Asm2dParams;
+use crate::asm2d::{Asm2dParams, Asm2dState};
 use crate::asm2d_plant::{
     simulate_asm2d, Asm2dEffluentSnapshot, Asm2dMassBalance, Asm2dPlantConfig, Asm2dPlantSnapshot,
     Asm2dSimulationConfig, Asm2dWasteSnapshot, MassLedger,
@@ -142,17 +142,24 @@ fn aggregate_waste(trains: &[Asm2dPlantSnapshot]) -> Asm2dWasteSnapshot {
         tn: 0.0,
         tp: 0.0,
         ss: 0.0,
+        state: Asm2dState::zeros(),
     };
     if total_flow <= 0.0 {
         return result;
     }
+    let mut state_values = [0.0; 18];
     for train in trains {
         let weight = train.waste.flow_m3_h / total_flow;
         result.cod += train.waste.cod * weight;
         result.tn += train.waste.tn * weight;
         result.tp += train.waste.tp * weight;
         result.ss += train.waste.ss * weight;
+        let values = train.waste.state.values();
+        for (slot, value) in state_values.iter_mut().zip(values) {
+            *slot += value * weight;
+        }
     }
+    result.state = Asm2dState::from_values(state_values);
     result
 }
 

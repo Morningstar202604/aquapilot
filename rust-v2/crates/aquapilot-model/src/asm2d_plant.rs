@@ -362,6 +362,8 @@ pub struct Asm2dWasteSnapshot {
     pub tn: f64,
     pub tp: f64,
     pub ss: f64,
+    /// Full underflow state, used by the ASM2d -> ADM1 interface.
+    pub state: Asm2dState,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -839,6 +841,7 @@ impl Asm2dSimulator {
                 tn: waste.total_nitrogen(),
                 tp: waste.total_phosphorus(),
                 ss: waste.suspended_solids(),
+                state: waste,
             },
             mass_balance: Asm2dMassBalance {
                 cod,

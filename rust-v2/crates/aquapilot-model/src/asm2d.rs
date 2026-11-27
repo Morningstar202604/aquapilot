@@ -161,7 +161,15 @@ impl Asm2dState {
     /// COD carried by the organic fractions. `X_PP` is a phosphorus storage
     /// compound, not COD; `X_MeOH`/`X_MeP` are inorganic.
     pub fn total_cod(&self) -> f64 {
-        self.si + self.sf + self.sa + self.xi + self.xs + self.xh + self.xpao + self.xpha
+        self.si
+            + self.sf
+            + self.sa
+            + self.xi
+            + self.xs
+            + self.xh
+            + self.xpao
+            + self.xpha
+            + self.xaut
     }
 
     /// Total nitrogen bound in the state. Uses the default ASM2d N contents

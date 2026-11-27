@@ -156,7 +156,7 @@ fixture：`rust-v2/fixtures/a2o-asm2d.json`，CLI：`aquapilot-v2 asm2d`。
 
 | 指标 | 实测 |
 | --- | --- |
-| 出水 COD | 44.17 mg/L |
+| 出水 COD | 44.41 mg/L |
 | 出水 S_S | 1.347 mg/L |
 | 出水 NH4-N | 0.771 mg/L |
 | 出水 NO3-N | 8.094 mg/L |
@@ -166,18 +166,20 @@ fixture：`rust-v2/fixtures/a2o-asm2d.json`，CLI：`aquapilot-v2 asm2d`。
 | 出水 SS | 11.44 mg/L |
 | 出水 DO | 2.000 mg/L |
 | 二沉池 feed / underflow / overflow TSS | 3093.95 / 6056.61 / 11.44 mg/L |
-| COD 账残差 | 1.98%（closed） |
+| COD 账残差 | 2.13%（closed） |
 | N 账残差 | 1.09%（closed） |
 | P 账残差 | 1.52%（closed） |
+
+2026-11-27 修正：`Asm2dState::total_cod` 补入 `X_AUT`（硝化菌生物量 COD）。此前漏计使出水 COD 显示 44.17、COD 账残差 1.98%；补入后分别为 44.41 与 2.13%，N/P 账不变。2×500 m3/h 汇总同步为 44.41 / 2.13%。
 
 ASM2d 实现覆盖 19 组分（18 个独立动力学状态 + 由颗粒组分导出的 `X_TSS`）与 21 个过程：好氧/缺氧/厌氧水解，`S_F`/`S_A` 异养生长与反硝化，发酵，异养溶菌，PAO 的 PHA 储存、好氧/缺氧 PP 储存、好氧/缺氧生长、PAO/PP/PHA 溶菌，自养好氧生长与溶菌，化学沉淀与再溶解。化学计量矩阵与速率方程来自公开 ASM2d 资料；`X_TSS` 不作为独立动力学状态，避免与 COD 组分重复计量。
 
 当前边界：
 
-- COD 账已将异养/PAO 氧耗与反硝化 COD 计入氧化行，残差 1.98%；
+- COD 账已将异养/PAO 氧耗与反硝化 COD 计入氧化行，残差 2.13%；
 - N 账按 `rates.sn2` 记气态氮，残差 1.09%；
 - P 账在修正 `X_S` 的 N 计量、引入二沉池颗粒组分池与正性保持子步后，残差 1.52%；
-- 三本账在单系列 A2O fixture 上均 `closed=true`，但 ADM1 泥线、PAC 尚未开始，不能把本 fixture 当作完整 V2-2 验收。
+- 三本账在单系列 A2O fixture 上均 `closed=true`，但 ADM1 泥线目前只接到单向接口，滤液回流/P 路由与 PAC 未做，不能把本 fixture 当作完整 V2-2 验收。
 
 ### 3.1 多系列二沉池
 
@@ -186,12 +188,12 @@ ASM2d 实现覆盖 19 组分（18 个独立动力学状态 + 由颗粒组分导�
 | 指标 | 2×500 m3/h 汇总 |
 | --- | --- |
 | 总进水 / 出水 / 排泥 | 1000 / 980 / 20 m3/h |
-| 出水 COD | 44.17 mg/L |
+| 出水 COD | 44.41 mg/L |
 | 出水 NH4-N | 0.771 mg/L |
 | 出水 TN | 9.767 mg/L |
 | 出水 TP | 1.004 mg/L |
 | 出水 SS | 11.44 mg/L |
-| COD / N / P 残差 | 1.98% / 1.08% / 1.52%，均 closed |
+| COD / N / P 残差 | 2.13% / 1.08% / 1.52%，均 closed |
 
 两系列结果与单系列一致；这是因为几何、流量、负荷与 SRT 均按比例缩放。该 fixture 验证的是多系列编排、汇总与逐系列质量账，而不是不同系列负荷分配下的偏差。
 
@@ -247,11 +249,27 @@ fixture：`rust-v2/fixtures/adm1-sludge-line.json`，CLI：`aquapilot-v2 sludge-
 | 沼气 | 1,211.3 m3/d，CH4 62.2% |
 | 泥饼 | 2.65 m3/d，250 kg/m3 TS，P 63.45 kg/m3 |
 | 滤液 | 117.35 m3/d，P 0.238 kg/m3 |
-| COD 账 | in 67,872.1 / overflow 8,784.1 / cake 20,484.4 / filtrate 2,869.0 / gas 43,092.4 / inventory -7,894.5 kg，残差 0.79% |
-| N 账 | in 3,121.5 / overflow 405.5 / cake 1,348.5 / filtrate 1,438.6 / inventory -122.1 kg，残差 1.64% |
+| COD 账 | in 67,872.1 / overflow 8,784.1 / cake 20,484.4 / filtrate 2,869.0 / gas 43,092.4 / inventory -7,894.5 kg，残差 0.00% |
+| N 账 | in 3,121.5 / overflow 405.5 / cake 1,348.5 / filtrate 1,438.6 / inventory -122.1 kg，残差 0.00% |
 | P 账 | in 4,694.4 / overflow 774.6 / cake 3,360.1 / filtrate 559.7 kg，残差 0.00% |
 
-边界：进泥是代表 A2O 排泥的合成流，不是从 `asm2d_plant` 直接取料；ADM1 不含 P，P 只作惰性示踪，不能称为 ADM1-P；泥饼 TS 是给定边界，不是由过滤动力学预测。
+边界：本节进泥是代表 A2O 排泥的合成流；实际排泥接入见 5.1。ADM1 不含 P，P 只作惰性示踪，不能称为 ADM1-P；泥饼 TS 是给定边界，不是由过滤动力学预测。
+
+### 5.1 A2O 排泥接入（单向）
+
+CLI：`aquapilot-v2 asm2d-sludge`。先跑 30 d A2O，取二沉池 WAS 底流（20 m3/h，COD 6,947.3、TN 306.83、TP 488.69 mg/L），按 COD/N/P 守恒翻译成 ADM1 进料：
+
+| 项目 | 值 |
+| --- | --- |
+| ADM1 进料 | 480 m3/d，COD 6.947、N 0.307、P 0.489 kg/m3 |
+| 消化器 | 2,400 m3，120 m3/d，35 °C，20 d |
+| 消化 pH | 7.898 |
+| 沼气 / CH4 / CO2 / H2 | 1,106.5 m3/d / 60.7% / 39.0% / 0.27% |
+| 泥饼 | 2.78 m3/d，250 kg/m3 TS，P 60.38 kg/m3 |
+| 滤液 | 117.22 m3/d，P 0.238 kg/m3 |
+| 泥线 COD / N / P 残差 | 0.00% / 0.00% / 0.00%，均 closed |
+
+接口边界：ASM2d 的 18 个状态中，颗粒 COD 统一映射为 ADM1 `X_c`，硝酸盐氮并入 `S_IN`，ASM2d 总磷进入惰性 P 示踪；边界三本账守恒有单测。滤液只报告、尚未回流到 A2O 进水，P 路由未闭环，因此这只是单向接口，不是完整全厂泥线闭环。泥线 COD/N 账使用 ADM1 时间积分出水；泥饼/滤液质量是末态分流，用于运行报表，不在 COD/N 残差中重复计入。
 
 ## 6. 质量门
 
@@ -262,12 +280,12 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-2026-11-27 结果：38 项测试全过（model 30 + engine 8），fmt/clippy 干净。ASM1 30 天测试在 debug 模式下约 0.3–0.4 s 完成；ASM2d A2O 30 天约 0.6 s，2×500 m3/h 两系列约 1.2 s；ADM1 10 天约 1.4 s，独立泥线 20 天约 10.6 s。
+2026-11-27 结果：40 项测试全过（model 32 + engine 8），fmt/clippy 干净。ASM1 30 天测试在 debug 模式下约 0.3–0.4 s 完成；ASM2d A2O 30 天约 0.6 s，2×500 m3/h 两系列约 1.2 s；ADM1 10 天约 1.4 s，独立泥线 20 天约 10.6 s，A2O 30 d + 泥线 20 d 单向耦合约 11 s。
 
 ## 7. 未做与边界
 
 - 官方参数集仍未全部通过 Table 6；校准候选在 ±20% 内通过，但属于工程标定，不是官方参数复原。
 - 没有真实管网水力求解；连接流量仍是显式给定。
 - 没有 pH/碱度限制；碱度会被钳制到 0，当前只作诊断，不阻断。
-- ASM2d 已落 A2O 整厂与多系列汇总；ADM1 核心与独立泥线已落，但尚未接入 A2O 整厂（排泥、滤液回流、P 路由均未接），PAC 未完成。
+- ASM2d 已落 A2O 整厂与多系列汇总；ADM1 核心、独立泥线与单向 A2O→泥线接口已落；滤液回流、P 路由闭环与 PAC 未完成。
 - 没有 24 h soak、没有 HTTP/WS 与界面。

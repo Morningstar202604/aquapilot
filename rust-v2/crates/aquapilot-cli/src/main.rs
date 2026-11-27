@@ -7,6 +7,7 @@ use aquapilot_model::adm1_sludge::{simulate_sludge_line, SludgeLineConfig};
 use aquapilot_model::asm2d::Asm2dParams;
 use aquapilot_model::asm2d_parallel::{simulate_asm2d_parallel, Asm2dParallelConfig};
 use aquapilot_model::asm2d_plant::{simulate_asm2d, Asm2dPlantConfig, Asm2dSimulationConfig};
+use aquapilot_model::asm2d_sludge::{simulate_asm2d_sludge, Asm2dSludgeConfig};
 use aquapilot_model::Asm1Params;
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -94,6 +95,29 @@ enum Command {
         /// Time step in days.
         #[arg(long, default_value_t = 0.002)]
         dt: f64,
+        /// Optional output path for the JSON snapshot.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Print the full snapshot JSON to stdout.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run A2O, then route its waste state through the ADM1 sludge line.
+    Asm2dSludge {
+        /// Path to the ASM2d plant JSON file.
+        config: PathBuf,
+        /// A2O duration in minutes.
+        #[arg(long, default_value_t = 43200.0)]
+        minutes: f64,
+        /// A2O time step in minutes, at most 1.0.
+        #[arg(long, default_value_t = 1.0)]
+        dt: f64,
+        /// Sludge-line duration in days.
+        #[arg(long, default_value_t = 20.0)]
+        sludge_days: f64,
+        /// Sludge-line time step in days.
+        #[arg(long, default_value_t = 0.002)]
+        sludge_dt: f64,
         /// Optional output path for the JSON snapshot.
         #[arg(long)]
         out: Option<PathBuf>,
@@ -284,6 +308,113 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("snapshot written to {}", path.display());
             }
         }
+        Command::Asm2dSludge {
+            config,
+            minutes,
+            dt,
+            sludge_days,
+            sludge_dt,
+            out,
+            json,
+        } => {
+            let text = std::fs::read_to_string(&config)?;
+            let plant: Asm2dPlantConfig = serde_json::from_str(&text)?;
+            let snapshot = simulate_asm2d(
+                plant,
+                Asm2dSimulationConfig {
+                    dt_min: dt,
+                    duration_min: minutes,
+                },
+                Asm2dParams::default(),
+            )?;
+            let coupled = simulate_asm2d_sludge(
+                &snapshot.waste.state,
+                snapshot.waste.flow_m3_h,
+                &Asm2dSludgeConfig::default(),
+                sludge_days,
+                sludge_dt,
+            )?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "asm2d": snapshot,
+                        "sludge": coupled,
+                    }))?
+                );
+            } else {
+                println!(
+                    "A2O: {} (ASM2d, {:.0} min)",
+                    snapshot.plant_name, snapshot.time_min
+                );
+                println!(
+                    "effluent: COD={:.2} NH4-N={:.3} TN={:.3} TP={:.3} SS={:.2} mg/L",
+                    snapshot.effluent.cod,
+                    snapshot.effluent.nh4_n,
+                    snapshot.effluent.tn,
+                    snapshot.effluent.tp,
+                    snapshot.effluent.ss
+                );
+                println!(
+                    "waste: flow={:.1} m3/h, COD={:.1} mg/L, TN={:.2}, TP={:.2}, state COD={:.2} kg/m3",
+                    snapshot.waste.flow_m3_h,
+                    snapshot.waste.cod,
+                    snapshot.waste.tn,
+                    snapshot.waste.tp,
+                    coupled.asm2d_cod_kg_per_m3 / 1000.0
+                );
+                println!(
+                    "interface: ADM1 feed COD={:.3} N={:.3} P={:.3} kg/m3 (one-way, no filtrate return)",
+                    coupled.adm1_feed.state.cod(),
+                    coupled.adm1_feed.state.nitrogen(),
+                    coupled.adm1_feed.phosphorus_kg_per_m3
+                );
+                println!(
+                    "digester: pH={:.3}, biogas={:.1} m3/d, CH4={:.1}%, COD residual={:.2}%, N residual={:.2}%",
+                    coupled.line.digester.ph,
+                    coupled.line.digester.biogas_m3_per_d,
+                    coupled.line.digester.methane_fraction * 100.0,
+                    coupled.line.digester.cod_balance.residual * 100.0,
+                    coupled.line.digester.nitrogen_balance.residual * 100.0
+                );
+                println!(
+                    "cake: flow={:.2} m3/d, TS={:.1} kg/m3, P={:.3} kg/m3; filtrate: flow={:.2} m3/d, P={:.3} kg/m3",
+                    coupled.line.cake.flow_m3_per_d,
+                    coupled.line.cake.state.suspended_solids(),
+                    coupled.line.cake.phosphorus_kg_per_m3,
+                    coupled.line.filtrate.flow_m3_per_d,
+                    coupled.line.filtrate.phosphorus_kg_per_m3
+                );
+                for (name, ledger) in [
+                    ("COD", &coupled.line.cod_balance),
+                    ("N", &coupled.line.nitrogen_balance),
+                    ("P", &coupled.line.phosphorus_balance),
+                ] {
+                    println!(
+                        "{} line ledger: in={:.1}, overflow={:.1}, digester_out={:.1}, gas={:.1}, inventory={:.1}, accounted={:.1}, residual={:.2}%, closed={}",
+                        name,
+                        ledger.input_kg,
+                        ledger.overflow_kg,
+                        ledger.digester_output_kg,
+                        ledger.gas_kg,
+                        ledger.inventory_kg,
+                        ledger.accounted_kg,
+                        ledger.residual * 100.0,
+                        ledger.closed
+                    );
+                }
+            }
+            if let Some(path) = out {
+                std::fs::write(
+                    &path,
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "asm2d": snapshot,
+                        "sludge": coupled,
+                    }))?,
+                )?;
+                eprintln!("snapshot written to {}", path.display());
+            }
+        }
         Command::SludgeLine {
             config,
             days,
@@ -331,14 +462,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ("P", &snapshot.phosphorus_balance),
                 ] {
                     println!(
-                        "{} line ledger: in={:.1}, overflow={:.1}, cake={:.1}, filtrate={:.1}, gas={:.1}, inventory={:.1}, residual={:.2}%, closed={}",
+                        "{} line ledger: in={:.1}, overflow={:.1}, digester_out={:.1}, gas={:.1}, inventory={:.1}, accounted={:.1}, residual={:.2}%, closed={}",
                         name,
                         ledger.input_kg,
                         ledger.overflow_kg,
-                        ledger.cake_kg,
-                        ledger.filtrate_kg,
+                        ledger.digester_output_kg,
                         ledger.gas_kg,
                         ledger.inventory_kg,
+                        ledger.accounted_kg,
                         ledger.residual * 100.0,
                         ledger.closed
                     );

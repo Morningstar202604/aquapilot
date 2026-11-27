@@ -9,6 +9,7 @@ pub mod adm1_sludge;
 pub mod asm2d;
 pub mod asm2d_parallel;
 pub mod asm2d_plant;
+pub mod asm2d_sludge;
 pub mod settler;
 
 use serde::{Deserialize, Serialize};

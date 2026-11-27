@@ -80,6 +80,30 @@ impl Default for DewateringConfig {
     }
 }
 
+pub fn default_digester_seed() -> Adm1State {
+    let mut state = Adm1State::default();
+    for (i, value) in [
+        0.02, 0.01, 0.1, 0.01, 0.01, 0.02, 0.3, 1.0e-6, 0.05, 0.5, 0.5, 0.1, 2.0, 1.0, 1.0, 0.5,
+        0.3, 0.9, 0.3, 0.3, 0.1, 0.7, 0.3, 5.0,
+    ]
+    .iter()
+    .enumerate()
+    {
+        state.values[i] = *value;
+    }
+    state.values[crate::adm1::S_CAT] = 0.04;
+    state.values[crate::adm1::S_AN] = 0.02;
+    state
+}
+
+pub fn default_digester_gas() -> Adm1Gas {
+    Adm1Gas {
+        h2: 3.9e-9,
+        ch4: 0.00254,
+        ic: 0.00137,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SludgeLineConfig {
     pub feed: SludgeStream,
@@ -98,10 +122,17 @@ pub struct SludgeLineConfig {
 pub struct SludgeMassBalance {
     pub input_kg: f64,
     pub overflow_kg: f64,
+    /// Time-integrated digester output. For COD/N this is the ADM1 effluent
+    /// integral; for P it equals the final cake + filtrate mass.
+    pub digester_output_kg: f64,
+    /// Final-state cake mass, reported for operation but not double-counted in
+    /// the COD/N residual (the digester output integral already includes it).
     pub cake_kg: f64,
+    /// Final-state filtrate mass, same reporting caveat as `cake_kg`.
     pub filtrate_kg: f64,
     pub gas_kg: f64,
     pub inventory_kg: f64,
+    pub accounted_kg: f64,
     pub residual: f64,
     pub closed: bool,
 }
@@ -164,6 +195,7 @@ pub fn simulate_sludge_line(
     let cod_balance = line_balance(
         config.feed.cod_kg_per_d() * days,
         thickener_overflow.cod_kg_per_d() * days,
+        digester.cod_balance.output_kg,
         cake.cod_kg_per_d() * days,
         filtrate.cod_kg_per_d() * days,
         digester.cod_balance.gas_kg,
@@ -172,6 +204,7 @@ pub fn simulate_sludge_line(
     let nitrogen_balance = line_balance(
         config.feed.nitrogen_kg_per_d() * days,
         thickener_overflow.nitrogen_kg_per_d() * days,
+        digester.nitrogen_balance.output_kg,
         cake.nitrogen_kg_per_d() * days,
         filtrate.nitrogen_kg_per_d() * days,
         0.0,
@@ -180,6 +213,7 @@ pub fn simulate_sludge_line(
     let phosphorus_balance = line_balance(
         config.feed.phosphorus_kg_per_d() * days,
         thickener_overflow.phosphorus_kg_per_d() * days,
+        cake.phosphorus_kg_per_d() * days + filtrate.phosphorus_kg_per_d() * days,
         cake.phosphorus_kg_per_d() * days,
         filtrate.phosphorus_kg_per_d() * days,
         0.0,
@@ -201,12 +235,13 @@ pub fn simulate_sludge_line(
 fn line_balance(
     input: f64,
     overflow: f64,
+    digester_output: f64,
     cake: f64,
     filtrate: f64,
     gas: f64,
     inventory: f64,
 ) -> SludgeMassBalance {
-    let accounted = overflow + cake + filtrate + gas + inventory;
+    let accounted = overflow + digester_output + gas + inventory;
     let residual = if input.abs() > 1e-12 {
         (input - accounted) / input
     } else {
@@ -215,10 +250,12 @@ fn line_balance(
     SludgeMassBalance {
         input_kg: input,
         overflow_kg: overflow,
+        digester_output_kg: digester_output,
         cake_kg: cake,
         filtrate_kg: filtrate,
         gas_kg: gas,
         inventory_kg: inventory,
+        accounted_kg: accounted,
         residual,
         closed: residual.abs() <= 0.02,
     }
@@ -345,19 +382,7 @@ mod tests {
     }
 
     fn seed() -> Adm1State {
-        let mut state = Adm1State::default();
-        for (i, value) in [
-            0.02, 0.01, 0.1, 0.01, 0.01, 0.02, 0.3, 1.0e-6, 0.05, 0.5, 0.5, 0.1, 2.0, 1.0, 1.0,
-            0.5, 0.3, 0.9, 0.3, 0.3, 0.1, 0.7, 0.3, 5.0,
-        ]
-        .iter()
-        .enumerate()
-        {
-            state.values[i] = *value;
-        }
-        state.values[crate::adm1::S_CAT] = 0.04;
-        state.values[crate::adm1::S_AN] = 0.02;
-        state
+        default_digester_seed()
     }
 
     fn line_config() -> SludgeLineConfig {
@@ -367,11 +392,7 @@ mod tests {
             dewatering: DewateringConfig::default(),
             digester_volume_m3: 2400.0,
             digester_initial: seed(),
-            digester_initial_gas: Adm1Gas {
-                h2: 3.9e-9,
-                ch4: 0.00254,
-                ic: 0.00137,
-            },
+            digester_initial_gas: default_digester_gas(),
             digester_params: Adm1Params::default(),
             temperature_k: 308.15,
             gas_volume_ratio: 0.1,
