@@ -40,6 +40,8 @@ jobs:
         run: cargo run -q -p aquapilot-cli -- simulate fixtures/bsm1-like.json --minutes 43200 --json > /tmp/bsm1-30d.json
       - name: Smoke ASM2d A2O 30 days
         run: cargo run -q -p aquapilot-cli -- asm2d fixtures/a2o-asm2d.json --minutes 43200 --json > /tmp/a2o-30d.json
+      - name: Smoke ASM2d two-train 30 days
+        run: cargo run -q -p aquapilot-cli -- asm2d-parallel fixtures/a2o-asm2d-2train.json --minutes 43200 --json > /tmp/a2o-2train.json
       - name: Assert finite snapshot
         run: |
           python3 - <<'PY'

@@ -5,6 +5,7 @@
 //! are stored per day and converted inside `reaction_rates`.
 
 pub mod asm2d;
+pub mod asm2d_parallel;
 pub mod asm2d_plant;
 pub mod settler;
 

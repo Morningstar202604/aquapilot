@@ -15,7 +15,8 @@ V2-2 当前已落：
 - `aquapilot-model::asm2d`：19 组分（18 个独立动力学状态 + 由颗粒组分导出的 `X_TSS`）、21 个 ASM2d 过程、公开化学计量矩阵与速率方程；
 - `aquapilot-model::asm2d_plant`：A2O 整厂路径（厌氧/缺氧/多级好氧 + 二沉池 + RAS/内回流/WAS），30 天稳定运行，CLI `asm2d` 可执行；
 - ASM2d 质量账：A2O fixture 30 天的 COD/N/P 三本账均闭合（残差分别为 1.98% / 1.09% / 1.52%）；
-- ADM1 泥线、多系列二沉池、PAC 尚未开始。
+- 多系列：`aquapilot-model::asm2d_parallel` 支持多个独立 A2O 系列并行运行并汇总全厂出水与三本账；`a2o-asm2d-2train.json` 为 2×500 m3/h 示例，系列各自拥有二沉池、RAS/WAS；
+- ADM1 泥线、PAC 尚未开始。
 
 30 天 A2O ASM2d 实测（`fixtures/a2o-asm2d.json`）：
 
@@ -33,7 +34,7 @@ V2-2 当前已落：
 | N 账残差 | 1.09%（closed） |
 | P 账残差 | 1.52%（closed） |
 
-这组数字证明 ASM2d 生物除磷、硝化/反硝化与三本账已经在单系列 A2O 上跑通，但还不是最终 V2-2 验收：ADM1 泥线和多系列二沉池未实现。不得把当前结果表述为 V2-2 完成。
+两系列各 500 m3/h、反应器与二沉池按 1/2 缩放后，汇总出水与三本账残差与单系列一致，证明多系列汇总路径可用。当前仍不能把 V2-2 表述为完成：ADM1 泥线和 PAC 未实现。
 
 ## 运行
 
@@ -46,6 +47,7 @@ cargo run -p aquapilot-cli -- simulate fixtures/bsm1-like.json --minutes 43200 -
 cargo run -p aquapilot-cli -- simulate fixtures/bsm1-official.json --minutes 43200 --params bsm1 --out /tmp/bsm1-official-30d.json
 cargo run -p aquapilot-cli -- simulate fixtures/bsm1-calibrated.json --minutes 43200 --params bsm1-cal --out /tmp/bsm1-calibrated-30d.json
 cargo run -p aquapilot-cli -- asm2d fixtures/a2o-asm2d.json --minutes 43200 --out /tmp/a2o-asm2d-30d.json
+cargo run -p aquapilot-cli -- asm2d-parallel fixtures/a2o-asm2d-2train.json --minutes 43200 --out /tmp/a2o-asm2d-2train.json
 ```
 
 质量门：
@@ -74,4 +76,4 @@ rust-v2/
 - 二沉池是 10 层有限体积 Takács 风格模型；RAS 底流按缺氧处理（DO 置 0），WAS 进沉泥汇。
 - ASM1 COD 账只做到“进水/出水/排泥/库存变化/未解释项”，氧化项尚未入账，因此**不声称闭合**。
 - ASM2d A2O 的 COD 账已把异养/PAO 氧耗与反硝化 COD 计入氧化行，当前 fixture 闭合；N/P 账仍有残差，不能声称三本账闭合。
-- 未实现：ADM1 泥线、多系列二沉池、PAC、HTTP/WS 服务、实验队列、界面、24 h soak；官方 BSM1 参数集仍未全部通过 Table 6，只有校准候选在 ±20% 内通过。
+- 未实现：ADM1 泥线、PAC、HTTP/WS 服务、实验队列、界面、24 h soak；官方 BSM1 参数集仍未全部通过 Table 6，只有校准候选在 ±20% 内通过。

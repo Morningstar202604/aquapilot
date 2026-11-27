@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use aquapilot_domain::PlantTopology;
 use aquapilot_engine::{simulate, CompiledPlant, SimulationConfig, Simulator};
 use aquapilot_model::asm2d::Asm2dParams;
+use aquapilot_model::asm2d_parallel::{simulate_asm2d_parallel, Asm2dParallelConfig};
 use aquapilot_model::asm2d_plant::{simulate_asm2d, Asm2dPlantConfig, Asm2dSimulationConfig};
 use aquapilot_model::Asm1Params;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -63,6 +64,23 @@ enum Command {
         /// Kinetic parameter set.
         #[arg(long, value_enum, default_value_t = ParamSet::Default)]
         params: ParamSet,
+    },
+    /// Run parallel ASM2d trains (multi-series clarifiers) and aggregate the plant.
+    Asm2dParallel {
+        /// Path to the parallel ASM2d plant JSON file.
+        config: PathBuf,
+        /// Simulated duration in minutes.
+        #[arg(long, default_value_t = 43200.0)]
+        minutes: f64,
+        /// Time step in minutes, at most 1.0.
+        #[arg(long, default_value_t = 1.0)]
+        dt: f64,
+        /// Optional output path for the JSON snapshot.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Print the full snapshot JSON to stdout.
+        #[arg(long)]
+        json: bool,
     },
     /// Run an ASM2d whole-plant simulation from an A2O-style configuration.
     Asm2d {
@@ -244,6 +262,80 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ] {
                     println!(
                         "{} ledger: in={:.1}, out={:.1}, waste={:.1}, inventory={:.1}, oxidized={:.1}, gas={:.1}, residual={:.2}%, closed={}",
+                        name,
+                        ledger.inflow_kg,
+                        ledger.effluent_kg,
+                        ledger.waste_kg,
+                        ledger.inventory_change_kg,
+                        ledger.oxidized_kg,
+                        ledger.gas_kg,
+                        ledger.residual_fraction * 100.0,
+                        ledger.closed
+                    );
+                }
+            }
+            if let Some(path) = out {
+                std::fs::write(&path, serde_json::to_string_pretty(&snapshot)?)?;
+                eprintln!("snapshot written to {}", path.display());
+            }
+        }
+        Command::Asm2dParallel {
+            config,
+            minutes,
+            dt,
+            out,
+            json,
+        } => {
+            let text = std::fs::read_to_string(&config)?;
+            let plant: Asm2dParallelConfig = serde_json::from_str(&text)?;
+            let simulation = Asm2dSimulationConfig {
+                dt_min: dt,
+                duration_min: minutes,
+            };
+            let snapshot = simulate_asm2d_parallel(plant, simulation, Asm2dParams::default())?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&snapshot)?);
+            } else {
+                println!(
+                    "plant: {} (ASM2d parallel, {})",
+                    snapshot.plant_name, snapshot.train_count
+                );
+                println!(
+                    "t={:.0} min, steps={}, influent={:.1} m3/h, effluent={:.1} m3/h, waste={:.1} m3/h",
+                    snapshot.time_min,
+                    snapshot.step_count,
+                    snapshot.total_influent_flow_m3_h,
+                    snapshot.effluent.flow_m3_h,
+                    snapshot.waste.flow_m3_h
+                );
+                println!(
+                    "aggregate effluent: COD={:.2} NH4-N={:.3} TN={:.3} TP={:.3} SS={:.2} mg/L",
+                    snapshot.effluent.cod,
+                    snapshot.effluent.nh4_n,
+                    snapshot.effluent.tn,
+                    snapshot.effluent.tp,
+                    snapshot.effluent.ss
+                );
+                for (index, train) in snapshot.trains.iter().enumerate() {
+                    println!(
+                        "train {}: {} | effluent={:.1} m3/h COD={:.2} TP={:.3} | COD residual={:.2}%, N={:.2}%, P={:.2}%",
+                        index,
+                        train.plant_name,
+                        train.effluent.flow_m3_h,
+                        train.effluent.cod,
+                        train.effluent.tp,
+                        train.mass_balance.cod.residual_fraction * 100.0,
+                        train.mass_balance.nitrogen.residual_fraction * 100.0,
+                        train.mass_balance.phosphorus.residual_fraction * 100.0
+                    );
+                }
+                for (name, ledger) in [
+                    ("COD", &snapshot.mass_balance.cod),
+                    ("N", &snapshot.mass_balance.nitrogen),
+                    ("P", &snapshot.mass_balance.phosphorus),
+                ] {
+                    println!(
+                        "{} aggregate ledger: in={:.1}, out={:.1}, waste={:.1}, inventory={:.1}, oxidized={:.1}, gas={:.1}, residual={:.2}%, closed={}",
                         name,
                         ledger.inflow_kg,
                         ledger.effluent_kg,
