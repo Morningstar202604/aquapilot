@@ -1,0 +1,291 @@
+{
+  "name": "bsm1-calibrated",
+  "units": [
+    {
+      "id": "in",
+      "name": "BSM1 influent",
+      "type": "influent",
+      "flow_m3_h": 768.5833333333334,
+      "water": {
+        "cod": 371.19,
+        "nh4_n": 31.56,
+        "no3_n": 0.0,
+        "tp": 0.0,
+        "ss": 211.27,
+        "alkalinity": 350.0,
+        "do": 0.0,
+        "temperature_c": 15.0
+      },
+      "composition": [
+        30.0,
+        69.5,
+        51.2,
+        202.32,
+        28.17,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        31.56,
+        6.95,
+        10.59,
+        350.0
+      ]
+    },
+    {
+      "id": "anx1",
+      "name": "Anoxic 1",
+      "type": "anoxic",
+      "volume_m3": 1000.0,
+      "initial": {
+        "cod": 4412.910000000001,
+        "nh4_n": 7.92,
+        "no3_n": 0,
+        "tp": 0.0,
+        "do": 0.0043,
+        "alkalinity": 246.5,
+        "mlss": 3084.577464788733,
+        "temperature_c": 15.0,
+        "composition": [
+          30,
+          2.81,
+          1149,
+          82.1,
+          2552,
+          148,
+          449,
+          0.0043,
+          0,
+          7.92,
+          1.22,
+          5.28,
+          246.5
+        ]
+      }
+    },
+    {
+      "id": "anx2",
+      "name": "Anoxic 2",
+      "type": "anoxic",
+      "volume_m3": 1000.0,
+      "initial": {
+        "cod": 4407.86,
+        "nh4_n": 8.34,
+        "no3_n": 0,
+        "tp": 0.0,
+        "do": 6.31e-05,
+        "alkalinity": 254.0,
+        "mlss": 3081.9718309859154,
+        "temperature_c": 15.0,
+        "composition": [
+          30,
+          1.46,
+          1149,
+          76.4,
+          2553,
+          148,
+          450,
+          6.31e-05,
+          0,
+          8.34,
+          0.882,
+          5.03,
+          254.0
+        ]
+      }
+    },
+    {
+      "id": "aer1",
+      "name": "Aerobic 1",
+      "type": "aerobic",
+      "volume_m3": 1333.0,
+      "initial": {
+        "cod": 4401.049999999999,
+        "nh4_n": 5.55,
+        "no3_n": 0,
+        "tp": 0.0,
+        "do": 1.72,
+        "alkalinity": 233.5,
+        "mlss": 3077.394366197183,
+        "temperature_c": 15.0,
+        "composition": [
+          30,
+          1.15,
+          1149,
+          64.9,
+          2557,
+          149,
+          450,
+          1.72,
+          0,
+          5.55,
+          0.829,
+          4.39,
+          233.5
+        ]
+      },
+      "kla_h": 8.9,
+      "do_setpoint": 0.0
+    },
+    {
+      "id": "aer2",
+      "name": "Aerobic 2",
+      "type": "aerobic",
+      "volume_m3": 1333.0,
+      "initial": {
+        "cod": 4395.695,
+        "nh4_n": 2.97,
+        "no3_n": 0,
+        "tp": 0.0,
+        "do": 2.43,
+        "alkalinity": 214.5,
+        "mlss": 3073.7323943661972,
+        "temperature_c": 15.0,
+        "composition": [
+          30,
+          0.995,
+          1149,
+          55.7,
+          2559,
+          150,
+          451,
+          2.43,
+          0,
+          2.97,
+          0.767,
+          3.88,
+          214.5
+        ]
+      },
+      "kla_h": 8.9,
+      "do_setpoint": 0.0
+    },
+    {
+      "id": "aer3",
+      "name": "Aerobic 3",
+      "type": "aerobic",
+      "volume_m3": 1333.0,
+      "initial": {
+        "cod": 4390.189,
+        "nh4_n": 1.73,
+        "no3_n": 0,
+        "tp": 0.0,
+        "do": 0.491,
+        "alkalinity": 206.5,
+        "mlss": 3069.929577464789,
+        "temperature_c": 15.0,
+        "composition": [
+          30,
+          0.889,
+          1149,
+          49.3,
+          2559,
+          150,
+          452,
+          0.491,
+          0,
+          1.73,
+          0.688,
+          3.53,
+          206.5
+        ]
+      },
+      "kla_h": 2.95,
+      "do_setpoint": 0.0
+    },
+    {
+      "id": "clr",
+      "name": "Secondary clarifier",
+      "type": "clarifier",
+      "area_m2": 1500.0,
+      "depth_m": 4.0,
+      "layers": 10,
+      "feed_layer": 6,
+      "settling": {
+        "v_max_m_per_d": 474.0,
+        "x_max_g_per_m3": 3000.0,
+        "x_min_g_per_m3": 0.001,
+        "a_per_g_per_m3": 0.000576,
+        "b_per_g_per_m3": 0.00286
+      }
+    },
+    {
+      "id": "out",
+      "name": "Effluent",
+      "type": "effluent"
+    },
+    {
+      "id": "waste",
+      "name": "WAS",
+      "type": "waste"
+    }
+  ],
+  "connections": [
+    {
+      "id": "in-anx1",
+      "from": "in",
+      "to": "anx1",
+      "flow_m3_h": 768.5833333333334
+    },
+    {
+      "id": "ras",
+      "from": "clr",
+      "to": "anx1",
+      "flow_m3_h": 768.5833333333334,
+      "stream": "recycle",
+      "recycle": "ras"
+    },
+    {
+      "id": "internal",
+      "from": "aer3",
+      "to": "anx1",
+      "flow_m3_h": 2305.75,
+      "stream": "recycle",
+      "recycle": "internal"
+    },
+    {
+      "id": "anx1-anx2",
+      "from": "anx1",
+      "to": "anx2",
+      "flow_m3_h": 3842.9166666666665
+    },
+    {
+      "id": "anx2-aer1",
+      "from": "anx2",
+      "to": "aer1",
+      "flow_m3_h": 3842.9166666666665
+    },
+    {
+      "id": "aer1-aer2",
+      "from": "aer1",
+      "to": "aer2",
+      "flow_m3_h": 3842.9166666666665
+    },
+    {
+      "id": "aer2-aer3",
+      "from": "aer2",
+      "to": "aer3",
+      "flow_m3_h": 3842.9166666666665
+    },
+    {
+      "id": "aer3-clr",
+      "from": "aer3",
+      "to": "clr",
+      "flow_m3_h": 1537.1666666666667
+    },
+    {
+      "id": "clr-out",
+      "from": "clr",
+      "to": "out",
+      "flow_m3_h": 752.5416666666666
+    },
+    {
+      "id": "was",
+      "from": "clr",
+      "to": "waste",
+      "flow_m3_h": 16.041666666666668,
+      "stream": "recycle",
+      "recycle": "was"
+    }
+  ]
+}

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use aquapilot_domain::PlantTopology;
 use aquapilot_engine::{simulate, CompiledPlant, SimulationConfig, Simulator};
 use aquapilot_model::Asm1Params;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -13,6 +13,26 @@ use clap::{Parser, Subcommand};
 struct Cli {
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ParamSet {
+    /// ASM1 20 degC reference set.
+    Default,
+    /// Public BSM1 open-loop set quoted at 15 degC.
+    Bsm1,
+    /// BSM1-calibrated candidate (eta_h = 0.6); pair with bsm1-calibrated fixture.
+    Bsm1Cal,
+}
+
+impl ParamSet {
+    fn params(self) -> Asm1Params {
+        match self {
+            Self::Default => Asm1Params::default(),
+            Self::Bsm1 => Asm1Params::bsm1_15c(),
+            Self::Bsm1Cal => Asm1Params::bsm1_calibrated(),
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -38,6 +58,9 @@ enum Command {
         /// Print the full snapshot JSON to stdout.
         #[arg(long)]
         json: bool,
+        /// Kinetic parameter set.
+        #[arg(long, value_enum, default_value_t = ParamSet::Default)]
+        params: ParamSet,
     },
 }
 
@@ -87,26 +110,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             dt,
             out,
             json,
+            params,
         } => {
             let plant = load_topology(&topology)?;
             let config = SimulationConfig {
                 dt_min: dt,
                 duration_min: minutes,
             };
-            let mut simulator = Simulator::new(&plant, config, Asm1Params::default())?;
+            let mut simulator = Simulator::new(&plant, config, params.params())?;
             simulator.run()?;
             let snapshot = simulator.snapshot();
             if json {
                 println!("{}", serde_json::to_string_pretty(&snapshot)?);
             } else {
-                println!("plant: {}", snapshot.plant_name);
+                println!("plant: {} (params: {:?})", snapshot.plant_name, params);
                 println!(
                     "t={:.0} min, steps={}, effluent={:.1} m3/h",
                     snapshot.time_min, snapshot.step_count, snapshot.effluent.flow_m3_h
                 );
                 println!(
-                    "effluent: COD={:.2} NH4-N={:.3} NO3-N={:.3} TN={:.3} TP={:.3} SS={:.2} DO={:.3} mg/L",
+                    "effluent: COD={:.2} S_S={:.3} NH4-N={:.3} NO3-N={:.3} TN={:.3} TP={:.3} SS={:.2} DO={:.3} mg/L",
                     snapshot.effluent.cod,
+                    snapshot.effluent.s_s,
                     snapshot.effluent.nh4_n,
                     snapshot.effluent.no3_n,
                     snapshot.effluent.tn,

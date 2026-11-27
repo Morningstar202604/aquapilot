@@ -243,7 +243,13 @@ impl Asm1State {
     }
 }
 
-/// ASM1 kinetic and stoichiometric parameters, per day at 20 degC.
+fn default_reference_temperature_c() -> f64 {
+    20.0
+}
+
+/// ASM1 kinetic and stoichiometric parameters, per day at their reference
+/// temperature. `Default` is the 20 degC set; `bsm1_15c()` is the public BSM1
+/// 15 degC set.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Asm1Params {
     pub y_h: f64,
@@ -273,6 +279,14 @@ pub struct Asm1Params {
     pub o2_per_nh_n: f64,
     /// mg CaCO3 alkalinity consumed per mg NH4-N nitrified.
     pub alk_per_nh_n: f64,
+    /// Temperature at which the kinetic parameters are quoted. The engine
+    /// applies `theta^(T - reference_temperature_c)`.
+    #[serde(default = "default_reference_temperature_c")]
+    pub reference_temperature_c: f64,
+    /// Optional fixed saturation DO, mg/L. Zero uses the temperature
+    /// correlation; BSM1 uses a fixed 8.0 mg/L at 15 degC.
+    #[serde(default)]
+    pub so_sat_mg_l: f64,
 }
 
 impl Default for Asm1Params {
@@ -302,7 +316,56 @@ impl Default for Asm1Params {
             cod_per_no3_n: 2.86,
             o2_per_nh_n: 4.57,
             alk_per_nh_n: 7.14,
+            reference_temperature_c: 20.0,
+            so_sat_mg_l: 0.0,
         }
+    }
+}
+
+impl Asm1Params {
+    /// BSM1 open-loop parameter set quoted at 15 degC (Henze et al. / BSM1
+    /// technical report, Tables 2-3). This is a public benchmark set, not a
+    /// site calibration.
+    pub fn bsm1_15c() -> Self {
+        Self {
+            y_h: 0.67,
+            f_p: 0.08,
+            y_a: 0.24,
+            i_xb: 0.08,
+            i_xp: 0.06,
+            mu_h_per_d: 4.0,
+            k_s: 10.0,
+            k_o_h: 0.2,
+            k_no: 0.5,
+            b_h_per_d: 0.3,
+            eta_g: 0.8,
+            eta_h: 0.8,
+            mu_a_per_d: 0.5,
+            k_nh: 1.0,
+            k_o_a: 0.4,
+            b_a_per_d: 0.05,
+            k_a_per_d: 0.05,
+            k_h_per_d: 3.0,
+            k_x: 0.1,
+            theta_h: 1.04,
+            theta_a: 1.07,
+            cod_per_no3_n: 2.86,
+            o2_per_nh_n: 4.57,
+            alk_per_nh_n: 7.14,
+            reference_temperature_c: 15.0,
+            so_sat_mg_l: 8.0,
+        }
+    }
+
+    /// BSM1 15 degC calibration candidate used for the `bsm1-calibrated`
+    /// fixture. It keeps the published set and only lowers the anoxic
+    /// hydrolysis correction from 0.8 to 0.6, which is the single parameter
+    /// that brings the coupled settler/recycle steady state back to Table 6.
+    /// This is a site-calibration candidate, not a published parameter set.
+    pub fn bsm1_calibrated() -> Self {
+        let mut params = Self::bsm1_15c();
+        params.eta_h = 0.6;
+        params
     }
 }
 
@@ -367,8 +430,8 @@ pub struct ProcessRates {
 
 pub fn process_rates(state: &Asm1State, params: &Asm1Params, temperature_c: f64) -> ProcessRates {
     let t = temperature_c.max(0.0);
-    let theta_h = params.theta_h.powf(t - 20.0);
-    let theta_a = params.theta_a.powf(t - 20.0);
+    let theta_h = params.theta_h.powf(t - params.reference_temperature_c);
+    let theta_a = params.theta_a.powf(t - params.reference_temperature_c);
 
     let mu_h = params.mu_h_per_d / 24.0 * theta_h;
     let mu_a = params.mu_a_per_d / 24.0 * theta_a;
@@ -394,8 +457,14 @@ pub fn process_rates(state: &Asm1State, params: &Asm1Params, temperature_c: f64)
         * (sno / (params.k_no + sno))
         * xbh;
     let hetero_decay = b_h * xbh;
+    // Hydrolysis is carried out by heterotrophs and depends on the electron
+    // acceptor: oxygen first, then nitrate with the anoxic correction `eta_h`.
+    // Anaerobic zones therefore do not keep producing readily biodegradable
+    // substrate, which is essential for a realistic anoxic S_S profile.
+    let hydrolysis_factor = so / (params.k_o_h + so)
+        + params.eta_h * params.k_o_h / (params.k_o_h + so) * sno / (params.k_no + sno);
     let hydrolysis = if xbh > 0.0 {
-        k_h * (xs / (params.k_x * xbh + xs)) * xbh
+        k_h * (xs / (params.k_x * xbh + xs)) * xbh * hydrolysis_factor.max(0.0)
     } else {
         0.0
     };
@@ -425,28 +494,46 @@ pub fn reaction_rates(state: &Asm1State, params: &Asm1Params, temperature_c: f64
     let autotrophic = p.autotrophic_growth;
     let decay_a = p.autotrophic_decay;
 
-    let oxygen_for_aerobic = (1.0 - params.y_h) / params.y_h * (aerobic + anoxic);
-    let oxygen_for_nitrification = params.o2_per_nh_n * (autotrophic / params.y_a);
+    // ASM1 observed rates. Units are mg/L/h except alkalinity, which is
+    // tracked as mg/L as CaCO3. The stoichiometric coefficients follow the
+    // published ASM1 matrix: growth consumes one mole of alkalinity per mole
+    // of biomass N assimilated, denitrification credits half of that, and
+    // nitrification consumes two moles per mole of NH4-N.
+    let oxygen_for_aerobic = (1.0 - params.y_h) / params.y_h * aerobic;
+    let oxygen_for_nitrification = (params.o2_per_nh_n - params.y_a) / params.y_a * autotrophic;
     let nitrate_removed = (1.0 - params.y_h) / (params.cod_per_no3_n * params.y_h) * anoxic;
-    let alkalinity_for_aerobic = params.i_xb * params.alk_per_nh_n * aerobic;
-    let alkalinity_for_anoxic =
-        (1.0 - params.y_h) / (params.cod_per_no3_n * params.y_h) * anoxic * params.alk_per_nh_n;
-    let alkalinity_for_nitrification = (autotrophic / params.y_a) * params.alk_per_nh_n;
+    // Nitrification consumes 1/Y_A g NH4-N per g biomass COD produced; the
+    // biomass itself carries i_XB g N, so the nitrate released is the rest.
+    let nitrate_produced = (1.0 - params.y_a * params.i_xb) / params.y_a * autotrophic;
+    let ammonia_for_nitrification = autotrophic / params.y_a;
+    let xs = state.xs.max(0.0);
+    let xnd = state.xnd.max(0.0);
+    let xnd_hydrolysis = if xs > 1e-12 {
+        hydrolysis * (xnd / xs)
+    } else {
+        0.0
+    };
+    let alkalinity_for_growth = 0.5 * params.alk_per_nh_n * params.i_xb * (aerobic + anoxic);
+    let alkalinity_for_denitrification = 0.5 * params.alk_per_nh_n * nitrate_removed;
+    let alkalinity_for_nitrification = params.alk_per_nh_n * nitrate_produced;
+    let alkalinity_for_ammonification = 0.5 * params.alk_per_nh_n * ammonification;
 
     Asm1Rates {
         si: 0.0,
         ss: -aerobic / params.y_h - anoxic / params.y_h + hydrolysis,
         xi: 0.0,
-        xs: -hydrolysis + params.f_p * (decay_h + decay_a),
+        xs: -hydrolysis + (1.0 - params.f_p) * (decay_h + decay_a),
         xbh: aerobic + anoxic - decay_h,
         xba: autotrophic - decay_a,
-        xp: (1.0 - params.f_p) * (decay_h + decay_a),
+        xp: params.f_p * (decay_h + decay_a),
         so: -oxygen_for_aerobic - oxygen_for_nitrification,
-        sno: -nitrate_removed,
-        snh: -params.i_xb * (aerobic + anoxic) + ammonification - autotrophic / params.y_a,
-        snd: -ammonification,
-        xnd: 0.0,
-        salk: -alkalinity_for_aerobic + alkalinity_for_anoxic - alkalinity_for_nitrification,
+        sno: -nitrate_removed + nitrate_produced,
+        snh: -params.i_xb * (aerobic + anoxic) + ammonification - ammonia_for_nitrification,
+        snd: -ammonification + xnd_hydrolysis,
+        xnd: (params.i_xb - params.f_p * params.i_xp) * (decay_h + decay_a) - xnd_hydrolysis,
+        salk: -alkalinity_for_growth + alkalinity_for_denitrification
+            - alkalinity_for_nitrification
+            + alkalinity_for_ammonification,
     }
 }
 
@@ -498,6 +585,47 @@ mod tests {
         assert!(rates.snh < 0.0);
         assert!(rates.so < 0.0);
         assert!(rates.xba > 0.0);
+    }
+
+    #[test]
+    fn autotrophic_growth_produces_nitrate() {
+        let state = Asm1State {
+            xba: 200.0,
+            so: 2.0,
+            snh: 20.0,
+            salk: 350.0,
+            ..Asm1State::zeros()
+        };
+        let rates = reaction_rates(&state, &Asm1Params::bsm1_15c(), 15.0);
+        assert!(rates.sno > 0.0, "nitrification must produce nitrate");
+        assert!(rates.snh < 0.0);
+        assert!(rates.so < 0.0);
+    }
+
+    #[test]
+    fn hydrolysis_releases_particulate_organic_nitrogen() {
+        let state = Asm1State {
+            xs: 100.0,
+            xnd: 10.0,
+            xbh: 1000.0,
+            so: 2.0,
+            ..Asm1State::zeros()
+        };
+        let rates = reaction_rates(&state, &Asm1Params::bsm1_15c(), 15.0);
+        assert!(rates.xnd < 0.0, "X_ND must be hydrolysed");
+        assert!(rates.snd > 0.0, "hydrolysis must release S_ND");
+    }
+
+    #[test]
+    fn decay_splits_into_inert_products_and_slow_substrate() {
+        let state = Asm1State {
+            xbh: 1000.0,
+            ..Asm1State::zeros()
+        };
+        let rates = reaction_rates(&state, &Asm1Params::bsm1_15c(), 15.0);
+        assert!(rates.xp > 0.0, "decay must produce X_P");
+        assert!(rates.xs > 0.0, "decay must produce X_S");
+        assert!(rates.xp < rates.xs, "f_P is the smaller decay fraction");
     }
 
     #[test]

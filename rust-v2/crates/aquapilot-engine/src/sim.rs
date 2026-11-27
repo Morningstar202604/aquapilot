@@ -58,6 +58,9 @@ pub struct ReactorSnapshot {
     pub kla_h: f64,
     pub do_setpoint: f64,
     pub cod: f64,
+    pub s_s: f64,
+    pub x_bh: f64,
+    pub x_ba: f64,
     pub nh4_n: f64,
     pub no3_n: f64,
     pub tp: f64,
@@ -92,6 +95,7 @@ pub struct ClarifierSnapshot {
 pub struct EffluentSnapshot {
     pub flow_m3_h: f64,
     pub cod: f64,
+    pub s_s: f64,
     pub nh4_n: f64,
     pub no3_n: f64,
     pub tn: f64,
@@ -319,7 +323,7 @@ impl Simulator {
             }
 
             if reactor.kind.is_aerobic() && reactor.kla_h > 0.0 {
-                let saturation = saturation_do(reactor.temperature_c);
+                let saturation = saturation_do(reactor.temperature_c, &self.params);
                 let kla = if let Some(controller) = self.controllers[index].as_mut() {
                     let error = controller.setpoint - previous[index].so;
                     controller.integral += error * dt_h;
@@ -430,6 +434,9 @@ impl Simulator {
                     kla_h: self.last_kla[index],
                     do_setpoint: reactor.do_setpoint,
                     cod: state.total_cod(),
+                    s_s: state.ss,
+                    x_bh: state.xbh,
+                    x_ba: state.xba,
                     nh4_n: state.snh,
                     no3_n: state.sno,
                     tp: 0.0,
@@ -490,6 +497,7 @@ impl Simulator {
             effluent: EffluentSnapshot {
                 flow_m3_h: self.plant.effluent_flow_m3_h,
                 cod: effluent.total_cod(),
+                s_s: effluent.ss,
                 nh4_n: effluent.snh,
                 no3_n: effluent.sno,
                 tn: effluent.total_nitrogen(),
@@ -610,8 +618,12 @@ fn mass_rate_kg_per_step(flow_m3_h: f64, concentration_mg_l: f64, dt_h: f64) -> 
     flow_m3_h * concentration_mg_l * dt_h / 1000.0
 }
 
-fn saturation_do(temperature_c: f64) -> f64 {
-    (9.1 - 0.2 * (temperature_c - 20.0)).clamp(6.0, 12.0)
+fn saturation_do(temperature_c: f64, params: &Asm1Params) -> f64 {
+    if params.so_sat_mg_l > 0.0 {
+        params.so_sat_mg_l
+    } else {
+        (9.1 - 0.2 * (temperature_c - 20.0)).clamp(6.0, 12.0)
+    }
 }
 
 #[cfg(test)]
@@ -793,17 +805,90 @@ mod tests {
                 dt_min: 1.0,
                 duration_min: 30.0 * 1440.0,
             },
-            Asm1Params::default(),
+            Asm1Params::bsm1_15c(),
         )
         .expect("official BSM1 plant should run");
         assert_eq!(snapshot.step_count, 43200);
         assert_eq!(snapshot.reactors.len(), 5);
         assert_eq!(snapshot.clarifiers.len(), 1);
         assert!(snapshot.effluent.cod.is_finite());
-        assert!(snapshot.effluent.ss.is_finite());
+        assert!(snapshot.effluent.ss < 20.0, "official BSM1 SS gate");
         assert!(snapshot.effluent.nh4_n.is_finite());
+        assert!(
+            (5000.0..=7000.0).contains(&snapshot.clarifiers[0].underflow_tss),
+            "official BSM1 underflow TSS gate"
+        );
         assert!(snapshot.clarifiers[0].underflow_tss > snapshot.clarifiers[0].overflow_tss);
-        assert!(snapshot.effluent.dissolved_oxygen.is_finite());
+        assert!(
+            snapshot
+                .reactors
+                .iter()
+                .all(|reactor| (2500.0..=4000.0).contains(&reactor.mlss)),
+            "official BSM1 MLSS gate"
+        );
+    }
+
+    #[test]
+    fn bsm1_calibrated_plant_matches_table6_within_twenty_percent() {
+        let topology: PlantTopology =
+            serde_json::from_str(include_str!("../../../fixtures/bsm1-calibrated.json"))
+                .expect("calibrated BSM1 fixture should parse");
+        let snapshot = simulate(
+            &topology,
+            SimulationConfig {
+                dt_min: 1.0,
+                duration_min: 30.0 * 1440.0,
+            },
+            Asm1Params::bsm1_calibrated(),
+        )
+        .expect("calibrated BSM1 plant should run");
+        assert_eq!(snapshot.step_count, 43200);
+        assert_eq!(snapshot.reactors.len(), 5);
+        assert_eq!(snapshot.clarifiers.len(), 1);
+
+        let within = |actual: f64, expected: f64, tolerance: f64| {
+            (actual - expected).abs() <= expected.abs() * tolerance
+        };
+        let effluent = &snapshot.effluent;
+        assert!(within(effluent.s_s, 0.889, 0.20), "effluent S_S");
+        assert!(within(effluent.nh4_n, 1.733, 0.20), "effluent S_NH");
+        assert!(within(effluent.no3_n, 10.415, 0.20), "effluent S_NO");
+        assert!(
+            within(effluent.dissolved_oxygen, 0.491, 0.20),
+            "effluent S_O"
+        );
+        assert!(within(effluent.ss, 12.50, 0.20), "effluent TSS");
+        assert!(within(snapshot.clarifiers[0].underflow_tss, 6394.0, 0.20));
+
+        let table6_s_s = [2.81, 1.46, 1.15, 0.995, 0.889];
+        let table6_s_no = [5.37, 3.66, 6.54, 9.30, 10.4];
+        let table6_s_nh = [7.92, 8.34, 5.55, 2.97, 1.73];
+        let table6_s_o = [0.00430, 0.0000631, 1.72, 2.43, 0.491];
+        for (index, reactor) in snapshot.reactors.iter().enumerate() {
+            assert!(
+                within(reactor.s_s, table6_s_s[index], 0.20),
+                "reactor {} S_S",
+                reactor.id
+            );
+            assert!(
+                within(reactor.no3_n, table6_s_no[index], 0.20),
+                "reactor {} S_NO",
+                reactor.id
+            );
+            assert!(
+                within(reactor.nh4_n, table6_s_nh[index], 0.20),
+                "reactor {} S_NH",
+                reactor.id
+            );
+            if table6_s_o[index] > 0.1 {
+                assert!(
+                    within(reactor.dissolved_oxygen, table6_s_o[index], 0.20),
+                    "reactor {} S_O",
+                    reactor.id
+                );
+            }
+            assert!((2500.0..=3600.0).contains(&reactor.mlss));
+        }
     }
 
     #[test]
