@@ -42,6 +42,10 @@ jobs:
         run: cargo run -q -p aquapilot-cli -- asm2d fixtures/a2o-asm2d.json --minutes 43200 --json > /tmp/a2o-30d.json
       - name: Smoke ASM2d two-train 30 days
         run: cargo run -q -p aquapilot-cli -- asm2d-parallel fixtures/a2o-asm2d-2train.json --minutes 43200 --json > /tmp/a2o-2train.json
+      - name: Smoke ADM1 tutorial
+        run: cargo run -q -p aquapilot-cli -- adm1 fixtures/adm1-tutorial.json --days 10 --dt 0.002 --json > /tmp/adm1.json
+      - name: Smoke ADM1 sludge line
+        run: cargo run -q -p aquapilot-cli -- sludge-line fixtures/adm1-sludge-line.json --days 20 --dt 0.002 --json > /tmp/adm1-sludge.json
       - name: Assert finite snapshot
         run: |
           python3 - <<'PY'
@@ -71,5 +75,20 @@ jobs:
           for name in ('cod', 'nitrogen', 'phosphorus'):
               assert a['mass_balance'][name]['closed'] is True
               assert a['mass_balance'][name]['residual_fraction'] < 0.05
+
+          m = json.load(open('/tmp/adm1.json'))
+          assert 6.8 <= m['ph'] <= 7.8
+          assert m['biogas_m3_per_d'] > 1000.0
+          assert m['cod_balance']['closed'] is True
+          assert abs(m['cod_balance']['residual']) < 0.05
+          assert m['nitrogen_balance']['closed'] is True
+          assert abs(m['nitrogen_balance']['residual']) < 0.05
+
+          sl = json.load(open('/tmp/adm1-sludge.json'))
+          assert sl['thickened']['flow_m3_per_d'] == 120.0
+          assert sl['cake']['flow_m3_per_d'] > 0.0
+          assert abs(sl['cod_balance']['residual']) < 0.03
+          assert abs(sl['nitrogen_balance']['residual']) < 0.03
+          assert abs(sl['phosphorus_balance']['residual']) < 0.01
           print('v2 smoke ok')
           PY

@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use aquapilot_domain::PlantTopology;
 use aquapilot_engine::{simulate, CompiledPlant, SimulationConfig, Simulator};
+use aquapilot_model::adm1::{simulate_adm1, Adm1Config};
+use aquapilot_model::adm1_sludge::{simulate_sludge_line, SludgeLineConfig};
 use aquapilot_model::asm2d::Asm2dParams;
 use aquapilot_model::asm2d_parallel::{simulate_asm2d_parallel, Asm2dParallelConfig};
 use aquapilot_model::asm2d_plant::{simulate_asm2d, Asm2dPlantConfig, Asm2dSimulationConfig};
@@ -64,6 +66,40 @@ enum Command {
         /// Kinetic parameter set.
         #[arg(long, value_enum, default_value_t = ParamSet::Default)]
         params: ParamSet,
+    },
+    /// Run the ADM1 anaerobic digester CSTR from a JSON configuration.
+    Adm1 {
+        /// Path to the ADM1 configuration JSON file.
+        config: PathBuf,
+        /// Simulated duration in days.
+        #[arg(long, default_value_t = 10.0)]
+        days: f64,
+        /// Time step in days.
+        #[arg(long, default_value_t = 0.002)]
+        dt: f64,
+        /// Optional output path for the JSON snapshot.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Print the full snapshot JSON to stdout.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run the ADM1 sludge line (thickener, digester, dewatering).
+    SludgeLine {
+        /// Path to the sludge-line JSON file.
+        config: PathBuf,
+        /// Simulated duration in days.
+        #[arg(long, default_value_t = 20.0)]
+        days: f64,
+        /// Time step in days.
+        #[arg(long, default_value_t = 0.002)]
+        dt: f64,
+        /// Optional output path for the JSON snapshot.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Print the full snapshot JSON to stdout.
+        #[arg(long)]
+        json: bool,
     },
     /// Run parallel ASM2d trains (multi-series clarifiers) and aggregate the plant.
     Asm2dParallel {
@@ -196,6 +232,117 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     snapshot.mass_balance.inventory_change_kg,
                     snapshot.mass_balance.unaccounted_cod_kg
                 );
+            }
+            if let Some(path) = out {
+                std::fs::write(&path, serde_json::to_string_pretty(&snapshot)?)?;
+                eprintln!("snapshot written to {}", path.display());
+            }
+        }
+        Command::Adm1 {
+            config,
+            days,
+            dt,
+            out,
+            json,
+        } => {
+            let text = std::fs::read_to_string(&config)?;
+            let plant: Adm1Config = serde_json::from_str(&text)?;
+            let snapshot = simulate_adm1(&plant, days, dt)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&snapshot)?);
+            } else {
+                println!(
+                    "ADM1 CSTR: {:.0} m3, {:.0} m3/d, {:.1} K",
+                    plant.volume_m3, plant.flow_m3_per_d, plant.temperature_k
+                );
+                println!(
+                    "t={:.1} d, steps={}, pH={:.3}, effluent COD={:.2} kg/m3, N={:.3} kg N/m3, SS={:.2} kg/m3",
+                    snapshot.days, snapshot.steps, snapshot.ph,
+                    snapshot.effluent.cod(), snapshot.effluent.nitrogen(), snapshot.effluent.suspended_solids()
+                );
+                println!(
+                    "biogas={:.1} m3/d, CH4={:.1} m3/d ({:.1}%), CO2={:.2}%, H2={:.3}%",
+                    snapshot.biogas_m3_per_d,
+                    snapshot.methane_m3_per_d,
+                    snapshot.methane_fraction * 100.0,
+                    snapshot.co2_fraction * 100.0,
+                    snapshot.h2_fraction * 100.0
+                );
+                for (name, ledger) in [
+                    ("COD", &snapshot.cod_balance),
+                    ("N", &snapshot.nitrogen_balance),
+                ] {
+                    println!(
+                        "{} ledger: in={:.1} kg, out={:.1} kg, gas={:.1} kg, inventory={:.1} kg, residual={:.2}%, closed={}",
+                        name, ledger.input_kg, ledger.output_kg, ledger.gas_kg, ledger.inventory_kg,
+                        ledger.residual * 100.0, ledger.closed
+                    );
+                }
+            }
+            if let Some(path) = out {
+                std::fs::write(&path, serde_json::to_string_pretty(&snapshot)?)?;
+                eprintln!("snapshot written to {}", path.display());
+            }
+        }
+        Command::SludgeLine {
+            config,
+            days,
+            dt,
+            out,
+            json,
+        } => {
+            let text = std::fs::read_to_string(&config)?;
+            let line: SludgeLineConfig = serde_json::from_str(&text)?;
+            let snapshot = simulate_sludge_line(&line, days, dt)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&snapshot)?);
+            } else {
+                println!(
+                    "sludge line: feed {:.0} m3/d -> thickener underflow {:.0} m3/d -> digester {:.0} m3",
+                    line.feed.flow_m3_per_d,
+                    snapshot.thickened.flow_m3_per_d,
+                    line.digester_volume_m3
+                );
+                println!(
+                    "thickened: COD={:.1} kg/m3, N={:.3}, P={:.3}, SS={:.2} kg/m3",
+                    snapshot.thickened.state.cod(),
+                    snapshot.thickened.state.nitrogen(),
+                    snapshot.thickened.phosphorus_kg_per_m3,
+                    snapshot.thickened.state.suspended_solids()
+                );
+                println!(
+                    "digester: pH={:.3}, biogas={:.1} m3/d, CH4={:.1}%, COD residual={:.2}%, N residual={:.2}%",
+                    snapshot.digester.ph,
+                    snapshot.digester.biogas_m3_per_d,
+                    snapshot.digester.methane_fraction * 100.0,
+                    snapshot.digester.cod_balance.residual * 100.0,
+                    snapshot.digester.nitrogen_balance.residual * 100.0
+                );
+                println!(
+                    "cake: flow={:.2} m3/d, TS={:.1} kg/m3, P={:.3} kg/m3; filtrate: flow={:.2} m3/d",
+                    snapshot.cake.flow_m3_per_d,
+                    snapshot.cake.state.suspended_solids(),
+                    snapshot.cake.phosphorus_kg_per_m3,
+                    snapshot.filtrate.flow_m3_per_d
+                );
+                for (name, ledger) in [
+                    ("COD", &snapshot.cod_balance),
+                    ("N", &snapshot.nitrogen_balance),
+                    ("P", &snapshot.phosphorus_balance),
+                ] {
+                    println!(
+                        "{} line ledger: in={:.1}, overflow={:.1}, cake={:.1}, filtrate={:.1}, gas={:.1}, inventory={:.1}, residual={:.2}%, closed={}",
+                        name,
+                        ledger.input_kg,
+                        ledger.overflow_kg,
+                        ledger.cake_kg,
+                        ledger.filtrate_kg,
+                        ledger.gas_kg,
+                        ledger.inventory_kg,
+                        ledger.residual * 100.0,
+                        ledger.closed
+                    );
+                }
             }
             if let Some(path) = out {
                 std::fs::write(&path, serde_json::to_string_pretty(&snapshot)?)?;

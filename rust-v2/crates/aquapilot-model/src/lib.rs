@@ -4,6 +4,8 @@
 //! All concentrations are mg/L (= g/m3); rates are g/m3/h. Parameter values
 //! are stored per day and converted inside `reaction_rates`.
 
+pub mod adm1;
+pub mod adm1_sludge;
 pub mod asm2d;
 pub mod asm2d_parallel;
 pub mod asm2d_plant;

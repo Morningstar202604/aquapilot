@@ -141,6 +141,8 @@ fixture：`rust-v2/fixtures/bsm1-official.json`
 
 ## 3. V2-2 ASM2d A2O 整厂
 
+![V2 30 天质量账 dashboard](screenshots/v2-30d-dashboard.png)
+
 fixture：`rust-v2/fixtures/a2o-asm2d.json`，CLI：`aquapilot-v2 asm2d`。
 
 | 项目 | 值 |
@@ -193,7 +195,65 @@ ASM2d 实现覆盖 19 组分（18 个独立动力学状态 + 由颗粒组分导�
 
 两系列结果与单系列一致；这是因为几何、流量、负荷与 SRT 均按比例缩放。该 fixture 验证的是多系列编排、汇总与逐系列质量账，而不是不同系列负荷分配下的偏差。
 
-## 4. 质量门
+## 4. ADM1 核心 CSTR
+
+fixture：`rust-v2/fixtures/adm1-tutorial.json`，CLI：`aquapilot-v2 adm1`。
+
+| 项目 | 值 |
+| --- | --- |
+| 反应器 | 850 m3 CSTR |
+| 进料 / 温度 / 气相比 | 170 m3/d / 308.15 K / 0.1 |
+| 状态 | 24 个动力学组分 + 2 个强离子（`S_cat`、`S_an`），共 26 |
+| 过程 | 22 个 ADM1 过程 |
+| 数值 | 显式欧拉，dt 0.002 d，10 d / 29,253 步 |
+
+| 指标 | 实测 |
+| --- | --- |
+| pH | 6.948 |
+| 出水 COD | 38.92 kg COD/m3 |
+| 出水 N | 3.532 kg N/m3 |
+| 出水 SS | 16.85 kg/m3 |
+| 乙酸 | 8.57 kg COD/m3 |
+| 沼气 | 1,657.7 m3/d |
+| CH4 | 825.0 m3/d（49.77%） |
+| CO2 / H2 | 49.41% / 0.825% |
+| COD 账 | in 96,961.2 / out 57,890.1 / gas 23,654.2 / inventory 15,422.7 kg，残差 -0.006% |
+| N 账 | in 6,250.0 / out 5,466.7 / inventory 783.7 kg，残差 -0.005% |
+
+实现要点：强离子电荷平衡 + 二分求 `H+`，Ka 做 van’t Hoff 温度修正；H2/NH3/IN 抑制按 ADM1 形式；气相用准稳态 headspace，以有符号净转移累计气量；CSTR 瞬态出流逐步累计，不用 `final_conc * Q * days`。默认矩阵直接取 QSDsan 1.5.3 的 ADM1 默认解析矩阵，行级 COD/N 守恒有单测。
+
+已知偏差：
+
+- 乙酸 8.57 kg COD/m3，比 QSDsan 教程约 5.32 高约 61%；测试容差放到 3–10，不能声称与 QSDsan 完全一致。
+- Henry 常数保留 `kh_h2=0.001`、`kh_ch4=0.001`、`kh_co2=0.035`（kg/m3/bar 直接值），与 QSDsan 的 `KHb/unit_conversion` 口径存在已知近似；这是当前 pH/账稳定的工程选择。
+- 仅核心 CSTR，不含浓缩、脱水、滤液回流，也不含 ASM2d 组分翻译。
+
+## 5. 独立泥线（浓缩 + 消化 + 脱水）
+
+fixture：`rust-v2/fixtures/adm1-sludge-line.json`，CLI：`aquapilot-v2 sludge-line`。
+
+| 项目 | 值 |
+| --- | --- |
+| 进泥 | 480 m3/d，COD 6.79 kg/m3，N 0.325，P 0.489 kg/m3 |
+| 浓缩 | 底流 120 m3/d，颗粒捕获 90%，P 颗粒占比 90% |
+| 消化 | 2,400 m3，HRT 20 d，308.15 K |
+| 脱水 | 泥饼 250 kg/m3 TS，颗粒捕获 95% |
+| 步长 / 时长 | 0.002 d，20 d |
+
+| 指标 | 实测 |
+| --- | --- |
+| 浓缩底流 | COD 24.73 kg/m3，N 1.132，P 1.633 kg/m3 |
+| 消化 pH | 7.977 |
+| 沼气 | 1,211.3 m3/d，CH4 62.2% |
+| 泥饼 | 2.65 m3/d，250 kg/m3 TS，P 63.45 kg/m3 |
+| 滤液 | 117.35 m3/d，P 0.238 kg/m3 |
+| COD 账 | in 67,872.1 / overflow 8,784.1 / cake 20,484.4 / filtrate 2,869.0 / gas 43,092.4 / inventory -7,894.5 kg，残差 0.79% |
+| N 账 | in 3,121.5 / overflow 405.5 / cake 1,348.5 / filtrate 1,438.6 / inventory -122.1 kg，残差 1.64% |
+| P 账 | in 4,694.4 / overflow 774.6 / cake 3,360.1 / filtrate 559.7 kg，残差 0.00% |
+
+边界：进泥是代表 A2O 排泥的合成流，不是从 `asm2d_plant` 直接取料；ADM1 不含 P，P 只作惰性示踪，不能称为 ADM1-P；泥饼 TS 是给定边界，不是由过滤动力学预测。
+
+## 6. 质量门
 
 ```bash
 cd rust-v2
@@ -202,12 +262,12 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-2026-11-27 结果：35 项测试全过（model 27 + engine 8），fmt/clippy 干净。ASM1 30 天测试在 debug 模式下约 0.3–0.4 s 完成；ASM2d A2O 30 天约 0.6 s，2×500 m3/h 两系列约 1.2 s。
+2026-11-27 结果：38 项测试全过（model 30 + engine 8），fmt/clippy 干净。ASM1 30 天测试在 debug 模式下约 0.3–0.4 s 完成；ASM2d A2O 30 天约 0.6 s，2×500 m3/h 两系列约 1.2 s；ADM1 10 天约 1.4 s，独立泥线 20 天约 10.6 s。
 
-## 5. 未做与边界
+## 7. 未做与边界
 
 - 官方参数集仍未全部通过 Table 6；校准候选在 ±20% 内通过，但属于工程标定，不是官方参数复原。
 - 没有真实管网水力求解；连接流量仍是显式给定。
 - 没有 pH/碱度限制；碱度会被钳制到 0，当前只作诊断，不阻断。
-- ASM2d 已落 A2O 整厂与多系列汇总，但 ADM1 泥线、PAC 仍未完成。
+- ASM2d 已落 A2O 整厂与多系列汇总；ADM1 核心与独立泥线已落，但尚未接入 A2O 整厂（排泥、滤液回流、P 路由均未接），PAC 未完成。
 - 没有 24 h soak、没有 HTTP/WS 与界面。
