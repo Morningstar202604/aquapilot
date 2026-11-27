@@ -1,5 +1,16 @@
 # AquaPilot Work Log
 
+## 2026-11-27 — V2-2 起步：ASM2d 19 组分 + 21 过程 + A2O 整厂
+
+- 新增 `aquapilot-model::asm2d`：18 个独立动力学状态 + 由颗粒组分导出的 `X_TSS`，覆盖 19 组分；21 个过程：好氧/缺氧/厌氧水解、`S_F`/`S_A` 异养生长与反硝化、发酵、异养溶菌、PAO 的 PHA 储存、好氧/缺氧 PP 储存、好氧/缺氧生长、PAO/PP/PHA 溶菌、自养好氧生长与溶菌、化学沉淀与再溶解。
+- 化学计量与速率方程来自公开 ASM2d 资料（Henze et al. 1999；QSDsan 21×18 矩阵；WaterTAP 速率方程与参数表）。`X_TSS` 不作独立动力学状态；`X_MeP` 的 P 计量按 1/4.87 换算，避免把金属磷酸盐质量当 P 重复计量。
+- 新增 `aquapilot-model::asm2d_plant`：A2O 整厂（厌氧/缺氧/三级好氧 + 10 层二沉池 + RAS/内回流/WAS），显式分流、DO 控制、30 天质量账；CLI 新增 `asm2d` 子命令。
+- 新增 `fixtures/a2o-asm2d.json`：厌氧 4000 + 缺氧 4000 + 好氧 2000/2000/2000 m3，二沉池 6000 m2，Q0 1000、RAS 1000、内回流 2000、WAS 20 m3/h，KLa 8、DO 设定 2.0。
+- 30 天 / 43,200 步：出水 COD 43.98、S_S 1.199、NH4-N 0.673、NO3-N 8.149、TN 9.719、TP 1.214、PO4-P 0.215、SS 11.45 mg/L；二沉池 feed/underflow/overflow TSS 3139.4/6146.3/11.5。
+- 质量账：COD 账残差 1.73%（closed）；N 账残差 14.55%（open）；P 账残差 17.45%（open）。不声称 V2-2 三本账闭合。
+- 质量门：33 项测试全过（model 25 + engine 8），fmt/clippy 干净；ASM2d 30 天约 0.5 s。CI 新增 ASM2d A2O 30 天 smoke 与 COD 闭合断言。
+- 未做：N/P 账闭合、ADM1 泥线、PAC、多系列二沉池、V2-2 最终验收。
+
 ## 2026-11-27 — V2-1 首版：整厂 ASM1、二沉池、RAS/内回流、DO 控制
 
 - `aquapilot-domain` 新增 `Waste` 沉泥汇、10 层二沉池几何与 `SettlerParams`。

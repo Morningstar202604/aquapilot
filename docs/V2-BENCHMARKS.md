@@ -139,7 +139,44 @@ fixture：`rust-v2/fixtures/bsm1-official.json`
 
 校准候选的全部关键指标落在 Table 6 的 **±20% 工程容差**内；`bsm1_calibrated_plant_matches_table6_within_twenty_percent` 测试锁定该门禁。`eta_h=0.6` 与有效 KLa 是**校准候选，不是公开 BSM1 参数集**，不能用于声称“官方参数复原”。
 
-## 3. 质量门
+## 3. V2-2 ASM2d A2O 整厂
+
+fixture：`rust-v2/fixtures/a2o-asm2d.json`，CLI：`aquapilot-v2 asm2d`。
+
+| 项目 | 值 |
+| --- | --- |
+| 反应器 | 厌氧 4000 + 缺氧 4000 + 好氧 2000/2000/2000 m3 |
+| 二沉池 | 面积 6000 m2，深度 4 m，10 层，feed layer 5 |
+| 进水流量 | 1000 m3/h |
+| RAS / 内回流 / WAS | 1000 / 2000 / 20 m3/h |
+| 好氧 KLa | 8.0 h-1，DO 设定 2.0 mg/L |
+| 步长 / 时长 | 1 min，30 d / 43,200 步 |
+
+| 指标 | 实测 |
+| --- | --- |
+| 出水 COD | 43.98 mg/L |
+| 出水 S_S | 1.199 mg/L |
+| 出水 NH4-N | 0.673 mg/L |
+| 出水 NO3-N | 8.149 mg/L |
+| 出水 TN | 9.719 mg/L |
+| 出水 TP | 1.214 mg/L |
+| 出水 PO4-P | 0.215 mg/L |
+| 出水 SS | 11.45 mg/L |
+| 出水 DO | 2.000 mg/L |
+| 二沉池 feed / underflow / overflow TSS | 3139.4 / 6146.3 / 11.5 mg/L |
+| COD 账残差 | 1.73%（closed） |
+| N 账残差 | 14.55%（open） |
+| P 账残差 | 17.45%（open） |
+
+ASM2d 实现覆盖 19 组分（18 个独立动力学状态 + 由颗粒组分导出的 `X_TSS`）与 21 个过程：好氧/缺氧/厌氧水解，`S_F`/`S_A` 异养生长与反硝化，发酵，异养溶菌，PAO 的 PHA 储存、好氧/缺氧 PP 储存、好氧/缺氧生长、PAO/PP/PHA 溶菌，自养好氧生长与溶菌，化学沉淀与再溶解。化学计量矩阵与速率方程来自公开 ASM2d 资料；`X_TSS` 不作为独立动力学状态，避免与 COD 组分重复计量。
+
+当前边界：
+
+- COD 账已将异养/PAO 氧耗与反硝化 COD 计入氧化行，达到 5% 闭合门限；
+- N/P 账尚未闭合，不能把本 fixture 当作 V2-2 最终验收；
+- ADM1 泥线、PAC、多系列二沉池尚未开始。
+
+## 4. 质量门
 
 ```bash
 cd rust-v2
@@ -148,11 +185,12 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-2026-11-27 结果：22 项测试全过（model 14 + engine 8），fmt/clippy 干净。30 天测试在 debug 模式下约 0.3–0.4 s 完成。
+2026-11-27 结果：33 项测试全过（model 25 + engine 8），fmt/clippy 干净。ASM1 30 天测试在 debug 模式下约 0.3–0.4 s 完成；ASM2d A2O 30 天约 0.5 s 完成。
 
-## 4. 未做与边界
+## 5. 未做与边界
 
 - 官方参数集仍未全部通过 Table 6；校准候选在 ±20% 内通过，但属于工程标定，不是官方参数复原。
 - 没有真实管网水力求解；连接流量仍是显式给定。
 - 没有 pH/碱度限制；碱度会被钳制到 0，当前只作诊断，不阻断。
-- 没有 ASM2d/ADM1、没有氧化项入账、没有 24 h soak、没有 HTTP/WS 与界面。
+- ASM2d 已落 A2O 整厂，但 ADM1 泥线、PAC、多系列二沉池、N/P 三账闭合仍未完成。
+- 没有 24 h soak、没有 HTTP/WS 与界面。

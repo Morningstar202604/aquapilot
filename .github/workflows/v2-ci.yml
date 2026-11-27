@@ -38,6 +38,8 @@ jobs:
         run: cargo run -q -p aquapilot-cli -- validate fixtures/bsm1-official.json
       - name: Smoke BSM1-like 30 days
         run: cargo run -q -p aquapilot-cli -- simulate fixtures/bsm1-like.json --minutes 43200 --json > /tmp/bsm1-30d.json
+      - name: Smoke ASM2d A2O 30 days
+        run: cargo run -q -p aquapilot-cli -- asm2d fixtures/a2o-asm2d.json --minutes 43200 --json > /tmp/a2o-30d.json
       - name: Assert finite snapshot
         run: |
           python3 - <<'PY'
@@ -56,5 +58,15 @@ jobs:
           assert b['effluent']['ss'] < 20.0
           assert b['effluent']['nh4_n'] < 5.0
           assert all(2000.0 <= r['mlss'] <= 4000.0 for r in b['reactors'])
+
+          a = json.load(open('/tmp/a2o-30d.json'))
+          assert a['step_count'] == 43200
+          assert len(a['reactors']) == 5
+          assert a['effluent']['cod'] < 60.0
+          assert a['effluent']['nh4_n'] < 2.0
+          assert a['effluent']['tp'] < 2.0
+          assert a['effluent']['ss'] < 20.0
+          assert a['mass_balance']['cod']['closed'] is True
+          assert a['mass_balance']['cod']['residual_fraction'] < 0.05
           print('v2 smoke ok')
           PY

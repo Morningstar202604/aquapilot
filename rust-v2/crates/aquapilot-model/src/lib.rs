@@ -4,6 +4,8 @@
 //! All concentrations are mg/L (= g/m3); rates are g/m3/h. Parameter values
 //! are stored per day and converted inside `reaction_rates`.
 
+pub mod asm2d;
+pub mod asm2d_plant;
 pub mod settler;
 
 use serde::{Deserialize, Serialize};
