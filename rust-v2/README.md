@@ -6,21 +6,22 @@
 - Clean-room 规则：`../docs/CLEAN-ROOM.md`
 - 旧 `rust/` 已冻结为 v0.11.23 的历史 checkpoint，v2 不读取、不复制它的源码。
 
-## 当前状态：V2-1 已完成，V2-2 回流闭环已落，PAC 未做
+## 当前状态：V2-1 已完成，V2-2 回流闭环 + PAC 基础投加已落
 
 V2-1 已完成并推送：ASM1 五池整厂、Takács 10 层二沉池、RAS/内回流/WAS、DO 控制、BSM1-like 与官方 BSM1 对照、22 项测试。
 
 V2-2 当前已落：
 
 - `aquapilot-model::asm2d`：19 组分（18 个独立动力学状态 + 由颗粒组分导出的 `X_TSS`）、21 个 ASM2d 过程、公开化学计量矩阵与速率方程；
-- `aquapilot-model::asm2d_plant`：A2O 整厂路径（厌氧/缺氧/多级好氧 + 二沉池 + RAS/内回流/WAS），30 天稳定运行，CLI `asm2d` 可执行；
+- `aquapilot-model::asm2d_plant`：A2O 整厂路径（厌氧/缺氧/多级好氧 + 二沉池 + RAS/内回流/WAS），30 天稳定运行，CLI `asm2d` 可执行；支持 PAC 投加到指定反应器，按 Al2O3 品位换算 Al，再映射为 ASM2d `X_MeOH` 当量；
 - ASM2d 质量账：A2O fixture 30 天的 COD/N/P 三本账均闭合（残差分别为 2.13% / 1.09% / 1.52%）；
 - 多系列：`aquapilot-model::asm2d_parallel` 支持多个独立 A2O 系列并行运行并汇总全厂出水与三本账；`a2o-asm2d-2train.json` 为 2×500 m3/h 示例，系列各自拥有二沉池、RAS/WAS；
 - `aquapilot-model::adm1`：24 个动力学组分 + 2 个强离子状态、22 个过程、强离子 pH/电荷平衡、准稳态气相、COD/N 双账；10 天 tutorial 残差 -0.01% / -0.00%；
 - `aquapilot-model::adm1_sludge`：重力浓缩 + ADM1 消化 + 机械脱水 + 沼气 + 磷示踪的独立泥线，20 天 COD/N/P 账残差 0.00% / 0.00% / 0.00%；
 - `aquapilot-model::asm2d_sludge`：ASM2d 与 ADM1 的双向翻译，A2O 二沉池底流按 COD/N/P 守恒进入泥线，泥线回流液按 COD/N/P 守恒翻回 ASM2d；CLI `asm2d-sludge` 可跑单向接入；
 - `aquapilot-model::asm2d_adm1_loop`：把浓缩溢流与滤液合并后接回 A2O 进水，successive substitution 迭代到回流状态稳定；整厂 COD/N/P 三本账以外部进水为输入，出水、泥饼、沼气、库存为输出；CLI `asm2d-loop`；
-- 尚未实现：PAC、HTTP/WS 服务、实验队列、界面、24 h soak。
+- PAC 基础投加：`Asm2dPacConfig` 指定反应器、产品剂量、Al2O3 品位和金属氢氧化物当量；`asm2d`/`asm2d-loop` 支持 `--pac-dose`、`--pac-reactor`、`--pac-al2o3-fraction`；`fixtures/a2o-asm2d-pac.json` 为 40 mg/L 示例；
+- 尚未实现：HTTP/WS 服务、实验队列、界面、24 h soak；PAC 目前是三价金属当量模型，未区分 Al/Fe 形态。
 
 30 天 A2O ASM2d 实测（`fixtures/a2o-asm2d.json`）：
 
@@ -51,11 +52,27 @@ V2-2 当前已落：
 | 泥饼 / 滤液 | 2.78 m3/d / 117.22 m3/d |
 | 整厂 COD / N / P 残差 | -1.03% / 2.19% / 0.71%，均 closed |
 
-60 天稳态检查：整厂 COD / N / P 残差 -1.64% / 1.15% / 0.40%，均 closed；A2O 出水 TP 3.555 mg/L。P 质量账已闭环，但出水 TP 仍高，需要 PAC 或强化泥线 P 截留，不能把“P 账闭合”当成“P 达标”。
+60 天稳态检查：整厂 COD / N / P 残差 -1.64% / 1.15% / 0.40%，均 closed；A2O 出水 TP 3.555 mg/L。P 质量账已闭环，但单靠生物除磷出水 TP 仍高。
 
-当前仍不能把 V2-2 表述为完成：回流闭环与整厂三本账已跑通，PAC 未实现，出水 TP 未达常见排放限值。
+PAC 40 mg/L 回流闭环 30 天实测（`fixtures/a2o-asm2d-pac.json`）：
+
+| 指标 | 实测 |
+| --- | --- |
+| 迭代 / 回流 | 6 次收敛，19.883 m3/h |
+| PAC 产品 / Al / X_MeOH 当量 | 979.1 / 155.5 / 616.2 kg/d |
+| 净化学除磷 | 1,751.8 kg / 30 d |
+| A2O 出水 COD / TN / TP / SS | 52.09 / 10.541 / 1.760 / 11.83 mg/L |
+| 消化 pH / 沼气 / CH4 | 7.885 / 1101.3 m3/d / 60.4% |
+| 泥饼 / 滤液 | 2.80 m3/d / 117.20 m3/d |
+| 整厂 COD / N / P 残差 | -1.11% / 2.14% / 1.31%，均 closed |
+
+PAC 把回流闭环的出水 TP 从 3.872 压到 1.760 mg/L，降幅约 55%；但 1.760 仍高于常见排放限值，且 PAC 模型使用 ASM2d 默认三价金属（Fe(OH)3/FePO4）质量系数，未区分 Al/Fe 形态。因此这只是 PAC 基础投加与化学除磷，不是“TP 达标”或完整 V2-2 验收。
+
+当前仍不能把 V2-2 表述为完成：回流闭环、PAC 与整厂三本账已跑通，出水 TP 1.760 mg/L 未达常见限值，PAC 深度处理/形态区分未做。
 
 ![V2 30 天质量账 dashboard](../docs/screenshots/v2-30d-dashboard.png)
+
+![V2 PAC 回流闭环 dashboard](../docs/screenshots/v2-pac-loop-dashboard.png)
 
 ## 运行
 
@@ -73,6 +90,8 @@ cargo run -p aquapilot-cli -- adm1 fixtures/adm1-tutorial.json --days 10 --dt 0.
 cargo run -p aquapilot-cli -- sludge-line fixtures/adm1-sludge-line.json --days 20 --dt 0.002 --out /tmp/adm1-sludge.json
 cargo run -p aquapilot-cli -- asm2d-sludge fixtures/a2o-asm2d.json --minutes 43200 --sludge-days 20 --out /tmp/a2o-sludge.json
 cargo run -p aquapilot-cli -- asm2d-loop fixtures/a2o-asm2d.json --minutes 43200 --dt 1 --sludge-days 30 --sludge-dt 0.002 --max-iterations 6 --relaxation 1.0 --out /tmp/a2o-loop.json
+cargo run -p aquapilot-cli -- asm2d fixtures/a2o-asm2d-pac.json --minutes 43200 --out /tmp/a2o-pac.json
+cargo run -p aquapilot-cli -- asm2d-loop fixtures/a2o-asm2d-pac.json --minutes 43200 --dt 1 --sludge-days 30 --sludge-dt 0.002 --max-iterations 6 --relaxation 1.0 --out /tmp/a2o-loop-pac.json
 ```
 
 质量门：
@@ -100,5 +119,6 @@ rust-v2/
 - `dt` 上限 1 min；负值/非有限值在物理下界钳制并输出 `ASM1_STATE_CLAMPED` 诊断。
 - 二沉池是 10 层有限体积 Takács 风格模型；RAS 底流按缺氧处理（DO 置 0），WAS 进沉泥汇。
 - ASM1 COD 账只做到“进水/出水/排泥/库存变化/未解释项”，氧化项尚未入账，因此**不声称闭合**。
-- ASM2d A2O、ADM1 泥线、回流闭环的整厂 COD/N/P 三本账在 30 天 fixture 均闭合；闭合是质量账闭合，不等于出水指标达标。
-- 未实现：PAC、HTTP/WS 服务、实验队列、界面、24 h soak；官方 BSM1 参数集仍未全部通过 Table 6，只有校准候选在 ±20% 内通过。
+- ASM2d A2O、ADM1 泥线、PAC 回流闭环的整厂 COD/N/P 三本账在 30 天 fixture 均闭合；闭合是质量账闭合，不等于出水指标达标。
+- PAC 以产品 Al2O3 品位换算 Al，再按 `107/27` 映射为 `X_MeOH` 当量；化学沉淀沿用 ASM2d 默认 `3.45 g X_MeOH / g P` 与 `4.87 g X_MeP / g P` 系数。未区分 Al/Fe 形态，也未做 PAC 深度处理。
+- 未实现：HTTP/WS 服务、实验队列、界面、24 h soak；官方 BSM1 参数集仍未全部通过 Table 6，只有校准候选在 ±20% 内通过。

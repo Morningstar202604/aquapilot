@@ -7,7 +7,9 @@ use aquapilot_model::adm1_sludge::{simulate_sludge_line, SludgeLineConfig};
 use aquapilot_model::asm2d::Asm2dParams;
 use aquapilot_model::asm2d_adm1_loop::{simulate_asm2d_adm1_loop, Asm2dAdm1LoopConfig};
 use aquapilot_model::asm2d_parallel::{simulate_asm2d_parallel, Asm2dParallelConfig};
-use aquapilot_model::asm2d_plant::{simulate_asm2d, Asm2dPlantConfig, Asm2dSimulationConfig};
+use aquapilot_model::asm2d_plant::{
+    simulate_asm2d, Asm2dPacConfig, Asm2dPlantConfig, Asm2dSimulationConfig,
+};
 use aquapilot_model::asm2d_sludge::{simulate_asm2d_sludge, Asm2dSludgeConfig};
 use aquapilot_model::Asm1Params;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -148,6 +150,15 @@ enum Command {
         /// Successive-substitution relaxation (0-1].
         #[arg(long, default_value_t = 0.5)]
         relaxation: f64,
+        /// PAC product dose in mg/L of influent; overrides the fixture.
+        #[arg(long)]
+        pac_dose: Option<f64>,
+        /// Reactor index receiving PAC; defaults to the final reactor.
+        #[arg(long)]
+        pac_reactor: Option<usize>,
+        /// Al2O3 mass fraction of the PAC product.
+        #[arg(long)]
+        pac_al2o3_fraction: Option<f64>,
         /// Optional output path for the JSON snapshot.
         #[arg(long)]
         out: Option<PathBuf>,
@@ -182,6 +193,15 @@ enum Command {
         /// Time step in minutes, at most 1.0.
         #[arg(long, default_value_t = 1.0)]
         dt: f64,
+        /// PAC product dose in mg/L of influent; overrides the fixture.
+        #[arg(long)]
+        pac_dose: Option<f64>,
+        /// Reactor index receiving PAC; defaults to the final reactor.
+        #[arg(long)]
+        pac_reactor: Option<usize>,
+        /// Al2O3 mass fraction of the PAC product.
+        #[arg(long)]
+        pac_al2o3_fraction: Option<f64>,
         /// Optional output path for the JSON snapshot.
         #[arg(long)]
         out: Option<PathBuf>,
@@ -189,6 +209,30 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+}
+
+fn apply_pac_override(
+    plant: &mut Asm2dPlantConfig,
+    dose: Option<f64>,
+    reactor: Option<usize>,
+    al2o3_fraction: Option<f64>,
+) {
+    if dose.is_none() && reactor.is_none() && al2o3_fraction.is_none() {
+        return;
+    }
+    let existing = plant.pac;
+    plant.pac = Some(Asm2dPacConfig {
+        reactor: reactor
+            .or_else(|| existing.map(|pac| pac.reactor))
+            .unwrap_or_else(|| plant.reactors.len().saturating_sub(1)),
+        dose_mg_l: dose
+            .or_else(|| existing.map(|pac| pac.dose_mg_l))
+            .unwrap_or(0.0),
+        al2o3_fraction: al2o3_fraction
+            .or_else(|| existing.map(|pac| pac.al2o3_fraction))
+            .unwrap_or(0.30),
+        meoh_per_al: existing.map_or(107.0 / 27.0, |pac| pac.meoh_per_al),
+    });
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -346,11 +390,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             sludge_dt,
             max_iterations,
             relaxation,
+            pac_dose,
+            pac_reactor,
+            pac_al2o3_fraction,
             out,
             json,
         } => {
             let text = std::fs::read_to_string(&config)?;
-            let plant: Asm2dPlantConfig = serde_json::from_str(&text)?;
+            let mut plant: Asm2dPlantConfig = serde_json::from_str(&text)?;
+            apply_pac_override(&mut plant, pac_dose, pac_reactor, pac_al2o3_fraction);
             let loop_config = Asm2dAdm1LoopConfig {
                 plant,
                 sludge: Asm2dSludgeConfig::default(),
@@ -596,11 +644,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             config,
             minutes,
             dt,
+            pac_dose,
+            pac_reactor,
+            pac_al2o3_fraction,
             out,
             json,
         } => {
             let text = std::fs::read_to_string(&config)?;
-            let plant: Asm2dPlantConfig = serde_json::from_str(&text)?;
+            let mut plant: Asm2dPlantConfig = serde_json::from_str(&text)?;
+            apply_pac_override(&mut plant, pac_dose, pac_reactor, pac_al2o3_fraction);
             let simulation = Asm2dSimulationConfig {
                 dt_min: dt,
                 duration_min: minutes,
@@ -645,6 +697,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     snapshot.clarifier.underflow_tss,
                     snapshot.clarifier.overflow_tss
                 );
+                if let Some(pac) = &snapshot.pac {
+                    println!(
+                        "PAC: reactor={}, dose={:.1} mg/L, product={:.1} kg/d, Al={:.1} kg/d, X_MeOH={:.1} kg/d, net chemical P removal={:.1} kg",
+                        pac.reactor,
+                        pac.dose_mg_l,
+                        pac.product_kg_d,
+                        pac.aluminum_kg_d,
+                        pac.meoh_kg_d,
+                        pac.net_chemical_p_removed_kg
+                    );
+                }
                 for (name, ledger) in [
                     ("COD", &snapshot.mass_balance.cod),
                     ("N", &snapshot.mass_balance.nitrogen),

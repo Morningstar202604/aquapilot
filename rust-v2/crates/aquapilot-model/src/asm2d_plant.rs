@@ -65,6 +65,76 @@ pub struct Asm2dClarifierConfig {
     pub was_flow_m3_h: f64,
 }
 
+/// PAC (polyaluminium chloride) dosing into one reactor.
+///
+/// ASM2d already carries chemical precipitation through `X_MeOH` (metal
+/// hydroxide) and `X_MeP` (metal phosphate). PAC is dosed as a product stream,
+/// converted to an Al mass, and then represented as the model's trivalent
+/// metal hydroxide equivalent. The ASM2d default Fe(OH)3/FePO4 coefficients
+/// are kept: one mole of Al is treated as one mole of the model metal. This is
+/// a deliberate simplification, not a claim that the model distinguishes Al
+/// from Fe speciation.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Asm2dPacConfig {
+    /// Reactor receiving the PAC dose.
+    pub reactor: usize,
+    /// PAC product dose, mg/L of influent flow.
+    #[serde(default)]
+    pub dose_mg_l: f64,
+    /// Al2O3 mass fraction of the PAC product (30% is a common liquid PAC).
+    #[serde(default = "default_pac_al2o3_fraction")]
+    pub al2o3_fraction: f64,
+    /// Grams of model `X_MeOH` equivalent per gram of Al.
+    #[serde(default = "default_pac_meoh_per_al")]
+    pub meoh_per_al: f64,
+}
+
+fn default_pac_al2o3_fraction() -> f64 {
+    0.30
+}
+
+fn default_pac_meoh_per_al() -> f64 {
+    107.0 / 27.0
+}
+
+impl Asm2dPacConfig {
+    fn product_kg_h(&self, influent_flow_m3_h: f64) -> f64 {
+        self.dose_mg_l * influent_flow_m3_h / 1000.0
+    }
+
+    fn aluminum_kg_h(&self, influent_flow_m3_h: f64) -> f64 {
+        self.product_kg_h(influent_flow_m3_h) * self.al2o3_fraction * 54.0 / 102.0
+    }
+
+    fn meoh_kg_h(&self, influent_flow_m3_h: f64) -> f64 {
+        self.aluminum_kg_h(influent_flow_m3_h) * self.meoh_per_al
+    }
+
+    fn validate(&self, reactor_count: usize) -> Result<(), Asm2dPlantError> {
+        if self.reactor >= reactor_count {
+            return Err(Asm2dPlantError::InvalidConfig(
+                "PAC reactor index is out of range".to_owned(),
+            ));
+        }
+        if !self.dose_mg_l.is_finite() || self.dose_mg_l < 0.0 {
+            return Err(Asm2dPlantError::InvalidConfig(
+                "PAC dose must be finite and non-negative".to_owned(),
+            ));
+        }
+        if !self.al2o3_fraction.is_finite() || !(0.0..=1.0).contains(&self.al2o3_fraction) {
+            return Err(Asm2dPlantError::InvalidConfig(
+                "PAC Al2O3 fraction must be in [0,1]".to_owned(),
+            ));
+        }
+        if !self.meoh_per_al.is_finite() || self.meoh_per_al <= 0.0 {
+            return Err(Asm2dPlantError::InvalidConfig(
+                "PAC metal-hydroxide equivalent must be positive".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Asm2dPlantConfig {
     pub name: String,
@@ -73,6 +143,8 @@ pub struct Asm2dPlantConfig {
     pub clarifier: Asm2dClarifierConfig,
     #[serde(default)]
     pub internal_recycles: Vec<Asm2dRecycleConfig>,
+    #[serde(default)]
+    pub pac: Option<Asm2dPacConfig>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -388,6 +460,21 @@ pub struct Asm2dMassBalance {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Asm2dPacSnapshot {
+    pub reactor: String,
+    pub dose_mg_l: f64,
+    pub basis_flow_m3_h: f64,
+    pub al2o3_fraction: f64,
+    pub meoh_per_al: f64,
+    pub product_kg_d: f64,
+    pub aluminum_kg_d: f64,
+    pub meoh_kg_d: f64,
+    pub total_product_kg: f64,
+    pub total_meoh_kg: f64,
+    pub net_chemical_p_removed_kg: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Asm2dPlantSnapshot {
     pub plant_name: String,
     pub time_min: f64,
@@ -396,6 +483,7 @@ pub struct Asm2dPlantSnapshot {
     pub clarifier: Asm2dClarifierSnapshot,
     pub effluent: Asm2dEffluentSnapshot,
     pub waste: Asm2dWasteSnapshot,
+    pub pac: Option<Asm2dPacSnapshot>,
     pub mass_balance: Asm2dMassBalance,
 }
 
@@ -419,6 +507,10 @@ pub struct Asm2dSimulator {
     waste: [f64; 3],
     oxygen_consumed_kg: f64,
     denitrified_n_kg: f64,
+    pac_product_kg: f64,
+    pac_aluminum_kg: f64,
+    pac_meoh_kg: f64,
+    chemical_p_removed_kg: f64,
 }
 
 impl Asm2dSimulator {
@@ -454,6 +546,9 @@ impl Asm2dSimulator {
             return Err(Asm2dPlantError::InvalidConfig(
                 "influent state must be finite and non-negative".to_owned(),
             ));
+        }
+        if let Some(pac) = &config.pac {
+            pac.validate(config.reactors.len())?;
         }
         let flows = compile_flows(&config)?;
         let state: Vec<Asm2dState> = config.reactors.iter().map(|r| r.initial).collect();
@@ -528,6 +623,10 @@ impl Asm2dSimulator {
             waste: [0.0; 3],
             oxygen_consumed_kg: 0.0,
             denitrified_n_kg: 0.0,
+            pac_product_kg: 0.0,
+            pac_aluminum_kg: 0.0,
+            pac_meoh_kg: 0.0,
+            chemical_p_removed_kg: 0.0,
         };
         simulator.initial_inventory = simulator.inventory();
         Ok(simulator)
@@ -545,6 +644,8 @@ impl Asm2dSimulator {
             .reactors
             .first()
             .map_or(20.0, |reactor| reactor.temperature_c);
+        let pac = self.config.pac;
+        let influent_flow_m3_h = self.config.influent.flow_m3_h;
 
         for index in 0..self.config.reactors.len() {
             let reactor = &self.config.reactors[index];
@@ -569,6 +670,15 @@ impl Asm2dSimulator {
 
             let dilution_per_h = total_flow / reactor.volume_m3;
             let mut next = previous[index];
+            if let Some(pac) = pac {
+                if index == pac.reactor && pac.dose_mg_l > 0.0 {
+                    let meoh_kg_h = pac.meoh_kg_h(influent_flow_m3_h);
+                    next.xmeoh += meoh_kg_h * dt_h / reactor.volume_m3 * 1000.0;
+                    self.pac_product_kg += pac.product_kg_h(influent_flow_m3_h) * dt_h;
+                    self.pac_aluminum_kg += pac.aluminum_kg_h(influent_flow_m3_h) * dt_h;
+                    self.pac_meoh_kg += meoh_kg_h * dt_h;
+                }
+            }
             let mut remaining_h = dt_h;
             let mut oxygen_step_kg = 0.0;
             let mut gas_step_kg = 0.0;
@@ -609,6 +719,13 @@ impl Asm2dSimulator {
                             + processes.pao_aero_growth)
                         + 0.2 * processes.aero_storage_pp;
                     oxygen_step_kg += cod_oxygen.max(0.0) * reactor.volume_m3 * h / 1000.0;
+                    // Chemical precipitation moves phosphate from the liquid
+                    // into X_MeP. Track the net transfer separately so a PAC
+                    // run can report how much P was chemically removed, while
+                    // the COD/N/P ledger still sees the state transfer.
+                    self.chemical_p_removed_kg +=
+                        (processes.precipitation - processes.redissolution) * reactor.volume_m3 * h
+                            / 1000.0;
                     // Dinitrogen strips immediately; book reaction production
                     // and zero the liquid pool to avoid double counting.
                     gas_step_kg += rates.sn2.max(0.0) * reactor.volume_m3 * h / 1000.0;
@@ -780,6 +897,22 @@ impl Asm2dSimulator {
             .collect();
         let effluent = self.clarifier_flow.overflow;
         let waste = self.clarifier_flow.underflow;
+        let pac_snapshot = self.config.pac.map(|pac| {
+            let influent_flow = self.config.influent.flow_m3_h;
+            Asm2dPacSnapshot {
+                reactor: self.config.reactors[pac.reactor].id.clone(),
+                dose_mg_l: pac.dose_mg_l,
+                basis_flow_m3_h: influent_flow,
+                al2o3_fraction: pac.al2o3_fraction,
+                meoh_per_al: pac.meoh_per_al,
+                product_kg_d: pac.product_kg_h(influent_flow) * 24.0,
+                aluminum_kg_d: pac.aluminum_kg_h(influent_flow) * 24.0,
+                meoh_kg_d: pac.meoh_kg_h(influent_flow) * 24.0,
+                total_product_kg: self.pac_product_kg,
+                total_meoh_kg: self.pac_meoh_kg,
+                net_chemical_p_removed_kg: self.chemical_p_removed_kg,
+            }
+        });
         let inventory = self.inventory();
         let cod = ledger(
             self.inflow[0],
@@ -843,6 +976,7 @@ impl Asm2dSimulator {
                 ss: waste.suspended_solids(),
                 state: waste,
             },
+            pac: pac_snapshot,
             mass_balance: Asm2dMassBalance {
                 cod,
                 nitrogen,
@@ -1100,6 +1234,7 @@ mod tests {
                 to: 1,
                 flow_m3_h: 2000.0,
             }],
+            pac: None,
         }
     }
 
@@ -1158,6 +1293,23 @@ mod tests {
     }
 
     #[test]
+    fn pac_configuration_rejects_invalid_reactor_and_dose() {
+        let mut pac = Asm2dPacConfig {
+            reactor: 5,
+            dose_mg_l: 40.0,
+            al2o3_fraction: 0.30,
+            meoh_per_al: 107.0 / 27.0,
+        };
+        assert!(pac.validate(5).is_err());
+        pac.reactor = 4;
+        pac.dose_mg_l = -1.0;
+        assert!(pac.validate(5).is_err());
+        pac.dose_mg_l = 40.0;
+        pac.al2o3_fraction = 1.1;
+        assert!(pac.validate(5).is_err());
+    }
+
+    #[test]
     fn a2o_fixture_closes_three_ledgers() {
         let config: Asm2dPlantConfig =
             serde_json::from_str(include_str!("../../../fixtures/a2o-asm2d.json"))
@@ -1188,6 +1340,30 @@ mod tests {
         assert!(snapshot.effluent.cod < 60.0);
         assert!(snapshot.effluent.tp < 2.0);
         assert!(snapshot.effluent.nh4_n < 2.0);
+    }
+
+    #[test]
+    fn pac_fixture_reduces_phosphate_and_keeps_ledger_closed() {
+        let config: Asm2dPlantConfig =
+            serde_json::from_str(include_str!("../../../fixtures/a2o-asm2d-pac.json"))
+                .expect("PAC fixture");
+        let snapshot = simulate_asm2d(
+            config,
+            Asm2dSimulationConfig {
+                dt_min: 1.0,
+                duration_min: 43_200.0,
+            },
+            Asm2dParams::default(),
+        )
+        .expect("30 day PAC run");
+        let pac = snapshot.pac.as_ref().expect("PAC snapshot");
+        assert_eq!(pac.reactor, "aerobic-3");
+        assert!(pac.product_kg_d > 0.0);
+        assert!(pac.total_meoh_kg > 0.0);
+        assert!(pac.net_chemical_p_removed_kg > 0.0);
+        assert!(snapshot.effluent.po4_p < 0.5);
+        assert!(snapshot.effluent.tp < 1.3);
+        assert!(snapshot.mass_balance.phosphorus.closed);
     }
 
     #[test]

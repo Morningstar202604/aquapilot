@@ -40,6 +40,8 @@ jobs:
         run: cargo run -q -p aquapilot-cli -- simulate fixtures/bsm1-like.json --minutes 43200 --json > /tmp/bsm1-30d.json
       - name: Smoke ASM2d A2O 30 days
         run: cargo run -q -p aquapilot-cli -- asm2d fixtures/a2o-asm2d.json --minutes 43200 --json > /tmp/a2o-30d.json
+      - name: Smoke ASM2d A2O + PAC 30 days
+        run: cargo run -q -p aquapilot-cli -- asm2d fixtures/a2o-asm2d-pac.json --minutes 43200 --json > /tmp/a2o-pac.json
       - name: Smoke ASM2d two-train 30 days
         run: cargo run -q -p aquapilot-cli -- asm2d-parallel fixtures/a2o-asm2d-2train.json --minutes 43200 --json > /tmp/a2o-2train.json
       - name: Smoke ADM1 tutorial
@@ -79,6 +81,14 @@ jobs:
           for name in ('cod', 'nitrogen', 'phosphorus'):
               assert a['mass_balance'][name]['closed'] is True
               assert a['mass_balance'][name]['residual_fraction'] < 0.05
+
+          p = json.load(open('/tmp/a2o-pac.json'))
+          assert p['pac'] is not None
+          assert p['pac']['dose_mg_l'] == 40.0
+          assert p['pac']['net_chemical_p_removed_kg'] > 0.0
+          assert p['effluent']['po4_p'] < 0.5
+          assert p['effluent']['tp'] < 1.3
+          assert p['mass_balance']['phosphorus']['closed'] is True
 
           m = json.load(open('/tmp/adm1.json'))
           assert 6.8 <= m['ph'] <= 7.8
