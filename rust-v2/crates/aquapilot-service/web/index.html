@@ -104,6 +104,17 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 .form-row.one{grid-template-columns:1fr}
 .hint{font-size:10.5px;color:var(--faint);line-height:1.45;margin:4px 0 0}
 .scenario-grid{display:flex;flex-wrap:wrap;gap:6px}
+.custom-scenario{flex:1 0 100%;border:1px dashed #c9d7cf;border-radius:9px;padding:7px 8px;background:#fbfcf8}
+.custom-scenario .cs-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:5px}
+.custom-scenario .cs-head b{font-size:9.5px;letter-spacing:.3px;color:var(--teal);font-weight:600}
+.custom-scenario .cs-head span{font-family:var(--mono);font-size:8px;color:var(--faint)}
+.cs-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.cs-field{display:flex;flex-direction:column;gap:2px}
+.cs-field label{font-size:8.5px;color:var(--muted)}
+.cs-field input{height:24px;padding:2px 6px;border:1px solid var(--line);border-radius:5px;background:#fff;font-family:var(--mono);font-size:9.5px;color:var(--ink);outline:none}
+.cs-field input:focus{border-color:var(--teal);box-shadow:0 0 0 2px rgba(15,118,110,.08)}
+.cs-actions{display:flex;gap:5px;margin-top:5px}
+.cs-actions .btn{flex:1;padding:4px 6px;font-size:9px}
 .chip{
   border:1px solid var(--line);background:var(--paper);border-radius:999px;padding:5px 9px;font-size:10.5px;color:var(--muted);
   transition:all .15s ease;
@@ -359,7 +370,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   <div class="top-status">
     <div class="status-chip" title="服务健康"><span class="dot" id="svc-dot"></span><span id="svc-label">连接中</span></div>
     <div class="status-chip"><span class="mono" id="queue-chip">队列 0 / 32</span></div>
-    <div class="status-chip"><span class="mono" id="svc-version">v0.0.13</span></div>
+    <div class="status-chip"><span class="mono" id="svc-version">v0.0.14</span></div>
   </div>
   <button class="top-link" id="open-api">API 契约 ↗</button>
 </header>
@@ -802,6 +813,67 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     validate(); renderFlow(); renderInspector();
   }
 
+  function scenarioNumber(selector, label, min, max) {
+    const raw = $(selector).value.trim();
+    if (!raw) return { ok: true, value: null };
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < min || value > max) {
+      toast(`${label}需在 ${min}–${max} 之间。`, "warn");
+      return { ok: false, value: null };
+    }
+    return { ok: true, value };
+  }
+
+  function applyCustomScenario() {
+    const topology = getTopology();
+    if (!topology) return;
+    const flow = scenarioNumber("#cs-flow", "流量倍率", 0.2, 5);
+    const doSet = scenarioNumber("#cs-do", "DO 设定", 0, 10);
+    const kla = scenarioNumber("#cs-kla", "KLa", 0, 600);
+    const temp = scenarioNumber("#cs-temp", "温度", 1, 40);
+    if (![flow, doSet, kla, temp].every((entry) => entry.ok)) return;
+    if ([flow, doSet, kla, temp].every((entry) => entry.value === null)) {
+      toast("至少填一项自定义工况。", "warn");
+      return;
+    }
+    const aerobics = topology.units.filter((unit) => topologyType(unit) === "aerobic");
+    if ((doSet.value !== null || kla.value !== null) && !aerobics.length) {
+      toast("当前拓扑没有好氧池，无法应用 DO/KLa；请先加好氧池。", "warn");
+      return;
+    }
+    const influent = topology.units.find((unit) => topologyType(unit) === "influent");
+    if (flow.value !== null && !influent) {
+      toast("当前拓扑没有进水节点，无法应用流量倍率。", "warn");
+      return;
+    }
+    pushTopologyHistory();
+    const notes = [];
+    if (flow.value !== null) {
+      influent.flow_m3_h = num(influent.flow_m3_h, 0) * flow.value;
+      topology.connections.forEach((edge) => { edge.flow_m3_h = num(edge.flow_m3_h, 0) * flow.value; });
+      notes.push(`流量 ×${fmt(flow.value, 2)}`);
+    }
+    if (doSet.value !== null) {
+      aerobics.forEach((unit) => { unit.do_setpoint = doSet.value; });
+      notes.push(`DO ${fmt(doSet.value, 1)} mg/L`);
+    }
+    if (kla.value !== null) {
+      aerobics.forEach((unit) => { unit.kla_h = kla.value; });
+      notes.push(`KLa ${fmt(kla.value, 0)} 1/h`);
+    }
+    if (temp.value !== null) {
+      if (influent?.water) influent.water.temperature_c = temp.value;
+      topology.units.forEach((unit) => {
+        if (["aerobic", "anoxic", "anaerobic"].includes(topologyType(unit)) && unit.initial) {
+          unit.initial.temperature_c = temp.value;
+        }
+      });
+      notes.push(`温度 ${fmt(temp.value, 0)}°C`);
+    }
+    validate(); renderFlow(); renderInspector();
+    toast(`已应用自定义工况：${notes.join("，")}。连续应用会叠加，可用撤销恢复。`);
+  }
+
   function renderScenarios() {
     if (isTopologyModel(state.model)) {
       const chips = [
@@ -811,8 +883,26 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
         ["reset", "回到预设", ""],
       ];
       $("#scenario-grid").innerHTML = chips.map(([id, label, tone]) => `<button class="chip ${tone}" data-topo-scenario="${id}">${esc(label)}</button>`).join("") +
-        `<div class="hint" style="grid-column:1/-1;line-height:1.6">高流量会把进水和所有连接流量同乘 1.5，保持节点流平衡；低 DO 只改好氧池 KLa/DO；冬季只改温度。自由拓扑的增删节点和连接在画布工具栏。</div>`;
+        `<div class="hint" style="grid-column:1/-1;line-height:1.6">高流量会把进水和所有连接流量同乘 1.5，保持节点流平衡；低 DO 只改好氧池 KLa/DO；冬季只改温度。自由拓扑的增删节点和连接在画布工具栏。</div>` +
+        `<div class="custom-scenario">
+          <div class="cs-head"><b>自定义工况</b><span>叠加当前画布</span></div>
+          <div class="cs-grid">
+            <div class="cs-field"><label>流量倍率 ×（0.2–5）</label><input id="cs-flow" type="number" min="0.2" max="5" step="0.1" placeholder="1.5"></div>
+            <div class="cs-field"><label>好氧 DO mg/L（0–10）</label><input id="cs-do" type="number" min="0" max="10" step="0.1" placeholder="1.0"></div>
+            <div class="cs-field"><label>好氧 KLa 1/h（0–600）</label><input id="cs-kla" type="number" min="0" max="600" step="1" placeholder="120"></div>
+            <div class="cs-field"><label>进水/池温 °C（1–40）</label><input id="cs-temp" type="number" min="1" max="40" step="1" placeholder="12"></div>
+          </div>
+          <div class="cs-actions">
+            <button class="btn primary" id="cs-apply">应用自定义</button>
+            <button class="btn" id="cs-clear">清空</button>
+          </div>
+          <div class="hint">流量倍率只乘进水和所有连接，节点流平衡不变；DO/KLa 只改好氧池；温度同时改进水与反应器初始温度。空字段跳过。</div>
+        </div>`;
       $$("#scenario-grid .chip").forEach((button) => button.addEventListener("click", () => applyTopologyScenario(button.dataset.topoScenario)));
+      $("#cs-apply").addEventListener("click", applyCustomScenario);
+      $("#cs-clear").addEventListener("click", () => {
+        ["#cs-flow", "#cs-do", "#cs-kla", "#cs-temp"].forEach((selector) => { $(selector).value = ""; });
+      });
       return;
     }
     $("#scenario-grid").innerHTML = SCENARIOS.map((scenario) => `<button class="chip ${scenario.tone}" data-scenario="${scenario.id}">${esc(scenario.label)}</button>`).join("");

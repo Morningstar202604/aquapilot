@@ -1,0 +1,36 @@
+{
+  "version": "0.0.14",
+  "experiment_id": "0ffa5f42-36ad-4e9d-a537-f655a59249e1",
+  "model": "asm1",
+  "status": "succeeded",
+  "topology": {
+    "units": 5,
+    "connections": 4
+  },
+  "applied": {
+    "flow_multiplier": 1.5,
+    "aerobic_do_mg_l": 3,
+    "aerobic_kla_h": 120,
+    "temperature_c": 12
+  },
+  "config_after_apply": {
+    "influent_flow_m3_h": 1500,
+    "connection_flows_m3_h": [
+      1500,
+      1500,
+      1500,
+      1500
+    ],
+    "aerobic_kla_h": 120,
+    "aerobic_do_setpoint": 3,
+    "influent_temperature_c": 12
+  },
+  "scorecard": {
+    "grade": "D",
+    "passed": 1,
+    "total": 4
+  },
+  "undo_redo": "apply -> undo restored baseline; redo restored DO=3; full custom apply then 1 d run succeeded",
+  "screenshot": "docs/screenshots/v2-ui-custom-scenario.png",
+  "completed_24h": false
+}
