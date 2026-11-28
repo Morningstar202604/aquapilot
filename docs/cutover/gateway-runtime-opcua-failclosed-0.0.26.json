@@ -1,0 +1,40 @@
+{
+ "schema": "aquapilot.gateway.runtime.opcua.failclosed.v1",
+ "service_version": "0.0.26",
+ "at": "2026-11-29T03:48:34.268425+08:00",
+ "scenario": "local OPC UA server stopped after live session",
+ "all_connected": false,
+ "opcua_runtime": {
+  "bad_values": 0,
+  "connected": false,
+  "connected_at_unix": 1795895284,
+  "error": "OPC UA Read failed: BadConnectionClosed: Request failed due to the client suhtting down",
+  "last_read_at_unix": 1795895308,
+  "last_values": [],
+  "polls": 13,
+  "security_mode": "None",
+  "security_policy": "None",
+  "state": "error"
+ },
+ "assertion": "OPC UA session failure => all_connected false and stale last_values cleared",
+ "recovery": {
+  "at": "2026-11-29T03:52:33.207693+08:00",
+  "all_connected": true,
+  "opcua_state": "connected",
+  "polls": 26,
+  "last_values": [
+   {
+    "point_id": "aerobic.do",
+    "value": 2.1
+   },
+   {
+    "point_id": "aerobic.kla",
+    "value": 8.0
+   },
+   {
+    "point_id": "influent.flow",
+    "value": 1010.0
+   }
+  ]
+ }
+}

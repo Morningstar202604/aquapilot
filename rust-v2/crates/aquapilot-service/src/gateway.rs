@@ -25,15 +25,25 @@ pub fn check(config_path: &std::path::Path) -> Result<Value, String> {
 }
 
 pub fn check_config(config: &Value, source: &str) -> Value {
+    check_config_excluding(config, source, &[])
+}
+
+pub fn check_config_excluding(config: &Value, source: &str, skip: &[&str]) -> Value {
     let mut adapters = Vec::new();
     if let Some(modbus) = config.get("modbus") {
-        adapters.push(check_modbus(modbus));
+        if !skip.contains(&"modbus") {
+            adapters.push(check_modbus(modbus));
+        }
     }
     if let Some(mqtt) = config.get("mqtt") {
-        adapters.push(check_mqtt(mqtt));
+        if !skip.contains(&"mqtt") {
+            adapters.push(check_mqtt(mqtt));
+        }
     }
     if let Some(opcua) = config.get("opcua") {
-        adapters.push(check_opcua(opcua));
+        if !skip.contains(&"opcua") {
+            adapters.push(check_opcua(opcua));
+        }
     }
     let all_connected = !adapters.is_empty()
         && adapters
@@ -41,13 +51,48 @@ pub fn check_config(config: &Value, source: &str) -> Value {
             .all(|adapter| adapter["connected"].as_bool() == Some(true));
     json!({
         "schema": "aquapilot.gateway.check.v1",
+        "service_version": env!("CARGO_PKG_VERSION"),
         "checked_at_unix": unix_now(),
         "config": source,
         "adapters": adapters,
         "all_connected": all_connected,
         "fail_closed": true,
-        "note": "Only a completed protocol handshake is reported as connected. OPC UA TCP reachability is not a session and is reported as unsupported.",
+        "excluded": skip,
+        "scope": if skip.is_empty() { "all-configured-adapters" } else { "sync-adapters-excluding-async" },
+        "note": "Only a completed protocol handshake is reported as connected. Sync checks exclude async OPC UA sessions; use gateway-check or the service runtime for OPC UA.",
     })
+}
+
+/// Full gateway check including a real OPC UA SecureChannel/Session/Read probe.
+/// Modbus and MQTT remain sync probes; OPC UA is awaited and merged last.
+pub async fn check_async(config_path: &std::path::Path) -> Result<Value, String> {
+    let config: Value = serde_json::from_str(
+        &std::fs::read_to_string(config_path).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| format!("invalid gateway config JSON: {error}"))?;
+    let source = config_path.display().to_string();
+    let mut result = check_config_excluding(&config, &source, &["opcua"]);
+    if let Some(opcua) = config.get("opcua") {
+        let adapter = crate::opcua::check_config(opcua).await;
+        if let Some(list) = result["adapters"].as_array_mut() {
+            list.push(adapter);
+        }
+    }
+    let all_connected = result["adapters"]
+        .as_array()
+        .map(|adapters| {
+            !adapters.is_empty()
+                && adapters
+                    .iter()
+                    .all(|adapter| adapter["connected"].as_bool() == Some(true))
+        })
+        .unwrap_or(false);
+    result["all_connected"] = json!(all_connected);
+    result["excluded"] = json!([]);
+    result["scope"] = json!("all-configured-adapters");
+    result["checked_at_unix"] = json!(unix_now());
+    result["note"] = json!("Only completed protocol handshakes are reported as connected. OPC UA is a real SecureChannel/Session/Read probe.");
+    Ok(result)
 }
 
 fn check_modbus(config: &Value) -> Value {
@@ -113,7 +158,7 @@ fn check_opcua(config: &Value) -> Value {
         "mode": "unsupported",
         "endpoint": config.get("endpoint").and_then(Value::as_str).unwrap_or(""),
         "connected": false,
-        "error": "OPC UA session handshake is not implemented; a TCP connect would not be an OPC UA connection.",
+        "error": "OPC UA session is async; use gateway::check_async or the service runtime. A TCP connect would not be an OPC UA connection.",
     })
 }
 

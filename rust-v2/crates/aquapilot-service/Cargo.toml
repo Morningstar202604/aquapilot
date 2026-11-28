@@ -20,6 +20,7 @@ hex = "0.4"
 tracing = "0.1"
 futures-util = "0.3"
 ureq = { version = "2", features = ["json"] }
+async-opcua = { version = "0.19", features = ["client"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

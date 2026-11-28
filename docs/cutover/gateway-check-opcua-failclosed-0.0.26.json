@@ -1,0 +1,23 @@
+{
+  "adapters": [
+    {
+      "connected": false,
+      "endpoint": "opc.tcp://127.0.0.1:4841",
+      "error": "OPC UA SecureChannel/session failed: BadCommunicationError: Could not connect to host 127.0.0.1:4841, Os { code: 111, kind: ConnectionRefused, message: \"Connection refused\" }",
+      "kind": "opcua",
+      "mode": "real-opcua-session",
+      "security_mode": "None",
+      "security_policy": "None",
+      "values": []
+    }
+  ],
+  "all_connected": false,
+  "checked_at_unix": 1795895787,
+  "config": "/tmp/gateway-service-026-opcua.json",
+  "excluded": [],
+  "fail_closed": true,
+  "note": "Only completed protocol handshakes are reported as connected. OPC UA is a real SecureChannel/Session/Read probe.",
+  "schema": "aquapilot.gateway.check.v1",
+  "scope": "all-configured-adapters",
+  "service_version": "0.0.26"
+}

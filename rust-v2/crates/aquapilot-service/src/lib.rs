@@ -17,6 +17,7 @@ pub mod error;
 pub mod gateway;
 pub mod industrial;
 pub mod legacy;
+pub mod opcua;
 pub mod runner;
 pub mod security;
 pub mod server;

@@ -22,6 +22,7 @@ pub struct IndustrialHub {
     real: Option<Arc<RealGateway>>,
     last_check: Arc<Mutex<Option<Value>>>,
     mqtt_runtime: Arc<Mutex<Value>>,
+    opcua_runtime: Arc<Mutex<Value>>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,12 +100,19 @@ impl IndustrialHub {
             .as_ref()
             .map(|gateway| mqtt_runtime_config(&gateway.config))
             .unwrap_or_else(|| json!({"state": "disabled", "connected": false, "messages": 0, "bad_payloads": 0}));
+        let opcua_runtime = real
+            .as_ref()
+            .map(|gateway| opcua_runtime_config(&gateway.config))
+            .unwrap_or_else(
+                || json!({"state": "disabled", "connected": false, "polls": 0, "bad_values": 0}),
+            );
         Self {
             points: Arc::new(Mutex::new(default_points())),
             store,
             real: real.map(Arc::new),
             last_check: Arc::new(Mutex::new(None)),
             mqtt_runtime: Arc::new(Mutex::new(mqtt_runtime)),
+            opcua_runtime: Arc::new(Mutex::new(opcua_runtime)),
         }
     }
 
@@ -148,6 +156,113 @@ impl IndustrialHub {
             }
         });
         self.spawn_mqtt_consumer();
+        self.spawn_opcua_consumer();
+    }
+
+    pub fn spawn_opcua_consumer(&self) {
+        let Some(real) = &self.real else {
+            return;
+        };
+        if real.error.is_some() {
+            return;
+        }
+        let Some(opcua) = real.config.get("opcua").cloned() else {
+            return;
+        };
+        if !crate::opcua::enabled(&opcua) {
+            return;
+        }
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        let hub = self.clone();
+        let interval = Duration::from_secs(
+            std::env::var("AQUAPILOT_OPCUA_POLL_SECONDS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(10)
+                .clamp(2, 3600),
+        );
+        tokio::spawn(async move {
+            hub.opcua_loop(opcua, interval).await;
+        });
+    }
+
+    async fn opcua_loop(&self, opcua: Value, interval: Duration) {
+        loop {
+            self.set_opcua_state(json!({"state": "connecting", "connected": false, "error": null, "last_values": []}));
+            let hub = self.clone();
+            let result = crate::opcua::run(&opcua, interval, None, move |event| match event {
+                crate::opcua::OpcuaEvent::Connected => hub.set_opcua_state(json!({
+                    "state": "connected",
+                    "connected": true,
+                    "error": null,
+                    "connected_at_unix": unix_now(),
+                })),
+                crate::opcua::OpcuaEvent::Readings(values) => hub.apply_opcua_values(values),
+            })
+            .await;
+            match result {
+                Ok(()) => self.set_opcua_state(json!({"state": "disconnected", "connected": false, "error": "session stopped", "last_values": []})),
+                Err(error) => {
+                    tracing::warn!("OPC UA runtime disconnected: {error}");
+                    self.set_opcua_state(json!({"state": "error", "connected": false, "error": error, "last_values": []}));
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    }
+
+    fn set_opcua_state(&self, patch: Value) {
+        let mut runtime = self.opcua_runtime.lock().expect("opcua runtime mutex");
+        if let (Some(target), Some(source)) = (runtime.as_object_mut(), patch.as_object()) {
+            for (key, value) in source {
+                target.insert(key.clone(), value.clone());
+            }
+        } else {
+            *runtime = patch;
+        }
+    }
+
+    fn apply_opcua_values(&self, values: Vec<Value>) {
+        let mut accepted = Vec::new();
+        let mut bad = 0_u64;
+        {
+            let mut points = self.points.lock().expect("industrial points mutex");
+            for value in values {
+                let Some(point_id) = value["point_id"].as_str() else {
+                    bad += 1;
+                    continue;
+                };
+                let Some(reading) = value["value"].as_f64() else {
+                    bad += 1;
+                    continue;
+                };
+                if let Some(point) = points.iter_mut().find(|point| point.id == point_id) {
+                    point.value = reading;
+                    point.quality = "good".to_owned();
+                    accepted.push(json!({"point_id": point_id, "value": reading}));
+                } else {
+                    bad += 1;
+                }
+            }
+        }
+        let mut runtime = self.opcua_runtime.lock().expect("opcua runtime mutex");
+        let polls = runtime["polls"].as_u64().unwrap_or(0) + 1;
+        let bad_values = runtime["bad_values"].as_u64().unwrap_or(0) + bad;
+        runtime["polls"] = json!(polls);
+        runtime["bad_values"] = json!(bad_values);
+        runtime["last_values"] = json!(accepted);
+        runtime["last_read_at_unix"] = json!(unix_now());
+        runtime["connected"] = json!(true);
+        runtime["state"] = json!("connected");
+    }
+
+    pub fn opcua_runtime(&self) -> Value {
+        self.opcua_runtime
+            .lock()
+            .expect("opcua runtime mutex")
+            .clone()
     }
 
     pub fn spawn_mqtt_consumer(&self) {
@@ -337,10 +452,18 @@ impl IndustrialHub {
                 error.clone(),
             ));
         }
-        let check = gateway::check_config(&real.config, &real.source);
-        let connected = check["all_connected"].as_bool() == Some(true);
+        let check = gateway::check_config_excluding(&real.config, &real.source, &["opcua"]);
+        let failed: Vec<&str> = check["adapters"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|adapter| adapter["connected"].as_bool() != Some(true))
+            .filter_map(|adapter| adapter["kind"].as_str())
+            .collect();
         let mut points = self.points.lock().expect("industrial points mutex");
         for adapter in check["adapters"].as_array().into_iter().flatten() {
+            let adapter_kind = adapter["kind"].as_str().unwrap_or("");
+            let adapter_ok = adapter["connected"].as_bool() == Some(true);
             for value in adapter["values"].as_array().into_iter().flatten() {
                 let Some(id) = value["point_id"].as_str() else {
                     continue;
@@ -350,15 +473,21 @@ impl IndustrialHub {
                 };
                 if let Some(point) = points.iter_mut().find(|point| point.id == id) {
                     point.value = reading;
-                    point.quality = if connected { "good" } else { "bad" }.to_owned();
+                    point.quality = if adapter_ok { "good" } else { "bad" }.to_owned();
+                }
+            }
+            if !adapter_ok {
+                for point in points
+                    .iter_mut()
+                    .filter(|point| point.adapter == adapter_kind)
+                {
+                    point.quality = "bad".to_owned();
                 }
             }
         }
-        if !connected {
-            for id in configured_points(&real.config) {
-                if let Some(point) = points.iter_mut().find(|point| point.id == id) {
-                    point.quality = "bad".to_owned();
-                }
+        for kind in failed {
+            for point in points.iter_mut().filter(|point| point.adapter == kind) {
+                point.quality = "bad".to_owned();
             }
         }
         drop(points);
@@ -382,6 +511,7 @@ impl IndustrialHub {
         if let Some(real) = &self.real {
             let check = self.last_check();
             let mqtt_runtime = self.mqtt_runtime();
+            let opcua_runtime = self.opcua_runtime();
             let adapters = if let Some(error) = &real.error {
                 json!([{
                     "kind": "gateway",
@@ -393,7 +523,7 @@ impl IndustrialHub {
             } else if let Some(check) = &check {
                 let mut merged = check["adapters"].clone();
                 if let Some(list) = merged.as_array_mut() {
-                    for adapter in list {
+                    for adapter in &mut *list {
                         adapter["points"] = json!(points
                             .iter()
                             .filter(|point| point.adapter == adapter["kind"].as_str().unwrap_or(""))
@@ -403,6 +533,20 @@ impl IndustrialHub {
                                 json!(mqtt_runtime["connected"].as_bool() == Some(true));
                             adapter["runtime"] = mqtt_runtime.clone();
                         }
+                    }
+                    if real.config.get("opcua").is_some() {
+                        let opcua = real.config.get("opcua").unwrap_or(&Value::Null);
+                        list.push(json!({
+                            "kind": "opcua",
+                            "mode": "real-opcua-session",
+                            "endpoint": opcua.get("endpoint").and_then(Value::as_str).unwrap_or(""),
+                            "security_policy": "None",
+                            "security_mode": "None",
+                            "connected": opcua_runtime["connected"].as_bool() == Some(true),
+                            "points": points.iter().filter(|point| point.adapter == "opcua").count(),
+                            "runtime": opcua_runtime.clone(),
+                            "error": opcua_runtime["error"].clone(),
+                        }));
                     }
                 }
                 merged
@@ -423,19 +567,28 @@ impl IndustrialHub {
             };
             let protocol_connected = check
                 .as_ref()
-                .and_then(|value| value["all_connected"].as_bool())
-                .unwrap_or(false);
+                .and_then(|value| value["adapters"].as_array())
+                .map(|adapters| {
+                    adapters
+                        .iter()
+                        .all(|adapter| adapter["connected"].as_bool() == Some(true))
+                })
+                .unwrap_or(true);
             let mqtt_required = mqtt_runtime["state"] != "disabled";
             let mqtt_connected =
                 !mqtt_required || mqtt_runtime["connected"].as_bool() == Some(true);
+            let opcua_required = opcua_runtime["state"] != "disabled";
+            let opcua_connected =
+                !opcua_required || opcua_runtime["connected"].as_bool() == Some(true);
             return json!({
                 "adapters": adapters,
                 "real": true,
                 "source": real.source,
-                "all_connected": protocol_connected && mqtt_connected,
+                "all_connected": protocol_connected && mqtt_connected && opcua_connected,
                 "last_check": check,
                 "mqtt_runtime": mqtt_runtime,
-                "note": "Real gateway: polling is fail-closed; MQTT telemetry is consumed by the service runtime. Only configured endpoints are contacted. Writes require a modbus.write mapping.",
+                "opcua_runtime": opcua_runtime,
+                "note": "Real gateway: polling is fail-closed; MQTT and OPC UA telemetry are consumed by service runtime sessions. Only configured endpoints are contacted. Writes require a modbus.write mapping.",
             });
         }
         let adapters = ["opcua", "modbus", "mqtt"].map(|kind| {
@@ -623,6 +776,26 @@ impl IndustrialHub {
     }
 }
 
+fn opcua_runtime_config(config: &Value) -> Value {
+    let enabled = config
+        .get("opcua")
+        .map(crate::opcua::enabled)
+        .unwrap_or(false);
+    if !enabled {
+        return json!({"state": "disabled", "connected": false, "polls": 0, "bad_values": 0, "last_values": []});
+    }
+    json!({
+        "state": "starting",
+        "connected": false,
+        "polls": 0,
+        "bad_values": 0,
+        "last_values": [],
+        "error": Value::Null,
+        "security_policy": "None",
+        "security_mode": "None",
+    })
+}
+
 fn mqtt_runtime_config(config: &Value) -> Value {
     let topics = gateway::mqtt_topics(config.get("mqtt").unwrap_or(&Value::Null));
     if topics.is_empty() {
@@ -668,24 +841,6 @@ fn unix_now() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or(0)
-}
-
-fn configured_points(config: &Value) -> Vec<String> {
-    let mut ids = Vec::new();
-    for adapter in ["modbus", "mqtt"] {
-        for read in config
-            .get(adapter)
-            .and_then(|value| value.get("read"))
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            if let Some(id) = read.get("point_id").and_then(Value::as_str) {
-                ids.push(id.to_owned());
-            }
-        }
-    }
-    ids
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -988,6 +1143,18 @@ mod tests {
         }));
         assert_eq!(hub.adapters()["all_connected"], false);
         hub.set_mqtt_state(json!({"state":"connected","connected":true}));
+        assert_eq!(hub.adapters()["all_connected"], true);
+    }
+
+    #[test]
+    fn adapters_require_opcua_session_when_configured() {
+        let hub = IndustrialHub::with_real_config(
+            store(),
+            json!({"opcua":{"endpoint":"opc.tcp://127.0.0.1:4841","read":[{"point_id":"aerobic.do","node_id":"ns=2;s=DO"}]}}),
+        );
+        *hub.last_check.lock().expect("check") = Some(json!({"adapters":[],"all_connected":false}));
+        assert_eq!(hub.adapters()["all_connected"], false);
+        hub.set_opcua_state(json!({"state":"connected","connected":true,"polls":1}));
         assert_eq!(hub.adapters()["all_connected"], true);
     }
 

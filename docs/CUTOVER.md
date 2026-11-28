@@ -80,7 +80,13 @@
 
 - 服务运行时真实 MQTT 订阅已接入：三条遥测主题更新 COD/NH4/TP 点位，`mqtt_runtime` 可见 connected/messages/last_*；证据 `docs/cutover/gateway-runtime-mqtt-0.0.25.json`。
 - MQTT 断线时 `all_connected=false`；但这只是本地协议双端，不是现场 broker 验收。
-- OPC UA 会话、现场设备、24 h soak 仍未完成；Cutover 判定不变。
+- OPC UA 会话尚未接入，现场设备、24 h soak 仍未完成；Cutover 判定不变。
+
+## 4.6 0.0.26 增量（不改变 NO-GO）
+
+- 服务运行时已接入真实 OPC UA SecureChannel / CreateSession / ActivateSession / Read：`opcua_runtime` 可见 connected/polls/last_values/error；只支持 None/None/Anonymous、只读。
+- 本机 asyncua 双端证据 `docs/cutover/gateway-runtime-opcua-0.0.26.json`：DO 2.0→2.1、Flow 1020→1000；停 server 后 `state=error`、`all_connected=false`、`last_values=[]`，重启恢复；CLI 成功/失败见 `gateway-check-opcua-0.0.26.json` 与 `gateway-check-opcua-failclosed-0.0.26.json`。
+- 这是本机协议双端，不是现场 PLC/SCADA 验收；OPC UA 签名/加密/用户名认证、Write、Subscription、现场设备与 24 h soak 仍未完成；Cutover 判定不变。
 
 ## 5. 重新评估条件
 

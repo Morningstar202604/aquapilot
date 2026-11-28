@@ -326,7 +326,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Command::GatewayCheck { config, out } => {
-            let result = aquapilot_service::gateway::check(&config)?;
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let result = runtime.block_on(aquapilot_service::gateway::check_async(&config))?;
             let text = serde_json::to_string_pretty(&result)?;
             println!("{text}");
             if let Some(out) = out {

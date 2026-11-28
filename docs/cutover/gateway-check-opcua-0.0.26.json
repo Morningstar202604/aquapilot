@@ -1,0 +1,45 @@
+{
+  "adapters": [
+    {
+      "connected": true,
+      "endpoint": "opc.tcp://127.0.0.1:4841",
+      "error": null,
+      "kind": "opcua",
+      "mode": "real-opcua-session",
+      "security_mode": "None",
+      "security_policy": "None",
+      "values": [
+        {
+          "node_id": "ns=2;s=DO",
+          "point_id": "aerobic.do",
+          "raw": 2.0,
+          "status": "Good",
+          "value": 2.0
+        },
+        {
+          "node_id": "ns=2;s=KLa",
+          "point_id": "aerobic.kla",
+          "raw": 8.0,
+          "status": "Good",
+          "value": 8.0
+        },
+        {
+          "node_id": "ns=2;s=Flow",
+          "point_id": "influent.flow",
+          "raw": 1010.0,
+          "status": "Good",
+          "value": 1010.0
+        }
+      ]
+    }
+  ],
+  "all_connected": true,
+  "checked_at_unix": 1795895702,
+  "config": "/tmp/gateway-service-026-opcua.json",
+  "excluded": [],
+  "fail_closed": true,
+  "note": "Only completed protocol handshakes are reported as connected. OPC UA is a real SecureChannel/Session/Read probe.",
+  "schema": "aquapilot.gateway.check.v1",
+  "scope": "all-configured-adapters",
+  "service_version": "0.0.26"
+}

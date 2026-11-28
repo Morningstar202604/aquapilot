@@ -1,0 +1,74 @@
+{
+ "schema": "aquapilot.gateway.runtime.opcua.v1",
+ "service_version": "0.0.26",
+ "config": "/tmp/gateway-service-026-opcua.json",
+ "mode": "real OPC UA SecureChannel/CreateSession/ActivateSession/Read; persistent session polling",
+ "all_connected": true,
+ "opcua_runtime": {
+  "bad_values": 0,
+  "connected": true,
+  "connected_at_unix": 1795895284,
+  "error": null,
+  "last_read_at_unix": 1795895302,
+  "last_values": [
+   {
+    "point_id": "aerobic.do",
+    "value": 2.1
+   },
+   {
+    "point_id": "aerobic.kla",
+    "value": 8.0
+   },
+   {
+    "point_id": "influent.flow",
+    "value": 1000.0
+   }
+  ],
+  "polls": 10,
+  "security_mode": "None",
+  "security_policy": "None",
+  "state": "connected"
+ },
+ "sample_a": {
+  "at": "2026-11-29T03:48:22.150739+08:00",
+  "points": [
+   {
+    "point_id": "aerobic.do",
+    "value": 2.0,
+    "quality": "good"
+   },
+   {
+    "point_id": "aerobic.kla",
+    "value": 8.0,
+    "quality": "good"
+   },
+   {
+    "point_id": "influent.flow",
+    "value": 1020.0,
+    "quality": "good"
+   }
+  ]
+ },
+ "sample_b": {
+  "at": "2026-11-29T03:48:24.152834+08:00",
+  "points": [
+   {
+    "point_id": "aerobic.do",
+    "value": 2.1,
+    "quality": "good"
+   },
+   {
+    "point_id": "aerobic.kla",
+    "value": 8.0,
+    "quality": "good"
+   },
+   {
+    "point_id": "influent.flow",
+    "value": 1000.0,
+    "quality": "good"
+   }
+  ]
+ },
+ "changed": true,
+ "note": "Local asyncua server, not a field PLC/SCADA or site acceptance. SecurityPolicy None / MessageSecurityMode None, anonymous; no signing/encryption/auth."
+}

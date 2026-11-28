@@ -624,7 +624,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     topologyValidationTimer: null,
     topologyHistory: [],
     topologyFuture: [],
-    industrial: {points: [], adapters: [], last: null, mqttRuntime: null},
+    industrial: {points: [], adapters: [], last: null, mqttRuntime: null, opcuaRuntime: null},
   };
 
   const SCENARIOS = [
@@ -2642,12 +2642,23 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     $("#gw-state").textContent = real ? (allConnected ? "real" : "real/error") : "mock";
     row.innerHTML = adapters.map((adapter) => {
       const count = adapter.points ?? points.filter((point) => point.adapter === adapter.kind).length;
-      const messages = adapter.runtime?.messages;
-      const stateText = adapter.connected === false ? " · 断开" : (messages ? ` · ${messages} msg` : "");
+      const runtimeCount = adapter.runtime?.messages ?? adapter.runtime?.polls;
+      const stateText = adapter.connected === false ? " · 断开" : (runtimeCount ? ` · ${runtimeCount} ${adapter.kind === "mqtt" ? "msg" : "poll"}` : "");
       return `<span class="adapter-chip" title="${esc(adapter.endpoint || adapter.error || "")}"><i></i>${esc(adapter.kind)} · ${count}${stateText}</span>`;
     }).join("") || `<span class="adapter-chip">未连接</span>`;
-    const measured = points.filter((point) => point.adapter === "mqtt" && point.kind === "measurement");
-    $("#gw-telemetry").innerHTML = measured.map((point) => `<div class="gw-metric"><span>${esc(point.label)}</span><b class="${point.quality === "good" ? "" : "bad"}">${fmt(point.value, 3)} <small>${esc(point.unit)}</small></b></div>`).join("") || `<div class="gw-metric"><span>MQTT 遥测</span><b>等待消息</b></div>`;
+    const mqttLive = state.industrial.mqttRuntime?.state !== "disabled" && state.industrial.mqttRuntime?.state !== undefined;
+    const opcuaLive = state.industrial.opcuaRuntime?.state !== "disabled" && state.industrial.opcuaRuntime?.state !== undefined;
+    let telemetry = [];
+    if (mqttLive) {
+      telemetry = points.filter((point) => point.adapter === "mqtt" && point.kind === "measurement")
+        .map((point) => ({label: point.label, unit: point.unit, value: point.value, quality: point.quality}));
+    } else if (opcuaLive) {
+      telemetry = (state.industrial.opcuaRuntime?.last_values || []).map((item) => {
+        const point = points.find((candidate) => candidate.id === item.point_id) || {};
+        return {label: point.label || item.point_id, unit: point.unit || "", value: item.value, quality: point.quality || "good"};
+      });
+    }
+    $("#gw-telemetry").innerHTML = telemetry.map((item) => `<div class="gw-metric"><span>${esc(item.label)}</span><b class="${item.quality === "good" ? "" : "bad"}">${fmt(item.value, 3)} <small>${esc(item.unit)}</small></b></div>`).join("") || `<div class="gw-metric"><span>遥测</span><b>等待消息</b></div>`;
     const select = $("#gw-point");
     const writable = (state.industrial.points || []).filter((point) => point.writable);
     select.innerHTML = writable.map((point) => `<option value="${esc(point.id)}">${esc(point.label)} · ${esc(point.unit)}</option>`).join("");
@@ -2670,6 +2681,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       state.industrial.real = adapters.real === true;
       state.industrial.allConnected = adapters.all_connected === true;
       state.industrial.mqttRuntime = adapters.mqtt_runtime || null;
+      state.industrial.opcuaRuntime = adapters.opcua_runtime || null;
       renderIndustrial();
     } catch (error) {
       $("#adapter-row").innerHTML = `<span class="adapter-chip" style="color:var(--red)">网关不可用</span>`;

@@ -1,4 +1,4 @@
-> 状态注（0.0.25）：服务运行时已接入真实 MQTT 3.1.1 订阅与真实 Modbus TCP 轮询/写入；本文第 7、8 节保留 0.0.17 进程内模拟适配层的历史边界，当前能力以 `docs/V2-0.0.25.md` 与 `docs/CUTOVER.md` 为准。OPC UA 仍为 `unsupported`，现场设备验收仍未做。
+> 状态注（0.0.26）：服务运行时已接入真实 MQTT 3.1.1 订阅、真实 Modbus TCP 轮询/写入，以及真实 OPC UA SecureChannel/Session/Read（None/None/Anonymous、只读）；本文第 7、8 节保留 0.0.17 进程内模拟适配层的历史边界，当前能力以 `docs/V2-0.0.26.md` 与 `docs/CUTOVER.md` 为准。现场设备验收仍未做。
 
 # WP8 工业接口：协议适配层与模拟服务器
 

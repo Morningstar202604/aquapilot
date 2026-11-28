@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.26] — 2026-11-29
+
+### Added
+
+- 真实 OPC UA 客户端（`async-opcua 0.19`）：GetEndpoints → OpenSecureChannel → CreateSession → ActivateSession → Read；仅 `SecurityPolicy None / MessageSecurityMode None / Anonymous`、只读。
+- 服务运行时持久 OPC UA 会话：`opcua_runtime` 暴露 state/connected/polls/bad_values/last_values/error；`AQUAPILOT_OPCUA_POLL_SECONDS` 默认 10 s、范围 2–3600 s；断开清空 `last_values` 并 fail-closed。
+- `gateway-check` 改为 async，合并真实 OPC UA 探测；输出 `service_version`、`excluded`、`scope`。UI OPC UA chip 与遥测条显示真实 DO/KLa/Flow。
+
+### Verification
+
+- `cargo test --workspace` 111 项通过；fmt/clippy 通过；版本 0.0.26。
+- 本机真实 OPC UA 双端：5205 服务 `all_connected=true`，DO 2.0→2.1、Flow 1020→1000，`polls=10`；CLI exit 0；停 server 后 `state=error`、`all_connected=false`、`last_values=[]`，重启恢复；证据 `docs/cutover/gateway-runtime-opcua-0.0.26.json`、`gateway-check-opcua-failclosed-0.0.26.json`。
+- 现场设备、OPC UA 签名/加密/用户名认证/Write/Subscription、24 h soak 未完成；Cutover 仍 NO-GO。
+
 ## [0.0.25] — 2026-11-29
 
 ### Added
