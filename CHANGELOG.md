@@ -16,6 +16,7 @@
 
 - 浏览器实测：载入 BSM1 → 保存为 `我的 BSM1 副本` → 出现在本机拓扑库；刷新页面后仍在；载入后 9 节点/10 连接与服务端编译正常；删除后列表归零，再保存可恢复。
 - `cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全过（74 项）。
+- 0.0.11 重跑五条角色旅程 5/5、3.707 s；代表性矩阵 11/11、93.688 s；自由拓扑旅程仍 D、1/4。
 - OpenAPI 仍为 13 paths；0.0.10 的 `/tmp` 24 h 试跑在环境清理后进程消失、未生成 summary，不能算完成。0.0.11 已改用项目目录持久 workdir（`soak-24h-run/`）并每 60 s 写 `docs/soak-24h-progress.json` checkpoint，真实 wall-clock 24 h soak 重新启动，仍不能宣称 `completed_24h=true`。
 
 ## [0.0.10] — 2026-11-28
