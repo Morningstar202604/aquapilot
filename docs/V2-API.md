@@ -1,6 +1,6 @@
 # AquaPilot V2 Rust 服务 API
 
-> 版本 0.0.8。状态（2026-11-28）：`aquapilot-service` 已落地 HTTP + SSE、SQLite 持久实验队列、幂等、取消/恢复、CSV/Markdown 报告、OpenAPI 3.1、同源可视化编排台（`GET /`、`GET /api/v1/presets`），以及出水评分卡、告警、日/周聚合与五条角色旅程。代表性端到端矩阵 11/11 通过（`docs/coverage-matrix.json`），五条旅程 5/5 通过（`docs/journeys-v2.json`）；wall-clock 24 h soak 仍未执行，60 s smoke 见 `docs/soak-smoke-summary.json`。首版不包含 Bearer 角色鉴权、MCP 或 WebSocket；实时推送使用 SSE，单进程单 worker。
+> 版本 0.0.9。状态（2026-11-28）：`aquapilot-service` 已落地 HTTP + SSE、SQLite 持久实验队列、幂等、取消/恢复、CSV/Markdown 报告、OpenAPI 3.1、同源可视化编排台（`GET /`、`GET /api/v1/presets`）、ASM1 自由拓扑校验（`POST /api/v1/topologies/validate`），以及出水评分卡、告警、日/周聚合、五条角色旅程与自由拓扑验收旅程。代表性端到端矩阵 11/11 通过（`docs/coverage-matrix.json`），五条旅程 5/5 通过（`docs/journeys-v2.json`）；wall-clock 24 h soak 仍未执行，60 s smoke 见 `docs/soak-smoke-summary.json`。首版不包含 Bearer 角色鉴权、MCP 或 WebSocket；实时推送使用 SSE，单进程单 worker。
 
 ## 启动
 
@@ -52,7 +52,8 @@ cargo run -q -p aquapilot-cli -- serve \
 | `GET` | `/` | 同源单文件工艺编排台（HTML） |
 | `GET` | `/api/health` | 队列深度、容量、版本、uptime |
 | `GET` | `/api/openapi.json` | OpenAPI 3.1.0 |
-| `GET` | `/api/v1/presets` | 6 个内嵌场景预设与完整 model config |
+| `GET` | `/api/v1/presets` | 8 个内嵌场景预设与完整 model config |
+| `POST` | `/api/v1/topologies/validate` | 编译 ASM1 `PlantTopology`，返回节点/连接/反应器/二沉池/出水流量；不落库 |
 | `POST` | `/api/v1/experiments` | 入队，`202`；幂等重放 `200` |
 | `GET` | `/api/v1/experiments` | `status`、`limit`、`cursor` 分页 |
 | `GET` | `/api/v1/experiments/{id}` | 详情；成功时含 `result` 快照 |
@@ -63,18 +64,43 @@ cargo run -q -p aquapilot-cli -- serve \
 | `GET` | `/api/v1/experiments/{id}/weekly.csv` | 按 10080 min 聚合的周均值 |
 | `GET` | `/api/v1/experiments/{id}/report.md` | 成功实验的 Markdown 报告（含评分卡、告警、日/周汇总） |
 
+### ASM1 自由拓扑校验
+
+`POST /api/v1/topologies/validate` 接收完整 `PlantTopology`（`name`、`units`、`connections`、`metadata`），只编译、不创建实验。成功 `200`：
+
+```json
+{
+  "valid": true,
+  "name": "three-stage",
+  "units": 5,
+  "connections": 4,
+  "reactors": 3,
+  "clarifiers": 0,
+  "influent_flow_m3_h": 1000.0,
+  "effluent_flow_m3_h": 1000.0
+}
+```
+
+失败返回 `422 application/problem+json`，`code=VALIDATION_FAILED`，`errors[0].code=TOPOLOGY_INVALID`，`detail` 是具体编译错误（例如 `reactor aer has no incoming stream`）。编译检查包括：恰好一个进水/出水、waste ≤ 1、每条连接显式正流量、反应器必须有入流、二沉池恰好一个反应器进料且有溢流/底流路由、全厂流量闭合、回流方向限制、非回流边不得成环。
+
+当前 `GET /api/v1/presets` 的 ASM1 预设：
+
+- `bsm1`：官方 BSM1，9 units / 10 connections，含 RAS 与内回流；
+- `asm1-three-stage`：厌氧/缺氧/好氧三池，无二沉池；
+- `asm1-single`：单好氧池，最小自由拓扑。
+
 状态：`queued → running → succeeded | failed | cancelled`；running 且已请求取消时，详情里的展示状态是 `cancelling`，数据库仍是 running，worker 在下一个检查点收口。
 
 ### 可视化编排台
 
-`GET /` 直接返回服务托管的单文件页面；`GET /api/v1/presets` 返回内嵌预设。页面与 API 同源，不需要 Node 构建链。可视化层只对 `asm2d` 与 `asm2d-adm1-loop` 展开 A2O 工艺链；ASM1、ADM1、泥线用高级 JSON。详细交互与边界见 `docs/V2-UI.md`。
+`GET /` 直接返回服务托管的单文件页面；`GET /api/v1/presets` 返回内嵌预设。页面与 API 同源，不需要 Node 构建链。可视化层对 `asm2d`、`asm2d-adm1-loop` 展开 A2O 池链，对 `asm1` 展开自由拓扑画布；ADM1、泥线仍用高级 JSON。详细交互与边界见 `docs/V2-UI.md`。
 
 ```text
 GET /                     HTML 工艺编排台
 GET /api/v1/presets       { default, presets: [{ id, label, model, description, config }] }
 ```
 
-页面能力：6 个 preset；拖拽改反应器顺序；新增/复制/删除反应器；编辑池型/池容/温度/KLa/DO；二沉池 RAS/WAS、内回流端点与流量（可新增/删除）、PAC（点胶囊进入）、三级过滤（点胶囊进入）、进水边界；高流量、低 DO、冬季、PAC 停加、过滤旁路、厌氧扩容 6 类工况注入；高级 JSON 导入导出；SSE 实验监看、队列、出水趋势、三本账、出水评分卡/告警、日汇总/周汇总 CSV 和 Markdown 报告下载。
+页面能力：8 个 preset；A2O 拖拽改反应器顺序，新增/复制/删除反应器，编辑池型/池容/温度/KLa/DO；二沉池 RAS/WAS、内回流端点与流量（可新增/删除）、PAC（点胶囊进入）、三级过滤（点胶囊进入）、进水边界；高流量、低 DO、冬季、PAC 停加、过滤旁路、厌氧扩容 6 类工况注入；ASM1 自由拓扑画布支持增删节点、编辑节点参数、增删连接与回流边；高级 JSON 导入导出；SSE 实验监看、队列、出水趋势、三本账、出水评分卡/告警、日汇总/周汇总 CSV 和 Markdown 报告下载。
 
 ### SSE
 
@@ -180,6 +206,15 @@ BOD、pH、温度、MLSS、SRT、能耗、评分、泥毯厚度在当前 V2 模�
 
 对 `asm2d-adm1-loop`/`adm1`/`sludge-line`，采样器当前只有最终状态一行，日/周聚合只是终态单桶，并会触发 `SPARSE_SAMPLES`；不能把这些桶当趋势。
 
+### ASM1 自由拓扑验收（0.0.9）
+
+```bash
+python3 scripts/topology_journey.py --base http://127.0.0.1:5173 \
+  --summary docs/topology-journey.json
+```
+
+结果（`docs/topology-journey.json`）：3 个 ASM1 预设全部 `200` 编译；把三池预设删除厌氧节点、补一条 `in → anx 1000 m³/h` 连接后，得到 4 units / 3 connections / 2 reactors 并编译成功；提交 1 d 实验后 `succeeded`，评分卡严格按 ASM1 四项打分（D、1/4），触发 `EFFLUENT_COD_HIGH`、`EFFLUENT_SS_HIGH`、`EFFLUENT_TN_HIGH`。该结果说明“无二沉池”的拓扑会如实表现悬浮固体穿透，不被评分卡掩盖。`completed_24h=false`，这不是 24 h soak。
+
 ## Soak
 
 ```bash
@@ -205,7 +240,7 @@ python3 scripts/soak_v2.py --duration 86400 --interval 30 \
 python3 scripts/coverage_v2.py --summary docs/coverage-matrix.json
 ```
 
-结果（`docs/coverage-matrix.json`）：11/11 通过，82.598 s；覆盖 `asm1`、`asm2d`、`asm2d-adm1-loop`、`adm1`、`sludge-line` 五个模型，以及 A2O 基础、PAC + 三级过滤、高流量、低 DO、冬季、PAC 停加、过滤旁路 7 个工况组合。每个 case 都检查 `202` 入队、终态、detail、`samples.csv`、`report.md`，有 `mass_balance`/`whole_balance` 的模型还检查残差 ≤ 5%。loop 30 天单例 62.208 s，最大残差 2.85%。`completed_24h` 仍为 `false`。
+结果（`docs/coverage-matrix.json`）：11/11 通过，93.386 s；覆盖 `asm1`、`asm2d`、`asm2d-adm1-loop`、`adm1`、`sludge-line` 五个模型，以及 A2O 基础、PAC + 三级过滤、高流量、低 DO、冬季、PAC 停加、过滤旁路 7 个工况组合。每个 case 都检查 `202` 入队、终态、detail、`samples.csv`、`report.md`，有 `mass_balance`/`whole_balance` 的模型还检查残差 ≤ 5%。loop 30 天单例 72.101 s，最大残差 2.85%。`completed_24h` 仍为 `false`。
 
 ### 五条角色旅程（0.0.8）
 

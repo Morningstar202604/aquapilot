@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.0.9] — 2026-11-28
+
+### Added
+
+- `POST /api/v1/topologies/validate`：接收完整 ASM1 `PlantTopology`，编译并返回 `units/connections/reactors/clarifiers/influent_flow_m3_h/effluent_flow_m3_h`，不创建实验；失败 `422 VALIDATION_FAILED` + `TOPOLOGY_INVALID`。
+- 2 个 ASM1 预设：`asm1-three-stage`（三池无二沉池）、`asm1-single`（单好氧池）；preset 总数 6 → 8。
+- UI ASM1 自由拓扑画布：分层自动布局、节点增删、池型/池容/初始场/KLa/DO/二沉池几何编辑、连接表增删、内回流/RAS/WAS 边、服务端编译状态。
+- `scripts/topology_journey.py`、`docs/topology-journey.json`、`docs/screenshots/v2-ui-topology.png`。
+
+### Changed
+
+- 版本统一到 `0.0.9`；OpenAPI 13 paths，`openapi-spec-validator` 通过。
+- `setModel` 从 ASM1/ADM1/泥线切回 ASM2d 时改为载入 visual preset，不再把拓扑误当 plant；ASM1 切换不再显示 A2O 工况 chips。
+- ASM1 画布提交前先做本地拓扑检查并异步调用服务端编译；提交仍由服务端二次校验，前端不放行。
+- `docs/V2-API.md`、`docs/V2-UI.md`、`docs/ROADMAP-V2.md`、`rust-v2/README.md` 同步到 0.0.9。
+
+### Verification
+
+- `cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全过（74 项 = model 39 + engine 8 + service 26 + worker 1）。
+- 3 个 ASM1 预设全部 `200` 编译：BSM1 9 units/10 connections/5 reactors/1 clarifier；three-stage 5/4/3/0；single 3/2/1/0。
+- 删除 three-stage 的厌氧池并补 `in → anx 1000 m³/h` 后，4 units/3 connections/2 reactors 编译成功；1 d 实验 `succeeded`，ASM1 四项评分 D、1/4，`EFFLUENT_COD_HIGH`/`EFFLUENT_SS_HIGH`/`EFFLUENT_TN_HIGH`。
+- 浏览器实测：自由拓扑画布增删节点、加连接、切换 BSM1（9 节点/10 连接）和 A2O 均正常；底部显示“服务端已编译”。
+- wall-clock 24 h soak 仍未执行；`completed_24h=false`，V2-3/V2-4 仍不标完成。
+
 ## [0.0.8] — 2026-11-28
 
 ### Added

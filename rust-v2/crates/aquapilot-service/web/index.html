@@ -281,6 +281,38 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:8px}
 .tab{border:0;background:transparent;padding:7px 8px;font-size:10.5px;color:var(--muted);border-bottom:2px solid transparent}
 .tab.active{color:var(--teal);border-bottom-color:var(--teal);font-weight:650}
+/* ASM1 free topology */
+.flow.topology-mode{display:block;min-width:max-content;padding:0}
+.topology-canvas{position:relative;min-width:980px;min-height:480px;padding:0}
+.topo-toolbar{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:8px;position:relative;z-index:2}
+.topo-toolbar .chip{padding:4px 8px;font-size:9.5px}
+.topo-toolbar .chip:hover{border-color:var(--teal);color:var(--teal);background:var(--teal-soft)}
+.topo-toolbar .toolbar-label{font-family:var(--mono);font-size:9px;color:var(--faint);margin-right:4px}
+.topo-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+.topo-edge{fill:none;stroke:#8fb9aa;stroke-width:1.4;pointer-events:none}
+.topo-edge.recycle{stroke:var(--amber);stroke-dasharray:5 4;stroke-width:1.3}
+.topo-edge-hit{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
+.topo-edge-label{font-family:var(--mono);font-size:9px;fill:#6d837b;pointer-events:none}
+.topo-edge-label.recycle{fill:#9a6417}
+.topo-unit{position:absolute;width:148px;min-height:88px;border:1px solid var(--line-strong);border-radius:12px;background:#fff;padding:9px 10px;box-shadow:0 2px 0 rgba(16,35,31,.03);cursor:pointer;z-index:3;transition:border-color .15s,box-shadow .15s,transform .15s}
+.topo-unit:hover{border-color:#9fc1b5;transform:translateY(-1px);box-shadow:0 8px 18px rgba(16,35,31,.08)}
+.topo-unit.selected{border-color:var(--teal);box-shadow:0 0 0 2px rgba(15,118,110,.13),0 8px 18px rgba(16,35,31,.08)}
+.topo-unit.influent{background:linear-gradient(160deg,#effaf5,#fbfffd);border-color:#bcd8cd}
+.topo-unit.effluent{background:linear-gradient(160deg,#f5f8ff,#fff);border-color:#c7d7f4}
+.topo-unit.clarifier{background:linear-gradient(150deg,#f5f9ff,#fff);border-color:#b9d0e9}
+.topo-unit.waste{background:#fffaf2;border-color:#e5c99b}
+.topo-unit .u-head{display:flex;align-items:center;justify-content:space-between;gap:5px}
+.topo-unit .u-type{font-family:var(--mono);font-size:8.5px;letter-spacing:.03em;color:var(--teal);text-transform:uppercase}
+.topo-unit.clarifier .u-type{color:var(--blue)}
+.topo-unit.waste .u-type{color:#8a5a16}
+.topo-unit .u-id{font-family:var(--mono);font-size:8.5px;color:var(--faint);max-width:64px;overflow:hidden;text-overflow:ellipsis}
+.topo-unit strong{display:block;margin-top:6px;font-size:12.5px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topo-unit small{display:block;margin-top:3px;font-family:var(--mono);font-size:9px;color:var(--muted);line-height:1.4}
+.topo-inspector-connect{border-top:1px solid var(--line);margin-top:10px;padding-top:9px}
+.topo-inspector-connect h3{font-size:11px;margin:0 0 6px;color:var(--muted)}
+.topo-inspector-connect .connect-row{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.topo-inspector-connect .connect-row .field{margin:0}
+.topo-inspector-connect .btn{margin-top:7px}
 .footer-note{padding:8px 2px 0;font-size:9.5px;color:var(--faint);line-height:1.5}
 @media (max-width:1180px){.layout{grid-template-columns:286px minmax(0,1fr) 330px}.inspector-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.inspector-grid .span3{grid-column:span 2}}
 @media (max-width:980px){
@@ -303,12 +335,12 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     <div><h1>AquaPilot</h1><p>wastewater process studio</p></div>
   </div>
   <div class="top-sep"></div>
-  <div class="crumbs"><b>V2</b><span>/</span><span>工艺编排台</span><span>/</span><span class="mono">ASM2d · 整厂</span></div>
+  <div class="crumbs"><b>V2</b><span>/</span><span>工艺编排台</span><span>/</span><span class="mono" id="crumb-model">ASM2d · 整厂</span></div>
   <div class="top-spacer"></div>
   <div class="top-status">
     <div class="status-chip" title="服务健康"><span class="dot" id="svc-dot"></span><span id="svc-label">连接中</span></div>
     <div class="status-chip"><span class="mono" id="queue-chip">队列 0 / 32</span></div>
-    <div class="status-chip"><span class="mono" id="svc-version">v0.0.8</span></div>
+    <div class="status-chip"><span class="mono" id="svc-version">v0.0.9</span></div>
   </div>
   <button class="top-link" id="open-api">API 契约 ↗</button>
 </header>
@@ -326,7 +358,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
         <div class="field"><label for="exp-name">实验名称</label><input id="exp-name" class="control" autocomplete="off"></div>
       </div>
       <div class="form-row one">
-        <div class="field"><label for="model">计算模型</label><select id="model" class="control"><option value="asm2d">ASM2d 整厂</option><option value="asm2d-adm1-loop">ASM2d + ADM1 回流闭环</option><option value="asm1">ASM1 BSM1</option><option value="adm1">ADM1 消化器</option><option value="sludge-line">泥线</option></select></div>
+        <div class="field"><label for="model">计算模型</label><select id="model" class="control"><option value="asm2d">ASM2d 整厂</option><option value="asm2d-adm1-loop">ASM2d + ADM1 回流闭环</option><option value="asm1">ASM1 自由拓扑 / BSM1</option><option value="adm1">ADM1 消化器</option><option value="sludge-line">泥线</option></select></div>
       </div>
       <div class="form-row">
         <div class="field"><label for="duration" id="duration-label">模拟时长（分钟）</label><input id="duration" class="control mono" type="number" min="1" step="1"></div>
@@ -367,9 +399,9 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   <section class="stage">
     <div class="stage-head">
       <div>
-        <div class="eyebrow">PROCESS TOPOLOGY / A2O</div>
+        <div class="eyebrow" id="stage-eyebrow">PROCESS TOPOLOGY / A2O</div>
         <h2 class="stage-title">工艺编排台 <small id="stage-tag">ASM2d plant</small></h2>
-        <p class="stage-sub">拖拽池体改串联顺序，点选节点在下方改参数；内回流、RAS/WAS、PAC 与三级过滤都在同一条流程上可见。</p>
+        <p class="stage-sub" id="stage-sub">拖拽池体改串联顺序，点选节点在下方改参数；内回流、RAS/WAS、PAC 与三级过滤都在同一条流程上可见。</p>
       </div>
       <div class="stage-actions">
         <button class="btn ghost" id="reset-preset">重置预设</button>
@@ -462,6 +494,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     return `ui-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
   };
   const isVisualModel = (model) => model === "asm2d" || model === "asm2d-adm1-loop";
+  const isTopologyModel = (model) => model === "asm1";
   const isDaysModel = (model) => model === "adm1" || model === "sludge-line";
 
   const state = {
@@ -483,6 +516,8 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     chartMetric: "cod",
     source: null,
     busy: false,
+    topologyValidationSeq: 0,
+    topologyValidationTimer: null,
   };
 
   const SCENARIOS = [
@@ -506,12 +541,31 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     return state.model === "asm2d-adm1-loop" ? state.config.plant : state.config;
   }
 
+  function getTopology() {
+    if (!state.config || !isTopologyModel(state.model)) return null;
+    return Array.isArray(state.config.units) ? state.config : null;
+  }
+
+  function topologyUnit(id) {
+    return getTopology()?.units?.find((unit) => unit.id === id) || null;
+  }
+
+  function topologyType(unit) {
+    return unit?.type || "reactor";
+  }
+
+  function topologySelectedUnit() {
+    if (!state.selected || state.selected.type !== "unit") return null;
+    return topologyUnit(state.selected.id);
+  }
+
   function reactorName(index) {
     const reactor = getPlant()?.reactors?.[Number(index)];
     return reactor ? (reactor.name || reactor.id) : `#${index}`;
   }
 
   function setPath(path, value) {
+    if (isTopologyModel(state.model)) { setTopologyPath(path, value); return; }
     const plant = getPlant();
     if (!plant) return;
     const parts = path.split(".");
@@ -553,7 +607,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   }
 
   function modelLabel(model) {
-    return ({asm2d: "ASM2d 整厂", "asm2d-adm1-loop": "ASM2d + ADM1 闭环", asm1: "ASM1 BSM1", adm1: "ADM1 消化器", "sludge-line": "泥线"})[model] || model;
+    return ({asm2d: "ASM2d 整厂", "asm2d-adm1-loop": "ASM2d + ADM1 闭环", asm1: "ASM1 自由拓扑", adm1: "ADM1 消化器", "sludge-line": "泥线"})[model] || model;
   }
 
   function statusClass(status) {
@@ -599,6 +653,10 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   }
 
   function renderScenarios() {
+    if (isTopologyModel(state.model)) {
+      $("#scenario-grid").innerHTML = `<div class="hint" style="grid-column:1/-1;line-height:1.6">自由拓扑模式：用画布工具栏增删节点，选中节点后在下方改参数，用“新增连接”加边。每条连接都必须有显式流量；服务端会检查节点流平衡。</div>`;
+      return;
+    }
     $("#scenario-grid").innerHTML = SCENARIOS.map((scenario) => `<button class="chip ${scenario.tone}" data-scenario="${scenario.id}">${esc(scenario.label)}</button>`).join("");
     $$("#scenario-grid .chip").forEach((button) => button.addEventListener("click", () => {
       const scenario = SCENARIOS.find((s) => s.id === button.dataset.scenario);
@@ -627,7 +685,9 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       ? "ADM1 / 泥线用天为单位；模型只输出最终状态一行。"
       : state.model === "asm2d-adm1-loop"
         ? "可视化编辑 A2O 池体；泥线使用默认 Asm2dSludgeConfig（可在高级 JSON 里加 sludge）。"
-        : "ASM2d 整厂：在下方工艺链上编辑池型、池容、DO、回流与二沉池。";
+        : isTopologyModel(state.model)
+          ? "ASM1 自由拓扑：节点和连接由你增删；每条连接流量必须显式，服务端会编译并检查流平衡。"
+          : "ASM2d 整厂：在下方工艺链上编辑池型、池容、DO、回流与二沉池。";
     renderStageTag();
   }
 
@@ -637,6 +697,16 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 
   function renderFlow() {
     const flow = $("#flow");
+    flow.className = "flow";
+    $("#crumb-model").textContent = isTopologyModel(state.model) ? "ASM1 · 自由拓扑" : isVisualModel(state.model) ? "ASM2d · 整厂" : "模型配置";
+    $("#stage-eyebrow").textContent = isTopologyModel(state.model) ? "PROCESS TOPOLOGY / FREEFORM" : "PROCESS TOPOLOGY / A2O";
+    $("#stage-sub").textContent = isTopologyModel(state.model)
+      ? "节点和连接都由你决定：工具栏加节点，连接表加边；选中节点在下方改池型、池容、DO 与进水组分。"
+      : "拖拽池体改串联顺序，点选节点在下方改参数；内回流、RAS/WAS、PAC 与三级过滤都在同一条流程上可见。";
+    $(".stage-foot .legend").innerHTML = isTopologyModel(state.model)
+      ? `<span><i class="swatch"></i>过程边</span><span><i class="swatch amber"></i>回流边</span><span><i class="swatch red"></i>边界/废弃</span>`
+      : `<span><i class="swatch"></i>厌氧 / 好氧</span><span><i class="swatch amber"></i>缺氧 / 回流</span><span><i class="swatch red"></i>限制 / 旁路</span>`;
+    if (isTopologyModel(state.model)) { renderTopologyFlow(); renderStageChips(); return; }
     const plant = getPlant();
     if (!isVisualModel(state.model) || !plant) {
       flow.innerHTML = `<div class="empty-visual" style="min-width:680px"><strong>该模型没有 A2O 可视化链</strong>当前模型使用 JSON 配置；点“高级 JSON”查看或修改。ASM1 / ADM1 / 泥线仍可从左侧预设一键运行。</div>`;
@@ -733,6 +803,399 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     renderStageChips();
   }
 
+  function topologyTypeLabel(type) {
+    return ({influent: "进水", aerobic: "好氧", anoxic: "缺氧", anaerobic: "厌氧", clarifier: "二沉池", effluent: "出水", waste: "废弃"})[type] || type;
+  }
+
+  function topologyLayout(topology) {
+    const levels = new Map(topology.units.map((unit) => [unit.id, 0]));
+    const backEdge = (edge) => edge.recycle === "ras" || edge.recycle === "internal";
+    // Longest-path layering over forward edges; back-edges are drawn separately.
+    for (let pass = 0; pass < topology.units.length; pass++) {
+      topology.connections.forEach((edge) => {
+        if (backEdge(edge)) return;
+        const from = levels.get(edge.from);
+        const to = levels.get(edge.to);
+        if (from === undefined || to === undefined) return;
+        if (to < from + 1) levels.set(edge.to, from + 1);
+      });
+    }
+    const groups = new Map();
+    topology.units.forEach((unit) => {
+      const level = levels.get(unit.id) || 0;
+      if (!groups.has(level)) groups.set(level, []);
+      groups.get(level).push(unit);
+    });
+    const positions = {};
+    let maxLevel = 0;
+    let maxRows = 1;
+    groups.forEach((units, level) => {
+      maxLevel = Math.max(maxLevel, level);
+      maxRows = Math.max(maxRows, units.length);
+      units.forEach((unit, row) => {
+        positions[unit.id] = {x: 28 + level * 190, y: 18 + row * 108};
+      });
+    });
+    return {
+      positions,
+      width: Math.max(980, 28 + (maxLevel + 1) * 190 + 148),
+      height: Math.max(470, 18 + maxRows * 108 + 56),
+    };
+  }
+
+  function topologyEdgePath(from, to, recycle) {
+    const x1 = from.x + 148;
+    const y1 = from.y + 44;
+    const x2 = to.x;
+    const y2 = to.y + 44;
+    if (recycle || x2 <= x1) {
+      return `M${x1},${y1} C${x1 + 58},${y1 + 92} ${x2 - 58},${y2 + 92} ${x2},${y2}`;
+    }
+    return `M${x1},${y1} C${x1 + 58},${y1} ${x2 - 58},${y2} ${x2},${y2}`;
+  }
+
+  function topologyNodeSummary(unit) {
+    const type = topologyType(unit);
+    if (type === "influent") return `${fmt(unit.flow_m3_h, 0)} m³/h · COD ${fmt(unit.water?.cod, 0)}`;
+    if (type === "effluent") return "最终出水边界";
+    if (type === "clarifier") return `A ${fmt(unit.area_m2, 0)} m² · ${fmt(unit.depth_m, 1)} m`;
+    if (type === "waste") return "WAS / 废弃边界";
+    if (unit.initial) return `${fmt(unit.volume_m3, 0)} m³ · MLSS ${fmt(unit.initial.mlss, 0)}`;
+    return `${fmt(unit.volume_m3, 0)} m³`;
+  }
+
+  function topologyConnectHtml(topology) {
+    const unitOptions = topology.units.map((unit) => [unit.id, `${unit.name || unit.id} · ${topologyTypeLabel(topologyType(unit))}`]);
+    const selected = topologySelectedUnit();
+    const fromDefault = selected && topologyType(selected) !== "effluent" ? selected.id : topology.units[0]?.id;
+    const toDefault = topology.units.find((unit) => unit.id !== fromDefault && topologyType(unit) !== "influent")?.id || topology.units[0]?.id;
+    return `
+      <div class="topo-inspector-connect">
+        <h3>新增连接</h3>
+        <div class="connect-row">
+          <div class="field"><label>从</label><select class="control" id="topo-edge-from">${unitOptions.map(([id, label]) => `<option value="${esc(id)}" ${id === fromDefault ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></div>
+          <div class="field"><label>到</label><select class="control" id="topo-edge-to">${unitOptions.map(([id, label]) => `<option value="${esc(id)}" ${id === toDefault ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></div>
+          <div class="field"><label>流量 m³/h</label><input class="control mono" id="topo-edge-flow" type="number" min="1" step="1" value="1000"></div>
+          <div class="field"><label>边类型</label><select class="control" id="topo-edge-recycle"><option value="none">普通过程边</option><option value="internal">内回流</option><option value="ras">RAS</option><option value="was">WAS</option></select></div>
+        </div>
+        <button class="btn" data-action="add-topology-edge">加入连接</button>
+        <p class="hint">流量必须显式；回流边（内回流/RAS）会作为 back-edge，不参与前向拓扑排序。</p>
+      </div>`;
+  }
+
+  function renderTopologyFlow() {
+    const flow = $("#flow");
+    const topology = getTopology();
+    flow.className = "flow topology-mode";
+    if (!topology || !Array.isArray(topology.units) || !topology.units.length) {
+      flow.innerHTML = `<div class="empty-visual"><strong>还没有拓扑节点</strong>从左侧选择一个 ASM1 预设，或用“+ 反应器”开始。</div>`;
+      $("#recycle-strip").innerHTML = "";
+      return;
+    }
+    const layout = topologyLayout(topology);
+    const selectedUnit = state.selected.type === "unit" ? state.selected.id : null;
+    const selectedEdge = state.selected.type === "edge" ? state.selected.id : null;
+    const toolbar = `
+      <div class="topo-toolbar">
+        <span class="toolbar-label">FREEFORM TOPOLOGY</span>
+        <button class="chip" data-topo-add="aerobic">+ 好氧池</button>
+        <button class="chip" data-topo-add="anoxic">+ 缺氧池</button>
+        <button class="chip" data-topo-add="anaerobic">+ 厌氧池</button>
+        <button class="chip" data-topo-add="clarifier">+ 二沉池</button>
+        <button class="chip" data-topo-add="effluent">+ 出水</button>
+        <button class="chip" id="topo-relayout">重新布局</button>
+        <span class="faint" style="font-size:9px">节点自动排布；连线由连接表决定</span>
+      </div>`;
+    const svg = `<svg class="topo-svg" viewBox="0 0 ${layout.width} ${layout.height}" width="${layout.width}" height="${layout.height}" aria-label="ASM1 自由拓扑连线">
+      <defs>
+        <marker id="topo-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#8fb9aa"/></marker>
+        <marker id="topo-arrow-recycle" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#c58a2a"/></marker>
+      </defs>
+      ${topology.connections.map((edge) => {
+        const from = layout.positions[edge.from];
+        const to = layout.positions[edge.to];
+        if (!from || !to) return "";
+        const recycle = edge.recycle === "ras" || edge.recycle === "internal";
+        const d = topologyEdgePath(from, to, recycle);
+        const labelX = (from.x + 148 + to.x) / 2;
+        const labelY = (from.y + to.y) / 2 + (recycle ? 102 : 12);
+        return `<path class="topo-edge ${recycle ? "recycle" : ""}" d="${d}" marker-end="url(#${recycle ? "topo-arrow-recycle" : "topo-arrow"})" style="${edge.id === selectedEdge ? "stroke-width:2.4" : ""}"/>
+          <path class="topo-edge-hit" data-edge-id="${esc(edge.id)}" d="${d}"/>
+          <text class="topo-edge-label ${recycle ? "recycle" : ""}" x="${labelX}" y="${labelY}" text-anchor="middle">${fmt(edge.flow_m3_h, 0)}${recycle ? " · " + esc(edge.recycle.toUpperCase()) : ""}</text>`;
+      }).join("")}
+    </svg>`;
+    const nodes = topology.units.map((unit) => {
+      const pos = layout.positions[unit.id] || {x: 28, y: 18};
+      const type = topologyType(unit);
+      return `<article class="topo-unit ${esc(type)} ${selectedUnit === unit.id ? "selected" : ""}" style="left:${pos.x}px;top:${pos.y}px" data-unit-id="${esc(unit.id)}">
+        <div class="u-head"><span class="u-type">${esc(topologyTypeLabel(type))}</span><span class="u-id">${esc(unit.id)}</span></div>
+        <strong>${esc(unit.name || unit.id)}</strong>
+        <small>${topologyNodeSummary(unit)}</small>
+      </article>`;
+    }).join("");
+    flow.innerHTML = toolbar + `<div class="topology-canvas" style="width:${layout.width}px;height:${layout.height}px">${svg}${nodes}</div>`;
+    $("#recycle-strip").innerHTML = `<span class="faint" style="font-size:9.5px">${topology.units.length} 节点 · ${topology.connections.length} 连接 · 选中节点或连线后在下方编辑</span>`;
+    $$("[data-topo-add]").forEach((button) => button.addEventListener("click", () => addTopologyUnit(button.dataset.topoAdd)));
+    $("#topo-relayout").addEventListener("click", () => { renderFlow(); toast("已按前向拓扑重新布局。"); });
+    $$(".topo-unit").forEach((node) => node.addEventListener("click", () => {
+      state.selected = {type: "unit", id: node.dataset.unitId};
+      renderFlow(); renderInspector();
+    }));
+    $$(".topo-edge-hit").forEach((path) => path.addEventListener("click", (event) => {
+      event.stopPropagation();
+      state.selected = {type: "edge", id: path.dataset.edgeId};
+      renderFlow(); renderInspector();
+    }));
+  }
+
+  function renderTopologyInspector() {
+    const inspector = $("#inspector");
+    const topology = getTopology();
+    if (!topology) {
+      inspector.innerHTML = `<div class="inspector-empty">没有可编辑的 ASM1 拓扑。</div>`;
+      return;
+    }
+    if (state.selected.type === "edge") {
+      const edge = topology.connections.find((item) => item.id === state.selected.id);
+      if (!edge) { state.selected = {type: "unit", id: topology.units[0]?.id}; return renderTopologyInspector(); }
+      inspector.innerHTML = `
+        <div class="inspector-head"><div><h2>连接 ${esc(edge.id)}</h2><div class="sub">${esc(edge.from)} → ${esc(edge.to)}</div></div><span class="tag">EDGE</span></div>
+        <div class="inspector-grid">
+          ${field("流量 m³/h", "edge.flow_m3_h", edge.flow_m3_h, {min: "1"})}
+          ${selectField("边类型", "edge.recycle", edge.recycle || "none", [["none","普通过程边"],["internal","内回流"],["ras","RAS"],["was","WAS"]])}
+        </div>
+        <div class="inspector-actions"><button class="btn" data-action="delete-topology-edge">删除连接</button></div>
+        ${topologyConnectHtml(topology)}`;
+      return;
+    }
+    const unit = topologySelectedUnit();
+    if (!unit) { state.selected = {type: "unit", id: topology.units[0]?.id}; return renderTopologyInspector(); }
+    const type = topologyType(unit);
+    const initial = unit.initial || {};
+    const water = unit.water || {};
+    const typeEntries = [["aerobic","好氧"],["anoxic","缺氧"],["anaerobic","厌氧"]];
+    let fields = field("名称", "unit.name", unit.name || unit.id, {type: "text", span: "span2"});
+    if (type === "influent") {
+      fields += field("流量 m³/h", "unit.flow_m3_h", unit.flow_m3_h, {min: "1"});
+      fields += field("COD mg/L", "unit.water.cod", water.cod ?? 0, {min: "0"});
+      fields += field("NH₄-N mg/L", "unit.water.nh4_n", water.nh4_n ?? 0, {min: "0"});
+      fields += field("NO₃-N mg/L", "unit.water.no3_n", water.no3_n ?? 0, {min: "0"});
+      fields += field("TP mg/L", "unit.water.tp", water.tp ?? 0, {min: "0"});
+      fields += field("SS mg/L", "unit.water.ss", water.ss ?? 0, {min: "0"});
+      fields += field("碱度 mg/L", "unit.water.alkalinity", water.alkalinity ?? 0, {min: "0"});
+      fields += field("DO mg/L", "unit.water.dissolved_oxygen", water.dissolved_oxygen ?? 0, {min: "0"});
+      fields += field("温度 °C", "unit.water.temperature_c", water.temperature_c ?? 20, {step: "0.1"});
+    } else if (["aerobic","anoxic","anaerobic"].includes(type)) {
+      fields += selectField("池型", "unit.type", type, typeEntries);
+      fields += field("池容 m³", "unit.volume_m3", unit.volume_m3, {min: "1"});
+      fields += field("初始 COD", "unit.initial.cod", initial.cod ?? 0, {min: "0"});
+      fields += field("初始 MLSS", "unit.initial.mlss", initial.mlss ?? 0, {min: "0"});
+      fields += field("初始 DO", "unit.initial.dissolved_oxygen", initial.dissolved_oxygen ?? 0, {min: "0"});
+      if (type === "aerobic") {
+        fields += field("KLa 1/h", "unit.kla_h", unit.kla_h, {min: "0"});
+        fields += field("DO 设定", "unit.do_setpoint", unit.do_setpoint, {min: "0", max: "10", step: "0.1"});
+      }
+    } else if (type === "clarifier") {
+      fields += field("面积 m²", "unit.area_m2", unit.area_m2, {min: "10"});
+      fields += field("深度 m", "unit.depth_m", unit.depth_m, {min: "0.5", step: "0.1"});
+      fields += field("层数", "unit.layers", unit.layers, {min: "2", max: "100", step: "1"});
+      fields += field("进料层", "unit.feed_layer", unit.feed_layer, {min: "1", max: "99", step: "1"});
+    }
+    const boundary = type === "influent" || type === "effluent";
+    inspector.innerHTML = `
+      <div class="inspector-head"><div><h2>${esc(unit.name || unit.id)}</h2><div class="sub">${esc(topologyTypeLabel(type))} · ${esc(unit.id)}</div></div><span class="tag">${esc(type.toUpperCase())}</span></div>
+      <div class="inspector-grid">${fields}</div>
+      <div class="inspector-actions"><button class="btn" data-action="delete-topology-unit" ${boundary ? "disabled" : ""}>删除节点</button></div>
+      <p class="hint">ASM1 的完整组分/初始场可继续在高级 JSON 里改；删除边界节点会被服务端拒绝。</p>
+      ${topologyConnectHtml(topology)}`;
+  }
+
+  function topologyLocalErrors(topology) {
+    const errors = [];
+    if (!Array.isArray(topology.units) || !topology.units.length) errors.push("至少一个节点");
+    const ids = new Set();
+    topology.units.forEach((unit) => { if (ids.has(unit.id)) errors.push(`重复节点 id：${unit.id}`); ids.add(unit.id); });
+    const influents = topology.units.filter((unit) => topologyType(unit) === "influent").length;
+    const effluents = topology.units.filter((unit) => topologyType(unit) === "effluent").length;
+    const reactors = topology.units.filter((unit) => ["aerobic","anoxic","anaerobic"].includes(topologyType(unit)));
+    if (influents !== 1) errors.push(`进水节点必须恰好 1 个（当前 ${influents}）`);
+    if (effluents !== 1) errors.push(`出水节点必须恰好 1 个（当前 ${effluents}）`);
+    if (!reactors.length) errors.push("至少一个反应器");
+    topology.units.forEach((unit) => {
+      const type = topologyType(unit);
+      if (["aerobic","anoxic","anaerobic"].includes(type) && !(num(unit.volume_m3, 0) > 0)) errors.push(`${unit.id} 池容必须为正`);
+      if (type === "clarifier" && (!(num(unit.area_m2, 0) > 0) || !(num(unit.depth_m, 0) > 0))) errors.push(`${unit.id} 二沉池几何无效`);
+    });
+    const edgeIds = new Set();
+    topology.connections.forEach((edge) => {
+      if (edgeIds.has(edge.id)) errors.push(`重复连接 id：${edge.id}`);
+      edgeIds.add(edge.id);
+      if (!ids.has(edge.from) || !ids.has(edge.to)) errors.push(`连接 ${edge.id} 端点不存在`);
+      if (!(num(edge.flow_m3_h, 0) > 0)) errors.push(`连接 ${edge.id} 流量必须为正`);
+      if (edge.from === edge.to) errors.push(`连接 ${edge.id} 是自环`);
+    });
+    const indegree = new Map(topology.units.map((unit) => [unit.id, 0]));
+    const adjacency = new Map(topology.units.map((unit) => [unit.id, []]));
+    topology.connections.forEach((edge) => {
+      if (edge.recycle === "ras" || edge.recycle === "internal") return;
+      if (!adjacency.has(edge.from) || !indegree.has(edge.to)) return;
+      adjacency.get(edge.from).push(edge.to);
+      indegree.set(edge.to, (indegree.get(edge.to) || 0) + 1);
+    });
+    const ready = topology.units.filter((unit) => indegree.get(unit.id) === 0).map((unit) => unit.id);
+    let visited = 0;
+    while (ready.length) {
+      const id = ready.shift();
+      visited++;
+      (adjacency.get(id) || []).forEach((target) => {
+        indegree.set(target, indegree.get(target) - 1);
+        if (indegree.get(target) === 0) ready.push(target);
+      });
+    }
+    if (visited !== topology.units.length) errors.push("非回流边形成环；回流边请标记为 internal/RAS");
+    return errors;
+  }
+
+  function scheduleTopologyValidation() {
+    clearTimeout(state.topologyValidationTimer);
+    const seq = ++state.topologyValidationSeq;
+    state.topologyValidationTimer = setTimeout(async () => {
+      if (state.model !== "asm1" || seq !== state.topologyValidationSeq) return;
+      try {
+        const result = await api("/api/v1/topologies/validate", {
+          method: "POST",
+          body: JSON.stringify(state.config),
+        });
+        if (seq !== state.topologyValidationSeq) return;
+        $("#stage-validation").textContent = `${result.units} 节点 · ${result.connections} 连接 · 服务端已编译`;
+        $("#stage-validation").style.color = "";
+      } catch (error) {
+        if (seq !== state.topologyValidationSeq) return;
+        $("#stage-validation").textContent = `服务端：${error.message}`;
+        $("#stage-validation").style.color = "var(--red)";
+      }
+    }, 350);
+  }
+
+  function setTopologyPath(path, value) {
+    const topology = getTopology();
+    if (!topology) return;
+    const parts = path.split(".");
+    if (parts[0] === "unit") {
+      const unit = topologySelectedUnit();
+      if (!unit) return;
+      let target = unit;
+      for (let i = 1; i < parts.length - 1; i++) target = target[parts[i]];
+      target[parts[parts.length - 1]] = value;
+      if (parts[1] === "type") {
+        if (value !== "aerobic") { unit.kla_h = 0; unit.do_setpoint = 0; }
+        else if (!(num(unit.kla_h, 0) > 0)) { unit.kla_h = 240; unit.do_setpoint = 2; }
+      }
+      return;
+    }
+    if (parts[0] === "edge") {
+      const edge = topology.connections.find((item) => item.id === state.selected.id);
+      if (!edge) return;
+      edge[parts[1]] = value;
+      if (parts[1] === "recycle") edge.stream = value === "none" ? "process" : "recycle";
+    }
+  }
+
+  function uniqueTopologyId(topology, prefix) {
+    let counter = 1;
+    while (topology.units.some((unit) => unit.id === `${prefix}-${counter}`)) counter++;
+    return `${prefix}-${counter}`;
+  }
+
+  function addTopologyUnit(type) {
+    const topology = getTopology();
+    if (!topology) return;
+    if (type === "effluent" && topology.units.some((unit) => topologyType(unit) === "effluent")) {
+      toast("已经有一个出水节点，不能重复添加。", "warn");
+      return;
+    }
+    const anchor = topologySelectedUnit();
+    const template = topology.units.find((unit) => ["aerobic","anoxic","anaerobic"].includes(topologyType(unit)));
+    const initial = clone(template?.initial || {cod: 3500, nh4_n: 30, no3_n: 2, tp: 4, dissolved_oxygen: 2, alkalinity: 200, mlss: 2500, temperature_c: 20});
+    const prefix = ({aerobic:"aer", anoxic:"anx", anaerobic:"ana", clarifier:"clr", effluent:"out", waste:"was"})[type] || "unit";
+    const id = uniqueTopologyId(topology, prefix);
+    let unit;
+    if (["aerobic","anoxic","anaerobic"].includes(type)) {
+      unit = {
+        id, name: `${topologyTypeLabel(type)}池 ${id}`, type, volume_m3: 4000, initial,
+        kla_h: type === "aerobic" ? 240 : 0,
+        do_setpoint: type === "aerobic" ? 2 : 0,
+      };
+    } else if (type === "clarifier") {
+      unit = {
+        id, name: `二沉池 ${id}`, type, area_m2: 1500, depth_m: 4, layers: 10, feed_layer: 6,
+        settling: clone(topology.units.find((item) => topologyType(item) === "clarifier")?.settling || {
+          v_max_m_per_d: 474, x_max_g_per_m3: 3000, x_min_g_per_m3: 0.001,
+          a_per_g_per_m3: 0.000576, b_per_g_per_m3: 0.00286,
+        }),
+      };
+    } else if (type === "effluent") {
+      unit = {id, name: "出水", type: "effluent"};
+    } else if (type === "waste") {
+      unit = {id, name: "废弃", type: "waste"};
+    } else return;
+    topology.units.push(unit);
+    // If a reactor is inserted after a selected node, split its existing forward edge
+    // so the new node is not silently disconnected.
+    if (["aerobic","anoxic","anaerobic"].includes(type) && anchor) {
+      const outgoing = topology.connections.find((edge) => edge.from === anchor.id && edge.recycle !== "ras" && edge.recycle !== "internal");
+      if (outgoing) {
+        topology.connections = topology.connections.filter((edge) => edge.id !== outgoing.id);
+        topology.connections.push({id: `${anchor.id}-${id}`, from: anchor.id, to: id, flow_m3_h: outgoing.flow_m3_h});
+        topology.connections.push({id: `${id}-${outgoing.to}`, from: id, to: outgoing.to, flow_m3_h: outgoing.flow_m3_h});
+      }
+    }
+    state.selected = {type: "unit", id};
+    validate(); renderFlow(); renderInspector();
+    toast(`已新增 ${unit.name}；若未自动接入，请用“新增连接”补边。`);
+  }
+
+  function deleteTopologyUnit() {
+    const topology = getTopology();
+    const unit = topologySelectedUnit();
+    if (!topology || !unit) return;
+    const type = topologyType(unit);
+    if (type === "influent" || type === "effluent") { toast("进水/出水边界不能删除。", "warn"); return; }
+    const reactors = topology.units.filter((item) => ["aerobic","anoxic","anaerobic"].includes(topologyType(item)));
+    if (["aerobic","anoxic","anaerobic"].includes(type) && reactors.length <= 1) { toast("至少保留一个反应器。", "warn"); return; }
+    topology.units = topology.units.filter((item) => item.id !== unit.id);
+    topology.connections = topology.connections.filter((edge) => edge.from !== unit.id && edge.to !== unit.id);
+    state.selected = {type: "unit", id: topology.units[0]?.id};
+    validate(); renderFlow(); renderInspector();
+    toast(`已删除 ${unit.name || unit.id} 及其连接。`);
+  }
+
+  function deleteTopologyEdge() {
+    const topology = getTopology();
+    if (!topology || state.selected.type !== "edge") return;
+    topology.connections = topology.connections.filter((edge) => edge.id !== state.selected.id);
+    state.selected = {type: "unit", id: topology.units[0]?.id};
+    validate(); renderFlow(); renderInspector();
+  }
+
+  function addTopologyEdge() {
+    const topology = getTopology();
+    if (!topology) return;
+    const from = $("#topo-edge-from")?.value;
+    const to = $("#topo-edge-to")?.value;
+    const flow = Math.max(1, num($("#topo-edge-flow")?.value, 1000));
+    const recycle = $("#topo-edge-recycle")?.value || "none";
+    if (!from || !to || from === to) { toast("起点和终点必须是不同的节点。", "error"); return; }
+    const existing = topology.connections.find((edge) => edge.from === from && edge.to === to);
+    if (existing) { toast("这条连接已存在，请直接编辑它的流量/类型。", "warn"); return; }
+    let counter = 1;
+    while (topology.connections.some((edge) => edge.id === `edge-${counter}`)) counter++;
+    topology.connections.push({id: `edge-${counter}`, from, to, flow_m3_h: flow, stream: recycle === "none" ? "process" : "recycle", recycle});
+    state.selected = {type: "edge", id: topology.connections[topology.connections.length - 1].id};
+    validate(); renderFlow(); renderInspector();
+    toast("已加入连接；服务端会检查节点流量平衡。");
+  }
+
   function field(label, bind, value, options = {}) {
     const { type = "number", step = "any", min = "", max = "", span = "" } = options;
     return `<div class="field ${span}"><label>${esc(label)}</label><input class="control ${type === "number" ? "mono" : ""}" data-bind="${esc(bind)}" type="${type}" value="${esc(value)}" ${step ? `step="${step}"` : ""} ${min ? `min="${min}"` : ""} ${max ? `max="${max}"` : ""}></div>`;
@@ -744,6 +1207,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 
   function renderInspector() {
     const inspector = $("#inspector");
+    if (isTopologyModel(state.model)) { renderTopologyInspector(); return; }
     const plant = getPlant();
     if (!isVisualModel(state.model) || !plant) {
       inspector.innerHTML = `<div class="inspector-head"><div><h2>JSON 配置</h2><div class="sub">该模型在画布上不展开 A2O 节点</div></div><span class="tag">${esc(state.model)}</span></div><div class="inspector-empty">当前模型的完整参数在高级 JSON 中编辑。运行参数仍可在左侧设置；服务端会按模型类型做校验。</div>`;
@@ -876,6 +1340,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   }
 
   function addReactor() {
+    if (isTopologyModel(state.model)) { addTopologyUnit("aerobic"); return; }
     const plant = getPlant();
     if (!plant || !Array.isArray(plant.reactors)) return;
     const template = clone(plant.reactors[plant.reactors.length - 1] || {});
@@ -959,6 +1424,17 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 
   function validate() {
     const output = $("#stage-validation");
+    if (isTopologyModel(state.model)) {
+      const topology = getTopology();
+      if (!topology) { output.textContent = "拓扑配置缺失"; output.style.color = "var(--red)"; return false; }
+      const errors = topologyLocalErrors(topology);
+      if (errors.length) { output.textContent = errors[0]; output.style.color = "var(--red)"; return false; }
+      const recycleCount = topology.connections.filter((edge) => ["ras", "internal"].includes(edge.recycle)).length;
+      output.textContent = `${topology.units.length} 节点 · ${topology.connections.length} 连接 · ${recycleCount} 回流`;
+      output.style.color = "";
+      scheduleTopologyValidation();
+      return true;
+    }
     const plant = getPlant();
     if (!isVisualModel(state.model) || !plant) {
       output.textContent = "JSON 模式 · 服务端校验";
@@ -1273,7 +1749,11 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     state.model = preset.model;
     state.config = clone(preset.config);
     state.name = `${preset.label} · ${nowName()}`;
-    state.selected = isVisualModel(preset.model) ? {type: "reactor", index: 0} : {type: "influent"};
+    state.selected = isVisualModel(preset.model)
+      ? {type: "reactor", index: 0}
+      : isTopologyModel(preset.model)
+        ? {type: "unit", id: preset.config?.units?.[0]?.id || ""}
+        : {type: "influent"};
     if (preset.model === "asm2d-adm1-loop") {
       state.config = state.config.plant ? state.config : {plant: state.config};
       state.durationMin = 43200;
@@ -1292,6 +1772,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     validate();
     renderPresets();
     renderRun();
+    renderScenarios();
     renderFlow();
     renderInspector();
     renderTelemetry();
@@ -1300,14 +1781,19 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   function setModel(model) {
     if (model === state.model) return;
     if (isVisualModel(model)) {
-      const plant = getPlant() ? clone(getPlant()) : null;
+      const plant = isVisualModel(state.model) && getPlant() ? clone(getPlant()) : null;
+      if (!plant) {
+        const fallback = state.presets.find((p) => p.model === model);
+        if (fallback) loadPreset(fallback.id);
+        return;
+      }
       state.model = model;
       state.config = model === "asm2d-adm1-loop" ? {plant: plant} : plant;
       state.selected = {type: "reactor", index: 0};
-      validate(); renderRun(); renderFlow(); renderInspector();
+      validate(); renderRun(); renderScenarios(); renderFlow(); renderInspector();
       return;
     }
-    const preset = state.presets.find((p) => p.model === model);
+    const preset = state.presets.find((p) => p.model === model && (model !== "asm1" || Array.isArray(p.config?.units)));
     if (preset) loadPreset(preset.id);
     else { state.model = model; renderRun(); }
   }
@@ -1327,7 +1813,11 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("config 必须是 JSON 对象");
       if (isVisualModel(state.model) && !value.plant && !Array.isArray(value.reactors)) throw new Error("可视化模型需要 {plant:{...}} 或 {reactors:[...]}");
       state.config = value;
-      state.selected = isVisualModel(state.model) ? {type: "reactor", index: 0} : {type: "influent"};
+      state.selected = isVisualModel(state.model)
+        ? {type: "reactor", index: 0}
+        : isTopologyModel(state.model)
+          ? {type: "unit", id: value.units?.[0]?.id || ""}
+          : {type: "influent"};
       closeJson();
       validate(); renderFlow(); renderInspector();
       toast("配置已应用；服务端仍会复核。");
@@ -1421,7 +1911,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       if (!target) return;
       const value = target.type === "number" ? num(target.value, 0) : target.value;
       setPath(target.dataset.bind, value);
-      if (target.dataset.bind === "reactor.name") renderFlow();
+      if (target.dataset.bind === "reactor.name" || target.dataset.bind === "unit.name") renderFlow();
       if (target.dataset.bind.startsWith("pac.") || target.dataset.bind.startsWith("tertiary.")) renderStageChips();
       validate();
     });
@@ -1454,6 +1944,9 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
         state.selected = {type: "reactor", index: index + 1};
         validate(); renderFlow(); renderInspector();
       } else if (action === "delete-reactor") deleteReactor();
+      else if (action === "delete-topology-unit") deleteTopologyUnit();
+      else if (action === "delete-topology-edge") deleteTopologyEdge();
+      else if (action === "add-topology-edge") addTopologyEdge();
       else if (action === "delete-recycle") {
         const plant = getPlant(); const index = state.selected.index;
         if (!plant || !plant.internal_recycles?.[index]) return;

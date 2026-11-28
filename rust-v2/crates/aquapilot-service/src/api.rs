@@ -18,9 +18,11 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use crate::analysis::{analyze, daily_csv, weekly_csv};
-use crate::error::ApiError;
+use crate::error::{ApiError, FieldError};
 use crate::runner::{samples_csv, ExperimentRequest, Sample};
 use crate::store::{to_api_error, CancelOutcome, ExperimentRecord, Store};
+use aquapilot_domain::PlantTopology;
+use aquapilot_engine::{CompiledPlant, EngineError};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -38,6 +40,7 @@ pub fn build_router(store: Store) -> Router {
         .route("/api/health", get(health))
         .route("/api/openapi.json", get(openapi))
         .route("/api/v1/presets", get(presets))
+        .route("/api/v1/topologies/validate", post(validate_topology))
         .route(
             "/api/v1/experiments",
             post(create_experiment).get(list_experiments),
@@ -145,6 +148,20 @@ async fn presets() -> Json<Value> {
                 "config": fixture(include_str!("../../../fixtures/bsm1-official.json"))
             },
             {
+                "id": "asm1-three-stage",
+                "label": "ASM1 三池自由拓扑",
+                "model": "asm1",
+                "description": "厌氧/缺氧/好氧三池，无二沉池；可增删节点和连边。",
+                "config": fixture(include_str!("../../../fixtures/three-stage.json"))
+            },
+            {
+                "id": "asm1-single",
+                "label": "ASM1 单池",
+                "model": "asm1",
+                "description": "单好氧池 + 进水/出水，最小自由拓扑画布。",
+                "config": fixture(include_str!("../../../fixtures/single-aerobic.json"))
+            },
+            {
                 "id": "adm1",
                 "label": "ADM1 消化器",
                 "model": "adm1",
@@ -160,6 +177,28 @@ async fn presets() -> Json<Value> {
             }
         ]
     }))
+}
+
+async fn validate_topology(Json(topology): Json<PlantTopology>) -> Result<Json<Value>, ApiError> {
+    let compiled = CompiledPlant::compile(&topology).map_err(topology_error)?;
+    Ok(Json(json!({
+        "valid": true,
+        "name": topology.name,
+        "units": topology.units.len(),
+        "connections": topology.connections.len(),
+        "reactors": compiled.reactors.len(),
+        "clarifiers": compiled.clarifiers.len(),
+        "influent_flow_m3_h": compiled.influent_flow_m3_h,
+        "effluent_flow_m3_h": compiled.effluent_flow_m3_h,
+    })))
+}
+
+fn topology_error(error: EngineError) -> ApiError {
+    ApiError::invalid_request(vec![FieldError {
+        field: "topology".to_owned(),
+        code: "TOPOLOGY_INVALID".to_owned(),
+        detail: error.to_string(),
+    }])
 }
 
 fn fixture(text: &str) -> Value {
@@ -709,6 +748,19 @@ fn openapi_document() -> Value {
             "/api/health": {"get": {"summary": "Service health", "responses": {"200": {"description": "OK"}}}},
             "/api/openapi.json": {"get": {"summary": "This document", "responses": {"200": {"description": "OpenAPI 3.1 document"}}}},
             "/api/v1/presets": {"get": {"summary": "Embedded scenario presets", "responses": {"200": {"description": "Preset list with model configs"}}}},
+            "/api/v1/topologies/validate": {
+                "post": {
+                    "summary": "Validate and compile an ASM1 PlantTopology without running it",
+                    "requestBody": {
+                        "required": true,
+                        "content": {"application/json": {"schema": {"type": "object"}}}
+                    },
+                    "responses": {
+                        "200": {"description": "Topology compiles"},
+                        "422": {"description": "Topology is structurally or hydraulically invalid"}
+                    }
+                }
+            },
             "/api/v1/experiments": {
                 "post": {
                     "summary": "Queue an experiment",
@@ -1053,6 +1105,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn topology_validation_compiles_three_stage() {
+        let router = build_router(Store::in_memory(2).expect("store"));
+        let topology: PlantTopology =
+            serde_json::from_str(include_str!("../../../fixtures/three-stage.json"))
+                .expect("three-stage fixture");
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/v1/topologies/validate")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::to_string(&topology).expect("json")))
+            .expect("request");
+        let response = router.clone().oneshot(request).await.expect("validate");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response).await;
+        assert_eq!(body["valid"], true);
+        assert_eq!(body["reactors"], 3);
+
+        let mut broken = serde_json::to_value(&topology).expect("topology json");
+        broken["connections"] = json!([]);
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/v1/topologies/validate")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::to_string(&broken).expect("json")))
+            .expect("request");
+        let response = router.oneshot(request).await.expect("validate");
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let body = body_json(response).await;
+        assert_eq!(body["code"], "VALIDATION_FAILED");
+        assert_eq!(body["errors"][0]["code"], "TOPOLOGY_INVALID");
+    }
+
+    #[tokio::test]
     async fn queue_full_and_cancel_queued() {
         let store = Store::in_memory(1).expect("store");
         let router = build_router(store);
@@ -1198,6 +1283,8 @@ mod tests {
             .to_bytes();
         let html = String::from_utf8(body.to_vec()).expect("utf8 page");
         assert!(html.contains("工艺编排台"));
+        assert!(html.contains("FREEFORM TOPOLOGY"));
+        assert!(html.contains("/api/v1/topologies/validate"));
         assert!(html.contains("/api/v1/presets"));
 
         let presets = router
@@ -1212,7 +1299,7 @@ mod tests {
         assert_eq!(presets.status(), StatusCode::OK);
         let document = body_json(presets).await;
         let items = document["presets"].as_array().expect("presets");
-        assert_eq!(items.len(), 6);
+        assert_eq!(items.len(), 8);
         assert!(items.iter().any(|item| item["label"] == "PAC + 三级过滤"));
         assert!(items
             .iter()
@@ -1236,9 +1323,10 @@ mod tests {
         assert_eq!(openapi.status(), StatusCode::OK);
         let document = body_json(openapi).await;
         assert_eq!(document["openapi"], "3.1.0");
-        assert_eq!(document["info"]["version"], "0.0.8");
+        assert_eq!(document["info"]["version"], "0.0.9");
         assert!(document["paths"]["/api/v1/experiments"].is_object());
         assert!(document["paths"]["/api/v1/presets"].is_object());
+        assert!(document["paths"]["/api/v1/topologies/validate"].is_object());
         assert!(document["paths"]["/api/v1/experiments/{id}/daily.csv"].is_object());
         assert!(document["paths"]["/api/v1/experiments/{id}/weekly.csv"].is_object());
 

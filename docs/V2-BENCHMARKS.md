@@ -1,7 +1,7 @@
 # AquaPilot v2 基准记录
 
 > 记录日期：2026-11-28
-> 代码：`rust-v2/`，版本 0.0.8
+> 代码：`rust-v2/`，版本 0.0.9
 > 口径：clean-room 实现；不读取旧 `src/sim` 或旧 `rust/` 源码。
 
 ## 1. V2-1 BSM1-like 整厂
@@ -392,7 +392,7 @@ cargo test --workspace
 
 - 7 项 SQLite store：创建/读取、幂等重放与冲突、队列满、queued 取消、一致备份、运行时崩溃恢复；
 - 5 项 runner 校验：步数/采样预算、`sludge_dt_days` 正数、迭代/松弛上限、`sludge_days` 范围；
-- 6 项 API 契约：创建/幂等/409 + 422、队列满 429 + `Retry-After: 30` + 取消、Content-Type、413、OpenAPI/健康检查、页面/预设（`GET /` 返回 HTML，`/api/v1/presets` 返回 6 个 preset）。
+- 6 项 API 契约：创建/幂等/409 + 422、队列满 429 + `Retry-After: 30` + 取消、Content-Type、413、OpenAPI/健康检查、页面/预设（`GET /` 返回 HTML，`/api/v1/presets` 返回 8 个 preset）。
 
 ### 6.2 60 s soak smoke
 
@@ -426,7 +426,7 @@ python3 scripts/soak_v2.py --duration 60 --interval 2
 
 ### 6.4 可视化编排台（浏览器实测）
 
-`GET /` 由服务同源托管，`GET /api/v1/presets` 返回 6 个内嵌 preset。页面把 A2O 池体、二沉池、内回流、PAC、三级过滤和进水边界放在一张画布上；拖拽可以改串联顺序，点选节点在 inspector 中改参数。ASM1/ADM1/泥线走高级 JSON。
+`GET /` 由服务同源托管，`GET /api/v1/presets` 返回 8 个内嵌 preset。A2O 页面把池体、二沉池、内回流、PAC、三级过滤和进水边界放在一张画布上；ASM1 页面是自由拓扑画布，可增删节点/连接；ADM1/泥线走高级 JSON。
 
 浏览器实测：
 
@@ -452,13 +452,13 @@ python3 scripts/coverage_v2.py --summary docs/coverage-matrix.json
 | 指标 | 值 |
 | --- | --- |
 | case 数 / 通过 / 失败 | 11 / 11 / 0 |
-| 总耗时 | 82.598 s |
+| 总耗时 | 93.386 s |
 | 模型覆盖 | `asm1`、`asm2d`、`asm2d-adm1-loop`、`adm1`、`sludge-line` |
 | 工况覆盖 | 基础 A2O、PAC + 三级过滤、高流量 1500、低 DO 1.0、冬季 12 °C、PAC 停加、过滤旁路 |
 | 每个 case 检查 | 202 入队 → 终态 → detail → samples.csv → report.md |
 | 质量平衡检查 | 有 `mass_balance`/`whole_balance` 的 case 残差 ≤ 5% |
 | 最大三本账残差 | 2.85%（loop 30 天） |
-| loop 30 天单例 | 62.208 s |
+| loop 30 天单例 | 72.101 s |
 | `completed_24h` | false |
 
 矩阵 11/11 通过说明每条服务分支都跑通；它不能替代 wall-clock 24 h 的内存/句柄稳定性结论。24 h 仍需在常开主机或外部调度上执行，正式命令见 `docs/V2-API.md`。
@@ -471,7 +471,7 @@ python3 scripts/coverage_v2.py --summary docs/coverage-matrix.json
 python3 scripts/journeys_v2.py --summary docs/journeys-v2.json
 ```
 
-结果：`docs/journeys-v2.json`，5/5 通过，3.745 s。
+结果：`docs/journeys-v2.json`，5/5 通过，3.503 s。
 
 | 旅程 | 证据 |
 | --- | --- |
@@ -482,3 +482,24 @@ python3 scripts/journeys_v2.py --summary docs/journeys-v2.json
 | 脏数据 | 400 `MALFORMED_JSON`、422 `VALIDATION_FAILED`、409 `IDEMPOTENCY_KEY_REUSED`、404、415 |
 
 评分卡只对出水限值打分；7 d 实验三本账未闭合时仍显示 A，但同时给出 `MASS_BALANCE_OPEN`（6.55%），不把短时库存变化包装成整厂闭环。`completed_24h` 仍为 `false`。
+
+### 6.7 ASM1 自由拓扑验收（0.0.9，不是 wall-clock 24 h）
+
+命令（服务已在 `127.0.0.1:5192` 启动）：
+
+```bash
+python3 scripts/topology_journey.py --base http://127.0.0.1:5192 \
+  --summary docs/topology-journey.json
+```
+
+结果（`docs/topology-journey.json`）：
+
+| 对象 | 结果 |
+| --- | --- |
+| `bsm1` | 200 编译；9 units / 10 connections / 5 reactors / 1 clarifier / 出水 752.54 m³/h |
+| `asm1-three-stage` | 200 编译；5 units / 4 connections / 3 reactors / 0 clarifier |
+| `asm1-single` | 200 编译；3 units / 2 connections / 1 reactor |
+| 编辑后拓扑 | 删除厌氧池、补 `in → anx 1000 m³/h`；4 units / 3 connections / 2 reactors 编译成功 |
+| 1 d 实验 | `succeeded`；ASM1 四项评分 D、1/4；`EFFLUENT_COD_HIGH`、`EFFLUENT_SS_HIGH`、`EFFLUENT_TN_HIGH` |
+
+无二沉池的三池/两池拓扑会如实出现 SS 穿透；评分卡按 ASM1 四项限值打分，不把未建模的 TP 计为通过。`completed_24h` 仍为 `false`，本节不替代 24 h soak。

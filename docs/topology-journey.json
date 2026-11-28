@@ -1,0 +1,64 @@
+{
+  "generated_at": "2026-11-28T11:29:20Z",
+  "base": "http://127.0.0.1:5192",
+  "presets": [
+    {
+      "preset": "bsm1",
+      "http": 200,
+      "units": 9,
+      "connections": 10,
+      "reactors": 5,
+      "clarifiers": 1
+    },
+    {
+      "preset": "asm1-three-stage",
+      "http": 200,
+      "units": 5,
+      "connections": 4,
+      "reactors": 3,
+      "clarifiers": 0
+    },
+    {
+      "preset": "asm1-single",
+      "http": 200,
+      "units": 3,
+      "connections": 2,
+      "reactors": 1,
+      "clarifiers": 0
+    }
+  ],
+  "edited_topology": {
+    "http": 200,
+    "units": 4,
+    "connections": 3,
+    "reactors": 2,
+    "effluent_flow_m3_h": 1000.0
+  },
+  "experiment": {
+    "id": "0e99c6b1-923c-4279-b92b-5eed99bbf916",
+    "status": "succeeded",
+    "minutes": 1440.0,
+    "grade": "D",
+    "passed": 1,
+    "total": 4,
+    "alarms": [
+      "EFFLUENT_COD_HIGH",
+      "EFFLUENT_SS_HIGH",
+      "EFFLUENT_TN_HIGH"
+    ],
+    "effluent": {
+      "alkalinity": 0.2185765309126079,
+      "cod": 2193.959978443655,
+      "do": 9.1,
+      "flow_m3_h": 1000.0,
+      "nh4_n": 0.0884142204612265,
+      "no3_n": 69.34096204286118,
+      "s_s": 1.226897886433966,
+      "ss": 1532.9206500404914,
+      "tn": 249.1160789481863,
+      "tp": 0.0
+    }
+  },
+  "completed_24h": false,
+  "note": "Topology acceptance journey only; this is not a wall-clock 24 h soak."
+}
