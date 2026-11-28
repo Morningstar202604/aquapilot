@@ -1,0 +1,364 @@
+{
+  "schema": "aquapilot.coverage.v1",
+  "generated_at_unix": 1795854186,
+  "elapsed_seconds": 72.571,
+  "coverage_complete": true,
+  "completed_24h": false,
+  "bin": "/home/user/Doubao/chats/38455916662454018/aquapilot/rust-v2/target/debug/aquapilot-v2",
+  "models_covered": [
+    "adm1",
+    "asm1",
+    "asm2d",
+    "asm2d-adm1-loop",
+    "sludge-line"
+  ],
+  "channels_covered": [
+    "model",
+    "scenario"
+  ],
+  "case_count": 11,
+  "passed_count": 11,
+  "failed_count": 0,
+  "failed_case_ids": [],
+  "cases": [
+    {
+      "id": "asm1-bsm1",
+      "label": "ASM1 / BSM1 基准 1 天",
+      "model": "asm1",
+      "duration_min": 1440,
+      "channel": "model",
+      "status": "succeeded",
+      "failures": [],
+      "checks": {
+        "effluent_fields": {
+          "cod": 48.52224305074969,
+          "nh4_n": 0.0,
+          "tn": 64.09390922123586,
+          "ss": 12.81343860855424
+        },
+        "balance_residuals": [],
+        "csv_http": 200,
+        "csv_rows": 25,
+        "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
+        "report_http": 200,
+        "report_bytes": 7349
+      },
+      "submit_http": 202,
+      "experiment_id": "53825c2b-d09f-4ed1-9cfd-5f93e4a313a5",
+      "wait_seconds": 0.253,
+      "progress": 1.0,
+      "elapsed_seconds": 0.257
+    },
+    {
+      "id": "asm2d-basic",
+      "label": "ASM2d A2O 基础 30 天",
+      "model": "asm2d",
+      "duration_min": 43200,
+      "channel": "model",
+      "status": "succeeded",
+      "failures": [],
+      "checks": {
+        "effluent_fields": {
+          "cod": 44.407843241897275,
+          "nh4_n": 0.7710666791077084,
+          "tn": 9.767047538629653,
+          "tp": 1.0038616639733364,
+          "ss": 11.43787411579361
+        },
+        "balance_residuals": [
+          0.021295,
+          0.010849,
+          0.015174
+        ],
+        "csv_http": 200,
+        "csv_rows": 121,
+        "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
+        "report_http": 200,
+        "report_bytes": 6348
+      },
+      "submit_http": 202,
+      "experiment_id": "d4747f93-46fd-463d-a9e1-963676005ce8",
+      "wait_seconds": 1.008,
+      "progress": 1.0,
+      "elapsed_seconds": 1.012
+    },
+    {
+      "id": "asm2d-pac-tertiary",
+      "label": "ASM2d PAC + 三级过滤 30 天",
+      "model": "asm2d",
+      "duration_min": 43200,
+      "channel": "model",
+      "status": "succeeded",
+      "failures": [],
+      "checks": {
+        "effluent_fields": {
+          "cod": 32.456797956977255,
+          "nh4_n": 0.7545934399714129,
+          "tn": 9.241320247966796,
+          "tp": 0.1496429847374591,
+          "ss": 1.1510620135519336
+        },
+        "balance_residuals": [
+          0.021294,
+          0.010866,
+          0.014871
+        ],
+        "csv_http": 200,
+        "csv_rows": 121,
+        "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
+        "report_http": 200,
+        "report_bytes": 6683
+      },
+      "submit_http": 202,
+      "experiment_id": "08b273f2-3fed-4ea2-81ac-2f43cdc3968b",
+      "wait_seconds": 1.008,
+      "progress": 1.0,
+      "elapsed_seconds": 1.013
+    },
+    {
+      "id": "asm2d-loop",
+      "label": "ASM2d + ADM1 回流闭环 30 天",
+      "model": "asm2d-adm1-loop",
+      "duration_min": 43200,
+      "channel": "model",
+      "status": "succeeded",
+      "failures": [],
+      "checks": {
+        "effluent_fields": {
+          "cod": 40.965904795045645,
+          "nh4_n": 0.6303898281507875,
+          "tn": 10.011399386463244,
+          "tp": 0.2956571166799119,
+          "ss": 1.1756188878164051
+        },
+        "balance_residuals": [
+          0.007838,
+          0.025159,
+          0.028482
+        ],
+        "csv_http": 200,
+        "csv_rows": 1,
+        "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
+        "report_http": 200,
+        "report_bytes": 6734
+      },
+      "submit_http": 202,
+      "experiment_id": "91443f78-b131-4fa1-b724-f9b7bcadf0ec",
+      "wait_seconds": 56.129,
+      "progress": 1.0,
+      "elapsed_seconds": 56.132
+    },
+    {
+      "id": "adm1-tutorial",
+      "label": "ADM1 消化器 10 天",
+      "model": "adm1",
+      "duration_min": 14400,
+      "channel": "model",
+      "status": "succeeded",
+      "failures": [],
+      "checks": {
+        "balance_residuals": [],
+        "csv_http": 200,
+        "csv_rows": 1,
+        "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
+        "report_http": 200,
+        "report_bytes": 2906
+      },
+      "submit_http": 202,
+      "experiment_id": "e39991f9-ea20-44f5-856b-61125e4f94e2",
+      "wait_seconds": 2.768,
+      "progress": 1.0,
+      "elapsed_seconds": 2.771
+    },
+    {
+      "id": "sludge-line",
+      "label": "完整泥线 20 天",
+      "model": "sludge-line",
+      "duration_min": 28800,
+      "channel": "model",
+      "status": "succeeded",
+      "failures": [],
+      "checks": {
+        "balance_residuals": [],
+        "csv_http": 200,
+        "csv_rows": 1,
+        "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
+        "report_http": 200,
+        "report_bytes": 3289
+      },
+      "submit_http": 202,
+      "experiment_id": "05c0a5a2-db44-491e-9da3-e049beb4b286",
+      "wait_seconds": 6.796,
+      "progress": 1.0,
+      "elapsed_seconds": 6.8
+    },
+    {
+      "id": "scenario-high-flow",
+      "label": "工况：高流量 1500 m3/h",
+      "model": "asm2d",
+      "duration_min": 43200,
+      "channel": "scenario",
+      "status": "succeeded",
+      "failures": [],
+      "checks": {
+        "effluent_fields": {
+          "cod": 33.34240237733957,
+          "nh4_n": 2.233453143493111,
+          "tn": 12.184355820478396,
+          "tp": 0.1562479402086535,
+          "ss": 1.715561910480992
+        },
+        "balance_residuals": [
+          0.019998,
+          0.005713,
+          0.010211
+        ],
+        "csv_http": 200,
+        "csv_rows": 121,
+        "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
+        "report_http": 200,
+        "report_bytes": 6674
+      },
+      "submit_http": 202,
+      "experiment_id": "578d8ddb-12f5-4c9e-8f5f-aacbf682e4ba",
+      "wait_seconds": 1.01,
+      "progress": 1.0,
+      "elapsed_seconds": 1.015
+    },
+    {
+      "id": "scenario-low-do",
+      "label": "工况：好氧 DO 1.0 / KLa 120",
+      "model": "asm2d",
+      "duration_min": 43200,
+      "channel": "scenario",
+      "status": "succeeded",
+      "failures": [],
+      "checks": {
+        "effluent_fields": {
+          "cod": 32.61713890850746,
+          "nh4_n": 2.3641872747435064,
+          "tn": 9.6696829728043,
+          "tp": 0.13097661391318033,
+          "ss": 1.151362425849538
+        },
+        "balance_residuals": [
+          0.020812,
+          0.010522,
+          0.015066
+        ],
+        "csv_http": 200,
+        "csv_rows": 121,
+        "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
+        "report_http": 200,
+        "report_bytes": 6672
+      },
+      "submit_http": 202,
+      "experiment_id": "270528c5-c545-4fae-8fe6-b8f080797c63",
+      "wait_seconds": 0.756,
+      "progress": 1.0,
+      "elapsed_seconds": 0.762
+    },
+    {
+      "id": "scenario-winter",
+      "label": "工况：冬季 12 °C",
+      "model": "asm2d",
+      "duration_min": 43200,
+      "channel": "scenario",
+      "status": "succeeded",
+      "failures": [],
+      "checks": {
+        "effluent_fields": {
+          "cod": 32.45490537537467,
+          "nh4_n": 0.7512831238546817,
+          "tn": 9.238831581193088,
+          "tp": 0.14952892888449557,
+          "ss": 1.1510387382709486
+        },
+        "balance_residuals": [
+          0.021317,
+          0.010868,
+          0.014872
+        ],
+        "csv_http": 200,
+        "csv_rows": 121,
+        "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
+        "report_http": 200,
+        "report_bytes": 6663
+      },
+      "submit_http": 202,
+      "experiment_id": "9c151e08-3416-4b12-8160-a528afa27198",
+      "wait_seconds": 1.008,
+      "progress": 1.0,
+      "elapsed_seconds": 1.013
+    },
+    {
+      "id": "scenario-pac-off",
+      "label": "工况：PAC 停加",
+      "model": "asm2d",
+      "duration_min": 43200,
+      "channel": "scenario",
+      "status": "succeeded",
+      "failures": [],
+      "checks": {
+        "effluent_fields": {
+          "cod": 32.653177066942526,
+          "nh4_n": 0.7710666791077084,
+          "tn": 9.261182969779252,
+          "tp": 0.12599371370762075,
+          "ss": 1.1437874115793611
+        },
+        "balance_residuals": [
+          0.021295,
+          0.010849,
+          0.015174
+        ],
+        "csv_http": 200,
+        "csv_rows": 121,
+        "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
+        "report_http": 200,
+        "report_bytes": 6672
+      },
+      "submit_http": 202,
+      "experiment_id": "f16968ea-4b3e-4f2b-9d4f-0ba2123d743a",
+      "wait_seconds": 1.007,
+      "progress": 1.0,
+      "elapsed_seconds": 1.012
+    },
+    {
+      "id": "scenario-tertiary-bypass",
+      "label": "工况：三级过滤旁路",
+      "model": "asm2d",
+      "duration_min": 43200,
+      "channel": "scenario",
+      "status": "succeeded",
+      "failures": [],
+      "checks": {
+        "effluent_fields": {
+          "cod": 43.46405137064709,
+          "nh4_n": 0.7545934399714129,
+          "tn": 9.71494727744884,
+          "tp": 1.0429827130198486,
+          "ss": 11.51062013551934
+        },
+        "balance_residuals": [
+          0.021294,
+          0.010866,
+          0.014871
+        ],
+        "csv_http": 200,
+        "csv_rows": 121,
+        "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
+        "report_http": 200,
+        "report_bytes": 6690
+      },
+      "submit_http": 202,
+      "experiment_id": "300be6e1-ef0a-40ff-b00a-3d1fe9e3f7c7",
+      "wait_seconds": 0.756,
+      "progress": 1.0,
+      "elapsed_seconds": 0.76
+    }
+  ],
+  "service_log": "/tmp/aquapilot-coverage-d38alh15/service.log",
+  "db_path": "/tmp/aquapilot-coverage-d38alh15/aquapilot.sqlite",
+  "note": "Representative end-to-end coverage: every service model plus A2O operating disturbances through submit → queue → worker → detail → samples.csv → report.md → mass balance. This is not a wall-clock 24 h soak; completed_24h remains false."
+}

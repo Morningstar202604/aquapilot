@@ -4,10 +4,14 @@ on:
   push:
     paths:
       - 'rust-v2/**'
+      - 'scripts/coverage_v2.py'
+      - 'scripts/soak_v2.py'
       - '.github/workflows/v2-ci.yml'
   pull_request:
     paths:
       - 'rust-v2/**'
+      - 'scripts/coverage_v2.py'
+      - 'scripts/soak_v2.py'
       - '.github/workflows/v2-ci.yml'
 
 jobs:
@@ -43,6 +47,20 @@ jobs:
           assert summary['completed_24h'] is False
           print('service smoke ok', summary['final_status_counts'])
           PY
+      - name: Representative coverage matrix
+        run: |
+          python3 ../scripts/coverage_v2.py --summary /tmp/coverage-matrix.json
+          python3 - <<'PY'
+          import json
+          matrix = json.load(open('/tmp/coverage-matrix.json'))
+          assert matrix['coverage_complete'] is True
+          assert matrix['failed_count'] == 0
+          assert matrix['passed_count'] == 11
+          assert len(matrix['models_covered']) == 5
+          assert matrix['completed_24h'] is False
+          print('coverage matrix ok', matrix['passed_count'], matrix['elapsed_seconds'])
+          PY
+
       - name: Smoke single reactor
         run: cargo run -q -p aquapilot-cli -- validate fixtures/single-aerobic.json
       - name: Smoke three-stage series

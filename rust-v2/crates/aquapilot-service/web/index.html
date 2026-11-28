@@ -1,0 +1,1444 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AquaPilot · 工艺编排台</title>
+<style>
+:root{
+  --bg:#f3f4ef;
+  --paper:#fffdf8;
+  --paper-2:#f8f7f1;
+  --ink:#10231f;
+  --muted:#66756f;
+  --faint:#96a29b;
+  --line:#dfe4da;
+  --line-strong:#c9d2c7;
+  --navy:#0d2527;
+  --teal:#0f766e;
+  --teal-soft:#dff1ec;
+  --teal-glow:#14b8a6;
+  --amber:#c5720b;
+  --amber-soft:#fff0d9;
+  --red:#b42318;
+  --red-soft:#fde8e4;
+  --blue:#2563eb;
+  --blue-soft:#e7efff;
+  --shadow:0 10px 28px rgba(16,35,31,.08);
+  --radius:16px;
+  --mono:"IBM Plex Mono","SFMono-Regular","Cascadia Code","Roboto Mono",Consolas,monospace;
+  --sans:"IBM Plex Sans","Noto Sans SC","Source Han Sans SC","Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:13.5px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  background-image:
+    linear-gradient(rgba(16,35,31,.025) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(16,35,31,.025) 1px,transparent 1px);
+  background-size:28px 28px;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:var(--teal);text-decoration:none}
+.hidden{display:none !important}
+.mono{font-family:var(--mono)}
+.muted{color:var(--muted)}
+.faint{color:var(--faint)}
+.topbar{
+  height:66px;background:linear-gradient(100deg,#0b2022,#12363a 64%,#16484a);
+  color:#e8f4ee;display:flex;align-items:center;gap:20px;padding:0 22px;
+  border-bottom:1px solid rgba(255,255,255,.12);position:relative;z-index:5;
+}
+.brand{display:flex;align-items:center;gap:12px;min-width:275px}
+.brand-mark{width:34px;height:34px;border-radius:10px;background:linear-gradient(145deg,#2dd4bf,#0f766e);display:grid;place-items:center;box-shadow:0 0 0 1px rgba(255,255,255,.2),0 8px 20px rgba(20,184,166,.24)}
+.brand-mark svg{width:22px;height:22px;fill:#062d2b}
+.brand h1{font-size:17px;line-height:1.1;margin:0;letter-spacing:.02em;font-weight:650}
+.brand p{margin:3px 0 0;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:#9ec4bb}
+.top-sep{width:1px;height:30px;background:rgba(255,255,255,.15)}
+.crumbs{display:flex;align-items:center;gap:8px;font-size:12px;color:#a6c6bd}
+.crumbs b{color:#f1fbf6;font-weight:500}
+.top-spacer{flex:1}
+.top-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.status-chip{display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.07);border-radius:999px;padding:6px 10px;font-size:11px;color:#d9ece4;white-space:nowrap}
+.status-chip .dot{width:7px;height:7px;border-radius:50%;background:#7dd3c7}
+.status-chip .dot.off{background:#f59e0b}
+.status-chip .dot.bad{background:#fda4af}
+.top-link{color:#b9d8ce;font-size:11.5px;border:0;background:transparent;padding:6px 4px}
+.top-link:hover{color:#fff}
+.layout{height:calc(100vh - 66px);display:grid;grid-template-columns:318px minmax(0,1fr) 380px;gap:0}
+.panel{min-height:0;overflow:auto;background:rgba(255,253,248,.72);backdrop-filter:blur(12px)}
+.panel.left{border-right:1px solid var(--line);padding:16px 15px 24px}
+.panel.right{border-left:1px solid var(--line);padding:16px 15px 24px}
+.stage{min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:16px 18px 18px;position:relative}
+.stage:before{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(800px 380px at 58% 0%,rgba(20,184,166,.10),transparent 68%)}
+.stage>*{position:relative;z-index:1}
+.section{margin-bottom:18px}
+.section-title{display:flex;align-items:center;justify-content:space-between;margin:0 0 9px;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:650}
+.section-title .count{letter-spacing:0;text-transform:none;font-family:var(--mono);font-size:10px;color:var(--faint)}
+.preset-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.preset{
+  text-align:left;background:#fff;border:1px solid var(--line);border-radius:11px;padding:9px 9px 8px;min-height:61px;
+  transition:border-color .15s ease,background .15s ease,transform .15s ease;
+}
+.preset:hover{border-color:#a9c9bf;transform:translateY(-1px)}
+.preset.active{border-color:var(--teal);background:linear-gradient(160deg,#f2fbf7,#fff);box-shadow:0 0 0 2px rgba(15,118,110,.10)}
+.preset .p-label{display:block;font-size:12px;font-weight:650;line-height:1.25}
+.preset .p-model{display:block;margin-top:5px;font-family:var(--mono);font-size:9.5px;color:var(--faint)}
+.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.field label{font-size:10.5px;color:var(--muted);letter-spacing:.03em}
+.control{width:100%;height:34px;border:1px solid var(--line-strong);border-radius:8px;background:#fff;padding:0 9px;outline:none;font-size:12.5px;transition:border-color .15s,box-shadow .15s}
+.control:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(15,118,110,.10)}
+textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;font-family:var(--mono);font-size:11px;line-height:1.55}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:9px}
+.form-row.one{grid-template-columns:1fr}
+.hint{font-size:10.5px;color:var(--faint);line-height:1.45;margin:4px 0 0}
+.scenario-grid{display:flex;flex-wrap:wrap;gap:6px}
+.chip{
+  border:1px solid var(--line);background:var(--paper);border-radius:999px;padding:5px 9px;font-size:10.5px;color:var(--muted);
+  transition:all .15s ease;
+}
+.chip:hover{border-color:#a9c9bf;color:var(--ink);background:#fff}
+.chip.active{border-color:var(--teal);color:var(--teal);background:var(--teal-soft)}
+.chip.warn:hover{border-color:#e3b98a;color:#8a4a0c}
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--line-strong);border-radius:9px;
+  background:#fff;color:var(--ink);height:34px;padding:0 11px;font-size:12px;font-weight:600;transition:all .15s ease;white-space:nowrap;
+}
+.btn:hover{border-color:#a9c9bf;background:#fbfffd}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn.primary{background:linear-gradient(135deg,#0f766e,#0b5d57);border-color:#0b5d57;color:#fff;box-shadow:0 7px 16px rgba(15,118,110,.18)}
+.btn.primary:hover{background:linear-gradient(135deg,#138a80,#0f6c64)}
+.btn.amber{background:linear-gradient(135deg,#e08a20,#c5720b);border-color:#c5720b;color:#fff;box-shadow:0 7px 16px rgba(197,114,11,.16)}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+.btn.ghost:hover{background:rgba(16,35,31,.05)}
+.btn.big{width:100%;height:42px;font-size:13px}
+.btn-row{display:flex;gap:7px;flex-wrap:wrap}
+.launch-card{background:linear-gradient(160deg,#0e2a2c,#12464a);border-radius:14px;padding:13px;color:#eaf8f1;box-shadow:var(--shadow);margin-top:12px}
+.launch-card .line{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.launch-card .line strong{font-size:12.5px;font-weight:600}
+.launch-card .line span{font-size:10px;color:#9dc9bd;font-family:var(--mono)}
+.launch-card .hint{color:#9dc9bd}
+.stage-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.eyebrow{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--teal);font-weight:650}
+.stage-title{margin:4px 0 0;font-size:26px;letter-spacing:-.02em;line-height:1.1;font-weight:680}
+.stage-title small{display:inline-block;margin-left:9px;font-family:var(--mono);font-size:10px;letter-spacing:.02em;color:var(--faint);font-weight:400;vertical-align:middle}
+.stage-sub{margin:7px 0 0;font-size:11.5px;color:var(--muted);max-width:640px}
+.stage-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.flow-shell{
+  background:rgba(255,255,255,.66);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);
+  overflow:hidden;min-height:230px;position:relative;
+}
+.flow-shell:before{content:"";position:absolute;inset:0;background-image:radial-gradient(rgba(15,118,110,.10) 1px,transparent 1px);background-size:18px 18px;opacity:.55;pointer-events:none}
+.flow-scroll{position:relative;z-index:1;overflow-x:auto;padding:22px 18px 18px}
+.flow{display:flex;align-items:center;gap:0;min-width:max-content}
+.terminal{
+  width:104px;flex:0 0 104px;border:1px solid #bcd8cd;border-radius:12px;background:linear-gradient(160deg,#effaf5,#fbfffd);
+  padding:10px 9px;cursor:pointer;box-shadow:0 2px 0 rgba(15,118,110,.06);transition:border-color .15s,transform .15s;
+}
+.terminal:hover{border-color:var(--teal);transform:translateY(-1px)}
+.terminal.selected{border-color:var(--teal);box-shadow:0 0 0 2px rgba(15,118,110,.13)}
+.terminal .t-icon{width:21px;height:21px;border-radius:7px;display:grid;place-items:center;background:#d8eee6;color:var(--teal);margin-bottom:8px}
+.terminal strong{display:block;font-size:12px}
+.terminal small{display:block;margin-top:3px;font-family:var(--mono);font-size:9.5px;color:var(--muted);line-height:1.35}
+.terminal.out{background:linear-gradient(160deg,#f5f8ff,#fff);border-color:#c7d7f4}
+.terminal.out .t-icon{background:#e4edff;color:var(--blue)}
+.flow-arrow{width:30px;flex:0 0 30px;display:flex;align-items:center;justify-content:center;color:#9ebdb2}
+.flow-arrow svg{width:21px;height:12px}
+.reactor-node{
+  width:154px;flex:0 0 154px;border:1px solid var(--line-strong);border-radius:13px;background:#fff;padding:10px;
+  box-shadow:0 2px 0 rgba(16,35,31,.03);cursor:pointer;position:relative;transition:border-color .15s,transform .15s,box-shadow .15s;
+}
+.reactor-node:hover{border-color:#9fc1b5;transform:translateY(-2px);box-shadow:0 8px 18px rgba(16,35,31,.08)}
+.reactor-node.selected{border-color:var(--teal);box-shadow:0 0 0 2px rgba(15,118,110,.12),0 10px 20px rgba(16,35,31,.08)}
+.reactor-node.dragging{opacity:.45}
+.reactor-node .n-top{display:flex;align-items:center;justify-content:space-between;gap:5px}
+.seq{font-family:var(--mono);font-size:9px;color:var(--faint);letter-spacing:.08em}
+.kind{display:inline-flex;align-items:center;border-radius:999px;padding:2px 6px;font-size:9px;font-weight:650;letter-spacing:.03em}
+.kind.anaerobic{background:#ede9fe;color:#5b21b6}
+.kind.anoxic{background:#fff0d9;color:#8a4a0c}
+.kind.aerobic{background:var(--teal-soft);color:var(--teal)}
+.reactor-node h3{margin:8px 0 2px;font-size:12.5px;line-height:1.25;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.reactor-node .n-meta{font-family:var(--mono);font-size:9.5px;color:var(--muted);line-height:1.4}
+.vol-track{height:4px;background:#edf0e9;border-radius:99px;margin-top:8px;overflow:hidden}
+.vol-track i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#14b8a6,#0f766e)}
+.reactor-node .n-foot{display:flex;justify-content:space-between;margin-top:5px;font-size:9px;color:var(--faint);font-family:var(--mono)}
+.add-node{
+  width:124px;flex:0 0 124px;min-height:108px;border:1px dashed #aacdc1;border-radius:13px;background:rgba(239,250,245,.62);
+  color:var(--teal);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:5px;font-size:11px;font-weight:600;
+}
+.add-node:hover{background:#e9f8f1;border-color:var(--teal)}
+.add-node svg{width:18px;height:18px}
+.clarifier-node{
+  width:170px;flex:0 0 170px;border:1px solid #b9d0e9;border-radius:13px;background:linear-gradient(150deg,#f5f9ff,#fff);padding:10px;
+  cursor:pointer;box-shadow:0 2px 0 rgba(37,99,235,.04);transition:all .15s;
+}
+.clarifier-node:hover,.clarifier-node.selected{border-color:var(--blue);transform:translateY(-2px);box-shadow:0 8px 18px rgba(37,99,235,.10)}
+.clarifier-node .c-head{display:flex;align-items:center;justify-content:space-between}
+.clarifier-node .c-kind{font-size:9px;font-family:var(--mono);color:var(--blue);background:var(--blue-soft);border-radius:999px;padding:2px 6px}
+.clarifier-node h3{margin:8px 0 5px;font-size:12.5px}
+.tank{position:relative;height:74px;border:1px solid #cfe0f3;border-radius:8px;background:linear-gradient(180deg,#eaf5ff,#f9fcff);overflow:hidden}
+.tank .water{position:absolute;left:0;right:0;bottom:0;height:70%;background:linear-gradient(180deg,rgba(92,174,230,.32),rgba(44,129,198,.16))}
+.tank .layer{position:absolute;left:0;right:0;border-top:1px dashed rgba(37,99,235,.20)}
+.tank .blanket{position:absolute;left:0;right:0;bottom:8%;height:14%;background:rgba(120,83,39,.22);border-top:1px solid rgba(120,83,39,.4)}
+.tank .ras{position:absolute;right:5px;bottom:4px;font-family:var(--mono);font-size:8px;color:#285485}
+.clarifier-node .c-metrics{display:flex;justify-content:space-between;margin-top:6px;font-family:var(--mono);font-size:9px;color:var(--muted)}
+.recycle-strip{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:0 18px 14px;position:relative;z-index:1}
+.recycle-pill{display:inline-flex;align-items:center;gap:6px;border:1px solid #bcd8cd;background:#eefaf5;border-radius:999px;padding:5px 9px;font-size:9.5px;color:#145e57;font-family:var(--mono);cursor:pointer;transition:all .15s}
+.recycle-pill:hover{border-color:var(--teal);background:#e4f8f0}
+.recycle-pill.selected{border-color:var(--teal);box-shadow:0 0 0 2px rgba(15,118,110,.12)}
+.recycle-pill svg{width:11px;height:11px}
+.recycle-add{border:1px dashed #a9c9bf;background:transparent;border-radius:999px;padding:5px 9px;font-size:9.5px;color:var(--teal);font-family:var(--mono)}
+.recycle-add:hover{background:#e9f8f1;border-color:var(--teal)}
+.stage-foot-tools{display:flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:center}
+.stage-foot-tools .chip{padding:3px 7px;font-size:9.5px}
+.stage-foot-tools .chip:disabled{opacity:.45;cursor:not-allowed}
+.stage-foot-tools .chip.active{border-color:var(--teal);color:var(--teal);background:var(--teal-soft)}
+.stage-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;font-size:10px;color:var(--faint)}
+.stage-foot .legend{display:flex;gap:10px;flex-wrap:wrap}
+.stage-foot .legend span{display:inline-flex;align-items:center;gap:5px}
+.legend .swatch{width:7px;height:7px;border-radius:2px;background:var(--teal)}
+.legend .swatch.amber{background:var(--amber)}
+.legend .swatch.red{background:var(--red)}
+.inspector{
+  margin-top:13px;background:rgba(255,255,255,.7);border:1px solid var(--line);border-radius:16px;box-shadow:0 4px 18px rgba(16,35,31,.04);
+  padding:13px 15px 14px;min-height:190px;overflow:auto;max-height:min(37vh,330px);
+}
+.inspector-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:11px}
+.inspector-head h2{margin:0;font-size:14px;letter-spacing:-.01em}
+.inspector-head .sub{font-size:10px;color:var(--faint);margin-top:3px}
+.tag{display:inline-flex;align-items:center;gap:4px;border-radius:999px;background:var(--paper-2);border:1px solid var(--line);padding:3px 7px;font-size:9.5px;color:var(--muted);font-family:var(--mono)}
+.inspector-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.inspector-grid .span2{grid-column:span 2}
+.inspector-grid .span3{grid-column:span 3}
+.inspector-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:11px;padding-top:10px;border-top:1px solid var(--line)}
+.inspector-empty{padding:15px 4px;color:var(--muted);font-size:12px;line-height:1.6}
+.empty-visual{padding:30px 18px;text-align:center;color:var(--muted);font-size:12px;line-height:1.6}
+.empty-visual strong{display:block;color:var(--ink);font-size:14px;margin-bottom:4px}
+.monitor-card{background:#fff;border:1px solid var(--line);border-radius:15px;box-shadow:0 3px 16px rgba(16,35,31,.04);padding:12px 13px;margin-bottom:12px}
+.monitor-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.monitor-top h2{margin:0;font-size:13px}
+.monitor-top .exp-id{font-family:var(--mono);font-size:9px;color:var(--faint);margin-top:3px;word-break:break-all}
+.status-pill{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;font-size:9.5px;font-weight:650;white-space:nowrap;background:var(--paper-2);color:var(--muted)}
+.status-pill .dot{width:6px;height:6px;border-radius:50%;background:#94a3b8}
+.status-pill.queued{background:#eff4ff;color:#1d4ed8}.status-pill.queued .dot{background:#3b82f6}
+.status-pill.running,.status-pill.cancelling{background:var(--teal-soft);color:var(--teal)}.status-pill.running .dot,.status-pill.cancelling .dot{background:var(--teal-glow);animation:pulse 1.4s infinite}
+.status-pill.succeeded{background:#e9f7ed;color:#157347}.status-pill.succeeded .dot{background:#22c55e}
+.status-pill.failed{background:var(--red-soft);color:var(--red)}.status-pill.failed .dot{background:#ef4444}
+.status-pill.cancelled{background:#f1f5f9;color:#475569}.status-pill.cancelled .dot{background:#94a3b8}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.progress{height:7px;background:#edf0e9;border-radius:99px;overflow:hidden;margin:10px 0 7px}
+.progress i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#14b8a6,#0f766e);transition:width .35s ease}
+.monitor-meta{display:flex;justify-content:space-between;gap:8px;font-family:var(--mono);font-size:9.5px;color:var(--faint)}
+.monitor-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.metric-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-top:11px}
+.metric{border:1px solid var(--line);border-radius:10px;background:var(--paper);padding:8px 9px}
+.metric .k{font-size:9.5px;color:var(--muted)}
+.metric .v{font-family:var(--mono);font-size:17px;font-weight:600;letter-spacing:-.03em;margin-top:2px;color:var(--ink)}
+.metric .u{font-family:var(--mono);font-size:9px;color:var(--faint);margin-left:2px}
+.metric.good{border-color:#b9dfc9;background:#f5fcf6}.metric.warn{border-color:#ecd2ae;background:#fffbf4}
+.chart-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:12px 0 6px}
+.chart-head strong{font-size:10.5px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.chart-head select{height:26px;border:1px solid var(--line);border-radius:7px;background:#fff;font-size:10.5px;padding:0 6px}
+.chart-wrap{border:1px solid var(--line);border-radius:10px;background:linear-gradient(180deg,#fbfdf9,#fff);overflow:hidden}
+.chart-wrap svg{display:block;width:100%;height:150px}
+.chart-empty{height:150px;display:grid;place-items:center;color:var(--faint);font-size:11px}
+.balance{margin-top:10px;border-top:1px solid var(--line);padding-top:9px}
+.balance-row{display:flex;justify-content:space-between;gap:8px;padding:4px 0;font-size:10px}
+.balance-row .bar{height:3px;width:82px;background:#edf0e9;border-radius:99px;overflow:hidden;margin-left:auto}
+.balance-row .bar i{display:block;height:100%;background:var(--teal)}
+.queue-list{display:flex;flex-direction:column;gap:5px}
+.queue-item{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:9px;background:#fff;padding:7px 8px;cursor:pointer;transition:all .15s ease}
+.queue-item:hover{border-color:#a9c9bf;background:#fbfffd}
+.queue-item .q-name{font-size:10.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.queue-item .q-time{font-family:var(--mono);font-size:8.5px;color:var(--faint);white-space:nowrap}
+.queue-item .status-pill{padding:2px 5px;font-size:8px}
+.empty small{display:block;font-size:10px;color:var(--faint);margin-top:3px;line-height:1.5}
+.toast-stack{position:fixed;right:18px;bottom:18px;z-index:50;display:flex;flex-direction:column;gap:7px;max-width:360px}
+.toast{border:1px solid var(--line);border-left:3px solid var(--teal);background:#fff;border-radius:10px;padding:9px 11px;box-shadow:0 8px 24px rgba(16,35,31,.12);font-size:11px;color:var(--ink);animation:toastIn .2s ease}
+.toast.error{border-left-color:var(--red);background:#fff9f7}
+.toast.warn{border-left-color:var(--amber);background:#fffdf7}
+@keyframes toastIn{from{transform:translateY(6px);opacity:0}to{transform:none;opacity:1}}
+.modal{position:fixed;inset:0;z-index:40;background:rgba(8,24,22,.40);display:grid;place-items:center;padding:20px}
+.modal-card{width:min(760px,94vw);max-height:86vh;background:var(--paper);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.25);padding:16px;display:flex;flex-direction:column}
+.modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
+.modal-head h2{margin:0;font-size:16px}
+.modal-head p{margin:3px 0 0;font-size:11px;color:var(--muted)}
+.modal textarea{flex:1;min-height:300px}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.tab{border:0;background:transparent;padding:7px 8px;font-size:10.5px;color:var(--muted);border-bottom:2px solid transparent}
+.tab.active{color:var(--teal);border-bottom-color:var(--teal);font-weight:650}
+.footer-note{padding:8px 2px 0;font-size:9.5px;color:var(--faint);line-height:1.5}
+@media (max-width:1180px){.layout{grid-template-columns:286px minmax(0,1fr) 330px}.inspector-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.inspector-grid .span3{grid-column:span 2}}
+@media (max-width:980px){
+  .topbar{gap:12px;padding:0 13px}.brand{min-width:0}.brand p{display:none}.crumbs{display:none}
+  .layout{display:flex;flex-direction:column;height:auto}
+  .panel.left,.panel.right{overflow:visible;border:0;padding:13px 13px 0}
+  .stage{overflow:visible;padding:13px}.inspector{max-height:none}
+  .panel.right{padding-bottom:22px}
+  .launch-card{box-shadow:var(--shadow)}
+  .top-status .status-chip:nth-child(n+3){display:none}
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M4 14.5c2.4 0 2.4 1.5 4.8 1.5s2.4-1.5 4.8-1.5 2.4 1.5 4.8 1.5 1.2-.6 1.6-1.1V18c-1 .4-2.2.5-3.2.1-2.4-.9-3.4-.9-5.8 0-1.1.3-2.2.3-3.2 0-.9-.4-1.9-.4-3.2.1V14.5z"/><path d="M6 8.1c1.3-.8 3.2-.7 5.4.5 3.4 1.8 6.4 1.3 8.6-.9l1 2.2c-2.6 2.6-6.2 3.1-10.3 1-1.7-.9-2.9-1.1-3.7-.6L6 8.1z"/></svg>
+    </div>
+    <div><h1>AquaPilot</h1><p>wastewater process studio</p></div>
+  </div>
+  <div class="top-sep"></div>
+  <div class="crumbs"><b>V2</b><span>/</span><span>工艺编排台</span><span>/</span><span class="mono">ASM2d · 整厂</span></div>
+  <div class="top-spacer"></div>
+  <div class="top-status">
+    <div class="status-chip" title="服务健康"><span class="dot" id="svc-dot"></span><span id="svc-label">连接中</span></div>
+    <div class="status-chip"><span class="mono" id="queue-chip">队列 0 / 32</span></div>
+    <div class="status-chip"><span class="mono">v0.0.7</span></div>
+  </div>
+  <button class="top-link" id="open-api">API 契约 ↗</button>
+</header>
+
+<main class="layout">
+  <aside class="panel left">
+    <div class="section">
+      <div class="section-title"><span>场景预设</span><span class="count" id="preset-count">—</span></div>
+      <div class="preset-grid" id="preset-grid"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span>实验设置</span><span class="count">RUN</span></div>
+      <div class="form-row one">
+        <div class="field"><label for="exp-name">实验名称</label><input id="exp-name" class="control" autocomplete="off"></div>
+      </div>
+      <div class="form-row one">
+        <div class="field"><label for="model">计算模型</label><select id="model" class="control"><option value="asm2d">ASM2d 整厂</option><option value="asm2d-adm1-loop">ASM2d + ADM1 回流闭环</option><option value="asm1">ASM1 BSM1</option><option value="adm1">ADM1 消化器</option><option value="sludge-line">泥线</option></select></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label for="duration" id="duration-label">模拟时长（分钟）</label><input id="duration" class="control mono" type="number" min="1" step="1"></div>
+        <div class="field"><label for="dt" id="dt-label">步长</label><input id="dt" class="control mono" type="number" step="any"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label for="sample-every">采样间隔（分钟）</label><input id="sample-every" class="control mono" type="number" min="1" step="1"></div>
+        <div class="field" id="sludge-days-wrap"><label for="sludge-days">泥线天数</label><input id="sludge-days" class="control mono" type="number" min="1" step="1"></div>
+      </div>
+      <p class="hint" id="model-hint">ASM2d 整厂：在下方工艺链上编辑池型、池容、DO、回流与二沉池。</p>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span>工况注入</span><span class="count">SCENARIO</span></div>
+      <div class="scenario-grid" id="scenario-grid"></div>
+      <p class="hint">点一下先改成冲击工况，再在画布上继续微调；启动的实验会记录完整 spec。</p>
+    </div>
+
+    <div class="launch-card">
+      <div class="line"><strong>提交到持久队列</strong><span id="launch-state">READY</span></div>
+      <button class="btn primary big" id="launch">启动实验 <span aria-hidden="true">→</span></button>
+      <p class="hint">服务端单 worker，按 queued → running → 终态执行；页面通过 SSE 追状态。</p>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span>配置交换</span><span class="count">JSON</span></div>
+      <div class="btn-row">
+        <button class="btn" id="open-json">高级 JSON</button>
+        <button class="btn" id="export-json">导出</button>
+        <button class="btn" id="import-btn">导入</button>
+        <input id="import-file" type="file" accept="application/json" class="hidden">
+      </div>
+      <p class="hint">可视化只暂露关键参数；沉降参数、初始场、进水全组分在高级 JSON 里保留。</p>
+    </div>
+
+  </aside>
+
+  <section class="stage">
+    <div class="stage-head">
+      <div>
+        <div class="eyebrow">PROCESS TOPOLOGY / A2O</div>
+        <h2 class="stage-title">工艺编排台 <small id="stage-tag">ASM2d plant</small></h2>
+        <p class="stage-sub">拖拽池体改串联顺序，点选节点在下方改参数；内回流、RAS/WAS、PAC 与三级过滤都在同一条流程上可见。</p>
+      </div>
+      <div class="stage-actions">
+        <button class="btn ghost" id="reset-preset">重置预设</button>
+        <button class="btn" id="add-reactor-top">+ 反应器</button>
+      </div>
+    </div>
+
+    <div class="flow-shell">
+      <div class="flow-scroll"><div class="flow" id="flow"></div></div>
+      <div class="recycle-strip" id="recycle-strip"></div>
+    </div>
+    <div class="stage-foot">
+      <div class="legend">
+        <span><i class="swatch"></i>厌氧 / 好氧</span>
+        <span><i class="swatch amber"></i>缺氧 / 回流</span>
+        <span><i class="swatch red"></i>限制 / 旁路</span>
+      </div>
+      <div class="stage-foot-tools">
+        <button class="chip" id="select-pac">PAC</button>
+        <button class="chip" id="select-tertiary">三级过滤</button>
+      </div>
+      <div id="stage-validation" class="mono">—</div>
+    </div>
+
+    <div class="inspector" id="inspector"></div>
+    <p class="footer-note">模型边界：ASM2d 19 组分 / ADM1 24 组分；BOD、粪大肠菌群、色度未建模的字段在报告里留空，不伪造 0 值。三级过滤是理想化 TSS 捕集 + 经验 PO₄ 抛光。</p>
+  </section>
+
+  <aside class="panel right">
+    <div class="monitor-card" id="monitor">
+      <div class="monitor-top">
+        <div><h2>实验监看</h2><div class="exp-id" id="exp-id">尚未提交实验</div></div>
+        <span class="status-pill" id="exp-status"><span class="dot"></span><span>idle</span></span>
+      </div>
+      <div class="progress"><i id="progress-bar" style="width:0%"></i></div>
+      <div class="monitor-meta"><span id="progress-label">0.0%</span><span id="exp-model">—</span></div>
+      <div class="monitor-actions">
+        <button class="btn" id="cancel-exp" disabled>取消实验</button>
+        <button class="btn ghost" id="refresh-exp" disabled>刷新</button>
+      </div>
+      <div class="metric-grid" id="metric-grid"></div>
+      <div class="chart-head"><strong>出水趋势</strong><select id="chart-metric"><option value="cod">COD</option><option value="nh4">NH4-N</option><option value="tn">TN</option><option value="tp">TP</option><option value="ss">SS</option><option value="po4">PO4-P</option></select></div>
+      <div class="chart-wrap" id="chart-wrap"><div class="chart-empty">实验成功后显示采样序列</div></div>
+      <div class="balance" id="balance"></div>
+      <p class="hint balance-hint" id="balance-hint">三本账残差按边界库存计算；短时实验未闭合是初始场/库存变化，不是运行错误。</p>
+      <div class="monitor-actions" id="download-links"></div>
+    </div>
+
+    <div class="monitor-card">
+      <div class="monitor-top"><div><h2>队列</h2><div class="exp-id">最近 12 个实验</div></div><span class="tag" id="queue-tag">live</span></div>
+      <div class="queue-list" id="queue-list"><div class="empty">加载中…</div></div>
+    </div>
+
+    <div class="footer-note">数据源：`/api/v1/experiments`、`/events`、`/samples.csv`、`/report.md`。SSE 终止后自动断开；取消 running 实验先进入 `cancelling`。</div>
+  </aside>
+</main>
+
+<div class="toast-stack" id="toasts"></div>
+
+<div class="modal hidden" id="json-modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div><h2>高级配置 JSON</h2><p id="json-sub">直接编辑模型 config；服务端仍会做 422 校验。</p></div>
+      <button class="btn ghost" id="json-close">关闭 ✕</button>
+    </div>
+    <textarea class="control mono" id="json-text" spellcheck="false"></textarea>
+    <div class="modal-actions">
+      <button class="btn" id="json-format">格式化</button>
+      <button class="btn primary" id="json-apply">应用配置</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+  const clone = (value) => JSON.parse(JSON.stringify(value));
+  const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({"&":"&amp;","<":"&lt;",">":">","\"":"&quot;","'":"&#39;"}[ch]));
+  const num = (value, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const fmt = (value, digits = 2) => Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "—";
+  const nowName = () => {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, "0");
+    return `ui-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+  };
+  const isVisualModel = (model) => model === "asm2d" || model === "asm2d-adm1-loop";
+  const isDaysModel = (model) => model === "adm1" || model === "sludge-line";
+
+  const state = {
+    presets: [],
+    defaultPreset: null,
+    presetId: null,
+    model: "asm2d",
+    config: null,
+    name: "",
+    durationMin: 43200,
+    dtMin: 1,
+    sampleEveryMin: 360,
+    sludgeDays: 30,
+    sludgeDtDays: 0.002,
+    selected: { type: "reactor", index: 0 },
+    activeId: null,
+    exp: null,
+    samples: [],
+    chartMetric: "cod",
+    source: null,
+    busy: false,
+  };
+
+  const SCENARIOS = [
+    { id: "standard", label: "标准 A2O", tone: "", apply: (plant) => {
+      plant.influent.flow_m3_h = 1000;
+      plant.reactors.forEach((r) => { r.temperature_c = 20; });
+    }},
+    { id: "storm", label: "高流量冲击", tone: "warn", apply: (plant) => { plant.influent.flow_m3_h = 1500; }},
+    { id: "lowdo", label: "低 DO 胁迫", tone: "warn", apply: (plant) => {
+      plant.reactors.filter((r) => r.kind === "aerobic").forEach((r) => { r.kla_h = 120; r.do_setpoint = 1.0; });
+    }},
+    { id: "winter", label: "冬季 12°C", tone: "warn", apply: (plant) => { plant.reactors.forEach((r) => { r.temperature_c = 12; }); }},
+    { id: "pacroff", label: "PAC 停加", tone: "warn", apply: (plant) => { if (plant.pac) plant.pac.dose_mg_l = 0; }},
+    { id: "bypass", label: "过滤旁路", tone: "warn", apply: (plant) => { if (plant.tertiary) { plant.tertiary.tss_removal_fraction = 0; plant.tertiary.po4_removal_fraction = 0; } }},
+    { id: "anaerobic", label: "厌氧扩容", tone: "", apply: (plant) => { if (plant.reactors[0]) plant.reactors[0].volume_m3 = 6000; }},
+    { id: "reset", label: "回到预设", tone: "", apply: () => { loadPreset(state.presetId || state.defaultPreset); }},
+  ];
+
+  function getPlant() {
+    if (!state.config) return null;
+    return state.model === "asm2d-adm1-loop" ? state.config.plant : state.config;
+  }
+
+  function reactorName(index) {
+    const reactor = getPlant()?.reactors?.[Number(index)];
+    return reactor ? (reactor.name || reactor.id) : `#${index}`;
+  }
+
+  function setPath(path, value) {
+    const plant = getPlant();
+    if (!plant) return;
+    const parts = path.split(".");
+    if (path.startsWith("reactor.")) {
+      const reactor = plant.reactors[state.selected.index];
+      if (!reactor) return;
+      reactor[parts[1]] = value;
+      if (parts[1] === "kind") {
+        if (value !== "aerobic") { reactor.kla_h = 0; reactor.do_setpoint = 0; }
+        else if (reactor.kla_h <= 0) { reactor.kla_h = 240; reactor.do_setpoint = 2; }
+      }
+      return;
+    }
+    if (path.startsWith("clarifier.")) {
+      if (!plant.clarifier) return;
+      plant.clarifier[parts[1]] = parts[1] === "ras_reactor" ? Math.max(0, Math.round(num(value, 0))) : value;
+      return;
+    }
+    if (path.startsWith("influent.")) {
+      let target = plant.influent;
+      for (let i = 1; i < parts.length - 1; i++) target = target[parts[i]];
+      target[parts[parts.length - 1]] = value;
+      return;
+    }
+    if (path.startsWith("recycle.")) {
+      const recycle = (plant.internal_recycles || [])[state.selected.index];
+      if (!recycle) return;
+      recycle[parts[1]] = ["from", "to"].includes(parts[1]) ? Math.max(0, Math.round(num(value, 0))) : value;
+      return;
+    }
+    if (path.startsWith("pac.")) {
+      if (!plant.pac) return;
+      plant.pac[parts[1]] = parts[1] === "reactor" ? Math.max(0, Math.round(num(value, 0))) : value;
+      return;
+    }
+    if (path.startsWith("tertiary.")) {
+      if (plant.tertiary) plant.tertiary[parts[1]] = value;
+    }
+  }
+
+  function modelLabel(model) {
+    return ({asm2d: "ASM2d 整厂", "asm2d-adm1-loop": "ASM2d + ADM1 闭环", asm1: "ASM1 BSM1", adm1: "ADM1 消化器", "sludge-line": "泥线"})[model] || model;
+  }
+
+  function statusClass(status) {
+    return ({queued: "queued", running: "running", cancelling: "cancelling", succeeded: "succeeded", failed: "failed", cancelled: "cancelled"})[status] || "";
+  }
+
+  function toast(message, type = "info") {
+    const node = document.createElement("div");
+    node.className = `toast ${type === "error" ? "error" : type === "warn" ? "warn" : ""}`;
+    node.textContent = message;
+    $("#toasts").appendChild(node);
+    setTimeout(() => node.remove(), type === "error" ? 7000 : 4200);
+  }
+
+  async function api(path, options = {}) {
+    const response = await fetch(path, { headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
+    const text = await response.text();
+    let body = null;
+    try { body = text ? JSON.parse(text) : null; } catch (_) { body = text; }
+    if (!response.ok) {
+      const problem = body && typeof body === "object" ? body : { detail: String(body || response.statusText) };
+      const fieldText = Array.isArray(problem.errors) ? `（${problem.errors.map((e) => `${e.field}: ${e.detail}`).join("；")}）` : "";
+      const error = new Error(`${problem.code || response.status} · ${problem.detail || problem.title || response.statusText}${fieldText}`);
+      error.problem = problem;
+      throw error;
+    }
+    return body;
+  }
+
+  function setBusy(value) {
+    state.busy = value;
+    $("#launch").disabled = value;
+    $("#launch-state").textContent = value ? "SUBMITTING" : "READY";
+  }
+
+  function renderPresets() {
+    $("#preset-count").textContent = `${state.presets.length} presets`;
+    $("#preset-grid").innerHTML = state.presets.map((preset) => `
+      <button class="preset ${preset.id === state.presetId ? "active" : ""}" data-preset="${esc(preset.id)}" title="${esc(preset.description)}">
+        <span class="p-label">${esc(preset.label)}</span>
+        <span class="p-model">${esc(preset.model)}</span>
+      </button>`).join("");
+  }
+
+  function renderScenarios() {
+    $("#scenario-grid").innerHTML = SCENARIOS.map((scenario) => `<button class="chip ${scenario.tone}" data-scenario="${scenario.id}">${esc(scenario.label)}</button>`).join("");
+    $$("#scenario-grid .chip").forEach((button) => button.addEventListener("click", () => {
+      const scenario = SCENARIOS.find((s) => s.id === button.dataset.scenario);
+      if (!scenario) return;
+      if (scenario.id === "reset") { scenario.apply(); return; }
+      if (!isVisualModel(state.model) || !getPlant()) { toast("当前模型没有可视化工艺链，请用高级 JSON 改配置。", "warn"); return; }
+      scenario.apply(getPlant());
+      validate(); renderFlow(); renderInspector(); toast(`已注入：${scenario.label}`);
+    }));
+  }
+
+  function renderRun() {
+    $("#exp-name").value = state.name;
+    $("#model").value = state.model;
+    const days = isDaysModel(state.model);
+    $("#duration-label").textContent = days ? "模拟时长（天）" : "模拟时长（分钟）";
+    $("#duration").value = days ? fmt(state.durationMin / 1440, 2) : state.durationMin;
+    $("#duration").step = days ? "0.1" : "1";
+    $("#dt-label").textContent = days ? "泥线步长（天）" : "步长（分钟）";
+    $("#dt").value = days ? state.sludgeDtDays : state.dtMin;
+    $("#dt").step = "any";
+    $("#sample-every").value = state.sampleEveryMin;
+    $("#sludge-days-wrap").classList.toggle("hidden", state.model !== "asm2d-adm1-loop");
+    $("#sludge-days").value = state.sludgeDays;
+    $("#model-hint").textContent = days
+      ? "ADM1 / 泥线用天为单位；模型只输出最终状态一行。"
+      : state.model === "asm2d-adm1-loop"
+        ? "可视化编辑 A2O 池体；泥线使用默认 Asm2dSludgeConfig（可在高级 JSON 里加 sludge）。"
+        : "ASM2d 整厂：在下方工艺链上编辑池型、池容、DO、回流与二沉池。";
+    renderStageTag();
+  }
+
+  function renderStageTag() {
+    $("#stage-tag").textContent = modelLabel(state.model);
+  }
+
+  function renderFlow() {
+    const flow = $("#flow");
+    const plant = getPlant();
+    if (!isVisualModel(state.model) || !plant) {
+      flow.innerHTML = `<div class="empty-visual" style="min-width:680px"><strong>该模型没有 A2O 可视化链</strong>当前模型使用 JSON 配置；点“高级 JSON”查看或修改。ASM1 / ADM1 / 泥线仍可从左侧预设一键运行。</div>`;
+      $("#recycle-strip").innerHTML = "";
+      renderStageChips();
+      return;
+    }
+    const reactors = plant.reactors || [];
+    const maxVol = Math.max(1, ...reactors.map((r) => num(r.volume_m3, 0)));
+    const feed = plant.influent || {};
+    let html = `
+      <div class="terminal ${state.selected.type === "influent" ? "selected" : ""}" data-select="influent" title="点击编辑进水">
+        <div class="t-icon"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M12 3c-.4 0-.7.2-.9.5C9.5 6 5 10.7 5 14.3c0 3.2 2.6 5.7 7 5.7s7-2.5 7-5.7C19 10.7 14.5 6 12.9 3.5c-.2-.3-.5-.5-.9-.5Zm0 15.1c-2.2 0-3.8-1.7-3.8-3.8 0-1.8 1.4-3.9 3.8-6.6 2.4 2.7 3.8 4.8 3.8 6.6 0 2.1-1.6 3.8-3.8 3.8Z"/></svg></div>
+        <strong>进水</strong><small>${fmt(feed.flow_m3_h, 0)} m³/h<br><span class="faint">NH₄ ${fmt(feed.state?.snh4)}</span></small>
+      </div>
+      <div class="flow-arrow"><svg viewBox="0 0 24 12"><path d="M2 6h17M15 1l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></div>`;
+    reactors.forEach((reactor, index) => {
+      const kind = reactor.kind || "aerobic";
+      const selected = state.selected.type === "reactor" && state.selected.index === index;
+      const volPct = Math.max(6, Math.round(num(reactor.volume_m3, 0) / maxVol * 100));
+      html += `
+        <article class="reactor-node ${selected ? "selected" : ""}" data-reactor-index="${index}" draggable="true" title="拖拽改顺序">
+          <div class="n-top"><span class="seq">${String(index + 1).padStart(2, "0")}</span><span class="kind ${kind}">${kind}</span></div>
+          <h3>${esc(reactor.name || reactor.id || `反应器 ${index + 1}`)}</h3>
+          <div class="n-meta">${fmt(reactor.volume_m3, 0)} m³ · ${fmt(reactor.temperature_c, 1)}°C</div>
+          <div class="vol-track"><i style="width:${volPct}%"></i></div>
+          <div class="n-foot"><span>KLa ${fmt(reactor.kla_h, 0)}</span><span>DO ${fmt(reactor.do_setpoint, 1)}</span></div>
+        </article>
+        <div class="flow-arrow"><svg viewBox="0 0 24 12"><path d="M2 6h17M15 1l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></div>`;
+    });
+    html += `<button class="add-node" id="add-reactor-inline" title="新增一个反应器"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 5v14M5 12h14"/></svg>新增反应器</button>`;
+    html += `<div class="flow-arrow"><svg viewBox="0 0 24 12"><path d="M2 6h17M15 1l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></div>`;
+    if (plant.clarifier) {
+      const clarifier = plant.clarifier || {};
+      const selected = state.selected.type === "clarifier";
+      const layers = Math.max(2, Math.min(20, Math.round(num(clarifier.layers, 10))));
+      const lines = Array.from({length: layers - 1}, (_, i) => `<span class="layer" style="bottom:${((i + 1) / layers) * 100}%"></span>`).join("");
+      html += `
+        <article class="clarifier-node ${selected ? "selected" : ""}" data-select="clarifier" title="点击编辑二沉池">
+          <div class="c-head"><span class="c-kind">SETTLER</span><span class="seq">${String(reactors.length + 1).padStart(2, "0")}</span></div>
+          <h3>${esc(clarifier.name || "二沉池")}</h3>
+          <div class="tank"><div class="water"></div><div class="blanket"></div>${lines}<span class="ras">RAS ${fmt(clarifier.ras_flow_m3_h, 0)}</span></div>
+          <div class="c-metrics"><span>A ${fmt(clarifier.area_m2, 0)} m²</span><span>WAS ${fmt(clarifier.was_flow_m3_h, 0)}</span></div>
+        </article>
+        <div class="flow-arrow"><svg viewBox="0 0 24 12"><path d="M2 6h17M15 1l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></div>`;
+    }
+    html += `
+      <div class="terminal out" data-select="effluent" title="最终出水">
+        <div class="t-icon"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M4 17h16v2H4zM7 7h2v8H7zM11 4h2v11h-2zM15 9h2v6h-2z"/></svg></div>
+        <strong>出水</strong><small>${fmt(plant.effluent?.flow_m3_h ?? feed.flow_m3_h, 0)} m³/h<br><span class="faint">${plant.tertiary ? "三级过滤后" : "二沉池后"}</span></small>
+      </div>`;
+    flow.innerHTML = html;
+
+    $$("[data-select]").forEach((node) => node.addEventListener("click", () => {
+      const type = node.dataset.select;
+      if (type === "influent") state.selected = {type: "influent"};
+      else if (type === "clarifier") state.selected = {type: "clarifier"};
+      else if (type === "effluent") state.selected = {type: "effluent"};
+      renderFlow(); renderInspector();
+    }));
+    $$(".reactor-node").forEach((node) => {
+      node.addEventListener("click", () => {
+        state.selected = {type: "reactor", index: Number(node.dataset.reactorIndex)};
+        renderFlow(); renderInspector();
+      });
+      node.addEventListener("dragstart", (event) => {
+        event.dataTransfer.setData("text/plain", node.dataset.reactorIndex);
+        node.classList.add("dragging");
+      });
+      node.addEventListener("dragend", () => node.classList.remove("dragging"));
+      node.addEventListener("dragover", (event) => event.preventDefault());
+      node.addEventListener("drop", (event) => {
+        event.preventDefault();
+        const from = Number(event.dataTransfer.getData("text/plain"));
+        const to = Number(node.dataset.reactorIndex);
+        if (Number.isInteger(from) && from !== to && from >= 0 && from < plant.reactors.length) {
+          reorderReactors(from, to);
+        }
+      });
+    });
+    const inlineAdd = $("#add-reactor-inline");
+    if (inlineAdd) inlineAdd.addEventListener("click", addReactor);
+
+    const recycles = (plant.internal_recycles || []);
+    const recycleHtml = recycles.length
+      ? recycles.map((recycle, index) => `<button class="recycle-pill ${state.selected.type === "recycle" && state.selected.index === index ? "selected" : ""}" data-recycle-index="${index}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 8h14a3 3 0 0 1 3 3v2M17 4l3 4-3 4M20 16H6a3 3 0 0 1-3-3v-2M7 20l-3-4 3-4"/></svg>内回流 ${fmt(recycle.flow_m3_h, 0)} m³/h · ${esc(reactorName(recycle.from))} → ${esc(reactorName(recycle.to))}</button>`).join("")
+      : `<span class="faint" style="font-size:10px">未配置内回流</span>`;
+    $("#recycle-strip").innerHTML = `${recycleHtml}<button class="recycle-add" id="add-recycle">+ 内回流</button>`;
+    $$("#recycle-strip .recycle-pill").forEach((pill) => pill.addEventListener("click", () => {
+      state.selected = {type: "recycle", index: Number(pill.dataset.recycleIndex)};
+      renderFlow(); renderInspector();
+    }));
+    $("#add-recycle").addEventListener("click", addRecycle);
+    renderStageChips();
+  }
+
+  function field(label, bind, value, options = {}) {
+    const { type = "number", step = "any", min = "", max = "", span = "" } = options;
+    return `<div class="field ${span}"><label>${esc(label)}</label><input class="control ${type === "number" ? "mono" : ""}" data-bind="${esc(bind)}" type="${type}" value="${esc(value)}" ${step ? `step="${step}"` : ""} ${min ? `min="${min}"` : ""} ${max ? `max="${max}"` : ""}></div>`;
+  }
+
+  function selectField(label, bind, value, entries, span = "") {
+    return `<div class="field ${span}"><label>${esc(label)}</label><select class="control" data-bind="${esc(bind)}">${entries.map(([key, text]) => `<option value="${esc(key)}" ${String(value) === String(key) ? "selected" : ""}>${esc(text)}</option>`).join("")}</select></div>`;
+  }
+
+  function renderInspector() {
+    const inspector = $("#inspector");
+    const plant = getPlant();
+    if (!isVisualModel(state.model) || !plant) {
+      inspector.innerHTML = `<div class="inspector-head"><div><h2>JSON 配置</h2><div class="sub">该模型在画布上不展开 A2O 节点</div></div><span class="tag">${esc(state.model)}</span></div><div class="inspector-empty">当前模型的完整参数在高级 JSON 中编辑。运行参数仍可在左侧设置；服务端会按模型类型做校验。</div>`;
+      return;
+    }
+    const selected = state.selected;
+    if (selected.type === "reactor") {
+      const reactor = plant.reactors[selected.index];
+      if (!reactor) { state.selected = {type: "reactor", index: 0}; return renderInspector(); }
+      inspector.innerHTML = `
+        <div class="inspector-head"><div><h2>${esc(reactor.name || reactor.id)}</h2><div class="sub">反应器 ${selected.index + 1} / ${plant.reactors.length} · ${esc(reactor.id)}</div></div><span class="tag">${esc(reactor.kind)}</span></div>
+        <div class="inspector-grid">
+          ${field("名称", "reactor.name", reactor.name, {type: "text", span: "span2"})}
+          ${selectField("池型", "reactor.kind", reactor.kind, [["anaerobic","厌氧"],["anoxic","缺氧"],["aerobic","好氧"]])}
+          ${field("池容 m³", "reactor.volume_m3", reactor.volume_m3, {min: "1", step: "1"})}
+          ${field("温度 °C", "reactor.temperature_c", reactor.temperature_c, {step: "0.1"})}
+          ${field("KLa 1/h", "reactor.kla_h", reactor.kla_h, {min: "0"})}
+          ${field("DO 设定 mg/L", "reactor.do_setpoint", reactor.do_setpoint, {min: "0", max: "10", step: "0.1"})}
+        </div>
+        <div class="inspector-actions">
+          <button class="btn ghost" data-action="move-up">↑ 前移</button>
+          <button class="btn ghost" data-action="move-down">↓ 后移</button>
+          <button class="btn ghost" data-action="duplicate-reactor">复制</button>
+          <button class="btn" data-action="delete-reactor">删除</button>
+        </div>`;
+      return;
+    }
+    if (selected.type === "clarifier") {
+      const c = plant.clarifier || {};
+      const reactorOptions = plant.reactors.map((r, index) => [index, r.name || r.id]);
+      inspector.innerHTML = `
+        <div class="inspector-head"><div><h2>二沉池 / 固液分离</h2><div class="sub">Takács 多层沉降 · 10 层默认</div></div><span class="tag">SETTLER</span></div>
+        <div class="inspector-grid">
+          ${field("面积 m²", "clarifier.area_m2", c.area_m2, {min: "10"})}
+          ${field("深度 m", "clarifier.depth_m", c.depth_m, {min: "0.5", step: "0.1"})}
+          ${field("层数", "clarifier.layers", c.layers, {min: "2", max: "20", step: "1"})}
+          ${field("进料层", "clarifier.feed_layer", c.feed_layer, {min: "1", max: "20", step: "1"})}
+          ${selectField("RAS 回流到", "clarifier.ras_reactor", c.ras_reactor, reactorOptions)}
+          ${field("RAS m³/h", "clarifier.ras_flow_m3_h", c.ras_flow_m3_h, {min: "0"})}
+          ${field("WAS m³/h", "clarifier.was_flow_m3_h", c.was_flow_m3_h, {min: "0"})}
+        </div>
+        <p class="hint">沉降速度曲线 settling 保留在高级 JSON；这里只改几何与回流。</p>`;
+      return;
+    }
+    if (selected.type === "recycle") {
+      const recycle = (plant.internal_recycles || [])[selected.index];
+      if (!recycle) { state.selected = {type: "influent"}; return renderInspector(); }
+      const ids = plant.reactors.map((r, index) => [index, r.name || r.id]);
+      inspector.innerHTML = `
+        <div class="inspector-head"><div><h2>内回流</h2><div class="sub">硝酸盐从好氧末端回到缺氧区</div></div><span class="tag">RECYCLE</span></div>
+        <div class="inspector-grid">
+          ${selectField("从", "recycle.from", recycle.from, ids)}
+          ${selectField("到", "recycle.to", recycle.to, ids)}
+          ${field("流量 m³/h", "recycle.flow_m3_h", recycle.flow_m3_h, {min: "0"})}
+        </div>
+        <div class="inspector-actions"><button class="btn" data-action="delete-recycle">删除回流</button></div>`;
+      return;
+    }
+    if (selected.type === "pac") {
+      const pac = plant.pac || {};
+      inspector.innerHTML = `
+        <div class="inspector-head"><div><h2>PAC 化学除磷</h2><div class="sub">投加到指定好氧池，按 Al₂O₃ 品位折算金属当量</div></div><span class="tag">CHEM</span></div>
+        <div class="inspector-grid">
+          ${selectField("投加点", "pac.reactor", pac.reactor, plant.reactors.filter((r) => r.kind === "aerobic").map((r, index) => [index, r.name || r.id]), "span2")}
+          ${field("产品剂量 mg/L", "pac.dose_mg_l", pac.dose_mg_l, {min: "0"})}
+          ${field("Al₂O₃ 品位", "pac.al2o3_fraction", pac.al2o3_fraction, {min: "0", max: "1", step: "0.01"})}
+          ${field("MeOH / Al", "pac.meoh_per_al", pac.meoh_per_al, {min: "0", step: "0.1"})}
+        </div>
+        <p class="hint">PAC 化学除磷模型只区分三价金属当量，不区分 Al/Fe 形态。</p>`;
+      return;
+    }
+    if (selected.type === "tertiary") {
+      const t = plant.tertiary || {};
+      inspector.innerHTML = `
+        <div class="inspector-head"><div><h2>三级过滤 / PO₄ 抛光</h2><div class="sub">二沉池后理想化 TSS 捕集 + 经验 PO₄ 去除</div></div><span class="tag">POLISH</span></div>
+        <div class="inspector-grid">
+          ${field("TSS 去除率", "tertiary.tss_removal_fraction", t.tss_removal_fraction, {min: "0", max: "1", step: "0.01"})}
+          ${field("PO₄ 去除率", "tertiary.po4_removal_fraction", t.po4_removal_fraction, {min: "0", max: "1", step: "0.01"})}
+        </div>
+        <p class="hint">这是边界模型，不模拟滤池反冲洗、滤料级配和穿透。</p>`;
+      return;
+    }
+    if (selected.type === "influent") {
+      const inf = plant.influent || {};
+      const st = inf.state || {};
+      inspector.innerHTML = `
+        <div class="inspector-head"><div><h2>进水边界</h2><div class="sub">全厂 COD / N / P 的外部输入</div></div><span class="tag">INFLUENT</span></div>
+        <div class="inspector-grid">
+          ${field("流量 m³/h", "influent.flow_m3_h", inf.flow_m3_h, {min: "1"})}
+          ${field("NH₄-N mg/L", "influent.state.snh4", st.snh4, {min: "0"})}
+          ${field("PO₄-P mg/L", "influent.state.spo4", st.spo4, {min: "0"})}
+          ${field("易降解 COD", "influent.state.sf", st.sf, {min: "0"})}
+          ${field("发酵产物", "influent.state.sa", st.sa, {min: "0"})}
+          ${field("惰性 COD", "influent.state.si", st.si, {min: "0"})}
+          ${field("慢速 COD", "influent.state.xs", st.xs, {min: "0"})}
+          ${field("惰性颗粒", "influent.state.xi", st.xi, {min: "0"})}
+          ${field("异养菌 XH", "influent.state.xh", st.xh, {min: "0"})}
+        </div>
+        <p class="hint">完整 18 组分状态在高级 JSON；这里暴露最常改的进水边界。</p>`;
+      return;
+    }
+    inspector.innerHTML = `<div class="inspector-empty">点选流程节点后编辑参数；也可点“高级 JSON”直接改完整配置。</div>`;
+  }
+
+  function renderStageChips() {
+    const plant = getPlant();
+    const pac = $("#select-pac");
+    const tertiary = $("#select-tertiary");
+    const visual = isVisualModel(state.model) && !!plant;
+    pac.disabled = !visual || !plant?.pac;
+    tertiary.disabled = !visual || !plant?.tertiary;
+    pac.textContent = plant?.pac ? `PAC ${fmt(plant.pac.dose_mg_l, 0)} mg/L` : "无 PAC";
+    tertiary.textContent = plant?.tertiary ? `三级过滤 ${fmt(plant.tertiary.tss_removal_fraction * 100, 0)}/${fmt(plant.tertiary.po4_removal_fraction * 100, 0)}` : "无三级过滤";
+    pac.classList.toggle("active", state.selected.type === "pac");
+    tertiary.classList.toggle("active", state.selected.type === "tertiary");
+  }
+
+  function addRecycle() {
+    const plant = getPlant();
+    if (!plant || !Array.isArray(plant.reactors)) return;
+    const aerobic = plant.reactors.map((reactor, index) => ({reactor, index})).filter((item) => item.reactor.kind === "aerobic");
+    const anoxic = plant.reactors.map((reactor, index) => ({reactor, index})).filter((item) => item.reactor.kind === "anoxic");
+    const from = aerobic.length ? aerobic[aerobic.length - 1].index : Math.max(0, plant.reactors.length - 1);
+    const to = anoxic.length ? anoxic[0].index : 0;
+    plant.internal_recycles = plant.internal_recycles || [];
+    plant.internal_recycles.push({from, to, flow_m3_h: 1000});
+    state.selected = {type: "recycle", index: plant.internal_recycles.length - 1};
+    validate(); renderFlow(); renderInspector();
+    toast("已新增内回流，检查起点、终点和流量。");
+  }
+
+  function addReactor() {
+    const plant = getPlant();
+    if (!plant || !Array.isArray(plant.reactors)) return;
+    const template = clone(plant.reactors[plant.reactors.length - 1] || {});
+    const aerobicCount = plant.reactors.filter((r) => r.kind === "aerobic").length + 1;
+    const id = `aerobic-${aerobicCount}`;
+    const node = {
+      id,
+      name: `好氧池 ${aerobicCount}`,
+      kind: "aerobic",
+      volume_m3: 4000,
+      temperature_c: template.temperature_c ?? 20,
+      kla_h: 240,
+      do_setpoint: 2,
+      initial: template.initial || {},
+    };
+    plant.reactors.push(node);
+    state.selected = {type: "reactor", index: plant.reactors.length - 1};
+    validate(); renderFlow(); renderInspector();
+    toast(`已新增 ${node.name}，记得检查内回流端点。`);
+  }
+
+  function reorderReactors(from, to) {
+    const plant = getPlant();
+    if (!plant || !plant.reactors || from === to) return;
+    const before = plant.reactors.slice();
+    const [node] = plant.reactors.splice(from, 1);
+    plant.reactors.splice(to, 0, node);
+    const newIndex = new Map(plant.reactors.map((reactor, position) => [reactor, position]));
+    const remap = (value) => {
+      const reactor = before[Number(value)];
+      return reactor ? newIndex.get(reactor) : value;
+    };
+    (plant.internal_recycles || []).forEach((recycle) => {
+      recycle.from = remap(recycle.from);
+      recycle.to = remap(recycle.to);
+    });
+    if (plant.clarifier) plant.clarifier.ras_reactor = remap(plant.clarifier.ras_reactor);
+    if (plant.pac) plant.pac.reactor = remap(plant.pac.reactor);
+    state.selected = {type: "reactor", index: to};
+    validate(); renderFlow(); renderInspector();
+  }
+
+  function moveReactor(delta) {
+    const plant = getPlant();
+    const index = state.selected.index;
+    const target = index + delta;
+    if (!plant || !plant.reactors || target < 0 || target >= plant.reactors.length) return;
+    reorderReactors(index, target);
+  }
+
+  function deleteReactor() {
+    const plant = getPlant();
+    const index = state.selected.index;
+    if (!plant || plant.reactors.length <= 1) { toast("至少保留一个反应器。", "warn"); return; }
+    const [removed] = plant.reactors.splice(index, 1);
+    const remapAfterDelete = (value) => {
+      const n = Number(value);
+      if (n === index) return null;
+      return n > index ? n - 1 : n;
+    };
+    plant.internal_recycles = (plant.internal_recycles || []).filter((recycle) => {
+      const from = remapAfterDelete(recycle.from);
+      const to = remapAfterDelete(recycle.to);
+      if (from === null || to === null) return false;
+      recycle.from = from;
+      recycle.to = to;
+      return true;
+    });
+    if (plant.clarifier) {
+      const ras = remapAfterDelete(plant.clarifier.ras_reactor);
+      plant.clarifier.ras_reactor = ras === null ? 0 : ras;
+    }
+    if (plant.pac) {
+      const pac = remapAfterDelete(plant.pac.reactor);
+      plant.pac.reactor = pac === null ? (plant.reactors.find((r) => r.kind === "aerobic") ? plant.reactors.indexOf(plant.reactors.find((r) => r.kind === "aerobic")) : 0) : pac;
+    }
+    state.selected = {type: "reactor", index: Math.min(index, plant.reactors.length - 1)};
+    validate(); renderFlow(); renderInspector();
+    toast(`已删除 ${removed.name || removed.id}。`);
+  }
+
+  function validate() {
+    const output = $("#stage-validation");
+    const plant = getPlant();
+    if (!isVisualModel(state.model) || !plant) {
+      output.textContent = "JSON 模式 · 服务端校验";
+      return true;
+    }
+    const errors = [];
+    if (!Array.isArray(plant.reactors) || plant.reactors.length === 0) errors.push("至少一个反应器");
+    const ids = new Set();
+    (plant.reactors || []).forEach((r) => { if (ids.has(r.id)) errors.push(`重复 id：${r.id}`); ids.add(r.id); });
+    const count = plant.reactors.length;
+    const validIndex = (value) => Number.isInteger(Number(value)) && Number(value) >= 0 && Number(value) < count;
+    (plant.internal_recycles || []).forEach((r) => {
+      if (!validIndex(r.from) || !validIndex(r.to)) errors.push(`内回流端点越界：${r.from} → ${r.to}`);
+    });
+    if (plant.clarifier && !validIndex(plant.clarifier.ras_reactor)) errors.push(`RAS 端点越界：${plant.clarifier.ras_reactor}`);
+    if (plant.pac && !validIndex(plant.pac.reactor)) errors.push(`PAC 投加点越界：${plant.pac.reactor}`);
+    if (errors.length) {
+      output.textContent = errors[0];
+      output.style.color = "var(--red)";
+      return false;
+    }
+    output.textContent = `${plant.reactors.length} 池 · ${plant.internal_recycles?.length || 0} 内回流 · ${plant.clarifier ? "1 二沉池" : "无二沉池"}`;
+    output.style.color = "";
+    return true;
+  }
+
+  function requestBody() {
+    if (!state.config) throw new Error("没有可提交的配置");
+    const name = state.name.trim() || nowName();
+    return {
+      name,
+      model: state.model,
+      config: clone(state.config),
+      duration_min: Math.max(1, state.durationMin),
+      dt_min: state.dtMin,
+      sample_every_min: Math.max(1, state.sampleEveryMin),
+      sludge_days: state.sludgeDays,
+      sludge_dt_days: state.sludgeDtDays,
+    };
+  }
+
+  async function launch() {
+    if (state.busy) return;
+    if (!validate()) { toast("配置有断链，先修正再提交。", "error"); return; }
+    setBusy(true);
+    try {
+      const body = requestBody();
+      const idempotency = `ui-${crypto.randomUUID ? crypto.randomUUID() : Date.now()}`;
+      const response = await fetch("/api/v1/experiments", {
+        method: "POST",
+        headers: {"Content-Type": "application/json", "Idempotency-Key": idempotency},
+        body: JSON.stringify(body),
+      });
+      const text = await response.text();
+      let payload = null;
+      try { payload = text ? JSON.parse(text) : null; } catch (_) { payload = text; }
+      if (!response.ok) {
+        const problem = payload && typeof payload === "object" ? payload : {detail: String(payload || response.statusText)};
+        const fields = Array.isArray(problem.errors) ? problem.errors.map((e) => `${e.field}: ${e.detail}`).join("\n") : "";
+        throw new Error(`[${problem.code || response.status}] ${problem.detail || problem.title || response.statusText}${fields ? `\n${fields}` : ""}`);
+      }
+      state.activeId = payload.id;
+      state.exp = payload;
+      state.samples = [];
+      renderTelemetry();
+      watch(payload.id);
+      refreshQueue();
+      toast(`实验 ${payload.id.slice(0, 8)} 已入队。`);
+    } catch (error) {
+      toast(error.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function watch(id) {
+    if (state.source) { state.source.close(); state.source = null; }
+    const source = new EventSource(`/api/v1/experiments/${id}/events`);
+    state.source = source;
+    source.addEventListener("experiment", (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        state.exp = {...(state.exp || {}), ...payload};
+        renderTelemetry();
+        if (["succeeded", "failed", "cancelled"].includes(payload.status)) {
+          source.close();
+          state.source = null;
+          loadDetail(id, true);
+          refreshQueue();
+        }
+      } catch (_) { /* keep stream alive */ }
+    });
+    source.addEventListener("error", () => {
+      if (state.exp && ["succeeded", "failed", "cancelled"].includes(state.exp.status)) {
+        source.close();
+        state.source = null;
+      }
+    });
+  }
+
+  async function loadDetail(id, refreshSamples = false) {
+    try {
+      const detail = await api(`/api/v1/experiments/${id}`);
+      state.activeId = id;
+      state.exp = detail;
+      renderTelemetry();
+      if (detail.status === "succeeded" && (refreshSamples || !state.samples.length)) await loadSamples(id);
+    } catch (error) {
+      toast(error.message, "error");
+    }
+  }
+
+  async function loadSamples(id) {
+    try {
+      const text = await fetch(`/api/v1/experiments/${id}/samples.csv`).then((r) => {
+        if (!r.ok) throw new Error(`samples ${r.status}`);
+        return r.text();
+      });
+      state.samples = parseCsv(text);
+      renderChart();
+    } catch (error) {
+      state.samples = [];
+      renderChart();
+      toast(`采样加载失败：${error.message}`, "warn");
+    }
+  }
+
+  function parseCsv(text) {
+    const lines = text.trim().split(/\r?\n/);
+    if (lines.length < 2) return [];
+    const headers = lines[0].split(",");
+    return lines.slice(1).map((line) => {
+      const cells = line.split(",");
+      const row = {};
+      headers.forEach((key, i) => { const value = cells[i]; row[key] = value === "" ? null : Number(value); });
+      return row;
+    }).filter((row) => Number.isFinite(row.minute));
+  }
+
+  function effluentOf(result) {
+    if (!result) return {};
+    return result.effluent || result.asm2d?.effluent || {};
+  }
+
+  function balanceOf(result) {
+    if (!result) return null;
+    return result.whole_balance || result.mass_balance || null;
+  }
+
+  function renderTelemetry() {
+    const exp = state.exp;
+    const status = exp?.status || "idle";
+    $("#exp-id").textContent = exp?.id || "尚未提交实验";
+    $("#exp-model").textContent = exp?.model ? modelLabel(exp.model) : "—";
+    const pill = $("#exp-status");
+    pill.className = `status-pill ${statusClass(status)}`;
+    pill.innerHTML = `<span class="dot"></span><span>${esc(status)}</span>`;
+    const progress = Number.isFinite(exp?.progress) ? exp.progress : 0;
+    $("#progress-bar").style.width = `${Math.max(0, Math.min(100, progress * 100))}%`;
+    $("#progress-label").textContent = `${(progress * 100).toFixed(1)}%`;
+    $("#cancel-exp").disabled = !exp || ["succeeded", "failed", "cancelled"].includes(status);
+    $("#refresh-exp").disabled = !exp;
+    const result = exp?.result;
+    const effluent = effluentOf(result);
+    const metrics = [
+      ["COD", effluent.cod, "mg/L", 50],
+      ["NH₄-N", effluent.nh4_n, "mg/L", 5],
+      ["TN", effluent.tn, "mg/L", 15],
+      ["TP", effluent.tp, "mg/L", 0.5],
+      ["SS", effluent.ss, "mg/L", 10],
+      ["PO₄-P", effluent.po4_p, "mg/L", 0.5],
+    ];
+    $("#metric-grid").innerHTML = metrics.map(([key, value, unit, limit]) => {
+      const has = Number.isFinite(Number(value));
+      const good = has && Number(value) <= limit;
+      return `<div class="metric ${has ? (good ? "good" : "warn") : ""}"><div class="k">${key}</div><div class="v">${has ? fmt(value, key === "TP" ? 3 : 2) : "—"}<span class="u">${unit}</span></div></div>`;
+    }).join("");
+    const balance = balanceOf(result);
+    if (balance && typeof balance === "object") {
+      const rows = Object.entries(balance).filter(([, value]) => value && typeof value === "object").slice(0, 4).map(([key, value]) => {
+        const residual = Number(value.residual ?? value.residual_fraction);
+        const pct = Number.isFinite(residual) ? (Math.abs(residual) * 100).toFixed(2) : "—";
+        return `<div class="balance-row"><span>${esc(key.toUpperCase())}</span><span class="mono">${pct}%</span><span class="bar"><i style="width:${Math.min(100, Number.isFinite(residual) ? Math.abs(residual) * 100 : 0)}%"></i></span></div>`;
+      }).join("");
+      $("#balance").innerHTML = rows || `<div class="balance-row"><span>三本账</span><span class="mono">已记录</span></div>`;
+      $("#balance-hint").textContent = state.durationMin >= 43200
+        ? "三本账按 30 d 闭环验收；这里显示各边界库存的相对残差。"
+        : "短时实验的三本账会随初始场/库存变化；30 d 闭环才是验收口径，当前残差不要当作失败。";
+    } else {
+      $("#balance").innerHTML = `<div class="balance-row"><span>三本账</span><span class="mono faint">等待结果</span></div>`;
+      $("#balance-hint").textContent = (state.model === "asm2d" || state.model === "asm2d-adm1-loop")
+        ? "ASM2d 整厂与回流闭环在实验结束后输出 COD/N/P 边界残差；30 d 才按闭环验收。"
+        : "当前模型没有整厂三本账；ASM2d 整厂与回流闭环会输出 COD/N/P 边界残差。";
+    }
+    const links = [];
+    if (exp && status === "succeeded") {
+      links.push(`<a class="btn" href="/api/v1/experiments/${encodeURIComponent(exp.id)}/samples.csv">下载 CSV</a>`);
+      links.push(`<a class="btn" href="/api/v1/experiments/${encodeURIComponent(exp.id)}/report.md" target="_blank" rel="noopener">打开报告</a>`);
+    }
+    $("#download-links").innerHTML = links.join("");
+    renderChart();
+    renderStageTag();
+  }
+
+  function renderChart() {
+    const wrap = $("#chart-wrap");
+    if (!state.samples.length) {
+      wrap.innerHTML = `<div class="chart-empty">实验成功后显示采样序列</div>`;
+      return;
+    }
+    const keyMap = {cod: "cod_mg_l", nh4: "nh4_n_mg_l", tn: "tn_mg_l", tp: "tp_mg_l", ss: "ss_mg_l", po4: "po4_p_mg_l"};
+    const key = keyMap[state.chartMetric] || "cod_mg_l";
+    const points = state.samples.map((row) => ({x: row.minute, y: row[key]})).filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+    if (!points.length) { wrap.innerHTML = `<div class="chart-empty">该指标没有采样值</div>`; return; }
+    const w = 640, h = 190, left = 44, right = 14, top = 16, bottom = 28;
+    const minX = points[0].x, maxX = points[points.length - 1].x || minX + 1;
+    const minY = Math.min(0, ...points.map((p) => p.y));
+    const maxY = Math.max(...points.map((p) => p.y), minY + 1);
+    const sx = (x) => left + (x - minX) / Math.max(1, maxX - minX) * (w - left - right);
+    const sy = (y) => top + (1 - (y - minY) / Math.max(1, maxY - minY)) * (h - top - bottom);
+    const path = points.map((p, i) => `${i ? "L" : "M"}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(" ");
+    const area = `${path} L${sx(points[points.length - 1].x).toFixed(1)},${h - bottom} L${sx(points[0].x).toFixed(1)},${h - bottom} Z`;
+    const grid = [0, .25, .5, .75, 1].map((t) => {
+      const y = top + t * (h - top - bottom);
+      const value = maxY - t * (maxY - minY);
+      return `<line x1="${left}" y1="${y}" x2="${w - right}" y2="${y}" stroke="#e7ede4"/><text x="${left - 6}" y="${y + 3}" text-anchor="end" font-size="9" fill="#96a29b" font-family="monospace">${fmt(value, 1)}</text>`;
+    }).join("");
+    wrap.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(state.chartMetric)} trend">
+      <defs><linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#14b8a6" stop-opacity=".18"/><stop offset="1" stop-color="#14b8a6" stop-opacity="0"/></linearGradient></defs>
+      ${grid}<path d="${area}" fill="url(#areaGrad)"/><path d="${path}" fill="none" stroke="#0f766e" stroke-width="1.6"/>
+      <circle cx="${sx(points[points.length - 1].x).toFixed(1)}" cy="${sy(points[points.length - 1].y).toFixed(1)}" r="3" fill="#0f766e"/>
+      <text x="${left}" y="${h - 8}" font-size="9" fill="#96a29b" font-family="monospace">${fmt(minX, 0)} min</text>
+      <text x="${w - right}" y="${h - 8}" text-anchor="end" font-size="9" fill="#96a29b" font-family="monospace">${fmt(maxX, 0)} min</text>
+    </svg>`;
+  }
+
+  async function refreshQueue() {
+    try {
+      const data = await api("/api/v1/experiments?limit=12");
+      const items = data.items || [];
+      $("#queue-tag").textContent = `${items.length} recent`;
+      if (!items.length) { $("#queue-list").innerHTML = `<div class="empty">还没有实验<small>点左侧“启动实验”开始</small></div>`; return; }
+      $("#queue-list").innerHTML = items.map((item) => `
+        <div class="queue-item" data-id="${esc(item.id)}">
+          <span class="status-pill ${statusClass(item.status)}"><span class="dot"></span><span>${esc(item.status)}</span></span>
+          <span class="q-name">${esc(item.name || item.id)}</span>
+          <span class="q-time">${new Date(item.created_at * 1000).toLocaleTimeString("zh-CN", {hour: "2-digit", minute: "2-digit"})}</span>
+        </div>`).join("");
+      $$("#queue-list .queue-item").forEach((node) => node.addEventListener("click", () => loadDetail(node.dataset.id, true)));
+    } catch (error) {
+      $("#queue-list").innerHTML = `<div class="empty">队列不可用<small>${esc(error.message)}</small></div>`;
+    }
+  }
+
+  async function pollHealth() {
+    try {
+      const health = await api("/api/health");
+      $("#svc-dot").className = "dot";
+      $("#svc-label").textContent = "服务正常";
+      const q = health.queue || {};
+      $("#queue-chip").textContent = `队列 ${q.active ?? 0} / ${q.capacity ?? 32}`;
+    } catch (_) {
+      $("#svc-dot").className = "dot bad";
+      $("#svc-label").textContent = "服务离线";
+    }
+  }
+
+  async function loadPresets() {
+    try {
+      const data = await api("/api/v1/presets");
+      state.presets = data.presets || [];
+      state.defaultPreset = data.default || state.presets[0]?.id;
+      renderPresets();
+      if (state.defaultPreset) loadPreset(state.defaultPreset);
+      else toast("没有可用预设。", "error");
+    } catch (error) {
+      toast(`预设加载失败：${error.message}`, "error");
+      $("#preset-grid").innerHTML = `<div class="empty">无法加载<small>请确认服务已启动</small></div>`;
+    }
+  }
+
+  function loadPreset(id) {
+    const preset = state.presets.find((item) => item.id === id);
+    if (!preset) return;
+    state.presetId = preset.id;
+    state.model = preset.model;
+    state.config = clone(preset.config);
+    state.name = `${preset.label} · ${nowName()}`;
+    state.selected = isVisualModel(preset.model) ? {type: "reactor", index: 0} : {type: "influent"};
+    if (preset.model === "asm2d-adm1-loop") {
+      state.config = state.config.plant ? state.config : {plant: state.config};
+      state.durationMin = 43200;
+      state.sludgeDays = 30;
+    } else if (isDaysModel(preset.model)) {
+      state.durationMin = preset.model === "adm1" ? 14400 : 28800;
+      state.sludgeDtDays = 0.002;
+    } else {
+      state.durationMin = preset.model === "asm1" ? 1440 : 43200;
+    }
+    state.dtMin = 1;
+    state.sampleEveryMin = preset.model === "asm1" ? 60 : 360;
+    state.exp = null;
+    state.samples = [];
+    if (state.source) { state.source.close(); state.source = null; }
+    validate();
+    renderPresets();
+    renderRun();
+    renderFlow();
+    renderInspector();
+    renderTelemetry();
+  }
+
+  function setModel(model) {
+    if (model === state.model) return;
+    if (isVisualModel(model)) {
+      const plant = getPlant() ? clone(getPlant()) : null;
+      state.model = model;
+      state.config = model === "asm2d-adm1-loop" ? {plant: plant} : plant;
+      state.selected = {type: "reactor", index: 0};
+      validate(); renderRun(); renderFlow(); renderInspector();
+      return;
+    }
+    const preset = state.presets.find((p) => p.model === model);
+    if (preset) loadPreset(preset.id);
+    else { state.model = model; renderRun(); }
+  }
+
+  function openJson() {
+    if (!state.config) return;
+    $("#json-text").value = JSON.stringify(state.config, null, 2);
+    $("#json-modal").classList.remove("hidden");
+    setTimeout(() => $("#json-text").focus(), 50);
+  }
+
+  function closeJson() { $("#json-modal").classList.add("hidden"); }
+
+  function applyJson() {
+    try {
+      const value = JSON.parse($("#json-text").value);
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("config 必须是 JSON 对象");
+      if (isVisualModel(state.model) && !value.plant && !Array.isArray(value.reactors)) throw new Error("可视化模型需要 {plant:{...}} 或 {reactors:[...]}");
+      state.config = value;
+      state.selected = isVisualModel(state.model) ? {type: "reactor", index: 0} : {type: "influent"};
+      closeJson();
+      validate(); renderFlow(); renderInspector();
+      toast("配置已应用；服务端仍会复核。");
+    } catch (error) {
+      toast(`JSON 无效：${error.message}`, "error");
+    }
+  }
+
+  function exportJson() {
+    if (!state.config) return;
+    const blob = new Blob([JSON.stringify({model: state.model, config: state.config}, null, 2)], {type: "application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `aquapilot-${state.model}-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function importJson(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (parsed.config) { state.config = parsed.config; if (parsed.model) state.model = parsed.model; }
+        else state.config = parsed;
+        state.selected = isVisualModel(state.model) ? {type: "reactor", index: 0} : {type: "influent"};
+        validate(); renderRun(); renderFlow(); renderInspector();
+        toast("配置已导入。");
+      } catch (error) { toast(`导入失败：${error.message}`, "error"); }
+    };
+    reader.readAsText(file);
+  }
+
+  function bindEvents() {
+    $("#preset-grid").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-preset]");
+      if (button) loadPreset(button.dataset.preset);
+    });
+    $("#model").addEventListener("change", (event) => setModel(event.target.value));
+    $("#exp-name").addEventListener("input", (event) => { state.name = event.target.value; });
+    $("#duration").addEventListener("input", (event) => {
+      const value = num(event.target.value, 0);
+      state.durationMin = isDaysModel(state.model) ? Math.max(1, value * 1440) : Math.max(1, value);
+    });
+    $("#dt").addEventListener("input", (event) => {
+      const value = num(event.target.value, 0);
+      if (isDaysModel(state.model)) state.sludgeDtDays = value;
+      else state.dtMin = value;
+    });
+    $("#sample-every").addEventListener("input", (event) => { state.sampleEveryMin = Math.max(1, num(event.target.value, 60)); });
+    $("#sludge-days").addEventListener("input", (event) => { state.sludgeDays = Math.max(1, num(event.target.value, 30)); });
+    $("#launch").addEventListener("click", launch);
+    $("#add-reactor-top").addEventListener("click", addReactor);
+    $("#select-pac").addEventListener("click", () => {
+      if (!getPlant()?.pac) { toast("当前配置没有 PAC；用高级 JSON 添加 pac 节点。", "warn"); return; }
+      state.selected = {type: "pac"}; renderFlow(); renderInspector();
+    });
+    $("#select-tertiary").addEventListener("click", () => {
+      if (!getPlant()?.tertiary) { toast("当前配置没有三级过滤；用高级 JSON 添加 tertiary 节点。", "warn"); return; }
+      state.selected = {type: "tertiary"}; renderFlow(); renderInspector();
+    });
+    $("#reset-preset").addEventListener("click", () => loadPreset(state.presetId));
+    $("#open-json").addEventListener("click", openJson);
+    $("#json-close").addEventListener("click", closeJson);
+    $("#json-apply").addEventListener("click", applyJson);
+    $("#json-format").addEventListener("click", () => {
+      try { $("#json-text").value = JSON.stringify(JSON.parse($("#json-text").value), null, 2); }
+      catch (error) { toast(`JSON 无效：${error.message}`, "error"); }
+    });
+    $("#export-json").addEventListener("click", exportJson);
+    $("#import-btn").addEventListener("click", () => $("#import-file").click());
+    $("#import-file").addEventListener("change", (event) => { if (event.target.files[0]) importJson(event.target.files[0]); });
+    $("#cancel-exp").addEventListener("click", async () => {
+      if (!state.activeId) return;
+      try {
+        const response = await fetch(`/api/v1/experiments/${encodeURIComponent(state.activeId)}/cancel`, {method: "POST"});
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || payload.code || response.statusText);
+        state.exp = {...(state.exp || {}), ...payload};
+        renderTelemetry();
+        toast(`已请求取消：${payload.status}`);
+        if (!state.source) watch(state.activeId);
+      } catch (error) { toast(`取消失败：${error.message}`, "error"); }
+    });
+    $("#refresh-exp").addEventListener("click", () => { if (state.activeId) loadDetail(state.activeId, true); });
+    $("#chart-metric").addEventListener("change", (event) => { state.chartMetric = event.target.value; renderChart(); });
+    $("#open-api").addEventListener("click", () => window.open("/api/openapi.json", "_blank", "noopener"));
+    $("#inspector").addEventListener("input", (event) => {
+      const target = event.target.closest("[data-bind]");
+      if (!target) return;
+      const value = target.type === "number" ? num(target.value, 0) : target.value;
+      setPath(target.dataset.bind, value);
+      if (target.dataset.bind === "reactor.name") renderFlow();
+      if (target.dataset.bind.startsWith("pac.") || target.dataset.bind.startsWith("tertiary.")) renderStageChips();
+      validate();
+    });
+    $("#inspector").addEventListener("change", (event) => {
+      const target = event.target.closest("[data-bind]");
+      if (!target) return;
+      const value = target.type === "number" ? num(target.value, 0) : target.value;
+      setPath(target.dataset.bind, value);
+      validate(); renderFlow(); renderInspector();
+    });
+    $("#inspector").addEventListener("click", (event) => {
+      const action = event.target.closest("[data-action]")?.dataset.action;
+      if (!action) return;
+      if (action === "move-up") moveReactor(-1);
+      else if (action === "move-down") moveReactor(1);
+      else if (action === "duplicate-reactor") {
+        const plant = getPlant(); const index = state.selected.index;
+        if (!plant || !plant.reactors[index]) return;
+        const copy = clone(plant.reactors[index]);
+        copy.id = `${copy.id || "reactor"}-copy`;
+        copy.name = `${copy.name || copy.id} 副本`;
+        plant.reactors.splice(index + 1, 0, copy);
+        const shift = (value) => Number(value) > index ? Number(value) + 1 : Number(value);
+        (plant.internal_recycles || []).forEach((recycle) => {
+          recycle.from = shift(recycle.from);
+          recycle.to = shift(recycle.to);
+        });
+        if (plant.clarifier) plant.clarifier.ras_reactor = shift(plant.clarifier.ras_reactor);
+        if (plant.pac) plant.pac.reactor = shift(plant.pac.reactor);
+        state.selected = {type: "reactor", index: index + 1};
+        validate(); renderFlow(); renderInspector();
+      } else if (action === "delete-reactor") deleteReactor();
+      else if (action === "delete-recycle") {
+        const plant = getPlant(); const index = state.selected.index;
+        if (!plant || !plant.internal_recycles?.[index]) return;
+        plant.internal_recycles.splice(index, 1);
+        state.selected = {type: "influent"};
+        validate(); renderFlow(); renderInspector();
+      }
+    });
+  }
+
+  async function init() {
+    bindEvents();
+    renderScenarios();
+    state.name = nowName();
+    await loadPresets();
+    pollHealth();
+    refreshQueue();
+    setInterval(pollHealth, 8000);
+    setInterval(refreshQueue, 12000);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

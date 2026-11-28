@@ -6,7 +6,7 @@
 - Clean-room 规则：`../docs/CLEAN-ROOM.md`
 - 旧 `rust/` 已冻结为 v0.11.23 的历史 checkpoint，v2 不读取、不复制它的源码。
 
-## 当前状态：V2-1、V2-2 已完成；V2-3 服务主体已落地，24 h soak 待跑
+## 当前状态：V2-1、V2-2 已完成；V2-3 服务 + 首版编排台已落地，24 h soak 待跑
 
 V2-1 已完成并推送：ASM1 五池整厂、Takács 10 层二沉池、RAS/内回流/WAS、DO 控制、BSM1-like 与官方 BSM1 对照、22 项测试。
 
@@ -23,7 +23,9 @@ V2-2 当前已落：
 - PAC 基础投加：`Asm2dPacConfig` 指定反应器、产品剂量、Al2O3 品位和金属氢氧化物当量；`asm2d`/`asm2d-loop` 支持 `--pac-dose`、`--pac-reactor`、`--pac-al2o3-fraction`；`fixtures/a2o-asm2d-pac.json` 为 40 mg/L 示例；
 - 三级过滤：`Asm2dTertiaryConfig` 在二沉池后按颗粒物捕集率去除 TSS/颗粒 COD/N/P，并可选 PO4 化学抛光；CLI 支持 `--tertiary-tss-removal`、`--tertiary-po4-removal`；`fixtures/a2o-asm2d-pac-tertiary.json` 为 PAC 20 mg/L + 90% TSS + 70% PO4 示例；
 - V2-3 服务主体：`aquapilot-service` 已实现 Axum HTTP、SSE 状态流、SQLite 持久实验队列、OpenAPI 3.1、RFC 9457、幂等键、取消/恢复、CSV/Markdown 报告；CLI `serve` 启动单二进制服务、`backup` 写一致 SQLite 快照；请求步数/采样预算与 ADM1 时间步保护已加；
-- 尚未完成：24 h soak（仅跑过 60 s smoke）、WebSocket（当前用 SSE）、Bearer 角色鉴权、MCP、界面；PAC 仍为三价金属当量模型，三级过滤为理想化边界单元。
+- V2-4 首版编排台：`GET /` 同源托管单文件页面，`GET /api/v1/presets` 提供 6 个场景预设；A2O 画布支持反应器增删/拖拽/参数编辑、二沉池、内回流、PAC、三级过滤、进水边界和 6 类工况注入；ASM1/ADM1/泥线通过高级 JSON 从同一页面提交；详见 `../docs/V2-UI.md`；
+- 代表性端到端矩阵：`scripts/coverage_v2.py` 11/11 通过，覆盖 5 个服务模型 + 5 类 A2O 工况，72.571 s；`completed_24h=false`；
+- 尚未完成：wall-clock 24 h soak、WebSocket（当前用 SSE）、Bearer 角色鉴权、MCP；任意节点自由连线、告警/评分卡、工业接口和五条角色旅程；PAC 仍为三价金属当量模型，三级过滤为理想化边界单元。
 
 30 天 A2O ASM2d 实测（`fixtures/a2o-asm2d.json`）：
 
@@ -102,7 +104,15 @@ cd rust-v2
 cargo run -q -p aquapilot-cli -- serve --bind 127.0.0.1:5173 --db ./aquapilot.sqlite --queue-capacity 32
 ```
 
-API 契约见 [`../docs/V2-API.md`](../docs/V2-API.md)。备份：
+打开编排台：
+
+```bash
+cd rust-v2
+cargo run -q -p aquapilot-cli -- serve --bind 127.0.0.1:5173 --db ./aquapilot.sqlite
+# 浏览器打开 http://127.0.0.1:5173/
+```
+
+API 契约见 [`../docs/V2-API.md`](../docs/V2-API.md)，交互说明见 [`../docs/V2-UI.md`](../docs/V2-UI.md)。备份：
 
 ```bash
 cd rust-v2
@@ -124,6 +134,15 @@ python3 scripts/soak_v2.py --duration 86400 --interval 30 \
 ```
 
 不要用 smoke 结果冒充 24 h 验收。
+
+代表性矩阵：
+
+```bash
+cd ..
+python3 scripts/coverage_v2.py --summary docs/coverage-matrix.json
+```
+
+矩阵 11/11 通过，覆盖 `asm1`、`asm2d`、`asm2d-adm1-loop`、`adm1`、`sludge-line` 与 5 类 A2O 工况；它证明链路分支可跑，不证明 24 h 内存/句柄稳定。
 
 仿真 CLI：
 

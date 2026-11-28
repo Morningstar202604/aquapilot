@@ -1,6 +1,6 @@
 # AquaPilot V2 Rust 服务 API
 
-> 版本 0.0.6。状态（2026-11-28）：`aquapilot-service` 已落地 HTTP + SSE、SQLite 持久实验队列、幂等、取消/恢复、CSV/Markdown 报告和 OpenAPI 3.1。24 h soak 尚未执行；60 s smoke 已通过，见 `docs/soak-smoke-summary.json`。首版不包含 Bearer 角色鉴权、MCP 或 WebSocket；实时推送使用 SSE，单进程单 worker。
+> 版本 0.0.7。状态（2026-11-28）：`aquapilot-service` 已落地 HTTP + SSE、SQLite 持久实验队列、幂等、取消/恢复、CSV/Markdown 报告、OpenAPI 3.1 和同源可视化编排台（`GET /`、`GET /api/v1/presets`）。代表性端到端矩阵 11/11 通过（`docs/coverage-matrix.json`）；wall-clock 24 h soak 仍未执行，60 s smoke 见 `docs/soak-smoke-summary.json`。首版不包含 Bearer 角色鉴权、MCP 或 WebSocket；实时推送使用 SSE，单进程单 worker。
 
 ## 启动
 
@@ -49,8 +49,10 @@ cargo run -q -p aquapilot-cli -- serve \
 
 | Method | Path | 语义 |
 | --- | --- | --- |
+| `GET` | `/` | 同源单文件工艺编排台（HTML） |
 | `GET` | `/api/health` | 队列深度、容量、uptime |
 | `GET` | `/api/openapi.json` | OpenAPI 3.1.0 |
+| `GET` | `/api/v1/presets` | 6 个内嵌场景预设与完整 model config |
 | `POST` | `/api/v1/experiments` | 入队，`202`；幂等重放 `200` |
 | `GET` | `/api/v1/experiments` | `status`、`limit`、`cursor` 分页 |
 | `GET` | `/api/v1/experiments/{id}` | 详情；成功时含 `result` 快照 |
@@ -60,6 +62,17 @@ cargo run -q -p aquapilot-cli -- serve \
 | `GET` | `/api/v1/experiments/{id}/report.md` | 成功实验的 Markdown 报告 |
 
 状态：`queued → running → succeeded | failed | cancelled`；running 且已请求取消时，详情里的展示状态是 `cancelling`，数据库仍是 running，worker 在下一个检查点收口。
+
+### 可视化编排台
+
+`GET /` 直接返回服务托管的单文件页面；`GET /api/v1/presets` 返回内嵌预设。页面与 API 同源，不需要 Node 构建链。可视化层只对 `asm2d` 与 `asm2d-adm1-loop` 展开 A2O 工艺链；ASM1、ADM1、泥线用高级 JSON。详细交互与边界见 `docs/V2-UI.md`。
+
+```text
+GET /                     HTML 工艺编排台
+GET /api/v1/presets       { default, presets: [{ id, label, model, description, config }] }
+```
+
+页面能力：6 个 preset；拖拽改反应器顺序；新增/复制/删除反应器；编辑池型/池容/温度/KLa/DO；二沉池 RAS/WAS、内回流端点与流量（可新增/删除）、PAC（点胶囊进入）、三级过滤（点胶囊进入）、进水边界；高流量、低 DO、冬季、PAC 停加、过滤旁路、厌氧扩容 6 类工况注入；高级 JSON 导入导出；SSE 实验监看、队列、出水趋势、三本账和 CSV/Markdown 下载。
 
 ### SSE
 
@@ -169,3 +182,13 @@ python3 scripts/soak_v2.py --duration 86400 --interval 30 \
 ```
 
 只有实际跑满 24 h 且 `completed_24h=true`，才算通过 V2-3 的 soak 门。
+
+### 代表性端到端矩阵
+
+在不能维持跨会话 24 h 后台进程的环境里，用同一服务 API 做“以小见大”的链路覆盖，不替代 wall-clock 24 h，但能提前证明每条模型/工况分支都通：
+
+```bash
+python3 scripts/coverage_v2.py --summary docs/coverage-matrix.json
+```
+
+结果（`docs/coverage-matrix.json`）：11/11 通过，72.571 s；覆盖 `asm1`、`asm2d`、`asm2d-adm1-loop`、`adm1`、`sludge-line` 五个模型，以及 A2O 基础、PAC + 三级过滤、高流量、低 DO、冬季、PAC 停加、过滤旁路 7 个工况组合。每个 case 都检查 `202` 入队、终态、detail、`samples.csv`、`report.md`，有 `mass_balance`/`whole_balance` 的模型还检查残差 ≤ 5%。loop 30 天单例 56.132 s，最大残差 2.85%。`completed_24h` 仍为 `false`。

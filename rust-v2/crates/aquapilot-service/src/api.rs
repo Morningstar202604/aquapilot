@@ -9,7 +9,7 @@ use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::middleware;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::response::{IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::stream::{self, Stream};
@@ -33,8 +33,10 @@ pub fn build_router(store: Store) -> Router {
         started: Arc::new(Instant::now()),
     };
     Router::new()
+        .route("/", get(index))
         .route("/api/health", get(health))
         .route("/api/openapi.json", get(openapi))
+        .route("/api/v1/presets", get(presets))
         .route(
             "/api/v1/experiments",
             post(create_experiment).get(list_experiments),
@@ -96,6 +98,68 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
 
 async fn openapi() -> Json<Value> {
     Json(openapi_document())
+}
+
+async fn index() -> Response {
+    let mut response = Html(include_str!("../web/index.html")).into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+async fn presets() -> Json<Value> {
+    Json(json!({
+        "default": "a2o-pac-tertiary",
+        "presets": [
+            {
+                "id": "a2o-basic",
+                "label": "A2O 基础",
+                "model": "asm2d",
+                "description": "1000 m3/h，5 池 A2O，无 PAC、无三级过滤。",
+                "config": fixture(include_str!("../../../fixtures/a2o-asm2d.json"))
+            },
+            {
+                "id": "a2o-pac-tertiary",
+                "label": "PAC + 三级过滤",
+                "model": "asm2d",
+                "description": "PAC 20 mg/L，90% TSS 捕集，70% PO4 抛光。",
+                "config": fixture(include_str!("../../../fixtures/a2o-asm2d-pac-tertiary.json"))
+            },
+            {
+                "id": "a2o-loop",
+                "label": "A2O + ADM1 回流闭环",
+                "model": "asm2d-adm1-loop",
+                "description": "A2O 与 ADM1 泥线回流闭环，默认泥线配置。",
+                "config": { "plant": fixture(include_str!("../../../fixtures/a2o-asm2d-pac-tertiary.json")) }
+            },
+            {
+                "id": "bsm1",
+                "label": "BSM1 基准",
+                "model": "asm1",
+                "description": "官方 BSM1 拓扑，用于基准与回归。",
+                "config": fixture(include_str!("../../../fixtures/bsm1-official.json"))
+            },
+            {
+                "id": "adm1",
+                "label": "ADM1 消化器",
+                "model": "adm1",
+                "description": "850 m3 厌氧消化器 CSTR 教程参数。",
+                "config": fixture(include_str!("../../../fixtures/adm1-tutorial.json"))
+            },
+            {
+                "id": "sludge-line",
+                "label": "完整泥线",
+                "model": "sludge-line",
+                "description": "浓缩 + ADM1 消化 + 脱水 + 沼气 + 滤液。",
+                "config": fixture(include_str!("../../../fixtures/adm1-sludge-line.json"))
+            }
+        ]
+    }))
+}
+
+fn fixture(text: &str) -> Value {
+    serde_json::from_str(text).unwrap_or_else(|error| json!({ "fixture_error": error.to_string() }))
 }
 
 async fn create_experiment(
@@ -512,12 +576,14 @@ fn openapi_document() -> Value {
         "openapi": "3.1.0",
         "info": {
             "title": "AquaPilot V2 experiment API",
-            "version": "0.0.6",
+            "version": "0.0.7",
             "description": "Persistent, idempotent wastewater treatment experiments."
         },
         "paths": {
+            "/": {"get": {"summary": "Visual process studio", "responses": {"200": {"description": "HTML console"}}}},
             "/api/health": {"get": {"summary": "Service health", "responses": {"200": {"description": "OK"}}}},
             "/api/openapi.json": {"get": {"summary": "This document", "responses": {"200": {"description": "OpenAPI 3.1 document"}}}},
+            "/api/v1/presets": {"get": {"summary": "Embedded scenario presets", "responses": {"200": {"description": "Preset list with model configs"}}}},
             "/api/v1/experiments": {
                 "post": {
                     "summary": "Queue an experiment",
@@ -838,6 +904,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn web_console_and_presets_are_served() {
+        let store = Store::in_memory(2).expect("store");
+        let router = build_router(store);
+
+        let page = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .body(Body::empty())
+                    .expect("page request"),
+            )
+            .await
+            .expect("page response");
+        assert_eq!(page.status(), StatusCode::OK);
+        assert_eq!(
+            page.headers()
+                .get(header::CONTENT_TYPE)
+                .expect("page content type"),
+            "text/html; charset=utf-8"
+        );
+        let body = page
+            .into_body()
+            .collect()
+            .await
+            .expect("page body")
+            .to_bytes();
+        let html = String::from_utf8(body.to_vec()).expect("utf8 page");
+        assert!(html.contains("工艺编排台"));
+        assert!(html.contains("/api/v1/presets"));
+
+        let presets = router
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/presets")
+                    .body(Body::empty())
+                    .expect("presets request"),
+            )
+            .await
+            .expect("presets response");
+        assert_eq!(presets.status(), StatusCode::OK);
+        let document = body_json(presets).await;
+        let items = document["presets"].as_array().expect("presets");
+        assert_eq!(items.len(), 6);
+        assert!(items.iter().any(|item| item["label"] == "PAC + 三级过滤"));
+        assert!(items
+            .iter()
+            .all(|item| item["config"].is_object() && item["model"].is_string()));
+    }
+
+    #[tokio::test]
     async fn openapi_and_health_are_stable() {
         let store = Store::in_memory(2).expect("store");
         let router = build_router(store);
@@ -854,7 +971,9 @@ mod tests {
         assert_eq!(openapi.status(), StatusCode::OK);
         let document = body_json(openapi).await;
         assert_eq!(document["openapi"], "3.1.0");
+        assert_eq!(document["info"]["version"], "0.0.7");
         assert!(document["paths"]["/api/v1/experiments"].is_object());
+        assert!(document["paths"]["/api/v1/presets"].is_object());
 
         let health = router
             .clone()

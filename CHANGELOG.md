@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.0.7] — 2026-11-28
+
+### Added
+
+- 同源可视化编排台：`GET /` 返回单文件 HTML，`GET /api/v1/presets` 返回 6 个内嵌场景预设；无需 Node 构建链，不新增前端进程。
+- A2O 画布：反应器新增/复制/删除/拖拽排序，池型/池容/温度/KLa/DO 编辑；二沉池 RAS/WAS、内回流端点与流量、PAC、三级过滤、进水边界 inspector。
+- 工况注入 chips：高流量 1500 m³/h、低 DO 1.0、冬季 12 °C、PAC 停加、三级过滤旁路、厌氧扩容、回到预设。
+- 实验监看：SSE 状态、队列、出水六项、三本账残差、采样趋势、CSV/报告下载；高级 JSON 导入导出。
+- `scripts/coverage_v2.py`：代表性端到端矩阵，覆盖 5 个服务模型 + 5 类 A2O 工况，逐 case 检查 detail/CSV/report/mass balance。
+- `docs/V2-UI.md`、`docs/screenshots/v2-ui-editor.png`、`docs/coverage-matrix.json`。
+
+### Changed
+
+- `aquapilot-service` 增加 `/` 与 `/api/v1/presets` 路由；OpenAPI 0.0.7 收录这两条路径（共 10 paths）。
+- CLI 服务二进制现在同时托管页面与 API；页面使用同源相对路径，不需要 CORS。
+
+### Verification
+
+- `cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全过（66 项 = model 39 + engine 8 + service 18 + worker 1）。
+- 浏览器实测：默认 `PAC + 三级过滤` 30 天 succeeded，出水 COD 32.46、NH4-N 0.75、TN 9.24、TP 0.150、SS 1.15、PO4-P 0.05 mg/L；三本账 2.13% / 1.09% / 1.49%。切 BSM1 后 1 天 succeeded；场景注入和新增反应器生效。
+- PAC/三级过滤胶囊可点开 inspector；PAC 投加点改为索引 2、剂量 25 mg/L，二沉池 RAS 回流点改为好氧池 3（索引 4），1 天实验提交成功且未出现 422。`+ 内回流` 新增/删除回流、厌氧池后移后的端点/RAS/PAC 索引重映射也已在浏览器中验证。
+- 代表性矩阵 11/11 通过、72.571 s；loop 30 天单例 56.132 s，最大残差 2.85%。
+- wall-clock 24 h soak 仍未执行；`completed_24h=false`，V2-3 仍不标完成。
+
 ## [0.0.6] — 2026-11-28
 
 ### Added

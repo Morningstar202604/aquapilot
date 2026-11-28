@@ -1,7 +1,7 @@
 # AquaPilot v2 基准记录
 
 > 记录日期：2026-11-28
-> 代码：`rust-v2/`，版本 0.0.6
+> 代码：`rust-v2/`，版本 0.0.7
 > 口径：clean-room 实现；不读取旧 `src/sim` 或旧 `rust/` 源码。
 
 ## 1. V2-1 BSM1-like 整厂
@@ -382,17 +382,17 @@ cargo test --workspace
 - ASM2d 已落 A2O 整厂与多系列汇总；ADM1 核心、独立泥线、双向接口与回流闭环已落，整厂 COD/N/P 三本账在 30 d/60 d 均闭合；PAC 基础投加与三级过滤已落，PAC + 三级过滤回流闭环 30 d 出水 TP 0.387 mg/L，关键指标达到 GB 18918 一级 A 常见限值。
 - PAC 使用三价金属当量与 ASM2d 默认 Fe(OH)3/FePO4 质量系数，未区分 Al/Fe 形态，未计入 PAC 水解碱度消耗。
 - 三级过滤按固定 TSS 捕集率 + 经验 PO4 抛光效率计算，不含反冲洗水、滤料级配和过滤压头；BOD、粪大肠菌群、色度等未建模。
-- 没有 24 h soak、没有 HTTP/WS 与界面。
+- 没有 24 h soak；V2-3 已有 HTTP + SSE 服务和首版可视化编排台，WebSocket 尚未实现。
 
-## 6. V2-3 服务与实验（2026-11-28，版本 0.0.6）
+## 6. V2-3 服务与实验（2026-11-28，版本 0.0.7）
 
 ### 6.1 服务测试
 
-`aquapilot-service` 18 项测试全过；全 workspace 65 项（model 39 + engine 8 + service 18）：
+`aquapilot-service` 18 项单元测试 + 1 项 worker 集成测试全过；全 workspace 66 项（model 39 + engine 8 + service 18 + worker 1）：
 
 - 7 项 SQLite store：创建/读取、幂等重放与冲突、队列满、queued 取消、一致备份、运行时崩溃恢复；
 - 5 项 runner 校验：步数/采样预算、`sludge_dt_days` 正数、迭代/松弛上限、`sludge_days` 范围；
-- 5 项 API 契约：创建/幂等/409 + 422、队列满 429 + `Retry-After: 30` + 取消、Content-Type、413、OpenAPI/健康检查。
+- 6 项 API 契约：创建/幂等/409 + 422、队列满 429 + `Retry-After: 30` + 取消、Content-Type、413、OpenAPI/健康检查、页面/预设（`GET /` 返回 HTML，`/api/v1/presets` 返回 6 个 preset）。
 
 ### 6.2 60 s soak smoke
 
@@ -423,3 +423,42 @@ python3 scripts/soak_v2.py --duration 60 --interval 2
 - ASM2d A2O + PAC 20 + 三级过滤 30 d：succeeded；出水 COD 32.46、NH4-N 0.755、TN 9.241、TP 0.1496、SS 1.151、PO4-P 0.0515 mg/L；三级过滤捕集固体 7,617.8 kg、捕集 P 537.7 kg、PO4 抛光 45.2 kg/30 d。
 - ASM2d/ADM1 回流闭环 30 d：succeeded；出水 COD 40.97、NH4-N 0.630、TN 10.011、TP 0.296、SS 1.176、PO4-P 0.183 mg/L；整厂 COD/N/P 残差 -0.78% / 2.52% / 2.85%，均 closed。
 - 365 d ASM2d 实验运行中终止进程，重启后自动重新入队并跑完；已完成实验重启后仍能读回结果。
+
+### 6.4 可视化编排台（浏览器实测）
+
+`GET /` 由服务同源托管，`GET /api/v1/presets` 返回 6 个内嵌 preset。页面把 A2O 池体、二沉池、内回流、PAC、三级过滤和进水边界放在一张画布上；拖拽可以改串联顺序，点选节点在 inspector 中改参数。ASM1/ADM1/泥线走高级 JSON。
+
+浏览器实测：
+
+- 默认 `PAC + 三级过滤` 30 天：succeeded；出水 COD 32.46、NH4-N 0.75、TN 9.24、TP 0.150、SS 1.15、PO4-P 0.05 mg/L；三本账 COD/N/P 2.13% / 1.09% / 1.49%；
+- 切到 `BSM1 基准`：ASM1 1 天 succeeded，证明非可视化模型也能从同一页面提交；
+- 注入“高流量冲击”后进水从 1000 改为 1500 m³/h；新增反应器后校验从 `5 池 · 1 内回流 · 1 二沉池` 变为 `6 池 · 1 内回流 · 1 二沉池`；
+- 点 `PAC` 胶囊进入面板，投加点选索引 2、剂量改 25 mg/L；点二沉池把 RAS 回流点改到好氧池 3（索引 4）；1 天实验提交成功，服务端未返回 422，验证 select 值到数字索引的转换；
+- `+ 内回流` 新增 4→1 回流并删除；厌氧池后移后校验仍为 `5 池 · 1 内回流 · 1 二沉池`，回流端点、RAS 和 PAC 索引随池序重映射；
+- 页面无前端构建链、无 Node 进程；SSE、队列、CSV/报告下载直接复用 V2-3 API。
+
+截图：`docs/screenshots/v2-ui-editor.png`。交互与边界：`docs/V2-UI.md`。
+
+### 6.5 代表性端到端矩阵（不是 wall-clock 24 h）
+
+命令：
+
+```bash
+python3 scripts/coverage_v2.py --summary docs/coverage-matrix.json
+```
+
+结果：`docs/coverage-matrix.json`
+
+| 指标 | 值 |
+| --- | --- |
+| case 数 / 通过 / 失败 | 11 / 11 / 0 |
+| 总耗时 | 72.571 s |
+| 模型覆盖 | `asm1`、`asm2d`、`asm2d-adm1-loop`、`adm1`、`sludge-line` |
+| 工况覆盖 | 基础 A2O、PAC + 三级过滤、高流量 1500、低 DO 1.0、冬季 12 °C、PAC 停加、过滤旁路 |
+| 每个 case 检查 | 202 入队 → 终态 → detail → samples.csv → report.md |
+| 质量平衡检查 | 有 `mass_balance`/`whole_balance` 的 case 残差 ≤ 5% |
+| 最大三本账残差 | 2.85%（loop 30 天） |
+| loop 30 天单例 | 56.132 s |
+| `completed_24h` | false |
+
+矩阵 11/11 通过说明每条服务分支都跑通；它不能替代 wall-clock 24 h 的内存/句柄稳定性结论。24 h 仍需在常开主机或外部调度上执行，正式命令见 `docs/V2-API.md`。
