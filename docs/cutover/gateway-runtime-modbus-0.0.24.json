@@ -21,6 +21,7 @@
     ]
    }
   ],
+  "all_connected": true,
   "last_check": {
    "adapters": [
     {
@@ -41,7 +42,7 @@
     }
    ],
    "all_connected": true,
-   "checked_at_unix": 1795888505,
+   "checked_at_unix": 1795888729,
    "config": "/tmp/gateway-service.json",
    "fail_closed": true,
    "note": "Only a completed protocol handshake is reported as connected. OPC UA TCP reachability is not a session and is reported as unsupported.",

@@ -535,7 +535,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     </div>
 
     <div class="monitor-card">
-      <div class="monitor-top"><div><h2>工业网关</h2><div class="exp-id">OPC UA / Modbus / MQTT · MOCK</div></div><span class="tag" id="gw-state">mock</span></div>
+      <div class="monitor-top"><div><h2>工业网关</h2><div class="exp-id" id="gw-mode">OPC UA / Modbus / MQTT · MOCK</div></div><span class="tag" id="gw-state">mock</span></div>
       <div class="adapter-row" id="adapter-row"><span class="adapter-chip">加载中…</span></div>
       <div class="gw-write">
         <select id="gw-point" title="可写设定点"></select>
@@ -2628,7 +2628,17 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 
   function renderIndustrial() {
     const row = $("#adapter-row");
-    row.innerHTML = (state.industrial.adapters || []).map((adapter) => `<span class="adapter-chip" title="${esc(adapter.endpoint)}"><i></i>${esc(adapter.kind)} · ${adapter.points}</span>`).join("") || `<span class="adapter-chip">未连接</span>`;
+    const points = state.industrial.points || [];
+    const adapters = state.industrial.adapters || [];
+    const real = state.industrial.real === true;
+    const allConnected = state.industrial.allConnected === true;
+    $("#gw-mode").textContent = real ? "OPC UA / Modbus / MQTT · REAL" : "OPC UA / Modbus / MQTT · MOCK";
+    $("#gw-state").textContent = real ? (allConnected ? "real" : "real/error") : "mock";
+    row.innerHTML = adapters.map((adapter) => {
+      const count = adapter.points ?? points.filter((point) => point.adapter === adapter.kind).length;
+      const stateText = adapter.connected === false ? " · 断开" : "";
+      return `<span class="adapter-chip" title="${esc(adapter.endpoint || adapter.error || "")}"><i></i>${esc(adapter.kind)} · ${count}${stateText}</span>`;
+    }).join("") || `<span class="adapter-chip">未连接</span>`;
     const select = $("#gw-point");
     const writable = (state.industrial.points || []).filter((point) => point.writable);
     select.innerHTML = writable.map((point) => `<option value="${esc(point.id)}">${esc(point.label)} · ${esc(point.unit)}</option>`).join("");
@@ -2648,6 +2658,8 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       const [points, adapters] = await Promise.all([api("/api/v1/industrial/points"), api("/api/v1/industrial/adapters")]);
       state.industrial.points = points.points || [];
       state.industrial.adapters = adapters.adapters || [];
+      state.industrial.real = adapters.real === true;
+      state.industrial.allConnected = adapters.all_connected === true;
       renderIndustrial();
     } catch (error) {
       $("#adapter-row").innerHTML = `<span class="adapter-chip" style="color:var(--red)">网关不可用</span>`;

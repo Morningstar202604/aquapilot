@@ -231,6 +231,7 @@ impl IndustrialHub {
                 "adapters": adapters,
                 "real": true,
                 "source": real.source,
+                "all_connected": check.as_ref().and_then(|value| value["all_connected"].as_bool()).unwrap_or(false),
                 "last_check": check,
                 "note": "Real gateway: polling is fail-closed; only configured endpoints are contacted. Writes require a modbus.write mapping.",
             });
