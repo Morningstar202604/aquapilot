@@ -159,6 +159,20 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 .special-facts span{display:block;font-size:8px;color:var(--faint)}
 .special-facts b{display:block;font-family:var(--mono);font-size:10px;color:var(--ink);margin-top:2px}
 .reactor-node.special{min-width:132px;background:linear-gradient(180deg,#f7fbf6,#fff)}
+.train-network{display:grid;grid-template-columns:118px minmax(240px,1fr) 92px;gap:10px;align-items:stretch;margin:0 0 12px;padding:12px 14px;border:1px solid var(--line);border-radius:16px;background:linear-gradient(135deg,rgba(16,37,50,.72),rgba(8,22,31,.6));position:relative;z-index:1}
+.train-network.hidden{display:none}
+.tn-split,.tn-merge{display:flex;flex-direction:column;justify-content:center;gap:4px;padding:10px;border-radius:13px;background:rgba(122,196,255,.08);border:1px solid rgba(122,196,255,.18);min-width:0}
+.tn-split b,.tn-merge b{font-size:13px;color:var(--ink)}
+.tn-split small,.tn-merge small{font-size:11px;color:var(--muted);line-height:1.4}
+.tn-branches{display:flex;flex-direction:column;gap:7px;min-width:0}
+.tn-branch{display:grid;grid-template-columns:76px 1fr;gap:7px;align-items:center;padding:7px 9px;border-radius:12px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);min-width:0}
+.tn-branch-head b{display:block;font-size:12px;color:var(--amber)}
+.tn-branch-head small{font-size:10px;color:var(--muted)}
+.tn-chain{display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0}
+.tn-pill{font-size:10px;padding:3px 6px;border-radius:7px;border:1px solid rgba(255,255,255,.12);white-space:nowrap}
+.tn-pill.anaerobic{border-color:rgba(157,129,255,.35);color:#c9b8ff}.tn-pill.anoxic{border-color:rgba(255,190,96,.35);color:#ffd18a}.tn-pill.aerobic{border-color:rgba(98,213,255,.35);color:#9fe6ff}.tn-pill.clarifier{border-color:rgba(130,255,190,.3);color:#9ff0bf}
+.tn-arrow{color:var(--faint);font-size:10px}
+@media(max-width:900px){.train-network{grid-template-columns:1fr}.tn-split,.tn-merge{flex-direction:row;justify-content:space-between}.tn-branches{gap:5px}}
 .train-tabs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 9px;padding:0 1px}
 .train-tab{display:flex;flex-direction:column;align-items:flex-start;gap:2px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px 9px;cursor:pointer}
 .train-tab:hover{border-color:#a9c9bf}
@@ -477,6 +491,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 
     <div class="flow-shell">
       <div class="train-tabs hidden" id="train-tabs"></div>
+      <div class="train-network hidden" id="train-network"></div>
       <div class="flow-scroll"><div class="flow" id="flow"></div></div>
       <div class="recycle-strip" id="recycle-strip"></div>
     </div>
@@ -1141,6 +1156,22 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     flow.innerHTML = html;
   }
 
+  function renderTrainNetwork() {
+    const wrap = $("#train-network");
+    const trains = getParallelTrains();
+    if (!wrap || !isParallelModel(state.model) || !trains || trains.length < 2) {
+      if (wrap) wrap.className = "train-network hidden";
+      return;
+    }
+    const total = trains.reduce((sum, plant) => sum + num(plant.influent?.flow_m3_h, 0), 0);
+    const branches = trains.map((plant, index) => {
+      const reactors = (plant.reactors || []).map((reactor) => `<span class="tn-pill ${esc(reactor.kind || "aerobic")}">${esc(reactor.name || reactor.id || "池")}</span>`).join('<span class="tn-arrow">→</span>');
+      return `<div class="tn-branch"><div class="tn-branch-head"><b>${trainLabel(index)}</b><small>${fmt(plant.influent?.flow_m3_h, 0)} m³/h · ${plant.reactors?.length || 0} 池</small></div><div class="tn-chain">${reactors}<span class="tn-arrow">→</span><span class="tn-pill clarifier">二沉池</span><span class="tn-arrow">→</span><span class="tn-pill clarifier">出水</span></div></div>`;
+    }).join("");
+    wrap.className = "train-network";
+    wrap.innerHTML = `<div class="tn-split"><b>进水汇流</b><small>${fmt(total, 0)} m³/h<br>分流到 ${trains.length} 条系列</small></div><div class="tn-branches">${branches}</div><div class="tn-merge"><b>出水汇总</b><small>按流量加权<br>进入结果页</small></div>`;
+  }
+
   function renderTrainTabs() {
     const wrap = $("#train-tabs");
     if (!wrap) return;
@@ -1169,6 +1200,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 
   function renderFlow() {
     renderTrainTabs();
+    renderTrainNetwork();
     const flow = $("#flow");
     flow.className = "flow";
     const specialModel = state.model === "adm1" || state.model === "sludge-line";

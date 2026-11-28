@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.0.21] — 2026-11-29
+
+### Added
+
+- `ExperimentAnalysis.inventory`：按反应器浓度 × 池容推导 COD / 氮 / 磷 / MLSS 库存，并汇总整批反应器总量；note 明确不含二沉池与三级过滤固体。
+- ASM2d 同几何 30 天配置 `docs/cutover/translated-a2o-asm2d.json`，实机实验 `03bd6c0a-d89c-4106-8f7c-1042842439ec` 输出六项（BOD5 保持 null）、三本账与反应器库存。
+- ASM2d 多系列分支/汇流视图：进水汇流 → 系列 A/B 分支池链 → 出水汇总；截图 `docs/screenshots/v2-ui-parallel-network.png`。
+
+### Verification
+
+- `cargo test --workspace` 92 项通过；fmt/clippy 通过；版本 0.0.21。
+- 30 天结果：COD 85.33、SS 46.30、NH4-N 0.219、TN 12.37、TP 4.95 mg/L；评分 33.3（2/6）；三本账最大残差 2.22%。
+- 反应器库存：COD 60 580 kg、氮 3 016 kg、磷 2 125 kg、MLSS 50 476 kg；证据 `docs/cutover/asm2d-30d-v2-summary.json`。
+- 旧 ASM2d 30 天输出不作为 oracle；BOD5 无引擎输出，六项完整对照不成立。Cutover 仍 NO-GO；24 h soak 仍未完成。
+
 ## [0.0.20] — 2026-11-29
 
 ### Added

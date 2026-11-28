@@ -1,6 +1,6 @@
 # V2 Cutover Gate — 判定：NO-GO（双轨）
 
-> 日期：2026-11-28。候选：`aquapilot-v2 0.0.19`。旧产品：`aquapilot 0.11.23`（`dist/server/index.mjs`）。
+> 日期：2026-11-29（0.0.21 增量）。候选：`aquapilot-v2 0.0.21`。旧产品：`aquapilot 0.11.23`（`dist/server/index.mjs`）。
 > 本文件只记录可复现证据与判定，不把“水线包络通过”冒充成六项全指标或三本账整厂通过。
 
 ## 1. 判定
@@ -9,8 +9,8 @@
 
 - 24 h soak 尚未跑完（0.0.19 已启动，见 `docs/soak-24h-progress.json`；只有 `completed_24h=true` 的 summary 才算通过）；
 - 六项出水指标没有同时对照：旧 ASM1 不建模 BOD/TP，旧 ASM2d 的 NH 均值 28.19 mg/L、三本账最大残差 70.6%，不能当六项 oracle；
-- 反应器库存与 COD/N/P 三本账的整厂对照未建立；
-- v1 `studies` API 与旧版 live snapshot/topology/WebSocket 未迁移。
+- 0.0.21 已建立反应器库存与 30 天 COD/N/P 三本账，但同一跑批 COD 85.33、SS 46.30、TP 4.95 mg/L 未过限值，BOD5 无引擎输出，六项仍不成立；
+- v1 `studies` 与旧 snapshot/topology 只读投影已在 0.0.20 迁移；WebSocket 实时 tick 仍未迁移。
 
 ## 2. 30 天 ASM1 水线包络（通过，但不是 bitwise parity）
 
@@ -34,8 +34,8 @@
 
 - v1 实验路径兼容：`POST/GET /api/v1/experiments`、详情、取消、`samples.csv`、`report.md` 与旧版同名同形。
 - 新增旧版只读别名：`GET /api/auth-required`、`GET /api/standards`、`GET /api/limits`；`GET /api/health` 同时带旧字段 `ok/authRequired/uptimeSeconds/paused/tickErrors/lastTickMs`。
-- 未迁移：`/api/v1/studies` 四个路径、旧版 `/api/snapshot`、`/api/topology`、WebSocket 增量。V2 是实验队列模型，不提供旧版“实时 tick 快照”；直接换客户端会断。
-- 结论：v1 实验契约可接，旧 UI/研究 API 需要迁移层，不能宣称 drop-in。
+- 0.0.20 已迁移：`/api/v1/studies` 四个路径；旧版 `/api/snapshot`、`/api/topology`、`/api/metrics`、`/api/history/snapshots` 只读投影，`compatibility.liveTick=false`。未迁移：WebSocket 实时 tick 增量；V2 是实验队列模型，不提供旧版逐 tick 推送。直接换客户端仍会丢实时画面。
+- 结论：v1 实验与批量研究契约可接；旧 UI 的实时 tick 仍需兼容层或客户端改造，不能宣称 drop-in。
 
 证据：`docs/cutover/api-rollback.json`、`docs/cutover/old-openapi.json`、`docs/cutover/rust-openapi.json`。
 
@@ -50,12 +50,19 @@
 3. 探测 `/api/health` 与 `/api/snapshot`；
 4. 反向代理指回旧端口；V2 数据目录保留供复盘，不迁移进旧库。
 
+## 4.1 0.0.21 增量（不改变 NO-GO）
+
+- 新增反应器库存：`analysis.inventory` 从 5 个反应器状态 × 池容推导；30 天实验 `03bd6c0a-d89c-4106-8f7c-1042842439ec` 得到 COD 60 580 kg、氮 3 016 kg、磷 2 125 kg、MLSS 50 476 kg。
+- 同几何 ASM2d 30 天三本账全部闭合，最大残差 2.22%；但出水 COD 85.33、SS 46.30、TP 4.95 mg/L，评分 2/6；BOD5 无引擎输出，六项对照不成立。
+- 多系列分支/汇流视图已上 UI，截图 `docs/screenshots/v2-ui-parallel-network.png`；任意分支拓扑编辑仍未实现。
+- 证据：`docs/cutover/asm2d-30d-v2-summary.json`、`docs/V2-0.0.21.md`。
+
 ## 5. 重新评估条件
 
 同时满足以下条件才可把 `cutover_approved` 改为 true：
 
 1. `docs/soak-24h-summary.json` 存在且 `completed_24h=true`、`request_failure=0`、`health_failure=0`；
-2. ASM2d 六项出水 + 反应器库存 + COD/N/P 三本账在同一拓扑/进水/初始条件下 30 天对照通过；
+2. ASM2d 六项出水（含可用 BOD5 证据，不得用 COD 代替）+ 反应器库存 + COD/N/P 三本账在同一拓扑/进水/初始条件下 30 天对照通过；0.0.21 只完成库存与三本账，出水与 BOD 未过；
 3. `studies` API 与旧 live 读路径有迁移层或明确下线窗口；
 4. 回滚演练再次通过。
 

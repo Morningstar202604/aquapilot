@@ -1,0 +1,193 @@
+{
+ "experiment_id": "03bd6c0a-d89c-4106-8f7c-1042842439ec",
+ "model": "asm2d",
+ "status": "succeeded",
+ "duration_min": 43200.0,
+ "config": "docs/cutover/translated-a2o-asm2d.json",
+ "effluent": {
+  "alkalinity": 294.839357337035,
+  "cod": 85.32723816764239,
+  "do": 1.9998360653791696,
+  "flow_m3_h": 1760.4,
+  "nh4_n": 0.2187243372561452,
+  "no3_n": 9.309146381418117,
+  "po4_p": 3.0505270262264426,
+  "s_s": 0.7028536296415083,
+  "ss": 46.2964853933972,
+  "tn": 12.367493932414083,
+  "tp": 4.948163293648866
+ },
+ "six_items": {
+  "cod": 85.32723816764239,
+  "ss": 46.2964853933972,
+  "nh4_n": 0.2187243372561452,
+  "tn": 12.367493932414083,
+  "tp": 4.948163293648866,
+  "bod": null
+ },
+ "six_items_complete": false,
+ "six_items_note": "ASM2d exposes COD/SS/NH4-N/TN/TP; it does not expose BOD5. BOD is null, not estimated.",
+ "scorecard": {
+  "grade": "D",
+  "limits": [
+   {
+    "label": "COD",
+    "limit": 50.0,
+    "metric": "cod",
+    "passed": false,
+    "unit": "mg/L",
+    "value": 85.32723816764239
+   },
+   {
+    "label": "SS",
+    "limit": 10.0,
+    "metric": "ss",
+    "passed": false,
+    "unit": "mg/L",
+    "value": 46.2964853933972
+   },
+   {
+    "label": "NH4-N",
+    "limit": 5.0,
+    "metric": "nh4_n",
+    "passed": true,
+    "unit": "mg/L",
+    "value": 0.2187243372561452
+   },
+   {
+    "label": "TN",
+    "limit": 15.0,
+    "metric": "tn",
+    "passed": true,
+    "unit": "mg/L",
+    "value": 12.367493932414083
+   },
+   {
+    "label": "TP",
+    "limit": 0.5,
+    "metric": "tp",
+    "passed": false,
+    "unit": "mg/L",
+    "value": 4.948163293648866
+   },
+   {
+    "label": "PO4-P",
+    "limit": 0.5,
+    "metric": "po4_p",
+    "passed": false,
+    "unit": "mg/L",
+    "value": 3.0505270262264426
+   }
+  ],
+  "mass_balance_closed": true,
+  "max_balance_residual_pct": 2.223557650200718,
+  "note": "Effluent score = passed limits / checked limits. Missing indicators are excluded, not treated as passed.",
+  "passed": 2,
+  "score": 33.3,
+  "total": 6
+ },
+ "inventory": {
+  "time_min": 43200.0,
+  "total_cod_kg": 60580.23017047966,
+  "total_nitrogen_kg": 3015.801562523762,
+  "total_phosphorus_kg": 2124.644575894083,
+  "total_mlss_kg": 50476.005276333206,
+  "note": "Reactor inventory is C*V/1000 for each reported reactor; it excludes clarifier/tertiary solids and is not a plant-wide inventory proof."
+ },
+ "reactor_inventory": [
+  {
+   "cod_kg": 7548.603406504603,
+   "id": "anaerobic",
+   "kind": "anaerobic",
+   "mlss_kg": 6147.136548729279,
+   "name": "厌氧池",
+   "nitrogen_kg": 392.26535883790683,
+   "phosphorus_kg": 257.0726918497294,
+   "volume_m3": 3000.0
+  },
+  {
+   "cod_kg": 11048.906999124218,
+   "id": "anoxic",
+   "kind": "anoxic",
+   "mlss_kg": 9209.612661312396,
+   "name": "缺氧池",
+   "nitrogen_kg": 544.7106675921954,
+   "phosphorus_kg": 386.2045561016964,
+   "volume_m3": 4500.0
+  },
+  {
+   "cod_kg": 14043.17686531911,
+   "id": "aerobic-1",
+   "kind": "aerobic",
+   "mlss_kg": 11740.465747750462,
+   "name": "好氧池 1",
+   "nitrogen_kg": 694.1877648877714,
+   "phosphorus_kg": 493.6361013446091,
+   "volume_m3": 5750.0
+  },
+  {
+   "cod_kg": 13990.626540929094,
+   "id": "aerobic-2",
+   "kind": "aerobic",
+   "mlss_kg": 11706.396436094023,
+   "name": "好氧池 2",
+   "nitrogen_kg": 692.842788091836,
+   "phosphorus_kg": 493.78898249911344,
+   "volume_m3": 5750.0
+  },
+  {
+   "cod_kg": 13948.916358602632,
+   "id": "aerobic-3",
+   "kind": "aerobic",
+   "mlss_kg": 11672.393882447048,
+   "name": "好氧池 3",
+   "nitrogen_kg": 691.7949831140529,
+   "phosphorus_kg": 493.9422440989348,
+   "volume_m3": 5750.0
+  }
+ ],
+ "mass_balance": {
+  "cod": {
+   "closed": true,
+   "effluent_kg": 109669.26617036224,
+   "gas_kg": 0.0,
+   "inflow_kg": 492480.000000376,
+   "inventory_change_kg": -43369.83437591202,
+   "oxidized_kg": 269158.5627768338,
+   "residual_fraction": 0.022235576502007182,
+   "unaccounted_kg": -10950.57671571686,
+   "waste_kg": 167972.5821448088
+  },
+  "nitrogen": {
+   "closed": true,
+   "effluent_kg": 16148.785559937727,
+   "gas_kg": 34711.97004515497,
+   "inflow_kg": 56451.89580985063,
+   "inventory_change_kg": -2736.7569830364773,
+   "oxidized_kg": 0.0,
+   "residual_fraction": 0.004987044399302043,
+   "unaccounted_kg": 281.52811082849803,
+   "waste_kg": 8046.369076965901
+  },
+  "note": "ASM2d COD/N/P ledger closed at the 5% threshold",
+  "phosphorus": {
+   "closed": true,
+   "effluent_kg": 5838.946023019378,
+   "gas_kg": 0.0,
+   "inflow_kg": 10724.009639735614,
+   "inventory_change_kg": -2038.2819406645983,
+   "oxidized_kg": 0.0,
+   "residual_fraction": 0.004588389938174642,
+   "unaccounted_kg": 49.205937927850755,
+   "waste_kg": 6874.139619452983
+  }
+ },
+ "ledger_max_residual_pct": 2.223557650200718,
+ "cutover_gate": "NO-GO",
+ "gate_reasons": [
+  "BOD5 not represented by ASM2d, so six-item comparison is incomplete",
+  "old TypeScript ASM2d 30 d output is not a valid oracle (NH4-N mean 28.19 mg/L, ledger max residual 70.6%)",
+  "this 30 d run fails COD/SS/TP limits at the translated geometry and does not replace 24 h soak"
+ ],
+ "samples": "docs/cutover/asm2d-30d-v2-samples.csv"
+}

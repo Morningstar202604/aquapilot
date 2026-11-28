@@ -194,12 +194,13 @@ po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_dept
 
 BOD、pH、温度、MLSS、SRT、能耗、评分、泥毯厚度在当前 V2 模型中多数未建模，CSV 留空；这不是 0 值。报告汇总最终出水、三本账、请求 spec，并附出水评分卡、告警、日/周汇总和数据质量；不伪造未建模指标。
 
-### 结果分析层（0.0.8 / 0.0.13）
+### 结果分析层（0.0.8 / 0.0.13 / 0.0.21）
 
 `detail` 在 `include_result=true`（默认）时带 `analysis`：
 
 - `applicability`：`effluent_compliance` 或 `process_only`；ASM1 检查 COD/SS/NH4-N/TN 四项，ASM2d 与 loop 再加 TP/PO4-P，ADM1/泥线不冒充出水合规。
 - `scorecard`：`grade` A/B/C/D/N/A、`score`、`passed`/`total`、各项 `limit`/`value`/`passed`、`mass_balance_closed`。等级只基于出水指标，不把短时三本账包装成达标。
+- `inventory`（0.0.21）：`time_min`、`total_cod_kg`、`total_nitrogen_kg`、`total_phosphorus_kg`、`total_mlss_kg` 与逐池 `reactors[]`；由 `C × V / 1000` 从反应器状态推导，MLSS 缺失时回退 `ss`。`note` 明确只含反应器，不含二沉池/三级过滤固体，不是整厂库存证明。
 - `alarms`：`EFFLUENT_*_HIGH`、`LOW_DO`、`MASS_BALANCE_OPEN`、`NO_SAMPLES`、`SPARSE_SAMPLES`、`NONFINITE_SAMPLE`。`LOW_DO` 只看 60 min 之后的样本，避免启动瞬时 0 DO 误报。0.0.13 起每条告警还带 `evidence[]`（实测证据）、`possible_causes[]`（可能原因）与 `recommended_actions[]`（建议动作）；三者均可为空，旧客户端仍可只读 `code`/`message`。
 - `data_quality`：样本数、有限值数、重复分钟数、缺失可选字段。
 - `daily`/`weekly`：周期边界样本归入刚结束的周期，7 d 实验得到 7 个日桶 + 1 个周桶，不生成“只有一个末点”的第 8 天/第 2 周。`daily.csv`/`weekly.csv` 是派生聚合，不覆盖 `samples.csv` 原始数据。

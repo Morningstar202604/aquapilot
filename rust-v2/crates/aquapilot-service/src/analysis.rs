@@ -90,6 +90,29 @@ pub struct DataQuality {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReactorInventory {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub volume_m3: f64,
+    pub cod_kg: f64,
+    pub nitrogen_kg: f64,
+    pub phosphorus_kg: f64,
+    pub mlss_kg: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Inventory {
+    pub time_min: f64,
+    pub total_cod_kg: f64,
+    pub total_nitrogen_kg: f64,
+    pub total_phosphorus_kg: f64,
+    pub total_mlss_kg: Option<f64>,
+    pub reactors: Vec<ReactorInventory>,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExperimentAnalysis {
     pub applicability: String,
     pub scorecard: Scorecard,
@@ -97,6 +120,7 @@ pub struct ExperimentAnalysis {
     pub data_quality: DataQuality,
     pub daily: Vec<PeriodSummary>,
     pub weekly: Vec<PeriodSummary>,
+    pub inventory: Option<Inventory>,
     pub method: String,
 }
 
@@ -374,8 +398,82 @@ pub fn analyze_parts(model: &str, result: &Value, samples: &[Sample]) -> Experim
         data_quality: quality,
         daily: aggregate(samples, 1440.0, "day"),
         weekly: aggregate(samples, 10080.0, "week"),
+        inventory: inventory(result),
         method: "derived from stored samples and mass_balance; no hidden recomputation".to_owned(),
     }
+}
+
+fn inventory(result: &Value) -> Option<Inventory> {
+    let reactors = result.get("reactors")?.as_array()?;
+    if reactors.is_empty() {
+        return None;
+    }
+    let mut items = Vec::with_capacity(reactors.len());
+    let mut total_cod = 0.0;
+    let mut total_n = 0.0;
+    let mut total_p = 0.0;
+    let mut total_mlss = 0.0;
+    let mut has_mlss = true;
+    for reactor in reactors {
+        let volume = reactor.get("volume_m3").and_then(Value::as_f64)?;
+        let cod = reactor.get("cod").and_then(Value::as_f64).unwrap_or(0.0);
+        let nitrogen = reactor
+            .get("tn")
+            .and_then(Value::as_f64)
+            .or_else(|| {
+                let nh = reactor.get("nh4_n").and_then(Value::as_f64)?;
+                let no = reactor.get("no3_n").and_then(Value::as_f64)?;
+                Some(nh + no)
+            })
+            .unwrap_or(0.0);
+        let phosphorus = reactor.get("tp").and_then(Value::as_f64).unwrap_or(0.0);
+        let mlss = reactor
+            .get("mlss")
+            .or_else(|| reactor.get("ss"))
+            .and_then(Value::as_f64);
+        let cod_kg = cod * volume / 1000.0;
+        let nitrogen_kg = nitrogen * volume / 1000.0;
+        let phosphorus_kg = phosphorus * volume / 1000.0;
+        total_cod += cod_kg;
+        total_n += nitrogen_kg;
+        total_p += phosphorus_kg;
+        if let Some(mlss) = mlss {
+            total_mlss += mlss * volume / 1000.0;
+        } else {
+            has_mlss = false;
+        }
+        items.push(ReactorInventory {
+            id: reactor
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("reactor")
+                .to_owned(),
+            name: reactor
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("reactor")
+                .to_owned(),
+            kind: reactor
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("reactor")
+                .to_owned(),
+            volume_m3: volume,
+            cod_kg,
+            nitrogen_kg,
+            phosphorus_kg,
+            mlss_kg: mlss.map(|mlss| mlss * volume / 1000.0),
+        });
+    }
+    Some(Inventory {
+        time_min: result.get("time_min").and_then(Value::as_f64).unwrap_or(0.0),
+        total_cod_kg: total_cod,
+        total_nitrogen_kg: total_n,
+        total_phosphorus_kg: total_p,
+        total_mlss_kg: has_mlss.then_some(total_mlss),
+        reactors: items,
+        note: "Reactor inventory is C*V/1000 for each reported reactor; it excludes clarifier/tertiary solids and is not a plant-wide inventory proof.".to_owned(),
+    })
 }
 
 fn effluent_advice(metric: &str, model: &str) -> (Vec<String>, Vec<String>) {
@@ -752,6 +850,24 @@ mod tests {
         assert_eq!(analysis.daily[0].period, "day-1");
         assert!(daily_csv(&analysis).contains("day-1"));
         assert!(weekly_csv(&analysis).contains("week-1"));
+    }
+
+    #[test]
+    fn inventory_is_derived_from_reactor_state_and_volume() {
+        let result = serde_json::json!({
+            "time_min": 43200.0,
+            "reactors": [
+                {"id":"anaerobic","name":"厌氧池","kind":"anaerobic","volume_m3":3000.0,"cod":5000.0,"tn":200.0,"tp":50.0,"mlss":3000.0},
+                {"id":"aerobic-1","name":"好氧池 1","kind":"aerobic","volume_m3":5750.0,"cod":2000.0,"nh4_n":2.0,"no3_n":8.0,"tp":10.0,"mlss":2500.0}
+            ]
+        });
+        let analysis = analyze_parts("asm2d", &result, &[sample(60.0)]);
+        let inventory = analysis.inventory.expect("inventory");
+        assert_eq!(inventory.reactors.len(), 2);
+        assert!((inventory.total_cod_kg - 26_500.0).abs() < 1.0e-9);
+        assert!((inventory.total_nitrogen_kg - 657.5).abs() < 1.0e-9);
+        assert!((inventory.total_phosphorus_kg - 207.5).abs() < 1.0e-9);
+        assert!(inventory.note.contains("excludes clarifier"));
     }
 
     #[test]
