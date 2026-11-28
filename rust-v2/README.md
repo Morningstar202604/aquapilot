@@ -6,7 +6,7 @@
 - Clean-room 规则：`../docs/CLEAN-ROOM.md`
 - 旧 `rust/` 已冻结为 v0.11.23 的历史 checkpoint，v2 不读取、不复制它的源码。
 
-## 当前状态：V2-1、V2-2、V2-3 服务与 V2-4 编排台（含 ASM1 自由拓扑）已落地；24 h soak 待跑
+## 当前状态：V2-1、V2-2、V2-3 服务与 V2-4 编排台（含 ASM1 自由拓扑与 ASM2d 自定义工况）已落地；24 h 连续 soak 受执行环境重启限制，未完成
 
 V2-1 已完成并推送：ASM1 五池整厂、Takács 10 层二沉池、RAS/内回流/WAS、DO 控制、BSM1-like 与官方 BSM1 对照、22 项测试。
 
@@ -26,13 +26,14 @@ V2-2 当前已落：
 - V2-4 编排台：`GET /` 同源托管单文件页面，`GET /api/v1/presets` 提供 8 个场景预设；A2O 画布支持反应器增删/拖拽/参数编辑、二沉池、内回流、PAC、三级过滤、进水边界和 6 类工况注入；ASM1 自由拓扑画布支持增删节点/连接、回流边和参数编辑；ADM1/泥线通过高级 JSON 从同一页面提交；详见 `../docs/V2-UI.md`；
 - 0.0.8 结果决策层：`analysis.rs` 出水评分卡/告警/数据质量/日周聚合，detail 的 `analysis`、`daily.csv`、`weekly.csv`、报告章节和 UI 评分卡已接；评分卡只对出水限值打分，短时三本账未闭合单独告警；
 - 0.0.14 自定义工况：ASM1 自由拓扑可按倍率/DO/KLa/温度注入工况，范围校验、可撤销，空字段跳过；
+- 0.0.15 ASM2d 自定义工况：同一面板接到 A2O 可视化工艺链，流量同时乘进水/内回流/RAS/WAS，温度改所有反应器；可撤销/重做；
 - 0.0.13 告警解释：每条告警带证据、可能原因和建议动作，UI 可展开，`report.md` 同步追加解释；
 - 0.0.12 拓扑撤销/重做：ASM1 画布增删节点/连接、工况注入、池型/边类型修改可撤销/重做，最多 50 步；
 - 0.0.11 本机拓扑库：ASM1 自由拓扑可保存到浏览器 `localStorage`，列表载入/删除；保存前走本地检查 + 服务端编译；只存本机，不冒充服务端持久化；
 - 0.0.10 自由拓扑工况：ASM1 画布提供 `高流量 ×1.5`（进水与所有连接同乘，保持节点流平衡）、`低 DO 胁迫`、`冬季 12°C`、`回到预设`；注入后仍走服务端编译；
 - 0.0.9 自由拓扑：`POST /api/v1/topologies/validate` 编译任意 ASM1 `PlantTopology`；8 个 preset 新增 `asm1-three-stage`、`asm1-single`；UI 画布可增删节点、改参数、增删连接和回流边，底部显示服务端编译结果；`scripts/topology_journey.py` 验证 3 个预设 + 删除厌氧池后重连 + 1 d 运行；
-- 代表性端到端矩阵：`scripts/coverage_v2.py` 11/11 通过，覆盖 5 个服务模型 + 5 类 A2O 工况，93.386 s；
-- 五条角色旅程：`scripts/journeys_v2.py` 5/5 通过（暴雨、风机故障、三级过滤 what-if、7 d 周报、脏数据），3.503 s；`completed_24h=false`；
+- 代表性端到端矩阵：`scripts/coverage_v2.py` 11/11 通过，覆盖 5 个服务模型 + 5 类 A2O 工况，95.938 s；
+- 五条角色旅程：`scripts/journeys_v2.py` 5/5 通过（暴雨、风机故障、三级过滤 what-if、7 d 周报、脏数据），3.513 s；`completed_24h=false`；
 - 尚未完成：wall-clock 24 h soak、WebSocket（当前用 SSE）、Bearer 角色鉴权、MCP；ASM2d 任意分支管网、工业适配、AI/审计/限流/看门狗；PAC 仍为三价金属当量模型，三级过滤为理想化边界单元。
 
 30 天 A2O ASM2d 实测（`fixtures/a2o-asm2d.json`）：

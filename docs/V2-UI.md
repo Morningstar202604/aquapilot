@@ -1,6 +1,6 @@
 # V2 可视化编排台
 
-> 版本 0.0.14。服务启动后直接打开 `http://127.0.0.1:5173/`。这是 V2-3 之后补上的可交互前端，不是只读仪表盘：A2O 工况可以在画布上改，ASM1 可以增删节点和连接，提交后进入同一条持久实验队列。
+> 版本 0.0.15。服务启动后直接打开 `http://127.0.0.1:5173/`。这是 V2-3 之后补上的可交互前端，不是只读仪表盘：A2O 工况可以在画布上改，ASM1 可以增删节点和连接，提交后进入同一条持久实验队列。
 
 ![V2 工艺编排台](screenshots/v2-ui-editor.png)
 
@@ -138,6 +138,12 @@ ASM1 画布的工具栏有 `↶ 撤销` / `↷ 重做`。增删节点、增删�
 
 实测：三池 5 节点/4 连接，应用后进水/四条连接均为 1500 m³/h、好氧池 KLa=120、DO 设定=3、进水温度=12°C；1 d 实验 `succeeded`，D 1/4，三条出水告警。机器可读证据在 `docs/custom-scenario-check.json`。
 
+0.0.15 把同一个自定义面板接到 ASM2d / A2O 可视化工艺链。流量倍率不只乘进水，还乘所有内回流、RAS 与 WAS，保持整厂流量比例；DO/KLa 只改好氧反应器；温度改所有反应器。应用后可用面板里的 `↶`/`↷` 或 `Ctrl+Z` 撤销/重做。
+
+![ASM2d 自定义工况：流量 ×1.5、DO 3.0、KLa 120、温度 12°C，进水 1500、内回流 3000、RAS 1500、WAS 30，1 d A 6/6](screenshots/v2-ui-asm2d-custom-scenario.png)
+
+实测：默认 PAC + 三级过滤 5 池/1 内回流/1 二沉池，应用后进水 1500、内回流 3000、RAS 1500、WAS 30 m³/h，5 个反应器均 12°C，三个好氧池 KLa=120、DO 设定=3；1 d 实验 `succeeded`，A 6/6，`MASS_BALANCE_OPEN` 30.83% 作为短时账本告警保留，不改写成 30 d 闭环。机器可读证据在 `docs/visual-custom-scenario-check.json`。
+
 ## 4. 运行与观测
 
 点“启动实验”后，页面用 `POST /api/v1/experiments` 提交（带 `Idempotency-Key`），随后打开 `GET /api/v1/experiments/{id}/events` 的 SSE：
@@ -168,6 +174,6 @@ ASM1 画布的工具栏有 `↶ 撤销` / `↷ 重做`。增删节点、增删�
 - `+ 内回流` 新增 4→1 回流、删除恢复；厌氧池后移后校验仍为 `5 池 · 1 内回流 · 1 二沉池`，回流端点随池序重映射；
 - 7 d 实验评分卡 A、6/6 达标，但 `MASS_BALANCE_OPEN` 残差 6.55%；`daily` 7 行、`weekly` 1 行，证明边界样本不会被拆成第 8 天/第 2 周。
 - BSM1/ASM1 1 d 实测：只显示 COD/NH4-N/TN/SS 四项，评分 D、2/4 达标，`EFFLUENT_SS_HIGH` 与 `EFFLUENT_TN_HIGH` 两个告警；页面不显示 TP/PO4 假通过。
-- 代表性端到端矩阵见 `docs/coverage-matrix.json`：11/11 通过，覆盖 5 个模型 + 5 个工况，93.436 s；loop 30 天单例 71.88 s，最大三本账残差 2.85%。
-- 五条角色旅程见 `docs/journeys-v2.json`：5/5 通过（3.307 s），覆盖暴雨、风机故障、三级过滤开/关、7 d 周报、脏数据；仍明确 `completed_24h=false`。
+- 代表性端到端矩阵见 `docs/coverage-matrix.json`：11/11 通过，覆盖 5 个模型 + 5 个工况，95.938 s；loop 30 天单例 74.65 s，最大三本账残差 2.85%。
+- 五条角色旅程见 `docs/journeys-v2.json`：5/5 通过（3.513 s），覆盖暴雨、风机故障、三级过滤开/关、7 d 周报、脏数据；仍明确 `completed_24h=false`。
 - 自由拓扑验收旅程见 `docs/topology-journey.json`：3 个 ASM1 预设全部 200 编译；删除厌氧池并补 `in → anx` 后 4 units / 3 connections 编译成功；1 d 实验 succeeded，D、1/4，三条出水告警；`completed_24h=false`。截图见 `screenshots/v2-ui-topology.png`。 0.0.10 自由拓扑工况验收见 `docs/topology-scenario-check.json`：高流量 ×1.5 编译 200、进水/出水 1500 m³/h、1 d 实验 succeeded、D 1/4、三条出水告警；低 DO 与冬季 12°C 编译 200。截图见 `screenshots/v2-ui-topology-scenarios.png`。

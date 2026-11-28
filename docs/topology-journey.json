@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-28T14:11:12Z",
+  "generated_at": "2026-11-28T14:42:39Z",
   "base": "http://127.0.0.1:5192",
   "presets": [
     {
@@ -35,7 +35,7 @@
     "effluent_flow_m3_h": 1000.0
   },
   "experiment": {
-    "id": "216c6faf-9dce-47b3-bb31-17ba510f5a23",
+    "id": "11813085-29ad-405a-8a34-f46b8839d628",
     "status": "succeeded",
     "minutes": 1440.0,
     "grade": "D",
@@ -61,5 +61,5 @@
   },
   "completed_24h": false,
   "note": "Topology acceptance journey only; this is not a wall-clock 24 h soak.",
-  "service_version": "0.0.14"
+  "service_version": "0.0.15"
 }

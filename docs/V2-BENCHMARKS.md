@@ -1,7 +1,7 @@
 # AquaPilot v2 基准记录
 
 > 记录日期：2026-11-28
-> 代码：`rust-v2/`，版本 0.0.14
+> 代码：`rust-v2/`，版本 0.0.15
 > 口径：clean-room 实现；不读取旧 `src/sim` 或旧 `rust/` 源码。
 
 ## 1. V2-1 BSM1-like 整厂
@@ -452,13 +452,13 @@ python3 scripts/coverage_v2.py --summary docs/coverage-matrix.json
 | 指标 | 值 |
 | --- | --- |
 | case 数 / 通过 / 失败 | 11 / 11 / 0 |
-| 总耗时 | 93.386 s |
+| 总耗时 | 95.938 s |
 | 模型覆盖 | `asm1`、`asm2d`、`asm2d-adm1-loop`、`adm1`、`sludge-line` |
 | 工况覆盖 | 基础 A2O、PAC + 三级过滤、高流量 1500、低 DO 1.0、冬季 12 °C、PAC 停加、过滤旁路 |
 | 每个 case 检查 | 202 入队 → 终态 → detail → samples.csv → report.md |
 | 质量平衡检查 | 有 `mass_balance`/`whole_balance` 的 case 残差 ≤ 5% |
 | 最大三本账残差 | 2.85%（loop 30 天） |
-| loop 30 天单例 | 72.101 s |
+| loop 30 天单例 | 74.65 s |
 | `completed_24h` | false |
 
 矩阵 11/11 通过说明每条服务分支都跑通；它不能替代 wall-clock 24 h 的内存/句柄稳定性结论。24 h 仍需在常开主机或外部调度上执行，正式命令见 `docs/V2-API.md`。
@@ -471,7 +471,7 @@ python3 scripts/coverage_v2.py --summary docs/coverage-matrix.json
 python3 scripts/journeys_v2.py --summary docs/journeys-v2.json
 ```
 
-结果：`docs/journeys-v2.json`，5/5 通过，3.307 s。
+结果：`docs/journeys-v2.json`，5/5 通过，3.513 s。
 
 | 旅程 | 证据 |
 | --- | --- |

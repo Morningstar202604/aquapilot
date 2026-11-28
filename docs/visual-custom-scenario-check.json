@@ -1,0 +1,63 @@
+{
+  "version": "0.0.15",
+  "experiment_id": "ce998bb1-dc49-429f-b036-bca9fb14e45d",
+  "model": "asm2d",
+  "status": "succeeded",
+  "duration_min": 1440.0,
+  "custom_scenario": {
+    "flow_multiplier": 1.5,
+    "do_setpoint": 3.0,
+    "kla_h": 120.0,
+    "temperature_c": 12.0
+  },
+  "applied": {
+    "influent_flow_m3_h": 1500,
+    "internal_recycle_flow_m3_h": [
+      3000
+    ],
+    "ras_flow_m3_h": 1500,
+    "was_flow_m3_h": 30,
+    "aerobic_kla_h": [
+      120,
+      120,
+      120
+    ],
+    "aerobic_do_setpoint": [
+      3,
+      3,
+      3
+    ],
+    "reactor_temperature_c": [
+      12,
+      12,
+      12,
+      12,
+      12
+    ]
+  },
+  "undo_redo": "apply 1.5/3/120/12 -> undo returns 1000 m3/h and 20 C -> redo returns 1500 m3/h and 12 C",
+  "scorecard": {
+    "grade": "A",
+    "passed": 6,
+    "total": 6,
+    "max_balance_residual_pct": 30.829355145796768
+  },
+  "effluent": {
+    "alkalinity": 271.5532643837462,
+    "cod": 33.30337991307218,
+    "do": 3.558525449145456,
+    "flow_m3_h": 1470.0,
+    "nh4_n": 0.0801791549130765,
+    "no3_n": 8.592423525154652,
+    "po4_p": 0.0015792139854193346,
+    "s_s": 2.4451107501416396,
+    "ss": 1.732003205918517,
+    "tn": 9.127814895656536,
+    "tp": 0.1081717535452618
+  },
+  "alarms": [
+    "MASS_BALANCE_OPEN"
+  ],
+  "screenshot": "docs/screenshots/v2-ui-asm2d-custom-scenario.png",
+  "completed_24h": false
+}

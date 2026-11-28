@@ -1,12 +1,47 @@
 {
-  "version": "0.0.14",
-  "experiment_id": "216c6faf-9dce-47b3-bb31-17ba510f5a23",
-  "model": "asm1",
-  "status": "succeeded",
+  "version": "0.0.15",
+  "experiment_id": "11813085-29ad-405a-8a34-f46b8839d628",
   "scorecard": {
     "grade": "D",
-    "score": 25.0,
+    "limits": [
+      {
+        "label": "COD",
+        "limit": 50.0,
+        "metric": "cod",
+        "passed": false,
+        "unit": "mg/L",
+        "value": 2193.959978443655
+      },
+      {
+        "label": "SS",
+        "limit": 10.0,
+        "metric": "ss",
+        "passed": false,
+        "unit": "mg/L",
+        "value": 1532.9206500404914
+      },
+      {
+        "label": "NH4-N",
+        "limit": 5.0,
+        "metric": "nh4_n",
+        "passed": true,
+        "unit": "mg/L",
+        "value": 0.0884142204612265
+      },
+      {
+        "label": "TN",
+        "limit": 15.0,
+        "metric": "tn",
+        "passed": false,
+        "unit": "mg/L",
+        "value": 249.1160789481863
+      }
+    ],
+    "mass_balance_closed": null,
+    "max_balance_residual_pct": null,
+    "note": "Effluent score = passed limits / checked limits. Missing indicators are excluded, not treated as passed.",
     "passed": 1,
+    "score": 25.0,
     "total": 4
   },
   "alarms": [
