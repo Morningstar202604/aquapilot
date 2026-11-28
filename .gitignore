@@ -47,3 +47,6 @@ reports/
 .workbuddy/
 
 # Rust build output
+
+# Live soak progress snapshot (final summary is tracked)
+docs/soak-24h-progress.json

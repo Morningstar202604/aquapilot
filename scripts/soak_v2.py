@@ -121,13 +121,19 @@ def main() -> int:
     parser.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE)
     parser.add_argument("--summary", type=Path, default=ROOT / "docs" / "soak-smoke-summary.json")
     parser.add_argument("--keep-db", action="store_true")
+    parser.add_argument("--workdir", type=Path, default=None, help="persistent run directory; default is a temp dir")
+    parser.add_argument("--progress", type=Path, default=None, help="periodic progress JSON; default is <summary>.progress.json")
     args = parser.parse_args()
 
     if not args.bin.exists():
         print(f"missing binary: {args.bin}", file=sys.stderr)
         return 2
     fixture = json.loads(args.fixture.read_text())
-    workdir = Path(tempfile.mkdtemp(prefix="aquapilot-soak-"))
+    if args.workdir:
+        args.workdir.mkdir(parents=True, exist_ok=True)
+        workdir = args.workdir
+    else:
+        workdir = Path(tempfile.mkdtemp(prefix="aquapilot-soak-"))
     db_path = workdir / "aquapilot.sqlite"
     log_path = workdir / "service.log"
     log_file = log_path.open("w")
@@ -142,6 +148,8 @@ def main() -> int:
     )
     base = f"http://{args.bind}"
     started = time.time()
+    progress_path = args.progress or args.summary.with_name(args.summary.stem + ".progress.json")
+    last_progress = 0.0
     create_latencies: list[float] = []
     submitted = 0
     accepted = 0
@@ -151,6 +159,35 @@ def main() -> int:
     health_failures = 0
     max_rss_kb = 0
     max_fds = 0
+
+    def write_progress() -> None:
+        if not progress_path:
+            return
+        try:
+            progress_path.parent.mkdir(parents=True, exist_ok=True)
+            progress_path.write_text(json.dumps({
+                "schema": "aquapilot.soak.progress.v1",
+                "requested_duration_seconds": args.duration,
+                "started_at_unix": int(started),
+                "elapsed_seconds": round(time.time() - started, 3),
+                "completed_24h": False,
+                "binary": str(args.bin),
+                "db_path": str(db_path),
+                "service_log": str(log_path),
+                "submitted": submitted,
+                "accepted_202": accepted,
+                "replayed_200": replayed,
+                "queue_full_429": queue_full,
+                "request_failures": request_failures,
+                "health_failures": health_failures,
+                "max_rss_kb": max_rss_kb,
+                "max_open_fds": max_fds,
+                "service_alive": process.poll() is None,
+                "note": "periodic checkpoint; final summary is written only when the soak completes",
+            }, indent=2, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
+
     try:
         health = wait_health(base, process)
         print(f"service healthy: {health}")
@@ -181,6 +218,9 @@ def main() -> int:
             rss, fds = read_process_metrics(process.pid)
             max_rss_kb = max(max_rss_kb, rss)
             max_fds = max(max_fds, fds)
+            if time.monotonic() - last_progress >= 60:
+                write_progress()
+                last_progress = time.monotonic()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
@@ -215,6 +255,7 @@ def main() -> int:
             "model": "asm1",
             "binary": str(args.bin),
             "db_path": str(db_path),
+            "workdir": str(workdir),
             "submitted": submitted,
             "accepted_202": accepted,
             "replayed_200": replayed,

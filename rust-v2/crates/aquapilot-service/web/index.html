@@ -86,6 +86,15 @@ a{color:var(--teal);text-decoration:none}
 .preset.active{border-color:var(--teal);background:linear-gradient(160deg,#f2fbf7,#fff);box-shadow:0 0 0 2px rgba(15,118,110,.10)}
 .preset .p-label{display:block;font-size:12px;font-weight:650;line-height:1.25}
 .preset .p-model{display:block;margin-top:5px;font-family:var(--mono);font-size:9.5px;color:var(--faint)}
+.topo-save-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}
+.topo-library{display:flex;flex-direction:column;gap:5px;margin-top:7px}
+.topo-lib-item{display:grid;grid-template-columns:minmax(0,1fr) 26px;gap:4px;align-items:stretch}
+.topo-lib-load{text-align:left;border:1px solid var(--line);background:#fff;border-radius:9px;padding:7px 8px;min-width:0}
+.topo-lib-load:hover{border-color:#a9c9bf;background:#fbfffd}
+.topo-lib-load strong{display:block;font-size:11.5px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topo-lib-load span{display:block;margin-top:2px;font-family:var(--mono);font-size:9px;color:var(--faint)}
+.topo-lib-del{border:0;background:transparent;color:var(--faint);font-size:15px;border-radius:8px;line-height:1}
+.topo-lib-del:hover{background:var(--red-soft);color:var(--red)}
 .field{display:flex;flex-direction:column;gap:5px;min-width:0}
 .field label{font-size:10.5px;color:var(--muted);letter-spacing:.03em}
 .control{width:100%;height:34px;border:1px solid var(--line-strong);border-radius:8px;background:#fff;padding:0 9px;outline:none;font-size:12.5px;transition:border-color .15s,box-shadow .15s}
@@ -340,7 +349,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   <div class="top-status">
     <div class="status-chip" title="服务健康"><span class="dot" id="svc-dot"></span><span id="svc-label">连接中</span></div>
     <div class="status-chip"><span class="mono" id="queue-chip">队列 0 / 32</span></div>
-    <div class="status-chip"><span class="mono" id="svc-version">v0.0.10</span></div>
+    <div class="status-chip"><span class="mono" id="svc-version">v0.0.11</span></div>
   </div>
   <button class="top-link" id="open-api">API 契约 ↗</button>
 </header>
@@ -350,6 +359,16 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     <div class="section">
       <div class="section-title"><span>场景预设</span><span class="count" id="preset-count">—</span></div>
       <div class="preset-grid" id="preset-grid"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span>我的拓扑</span><span class="count" id="topo-lib-count">LOCAL</span></div>
+      <div class="topo-save-row">
+        <input id="topo-name" class="control" placeholder="给当前拓扑起个名字" autocomplete="off">
+        <button class="btn" id="topo-save" title="保存当前 ASM1 拓扑到本机">保存</button>
+      </div>
+      <div id="topo-library" class="topo-library"><div class="empty">还没有保存的拓扑</div></div>
+      <p class="hint">只保存 ASM1 自由拓扑到本机浏览器；保存前会再走一次服务端编译。换浏览器或清缓存会丢失。</p>
     </div>
 
     <div class="section">
@@ -499,6 +518,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 
   const state = {
     presets: [],
+    topologies: [],
     defaultPreset: null,
     presetId: null,
     model: "asm2d",
@@ -652,6 +672,96 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       </button>`).join("");
   }
 
+  const TOPO_LIBRARY_KEY = "aquapilot.topologies.v1";
+
+  function readTopologyLibrary() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(TOPO_LIBRARY_KEY) || "[]");
+      return Array.isArray(parsed) ? parsed.filter((item) => item && item.name && item.config) : [];
+    } catch (_) { return []; }
+  }
+
+  function persistTopologyLibrary() {
+    try { localStorage.setItem(TOPO_LIBRARY_KEY, JSON.stringify(state.topologies)); return true; }
+    catch (error) { toast(`本机保存失败：${error.message}`, "error"); return false; }
+  }
+
+  function renderTopologyLibrary() {
+    const box = $("#topo-library");
+    if (!box) return;
+    $("#topo-lib-count").textContent = state.topologies.length ? `${state.topologies.length} saved` : "LOCAL";
+    if (!state.topologies.length) {
+      box.innerHTML = `<div class="empty">还没有保存的拓扑</div>`;
+      return;
+    }
+    box.innerHTML = state.topologies.map((item) => `
+      <div class="topo-lib-item">
+        <button class="topo-lib-load" data-topo-load="${esc(item.id)}" title="载入 ${esc(item.name)}">
+          <strong>${esc(item.name)}</strong>
+          <span>${item.units || 0} 节点 · ${item.connections || 0} 连接 · ${esc(String(item.savedAt || "").slice(0, 10))}</span>
+        </button>
+        <button class="topo-lib-del" data-topo-del="${esc(item.id)}" title="删除 ${esc(item.name)}">×</button>
+      </div>`).join("");
+  }
+
+  async function saveCurrentTopology() {
+    const topology = getTopology();
+    if (!topology) { toast("只有 ASM1 自由拓扑可以保存；先切换到一个 ASM1 预设。", "warn"); return; }
+    const localErrors = topologyLocalErrors(topology);
+    if (localErrors.length) { toast(`拓扑还不能保存：${localErrors[0]}`, "error"); return; }
+    const name = ($("#topo-name").value || "").trim() || topology.name || `拓扑-${nowName()}`;
+    try {
+      const result = await api("/api/v1/topologies/validate", {method: "POST", body: JSON.stringify({...topology, name})});
+      topology.name = name;
+      const saved = {
+        id: `local-${Date.now()}`,
+        name,
+        config: clone(topology),
+        units: result.units,
+        connections: result.connections,
+        savedAt: new Date().toISOString(),
+      };
+      state.topologies = [saved, ...state.topologies.filter((item) => item.name !== name)].slice(0, 12);
+      if (!persistTopologyLibrary()) return;
+      renderTopologyLibrary();
+      $("#topo-name").value = "";
+      renderFlow();
+      toast(`已保存到本机：${name}（${result.units} 节点 / ${result.connections} 连接）`);
+    } catch (error) { toast(`保存失败：${error.message}`, "error"); }
+  }
+
+  function loadSavedTopology(id) {
+    const item = state.topologies.find((entry) => entry.id === id);
+    if (!item) return;
+    state.presetId = null;
+    state.model = "asm1";
+    state.config = clone(item.config);
+    state.name = `${item.name} · ${nowName()}`;
+    state.durationMin = 1440;
+    state.dtMin = 1;
+    state.sampleEveryMin = 60;
+    state.selected = {type: "unit", id: state.config.units?.[0]?.id || ""};
+    state.exp = null;
+    state.samples = [];
+    if (state.source) { state.source.close(); state.source = null; }
+    validate();
+    renderPresets();
+    renderRun();
+    renderScenarios();
+    renderFlow();
+    renderInspector();
+    toast(`已载入本机拓扑：${item.name}`);
+  }
+
+  function deleteSavedTopology(id) {
+    const item = state.topologies.find((entry) => entry.id === id);
+    if (!item || !window.confirm(`删除本机拓扑“${item.name}”？`)) return;
+    state.topologies = state.topologies.filter((entry) => entry.id !== id);
+    if (!persistTopologyLibrary()) return;
+    renderTopologyLibrary();
+    toast(`已删除：${item.name}`);
+  }
+
   function applyTopologyScenario(id) {
     const topology = getTopology();
     if (!topology) return;
@@ -714,6 +824,9 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     $("#sample-every").value = state.sampleEveryMin;
     $("#sludge-days-wrap").classList.toggle("hidden", state.model !== "asm2d-adm1-loop");
     $("#sludge-days").value = state.sludgeDays;
+    const topologyMode = isTopologyModel(state.model);
+    $("#topo-save").disabled = !topologyMode;
+    $("#topo-name").disabled = !topologyMode;
     $("#model-hint").textContent = days
       ? "ADM1 / 泥线用天为单位；模型只输出最终状态一行。"
       : state.model === "asm2d-adm1-loop"
@@ -1914,6 +2027,14 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       state.selected = {type: "tertiary"}; renderFlow(); renderInspector();
     });
     $("#reset-preset").addEventListener("click", () => loadPreset(state.presetId));
+    $("#topo-save").addEventListener("click", saveCurrentTopology);
+    $("#topo-name").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); saveCurrentTopology(); } });
+    $("#topo-library").addEventListener("click", (event) => {
+      const load = event.target.closest("[data-topo-load]");
+      const del = event.target.closest("[data-topo-del]");
+      if (load) loadSavedTopology(load.dataset.topoLoad);
+      else if (del) deleteSavedTopology(del.dataset.topoDel);
+    });
     $("#open-json").addEventListener("click", openJson);
     $("#json-close").addEventListener("click", closeJson);
     $("#json-apply").addEventListener("click", applyJson);
@@ -1992,6 +2113,8 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 
   async function init() {
     bindEvents();
+    state.topologies = readTopologyLibrary();
+    renderTopologyLibrary();
     renderScenarios();
     state.name = nowName();
     await loadPresets();

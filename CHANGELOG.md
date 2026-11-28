@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.0.11] — 2026-11-28
+
+### Added
+
+- ASM1 自由拓扑本机拓扑库：保存当前拓扑到浏览器 `localStorage`，列表可载入/删除，最多 12 个；保存前先本地检查，再调用 `POST /api/v1/topologies/validate`，不把未编译通过的拓扑存进去。
+- 拓扑库条目显示节点/连接数和保存日期；载入后回到 ASM1 自由拓扑画布，重新走服务端编译。
+
+### Changed
+
+- 版本统一到 `0.0.11`。
+- 拓扑库只存本机浏览器；换浏览器、清缓存会丢失，文档里明确说明，不冒充服务端持久化。
+
+### Verification
+
+- 浏览器实测：载入 BSM1 → 保存为 `我的 BSM1 副本` → 出现在本机拓扑库；刷新页面后仍在；载入后 9 节点/10 连接与服务端编译正常；删除后列表归零，再保存可恢复。
+- `cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全过（74 项）。
+- OpenAPI 仍为 13 paths；0.0.10 的 `/tmp` 24 h 试跑在环境清理后进程消失、未生成 summary，不能算完成。0.0.11 已改用项目目录持久 workdir（`soak-24h-run/`）并每 60 s 写 `docs/soak-24h-progress.json` checkpoint，真实 wall-clock 24 h soak 重新启动，仍不能宣称 `completed_24h=true`。
+
 ## [0.0.10] — 2026-11-28
 
 ### Added
