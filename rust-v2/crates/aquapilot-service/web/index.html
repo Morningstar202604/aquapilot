@@ -263,6 +263,15 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 .alarm-list{margin-top:7px;display:grid;gap:4px}
 .alarm-item{font-size:9.5px;color:#8a5a16;background:#fff8e8;border-left:2px solid var(--amber);padding:3px 5px;border-radius:3px;line-height:1.35}
 .alarm-item.high{color:#9b3b32;background:#fff1ee;border-left-color:var(--red)}
+.alarm-item summary{cursor:pointer;list-style:none;outline:none}
+.alarm-item summary::-webkit-details-marker{display:none}
+.alarm-item summary::before{content:"▸ ";color:var(--muted)}
+.alarm-item[open] summary::before{content:"▾ "}
+.alarm-explain{margin-top:4px;padding-top:4px;border-top:1px dashed rgba(138,90,22,.25);font-size:9px;color:var(--ink);line-height:1.4}
+.alarm-explain b{color:var(--muted);font-weight:600;letter-spacing:.2px}
+.alarm-explain ul{margin:1px 0 4px 13px;padding:0}
+.alarm-explain li{margin:0}
+.alarm-explain .tag{font-family:var(--mono);font-size:8.5px;color:var(--muted)}
 .score-ok{font-size:9.5px;color:var(--teal);margin-top:5px}
 .balance{margin-top:10px;border-top:1px solid var(--line);padding-top:9px}
 .balance-row{display:flex;justify-content:space-between;gap:8px;padding:4px 0;font-size:10px}
@@ -350,7 +359,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   <div class="top-status">
     <div class="status-chip" title="服务健康"><span class="dot" id="svc-dot"></span><span id="svc-label">连接中</span></div>
     <div class="status-chip"><span class="mono" id="queue-chip">队列 0 / 32</span></div>
-    <div class="status-chip"><span class="mono" id="svc-version">v0.0.12</span></div>
+    <div class="status-chip"><span class="mono" id="svc-version">v0.0.13</span></div>
   </div>
   <button class="top-link" id="open-api">API 契约 ↗</button>
 </header>
@@ -1803,6 +1812,18 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     return result.whole_balance || result.mass_balance || null;
   }
 
+  function alarmExplain(alarm) {
+    const sections = [
+      ["证据", alarm.evidence || []],
+      ["可能原因", alarm.possible_causes || []],
+      ["建议动作", alarm.recommended_actions || []],
+    ].filter(([, items]) => items.length);
+    if (!sections.length) return "";
+    return `<div class="alarm-explain">${sections
+      .map(([label, items]) => `<b>${label}</b><ul>${items.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>`)
+      .join("")}</div>`;
+  }
+
   function renderScorecard(analysis) {
     const el = $("#scorecard");
     if (!analysis || !analysis.scorecard) {
@@ -1820,7 +1841,12 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       </div>
       <div class="score-bar"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></div>
       ${alarms.length
-        ? `<div class="alarm-list">${alarms.slice(0, 4).map((alarm) => `<div class="alarm-item ${esc(alarm.severity)}">${esc(alarm.code)} · ${esc(alarm.message)}</div>`).join("")}</div>`
+        ? `<div class="alarm-list">${alarms.slice(0, 4).map((alarm) => {
+          const explain = alarmExplain(alarm);
+          return explain
+            ? `<details class="alarm-item ${esc(alarm.severity)}"><summary><span class="tag">${esc(alarm.code)}</span> · ${esc(alarm.message)}</summary>${explain}</details>`
+            : `<div class="alarm-item ${esc(alarm.severity)}">${esc(alarm.code)} · ${esc(alarm.message)}</div>`;
+        }).join("")}</div>`
         : `<div class="score-ok">无告警；出水指标在已检查限值内。</div>`}
     `;
   }

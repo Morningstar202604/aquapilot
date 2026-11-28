@@ -705,6 +705,31 @@ fn report_markdown(record: &ExperimentRecord) -> String {
                     alarm.code, alarm.severity, alarm.scope, alarm.message
                 ));
             }
+            report.push_str("\n### Alarm explanations\n\n");
+            for alarm in &analysis.alarms {
+                if alarm.evidence.is_empty()
+                    && alarm.possible_causes.is_empty()
+                    && alarm.recommended_actions.is_empty()
+                {
+                    continue;
+                }
+                report.push_str(&format!("- **`{}`**\n", alarm.code));
+                if !alarm.evidence.is_empty() {
+                    report.push_str(&format!("  - Evidence: {}\n", alarm.evidence.join("；")));
+                }
+                if !alarm.possible_causes.is_empty() {
+                    report.push_str(&format!(
+                        "  - Possible causes: {}\n",
+                        alarm.possible_causes.join("；")
+                    ));
+                }
+                if !alarm.recommended_actions.is_empty() {
+                    report.push_str(&format!(
+                        "  - Recommended actions: {}\n",
+                        alarm.recommended_actions.join("；")
+                    ));
+                }
+            }
         }
         report.push_str("\n## Daily averages\n\n");
         report.push_str(&period_markdown(&analysis.daily));
@@ -1323,7 +1348,7 @@ mod tests {
         assert_eq!(openapi.status(), StatusCode::OK);
         let document = body_json(openapi).await;
         assert_eq!(document["openapi"], "3.1.0");
-        assert_eq!(document["info"]["version"], "0.0.12");
+        assert_eq!(document["info"]["version"], "0.0.13");
         assert!(document["paths"]["/api/v1/experiments"].is_object());
         assert!(document["paths"]["/api/v1/presets"].is_object());
         assert!(document["paths"]["/api/v1/topologies/validate"].is_object());

@@ -38,6 +38,15 @@ pub struct Alarm {
     pub metric: Option<String>,
     pub value: Option<f64>,
     pub limit: Option<f64>,
+    /// Concrete observations behind the alarm, not a restatement of the code.
+    #[serde(default)]
+    pub evidence: Vec<String>,
+    /// Plausible causes grounded in the model boundary; never presented as certainty.
+    #[serde(default)]
+    pub possible_causes: Vec<String>,
+    /// Cheap checks or operating moves that can falsify each cause.
+    #[serde(default)]
+    pub recommended_actions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -139,6 +148,8 @@ pub fn analyze_parts(model: &str, result: &Value, samples: &[Sample]) -> Experim
             let passed = value.is_some_and(|value| value <= *limit);
             if let Some(value) = value {
                 if !passed {
+                    let minute = final_sample.map_or(0.0, |sample| sample.minute);
+                    let (possible_causes, recommended_actions) = effluent_advice(metric, model);
                     alarms.push(Alarm {
                         code: format!("EFFLUENT_{}_HIGH", metric.to_ascii_uppercase()),
                         severity: "high".to_owned(),
@@ -147,6 +158,11 @@ pub fn analyze_parts(model: &str, result: &Value, samples: &[Sample]) -> Experim
                         metric: Some((*metric).to_owned()),
                         value: Some(value),
                         limit: Some(*limit),
+                        evidence: vec![format!(
+                            "末次采样 minute={minute:.0}：{label}={value:.4} mg/L；限值 {limit:.1} mg/L。"
+                        )],
+                        possible_causes,
+                        recommended_actions,
                     });
                 }
             }
@@ -163,12 +179,12 @@ pub fn analyze_parts(model: &str, result: &Value, samples: &[Sample]) -> Experim
 
     let do_samples: Vec<&Sample> = samples
         .iter()
-        .filter(|sample| sample.minute > 60.0)
+        .filter(|sample| sample.minute > 60.0 && sample.do_mg_l.is_finite())
         .collect();
-    if let Some(min_do) = do_samples
+    if let Some((minute, min_do)) = do_samples
         .iter()
-        .map(|sample| sample.do_mg_l)
-        .reduce(f64::min)
+        .map(|sample| (sample.minute, sample.do_mg_l))
+        .min_by(|left, right| left.1.total_cmp(&right.1))
     {
         if min_do < 1.0 {
             alarms.push(Alarm {
@@ -179,6 +195,20 @@ pub fn analyze_parts(model: &str, result: &Value, samples: &[Sample]) -> Experim
                 metric: Some("do_mg_l".to_owned()),
                 value: Some(min_do),
                 limit: Some(1.0),
+                evidence: vec![format!(
+                    "第 {minute:.0} 分钟 DO={min_do:.2} mg/L；下限 1.0 mg/L；只统计 60 min 后的样本。"
+                )],
+                possible_causes: vec![
+                    "曝气 KLa 或风机能力不足".to_owned(),
+                    "进水/回流流量超过当前供氧能力".to_owned(),
+                    "DO 设定点过低或控制响应滞后".to_owned(),
+                    "高负荷或高温抬高了耗氧速率".to_owned(),
+                ],
+                recommended_actions: vec![
+                    "提高好氧池 KLa 或 DO 设定点，先做 1 d 短实验观察最低 DO".to_owned(),
+                    "核对进水流量、回流比与曝气设备状态，排除执行机构饱和".to_owned(),
+                    "若拓扑中没有好氧池，确认缺氧/厌氧单元是否被误设".to_owned(),
+                ],
             });
         }
     }
@@ -187,17 +217,33 @@ pub fn analyze_parts(model: &str, result: &Value, samples: &[Sample]) -> Experim
     if let Some(balance) = &balance {
         if let Some(closed) = balance.closed {
             if !closed {
+                let max_residual = balance.max_residual_pct.unwrap_or(0.0);
                 alarms.push(Alarm {
                     code: "MASS_BALANCE_OPEN".to_owned(),
                     severity: "medium".to_owned(),
                     scope: "plant".to_owned(),
                     message: format!(
                         "plant COD/N/P mass balance is not closed (max residual {:.2}%)",
-                        balance.max_residual_pct.unwrap_or(0.0)
+                        max_residual
                     ),
                     metric: Some("mass_balance".to_owned()),
                     value: balance.max_residual_pct,
                     limit: Some(5.0),
+                    evidence: vec![format!(
+                        "全厂 COD/N/P 账本中最大绝对残差 {max_residual:.2}%；闭合阈值 5.00%。"
+                    )],
+                    possible_causes: vec![
+                        "拓扑边界不完整：缺少二沉池、污泥线或弃流路径".to_owned(),
+                        "未建模的化学沉淀、吸附或过滤路径被当成消失".to_owned(),
+                        "自由拓扑存在未连接的支路，或有流量未进入账本".to_owned(),
+                        "积分步长或采样间隔较粗，残差尚未收敛".to_owned(),
+                    ],
+                    recommended_actions: vec![
+                        "先核对拓扑是否覆盖所有进出水与污泥流，再判断是否需要调参".to_owned(),
+                        "查看 whole_balance 中 COD/N/P 哪一本账残差最大".to_owned(),
+                        "把时间步长减半复跑同一工况，观察残差是否下降".to_owned(),
+                        "若残差来自已知未建模边界，应在报告中标注，不能强行改成闭合".to_owned(),
+                    ],
                 });
             }
         }
@@ -213,6 +259,17 @@ pub fn analyze_parts(model: &str, result: &Value, samples: &[Sample]) -> Experim
             metric: None,
             value: None,
             limit: None,
+            evidence: vec!["实验状态为 succeeded，但结果中的 samples 数组为空。".to_owned()],
+            possible_causes: vec![
+                "采样间隔大于模拟时长，队列中没有任何采样点".to_owned(),
+                "worker 写回结果时丢失了采样数组".to_owned(),
+                "取消/恢复边界导致结果只保留了终态".to_owned(),
+            ],
+            recommended_actions: vec![
+                "检查实验的 sample_interval_min 与 duration_min 配置".to_owned(),
+                "用 1 d、60 min 采样间隔重跑最小实验，确认采样链路".to_owned(),
+                "若结果确实只有终态，应把评分降级为不可解释而不是补 0".to_owned(),
+            ],
         });
     } else if samples.len() < 2 {
         alarms.push(Alarm {
@@ -224,6 +281,18 @@ pub fn analyze_parts(model: &str, result: &Value, samples: &[Sample]) -> Experim
             metric: Some("sample_count".to_owned()),
             value: Some(samples.len() as f64),
             limit: Some(2.0),
+            evidence: vec![format!(
+                "只有 {} 个采样点，无法形成日/周均值序列。",
+                samples.len()
+            )],
+            possible_causes: vec![
+                "采样间隔大于或等于模拟时长".to_owned(),
+                "模拟提前终止，只写回了最后一个采样点".to_owned(),
+            ],
+            recommended_actions: vec![
+                "把 sampling_interval_min 调小到模拟时长的 1/24 以下".to_owned(),
+                "重跑并确认 samples 至少包含起点与终点两个点".to_owned(),
+            ],
         });
     }
     if quality.finite_sample_count < quality.sample_count {
@@ -239,6 +308,21 @@ pub fn analyze_parts(model: &str, result: &Value, samples: &[Sample]) -> Experim
             metric: Some("finite_sample_count".to_owned()),
             value: Some(quality.finite_sample_count as f64),
             limit: Some(quality.sample_count as f64),
+            evidence: vec![format!(
+                "{} / {} 个采样点包含 NaN 或 Inf；这些点不参与评分。",
+                quality.sample_count - quality.finite_sample_count,
+                quality.sample_count
+            )],
+            possible_causes: vec![
+                "数值积分发散：步长过大、池容过小或 KLa 过高".to_owned(),
+                "拓扑存在零流量/负流量连接，导致除零".to_owned(),
+                "初始浓度或进水参数超出模型适用范围".to_owned(),
+            ],
+            recommended_actions: vec![
+                "先用 /topologies/validate 编译拓扑，排除结构错误".to_owned(),
+                "把步长减半、检查最小池容和连接流量后重跑".to_owned(),
+                "检查进水 COD/NH4/SS 是否出现负值或极端值".to_owned(),
+            ],
         });
     }
 
@@ -291,6 +375,79 @@ pub fn analyze_parts(model: &str, result: &Value, samples: &[Sample]) -> Experim
         daily: aggregate(samples, 1440.0, "day"),
         weekly: aggregate(samples, 10080.0, "week"),
         method: "derived from stored samples and mass_balance; no hidden recomputation".to_owned(),
+    }
+}
+
+fn effluent_advice(metric: &str, model: &str) -> (Vec<String>, Vec<String>) {
+    match metric {
+        "cod" => (
+            vec![
+                "进水 COD 负荷或流量超过当前池容/曝气能力".to_owned(),
+                "好氧池 HRT 过短、KLa 不足或 DO 长期偏低".to_owned(),
+                "自由拓扑没有二沉池，生物量随出水流失".to_owned(),
+            ],
+            vec![
+                "核对进水 COD 与流量，先做 1 d 短实验确认是否随负荷下降".to_owned(),
+                "检查好氧池池容、KLa、DO 设定与回流比".to_owned(),
+                "确认拓扑里有二沉池或等效固液分离单元".to_owned(),
+            ],
+        ),
+        "ss" => (
+            vec![
+                "自由拓扑缺少二沉池或过滤单元，悬浮固体直接穿透".to_owned(),
+                "污泥回流不足或排泥过量，生物量无法维持".to_owned(),
+                "进水 SS 过高或池体混合过强".to_owned(),
+            ],
+            vec![
+                "先确认拓扑中二沉池/过滤单元是否存在并连接".to_owned(),
+                "检查 RAS 回流比、污泥浓度与排泥设置".to_owned(),
+                "若模型边界没有沉淀单元，应在报告中说明，不能把 SS 解释成处理失败".to_owned(),
+            ],
+        ),
+        "nh4_n" => (
+            vec![
+                "硝化细菌不足：SRT 太短或好氧池容不够".to_owned(),
+                "DO 偏低或 KLa 不足，硝化速率受限".to_owned(),
+                "进水 NH4-N 冲击或温度过低".to_owned(),
+            ],
+            vec![
+                "检查好氧池 DO、KLa 与水力停留时间".to_owned(),
+                "确认污泥龄/排泥量没有把硝化菌洗出".to_owned(),
+                "用冬季 12°C 工况复跑，区分温度抑制与负荷冲击".to_owned(),
+            ],
+        ),
+        "tn" => (
+            vec![
+                "缺氧段不足或内回流比过低，反硝化不充分".to_owned(),
+                "进水碳源不足，反硝化没有电子供体".to_owned(),
+                "好氧段过度曝气把内回流 DO 带高".to_owned(),
+            ],
+            vec![
+                "检查缺氧池池容、内回流比与进水分配".to_owned(),
+                "核对进水 COD/TN 比，必要时评估外加碳源".to_owned(),
+                "降低内回流夹带的 DO，观察 TN 是否下降".to_owned(),
+            ],
+        ),
+        "tp" | "po4_p" => (
+            vec![
+                "生物除磷不足：厌氧段缺失、VFA 不足或 SRT 不匹配".to_owned(),
+                "化学除磷剂量不足或 PAC 投加点不合理".to_owned(),
+                "二沉池/污泥回流异常导致磷释放或穿透".to_owned(),
+            ],
+            vec![
+                "先确认厌氧段与回流路径存在，且没有把 DO/NO3 带入厌氧区".to_owned(),
+                "核对 PAC 剂量与投加点，做 0/20/40 mg/L 小矩阵".to_owned(),
+                "检查剩余污泥排放是否正常，避免磷在系统内循环".to_owned(),
+            ],
+        ),
+        _ if model == "asm1" => (
+            vec!["ASM1 不建模磷；该指标不应出现在 ASM1 评分中。".to_owned()],
+            vec!["确认模型选择与评分指标一致，不要用 ASM2d 限值套 ASM1。".to_owned()],
+        ),
+        _ => (
+            vec!["该指标超出当前模型边界或工况设计范围。".to_owned()],
+            vec!["先确认模型能力与指标口径，再调整工艺参数。".to_owned()],
+        ),
     }
 }
 
@@ -548,11 +705,39 @@ mod tests {
         high.cod = 80.0;
         let analysis = analyze_parts("asm2d", &serde_json::Value::Null, &[sample(0.0), high]);
         assert_eq!(analysis.scorecard.grade, "B");
-        assert!(analysis
+        let alarm = analysis
             .alarms
             .iter()
-            .any(|alarm| alarm.code == "EFFLUENT_COD_HIGH"));
+            .find(|alarm| alarm.code == "EFFLUENT_COD_HIGH")
+            .expect("COD alarm");
+        assert!(!alarm.evidence.is_empty());
+        assert!(!alarm.possible_causes.is_empty());
+        assert!(!alarm.recommended_actions.is_empty());
+        assert!(alarm.evidence[0].contains("80.0000"));
         assert_eq!(analysis.data_quality.sample_count, 2);
+    }
+
+    #[test]
+    fn mass_balance_alarm_explains_residual_and_actions() {
+        let result = serde_json::json!({
+            "whole_balance": {
+                "cod": {"residual_fraction": 0.031, "closed": true},
+                "nitrogen": {"residual_fraction": 0.112, "closed": false},
+                "phosphorus": {"residual_fraction": 0.0655, "closed": false}
+            }
+        });
+        let analysis = analyze_parts("asm2d", &result, &[sample(60.0), sample(120.0)]);
+        let alarm = analysis
+            .alarms
+            .iter()
+            .find(|alarm| alarm.code == "MASS_BALANCE_OPEN")
+            .expect("balance alarm");
+        assert!((alarm.value.unwrap_or_default() - 11.2).abs() < 1.0e-9);
+        assert!(alarm.evidence[0].contains("11.20%"));
+        assert!(alarm
+            .recommended_actions
+            .iter()
+            .any(|action| action.contains("拓扑")));
     }
 
     #[test]

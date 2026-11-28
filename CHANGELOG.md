@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.13] — 2026-11-28
+
+### Added
+
+- 告警解释层：`Alarm` 新增 `evidence[]`、`possible_causes[]`、`recommended_actions[]`；覆盖出水指标超限、低 DO、质量平衡未闭合、无样本、单样本与非有限值六类告警。
+- UI 告警条目改为可展开 `<details>`：点开显示证据、可能原因与建议动作，默认折叠；`report.md` 在告警表后追加 `### Alarm explanations`。
+
+### Verification
+
+- ASM1 三池 1 d 实测：5 节点/4 连接，succeeded，D 1/4，三条 `EFFLUENT_*_HIGH`；展开 SS 告警可见“minute=1440、SS=1978.8112 mg/L、限值 10.0”及三条建议。截图 `docs/screenshots/v2-ui-alarm-explain.png`；机器可读证据 `docs/alarm-explain-check.json`。
+- 同一实验 detail 的 `analysis.alarms[]` 返回三段解释；`report.md` 含 `### Alarm explanations`；`cargo test` 75 项、OpenAPI 13 paths。
+
 ## [0.0.12] — 2026-11-28
 
 ### Added

@@ -1,6 +1,6 @@
 # V2 可视化编排台
 
-> 版本 0.0.12。服务启动后直接打开 `http://127.0.0.1:5173/`。这是 V2-3 之后补上的可交互前端，不是只读仪表盘：A2O 工况可以在画布上改，ASM1 可以增删节点和连接，提交后进入同一条持久实验队列。
+> 版本 0.0.13。服务启动后直接打开 `http://127.0.0.1:5173/`。这是 V2-3 之后补上的可交互前端，不是只读仪表盘：A2O 工况可以在画布上改，ASM1 可以增删节点和连接，提交后进入同一条持久实验队列。
 
 ![V2 工艺编排台](screenshots/v2-ui-editor.png)
 
@@ -109,6 +109,14 @@ cargo run -q -p aquapilot-cli -- serve \
 ASM1 画布的工具栏有 `↶ 撤销` / `↷ 重做`。增删节点、增删连接、工况注入、池型/边类型修改会压入历史栈（最多 50 步）；撤销会恢复节点、连接与选中状态，并重新走服务端编译。切换预设、载入本机拓扑或应用高级 JSON 会清空历史。支持 `Ctrl+Z`、`Ctrl+Shift+Z` / `Ctrl+Y`，输入框内不拦截。
 
 ![拓扑撤销/重做：6 节点/5 连接，撤销与重做按钮可用](screenshots/v2-ui-topology-history.png)
+
+### 3.8 告警解释
+
+告警列表不再只显示代码和一句话：点开每条告警，可以看到证据、可能原因和建议动作。解释来自同一份 `analysis.alarms`，不另做一套前端规则；后端不可用时不会伪造解释。
+
+![告警解释：ASM1 三池 1 d 实验，D 1/4，三条出水告警，展开 SS 告警的证据/原因/建议](screenshots/v2-ui-alarm-explain.png)
+
+实测数据落在 `docs/alarm-explain-check.json`：同一实验的 `analysis.alarms[]` 带三段解释，`report.md` 含 `### Alarm explanations`。
 
 ![本机拓扑库：保存 BSM1 副本后刷新仍可载入，9 节点/10 连接服务端已编译](screenshots/v2-ui-topology-library.png)
 
