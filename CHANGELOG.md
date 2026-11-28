@@ -13,7 +13,7 @@
 - `cargo test --workspace` 91 项通过；fmt/clippy 通过。
 - Study `cfc58d64-585d-4582-9e95-9652bc0da138` succeeded，2/2 子实验；证据 `docs/studies/0.0.20-study-detail.json`。
 - Legacy snapshot 来自 `73265e4a-c008-4d23-9baf-0e1e386b1153`；证据 `docs/studies/0.0.20-legacy-snapshot.json`。
-- 24 h soak 仍在运行，未生成 summary；Cutover 仍 NO-GO。
+- 0.0.19 soak 在 1141 s 中断，未生成 summary；已用 0.0.20 release 在 5199 重启 24 h soak（`soak-24h-run-020`），仍未完成。Cutover 仍 NO-GO。
 
 
 ## [0.0.19] — 2026-11-28
