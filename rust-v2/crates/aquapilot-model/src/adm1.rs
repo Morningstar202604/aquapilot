@@ -721,7 +721,13 @@ pub fn simulate_adm1(
     days: f64,
     dt_days: f64,
 ) -> Result<Adm1Snapshot, Adm1Error> {
-    if config.volume_m3 <= 0.0 || config.flow_m3_per_d <= 0.0 || days <= 0.0 {
+    if config.volume_m3 <= 0.0
+        || config.flow_m3_per_d <= 0.0
+        || !days.is_finite()
+        || days <= 0.0
+        || !dt_days.is_finite()
+        || dt_days <= 0.0
+    {
         return Err(Adm1Error::InvalidConfig);
     }
     let mut state = config.initial;
@@ -1098,6 +1104,14 @@ mod tests {
             },
             params: Adm1Params::default(),
         }
+    }
+
+    #[test]
+    fn rejects_zero_or_negative_time_step() {
+        let config = tutorial_config();
+        assert!(simulate_adm1(&config, 10.0, 0.0).is_err());
+        assert!(simulate_adm1(&config, 10.0, -0.002).is_err());
+        assert!(simulate_adm1(&config, f64::NAN, 0.002).is_err());
     }
 
     #[test]

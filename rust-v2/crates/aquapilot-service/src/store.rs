@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
 use crate::ApiError;
@@ -22,6 +22,10 @@ pub enum StoreError {
     QueueFull,
     #[error("idempotency key was reused with a different request")]
     IdempotencyConflict,
+    #[error("backup destination already exists")]
+    BackupExists,
+    #[error("backup path is not valid UTF-8")]
+    InvalidBackupPath,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,7 +154,7 @@ impl Store {
         request_hash: &str,
     ) -> Result<CreateOutcome, StoreError> {
         let mut conn = self.conn.lock().expect("store mutex poisoned");
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         if let Some(key_hash) = idempotency_key_hash {
             if let Some(existing) = find_by_idempotency(&tx, key_hash)? {
                 if existing.request_hash.as_deref() == Some(request_hash) {
@@ -192,6 +196,28 @@ impl Store {
             record,
             created: true,
         })
+    }
+
+    /// Write a consistent SQLite snapshot with `VACUUM INTO`. The source
+    /// connection is the same one used by the queue; callers should stop
+    /// writes only if they need a byte-for-byte frozen file, not for this
+    /// transactional snapshot.
+    pub fn backup_to(&self, destination: &Path, overwrite: bool) -> Result<(), StoreError> {
+        if destination.exists() {
+            if !overwrite {
+                return Err(StoreError::BackupExists);
+            }
+            std::fs::remove_file(destination).map_err(|error| {
+                StoreError::Sqlite(rusqlite::Error::InvalidPath(error.to_string().into()))
+            })?;
+        }
+        let path = destination
+            .to_str()
+            .ok_or(StoreError::InvalidBackupPath)?
+            .replace('\'', "''");
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        conn.execute_batch(&format!("VACUUM INTO '{}';", path))?;
+        Ok(())
     }
 
     pub fn get(&self, id: &str) -> Result<Option<ExperimentRecord>, StoreError> {
@@ -323,37 +349,42 @@ impl Store {
 
     pub fn cancel(&self, id: &str) -> Result<CancelOutcome, StoreError> {
         let conn = self.conn.lock().expect("store mutex poisoned");
-        let status: Option<String> = conn
-            .query_row(
-                "SELECT status FROM experiments WHERE id = ?1",
-                params![id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        let Some(status) = status else {
-            return Ok(CancelOutcome::NotFound);
-        };
         let now = now_unix();
-        match status.as_str() {
-            "queued" => {
-                conn.execute(
-                    "UPDATE experiments SET status = 'cancelled', cancel_requested = 1,
-                     updated_at = ?1, finished_at = ?1
-                     WHERE id = ?2 AND status = 'queued'",
-                    params![now, id],
-                )?;
-                Ok(CancelOutcome::Cancelled)
-            }
-            "running" => {
-                conn.execute(
-                    "UPDATE experiments SET cancel_requested = 1, updated_at = ?1
-                     WHERE id = ?2 AND status = 'running'",
-                    params![now, id],
-                )?;
-                Ok(CancelOutcome::CancelRequested)
-            }
-            _ => Ok(CancelOutcome::Terminal),
+        // One conditional UPDATE closes the read-then-write race between a
+        // queued experiment being claimed by the worker and a cancel request.
+        let changed = conn.execute(
+            "UPDATE experiments
+             SET cancel_requested = 1,
+                 status = CASE WHEN status = 'queued' THEN 'cancelled' ELSE status END,
+                 updated_at = ?1,
+                 finished_at = CASE WHEN status = 'queued' THEN ?1 ELSE finished_at END
+             WHERE id = ?2 AND status IN ('queued', 'running')",
+            params![now, id],
+        )?;
+        if changed == 0 {
+            let status: Option<String> = conn
+                .query_row(
+                    "SELECT status FROM experiments WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            return Ok(match status.as_deref() {
+                None => CancelOutcome::NotFound,
+                Some("queued") | Some("running") => CancelOutcome::CancelRequested,
+                Some(_) => CancelOutcome::Terminal,
+            });
         }
+        let status: String = conn.query_row(
+            "SELECT status FROM experiments WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )?;
+        Ok(match status.as_str() {
+            "cancelled" => CancelOutcome::Cancelled,
+            "running" => CancelOutcome::CancelRequested,
+            _ => CancelOutcome::Terminal,
+        })
     }
 
     pub fn is_cancel_requested(&self, id: &str) -> Result<bool, StoreError> {
@@ -454,6 +485,9 @@ pub fn to_api_error(error: StoreError) -> ApiError {
             tracing::error!(error = %err, "sqlite store failure");
             ApiError::internal("SQLITE_ERROR", "persistence failure")
         }
+        StoreError::BackupExists | StoreError::InvalidBackupPath => {
+            ApiError::internal("BACKUP_ERROR", "backup path is invalid")
+        }
     }
 }
 
@@ -545,6 +579,33 @@ mod tests {
             CancelOutcome::Cancelled
         );
         assert!(store.claim_next().expect("claim").is_none());
+    }
+
+    #[test]
+    fn backup_is_a_consistent_sqlite_snapshot() {
+        let dir =
+            std::env::temp_dir().join(format!("aquapilot-store-backup-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let source = dir.join("source.sqlite");
+        let backup = dir.join("backup.sqlite");
+        let store = Store::open(&source, 2).expect("open");
+        store
+            .create("exp-1", "run-1", "asm1", "body", None, "hash-1")
+            .expect("create");
+        assert!(store.backup_to(&backup, false).is_ok());
+        let restored = Store::open(&backup, 1).expect("open backup");
+        let record = restored
+            .get("exp-1")
+            .expect("get")
+            .expect("record in backup");
+        assert_eq!(record.name, "run-1");
+        assert!(store.backup_to(&backup, false).is_err());
+        assert!(store.backup_to(&backup, true).is_ok());
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(dir.join(format!("source.sqlite{suffix}")));
+            let _ = std::fs::remove_file(dir.join(format!("backup.sqlite{suffix}")));
+        }
+        let _ = std::fs::remove_dir(&dir);
     }
 
     #[test]

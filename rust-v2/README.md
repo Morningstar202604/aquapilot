@@ -6,7 +6,7 @@
 - Clean-room 规则：`../docs/CLEAN-ROOM.md`
 - 旧 `rust/` 已冻结为 v0.11.23 的历史 checkpoint，v2 不读取、不复制它的源码。
 
-## 当前状态：V2-1、V2-2 已完成；V2-3 服务骨架已落地，24 h soak 待跑
+## 当前状态：V2-1、V2-2 已完成；V2-3 服务主体已落地，24 h soak 待跑
 
 V2-1 已完成并推送：ASM1 五池整厂、Takács 10 层二沉池、RAS/内回流/WAS、DO 控制、BSM1-like 与官方 BSM1 对照、22 项测试。
 
@@ -22,7 +22,7 @@ V2-2 当前已落：
 - `aquapilot-model::asm2d_adm1_loop`：把浓缩溢流与滤液合并后接回 A2O 进水，successive substitution 迭代到回流状态稳定；整厂 COD/N/P 三本账以外部进水为输入，出水、泥饼、沼气、库存为输出；CLI `asm2d-loop`；
 - PAC 基础投加：`Asm2dPacConfig` 指定反应器、产品剂量、Al2O3 品位和金属氢氧化物当量；`asm2d`/`asm2d-loop` 支持 `--pac-dose`、`--pac-reactor`、`--pac-al2o3-fraction`；`fixtures/a2o-asm2d-pac.json` 为 40 mg/L 示例；
 - 三级过滤：`Asm2dTertiaryConfig` 在二沉池后按颗粒物捕集率去除 TSS/颗粒 COD/N/P，并可选 PO4 化学抛光；CLI 支持 `--tertiary-tss-removal`、`--tertiary-po4-removal`；`fixtures/a2o-asm2d-pac-tertiary.json` 为 PAC 20 mg/L + 90% TSS + 70% PO4 示例；
-- V2-3 服务骨架：`aquapilot-service` 已实现 Axum HTTP、SSE 状态流、SQLite 持久实验队列、OpenAPI 3.1、RFC 9457、幂等键、取消/恢复、CSV/Markdown 报告；CLI `serve` 启动单二进制服务；
+- V2-3 服务主体：`aquapilot-service` 已实现 Axum HTTP、SSE 状态流、SQLite 持久实验队列、OpenAPI 3.1、RFC 9457、幂等键、取消/恢复、CSV/Markdown 报告；CLI `serve` 启动单二进制服务、`backup` 写一致 SQLite 快照；请求步数/采样预算与 ADM1 时间步保护已加；
 - 尚未完成：24 h soak（仅跑过 60 s smoke）、WebSocket（当前用 SSE）、Bearer 角色鉴权、MCP、界面；PAC 仍为三价金属当量模型，三级过滤为理想化边界单元。
 
 30 天 A2O ASM2d 实测（`fixtures/a2o-asm2d.json`）：
@@ -102,7 +102,14 @@ cd rust-v2
 cargo run -q -p aquapilot-cli -- serve --bind 127.0.0.1:5173 --db ./aquapilot.sqlite --queue-capacity 32
 ```
 
-API 契约见 [`../docs/V2-API.md`](../docs/V2-API.md)。60 s soak smoke：
+API 契约见 [`../docs/V2-API.md`](../docs/V2-API.md)。备份：
+
+```bash
+cd rust-v2
+cargo run -q -p aquapilot-cli -- backup --db ./aquapilot.sqlite --out ./aquapilot-backup.sqlite
+```
+
+60 s soak smoke：
 
 ```bash
 cd ..

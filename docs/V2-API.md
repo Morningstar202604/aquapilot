@@ -1,6 +1,6 @@
 # AquaPilot V2 Rust 服务 API
 
-> 版本 0.0.5。状态（2026-11-28）：`aquapilot-service` 已落地 HTTP + SSE、SQLite 持久实验队列、幂等、取消/恢复、CSV/Markdown 报告和 OpenAPI 3.1。24 h soak 尚未执行；60 s smoke 已通过，见 `docs/soak-smoke-summary.json`。首版不包含 Bearer 角色鉴权、MCP 或 WebSocket；实时推送使用 SSE，单进程单 worker。
+> 版本 0.0.6。状态（2026-11-28）：`aquapilot-service` 已落地 HTTP + SSE、SQLite 持久实验队列、幂等、取消/恢复、CSV/Markdown 报告和 OpenAPI 3.1。24 h soak 尚未执行；60 s smoke 已通过，见 `docs/soak-smoke-summary.json`。首版不包含 Bearer 角色鉴权、MCP 或 WebSocket；实时推送使用 SSE，单进程单 worker。
 
 ## 启动
 
@@ -39,7 +39,9 @@ cargo run -q -p aquapilot-cli -- serve \
 | `adm1` | `Adm1Config` | `simulate_adm1` |
 | `sludge-line` | `SludgeLineConfig` | `simulate_sludge_line` |
 
-顶层可选字段：`duration_min` 默认 1440，范围 1–525600；`dt_min` 默认 1，范围 (0,1]；`sample_every_min` 默认 60；`sludge_days` 默认 30；`sludge_dt_days` 默认 0.002；`max_iterations` 和 `relaxation` 只对 `asm2d-adm1-loop` 生效，并覆盖 `config` 内的同名值。
+顶层可选字段：`duration_min` 默认 1440，范围 1–525600；`dt_min` 默认 1，范围 (0,1]；`sample_every_min` 默认 60；`sludge_days` 默认 30，范围 (0,3650]；`sludge_dt_days` 默认 0.002，必须为正；`max_iterations` 和 `relaxation` 只对 `asm2d-adm1-loop` 生效，并覆盖 `config` 内的同名值。
+
+为防止单 worker 被一条请求拖死，服务在 422 校验阶段限制：`duration_min / dt_min` 和 `max(sludge_days, duration_min/1440) / sludge_dt_days` 均不超过 5,000,000 个积分步；`duration_min / sample_every_min` 不超过 1,000,000 个采样点；`max_iterations` 为 0（默认）或不超过 64；`relaxation` 为 0（默认）或位于 [0,1]。
 
 `asm2d-adm1-loop` 可以省略 `sludge`，服务使用 `Asm2dSludgeConfig::default()`；`plant` 必填。`adm1`/`sludge-line` 的 `duration_min` 会换算为天。
 
@@ -112,6 +114,17 @@ curl -sS -X POST http://127.0.0.1:5173/api/v1/experiments \
   -H 'Idempotency-Key: a2o-loop-30d' \
   --data-binary @/tmp/loop-request.json
 ```
+
+## 备份与恢复
+
+```bash
+cd rust-v2
+cargo run -q -p aquapilot-cli -- backup \
+  --db ./aquapilot.sqlite \
+  --out ./backup/aquapilot-$(date +%Y%m%d).sqlite
+```
+
+`backup` 使用 SQLite `VACUUM INTO` 写一致快照，包含 WAL 中已提交的事务；目标已存在时需 `--force`。恢复时把快照复制为新的 `--db` 路径再 `serve`，不要直接覆盖运行中的数据库。
 
 ## 持久化与恢复
 

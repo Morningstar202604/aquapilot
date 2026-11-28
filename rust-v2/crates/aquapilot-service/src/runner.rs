@@ -81,6 +81,13 @@ fn default_sludge_dt_days() -> f64 {
     0.002
 }
 
+/// Upper bound for a single experiment's integration loop. The service is
+/// single-worker, so an unbounded request would monopolize the queue.
+const MAX_INTEGRATION_STEPS: f64 = 5_000_000.0;
+const MAX_SAMPLES: f64 = 1_000_000.0;
+const MAX_SLUDGE_DAYS: f64 = 3_650.0;
+const MAX_ITERATIONS: usize = 64;
+
 impl ExperimentRequest {
     pub fn validate(&self) -> Result<(), Vec<FieldError>> {
         let mut errors = Vec::new();
@@ -111,6 +118,69 @@ impl ExperimentRequest {
                 "sample_every_min",
                 "RANGE",
                 "sample_every_min must be positive",
+            ));
+        }
+        let integration_steps = self.duration_min / self.dt_min;
+        if !integration_steps.is_finite() || integration_steps > MAX_INTEGRATION_STEPS {
+            errors.push(field(
+                "duration_min",
+                "STEP_BUDGET",
+                format!(
+                    "duration_min / dt_min must be at most {MAX_INTEGRATION_STEPS:.0} integration steps"
+                ),
+            ));
+        }
+        let sample_count = self.duration_min / self.sample_every_min;
+        if !sample_count.is_finite() || sample_count > MAX_SAMPLES {
+            errors.push(field(
+                "sample_every_min",
+                "SAMPLE_BUDGET",
+                format!("duration_min / sample_every_min must be at most {MAX_SAMPLES:.0} samples"),
+            ));
+        }
+        if !self.sludge_days.is_finite()
+            || self.sludge_days <= 0.0
+            || self.sludge_days > MAX_SLUDGE_DAYS
+        {
+            errors.push(field(
+                "sludge_days",
+                "RANGE",
+                format!("sludge_days must be positive and at most {MAX_SLUDGE_DAYS:.0} days"),
+            ));
+        }
+        if !self.sludge_dt_days.is_finite() || self.sludge_dt_days <= 0.0 {
+            errors.push(field(
+                "sludge_dt_days",
+                "RANGE",
+                "sludge_dt_days must be positive",
+            ));
+        } else {
+            let sludge_steps =
+                self.sludge_days.max(self.duration_min / 1440.0) / self.sludge_dt_days;
+            if !sludge_steps.is_finite() || sludge_steps > MAX_INTEGRATION_STEPS {
+                errors.push(field(
+                    "sludge_dt_days",
+                    "STEP_BUDGET",
+                    format!(
+                        "max(sludge_days, duration_min / 1440) / sludge_dt_days must be at most {MAX_INTEGRATION_STEPS:.0} steps"
+                    ),
+                ));
+            }
+        }
+        if self.max_iterations > MAX_ITERATIONS {
+            errors.push(field(
+                "max_iterations",
+                "RANGE",
+                format!("max_iterations must be 0 (default) or at most {MAX_ITERATIONS}"),
+            ));
+        }
+        if self.relaxation != 0.0
+            && (!self.relaxation.is_finite() || !(0.0..=1.0).contains(&self.relaxation))
+        {
+            errors.push(field(
+                "relaxation",
+                "RANGE",
+                "relaxation must be 0 (default) or within [0, 1]",
             ));
         }
         if !self.config.is_object() {
@@ -503,4 +573,79 @@ pub fn samples_csv(samples: &[Sample]) -> String {
 
 fn option_number(value: Option<f64>) -> String {
     value.map_or_else(String::new, |number| number.to_string())
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use super::*;
+
+    fn valid_request() -> ExperimentRequest {
+        let config: Value =
+            serde_json::from_str(include_str!("../../../fixtures/adm1-tutorial.json"))
+                .expect("ADM1 fixture");
+        ExperimentRequest {
+            name: "validation".to_owned(),
+            model: ModelKind::Adm1,
+            config,
+            duration_min: 1440.0,
+            dt_min: 1.0,
+            sample_every_min: 60.0,
+            sludge_days: 30.0,
+            sludge_dt_days: 0.002,
+            max_iterations: 0,
+            relaxation: 0.0,
+        }
+    }
+
+    #[test]
+    fn accepts_default_request() {
+        valid_request().validate().expect("default request");
+    }
+
+    #[test]
+    fn rejects_unbounded_integration_and_sampling() {
+        let mut request = valid_request();
+        request.duration_min = 525_600.0;
+        request.dt_min = 1.0e-9;
+        let errors = request.validate().expect_err("step budget");
+        assert!(errors.iter().any(|error| error.code == "STEP_BUDGET"));
+
+        let mut request = valid_request();
+        request.sample_every_min = 1.0e-6;
+        let errors = request.validate().expect_err("sample budget");
+        assert!(errors.iter().any(|error| error.code == "SAMPLE_BUDGET"));
+    }
+
+    #[test]
+    fn rejects_zero_or_negative_sludge_dt() {
+        let mut request = valid_request();
+        request.sludge_dt_days = 0.0;
+        let errors = request.validate().expect_err("zero dt");
+        assert!(errors.iter().any(|error| error.field == "sludge_dt_days"));
+
+        request.sludge_dt_days = -0.002;
+        let errors = request.validate().expect_err("negative dt");
+        assert!(errors.iter().any(|error| error.field == "sludge_dt_days"));
+    }
+
+    #[test]
+    fn rejects_unbounded_iterations_and_relaxation() {
+        let mut request = valid_request();
+        request.max_iterations = 65;
+        let errors = request.validate().expect_err("iterations");
+        assert!(errors.iter().any(|error| error.field == "max_iterations"));
+
+        let mut request = valid_request();
+        request.relaxation = 1.5;
+        let errors = request.validate().expect_err("relaxation");
+        assert!(errors.iter().any(|error| error.field == "relaxation"));
+    }
+
+    #[test]
+    fn rejects_invalid_sludge_days() {
+        let mut request = valid_request();
+        request.sludge_days = 0.0;
+        let errors = request.validate().expect_err("days");
+        assert!(errors.iter().any(|error| error.field == "sludge_days"));
+    }
 }

@@ -66,7 +66,7 @@ dependencies = [
 
 [[package]]
 name = "aquapilot-cli"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "aquapilot-domain",
  "aquapilot-engine",
@@ -79,7 +79,7 @@ dependencies = [
 
 [[package]]
 name = "aquapilot-domain"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "serde",
  "thiserror",
@@ -87,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "aquapilot-engine"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "aquapilot-domain",
  "aquapilot-model",
@@ -98,7 +98,7 @@ dependencies = [
 
 [[package]]
 name = "aquapilot-model"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "aquapilot-domain",
  "serde",
@@ -108,7 +108,7 @@ dependencies = [
 
 [[package]]
 name = "aquapilot-service"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "aquapilot-domain",
  "aquapilot-engine",

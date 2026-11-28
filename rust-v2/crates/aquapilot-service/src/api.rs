@@ -361,7 +361,13 @@ fn check_json_content_type(headers: &HeaderMap) -> Result<(), ApiError> {
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
-    if !content_type.starts_with("application/json") {
+    let media_type = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if media_type != "application/json" {
         return Err(ApiError::new(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "UNSUPPORTED_MEDIA_TYPE",
@@ -506,7 +512,7 @@ fn openapi_document() -> Value {
         "openapi": "3.1.0",
         "info": {
             "title": "AquaPilot V2 experiment API",
-            "version": "0.0.5",
+            "version": "0.0.6",
             "description": "Persistent, idempotent wastewater treatment experiments."
         },
         "paths": {
@@ -594,9 +600,9 @@ fn openapi_document() -> Value {
                         "duration_min": {"type": "number", "minimum": 1, "maximum": 525600, "default": 1440},
                         "dt_min": {"type": "number", "exclusiveMinimum": 0, "maximum": 1, "default": 1},
                         "sample_every_min": {"type": "number", "exclusiveMinimum": 0, "default": 60},
-                        "sludge_days": {"type": "number", "exclusiveMinimum": 0, "default": 30},
+                        "sludge_days": {"type": "number", "exclusiveMinimum": 0, "maximum": 3650, "default": 30},
                         "sludge_dt_days": {"type": "number", "exclusiveMinimum": 0, "default": 0.002},
-                        "max_iterations": {"type": "integer", "minimum": 1},
+                        "max_iterations": {"type": "integer", "minimum": 0, "maximum": 64, "default": 0},
                         "relaxation": {"type": "number", "minimum": 0, "maximum": 1}
                     }
                 },
@@ -766,6 +772,42 @@ mod tests {
             .expect("detail response");
         assert_eq!(detail.status(), StatusCode::OK);
         assert_eq!(body_json(detail).await["status"], "cancelled");
+    }
+
+    #[tokio::test]
+    async fn content_type_parameters_are_accepted_and_json_suffix_is_not() {
+        let store = Store::in_memory(2).expect("store");
+        let router = build_router(store);
+        let body = minimal_body("content-type");
+        let accepted = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/experiments")
+                    .header(header::CONTENT_TYPE, "application/json; charset=utf-8")
+                    .header("Idempotency-Key", "charset-key")
+                    .body(Body::from(serde_json::to_vec(&body).expect("json")))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(accepted.status(), StatusCode::ACCEPTED);
+
+        let rejected = router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/experiments")
+                    .header(header::CONTENT_TYPE, "application/jsonx")
+                    .header("Idempotency-Key", "suffix-key")
+                    .body(Body::from(serde_json::to_vec(&body).expect("json")))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(rejected.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        assert_eq!(body_json(rejected).await["code"], "UNSUPPORTED_MEDIA_TYPE");
     }
 
     #[tokio::test]

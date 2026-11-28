@@ -186,7 +186,11 @@ pub fn simulate_sludge_line(
     days: f64,
     dt_days: f64,
 ) -> Result<SludgeLineSnapshot, SludgeLineError> {
-    if config.feed.flow_m3_per_d <= 0.0
+    if !days.is_finite()
+        || days <= 0.0
+        || !dt_days.is_finite()
+        || dt_days <= 0.0
+        || config.feed.flow_m3_per_d <= 0.0
         || config.digester_volume_m3 <= 0.0
         || !(0.0..1.0).contains(&config.thickener.underflow_fraction)
         || !(0.0..=1.0).contains(&config.thickener.solids_capture)

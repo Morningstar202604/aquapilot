@@ -1,7 +1,7 @@
 # AquaPilot v2 基准记录
 
 > 记录日期：2026-11-28
-> 代码：`rust-v2/`，版本 0.0.5
+> 代码：`rust-v2/`，版本 0.0.6
 > 口径：clean-room 实现；不读取旧 `src/sim` 或旧 `rust/` 源码。
 
 ## 1. V2-1 BSM1-like 整厂
@@ -384,14 +384,15 @@ cargo test --workspace
 - 三级过滤按固定 TSS 捕集率 + 经验 PO4 抛光效率计算，不含反冲洗水、滤料级配和过滤压头；BOD、粪大肠菌群、色度等未建模。
 - 没有 24 h soak、没有 HTTP/WS 与界面。
 
-## 6. V2-3 服务与实验（2026-11-28，版本 0.0.5）
+## 6. V2-3 服务与实验（2026-11-28，版本 0.0.6）
 
 ### 6.1 服务测试
 
-`aquapilot-service` 11 项测试全过；全 workspace 57 项（model 38 + engine 8 + service 11）：
+`aquapilot-service` 18 项测试全过；全 workspace 65 项（model 39 + engine 8 + service 18）：
 
-- 5 项 SQLite store：创建/读取、幂等重放与冲突、队列满、queued 取消、运行时崩溃恢复；
-- 3 项 API 契约：创建/幂等/409 + 422、队列满 429 + `Retry-After: 30` + 取消、OpenAPI/健康检查。
+- 7 项 SQLite store：创建/读取、幂等重放与冲突、队列满、queued 取消、一致备份、运行时崩溃恢复；
+- 5 项 runner 校验：步数/采样预算、`sludge_dt_days` 正数、迭代/松弛上限、`sludge_days` 范围；
+- 5 项 API 契约：创建/幂等/409 + 422、队列满 429 + `Retry-After: 30` + 取消、Content-Type、413、OpenAPI/健康检查。
 
 ### 6.2 60 s soak smoke
 
@@ -408,8 +409,8 @@ python3 scripts/soak_v2.py --duration 60 --interval 2
 | 提交 / 成功入队 / 重放 / 队列满 | 30 / 30 / 0 / 0 |
 | 请求失败 / 健康检查失败 | 0 / 0 |
 | 最终状态 | 30 succeeded |
-| 创建延迟 P50 / P95 / max | 3.149 / 3.466 / 3.571 ms |
-| max RSS | 11,048 KB |
+| 创建延迟 P50 / P95 / max | 2.807 / 3.359 / 3.733 ms |
+| max RSS | 12,800 KB |
 | max open fds | 13 |
 | DB 文件（main + WAL + SHM） | 2,039,216 B |
 | `completed_24h` | false |

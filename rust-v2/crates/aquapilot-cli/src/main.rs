@@ -58,6 +58,18 @@ enum Command {
         #[arg(long, default_value_t = 32)]
         queue_capacity: usize,
     },
+    /// Write a consistent SQLite backup of the experiment database.
+    Backup {
+        /// Source SQLite database path.
+        #[arg(long, default_value = "aquapilot.sqlite")]
+        db: PathBuf,
+        /// Destination file path.
+        #[arg(long)]
+        out: PathBuf,
+        /// Replace an existing destination file.
+        #[arg(long)]
+        force: bool,
+    },
     /// Validate and compile a topology file without running it.
     Validate {
         /// Path to the topology JSON file.
@@ -293,6 +305,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }) {
                 return Err(std::io::Error::other(error.to_string()).into());
             }
+        }
+        Command::Backup { db, out, force } => {
+            let store = aquapilot_service::Store::open(&db, 1)?;
+            store.backup_to(&out, force)?;
+            println!("backup written to {}", out.display());
         }
         Command::Validate { topology } => {
             let plant = load_topology(&topology)?;

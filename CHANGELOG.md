@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.0.6] — 2026-11-28
+
+### Added
+
+- 实验请求步数/采样预算：`duration_min / dt_min` 与 `sludge_days / sludge_dt_days` 上限 5,000,000 步、`duration_min / sample_every_min` 上限 1,000,000 个采样点，避免单 worker 被一条恶意长步请求拖死。
+- `aquapilot-v2 backup --db <src> --out <dst> [--force]`：用 SQLite `VACUUM INTO` 写一致快照；`Store::backup_to` 拒绝覆盖已有文件，除非 `--force`。
+- `simulate_adm1` / `simulate_sludge_line` 拒绝非有限或非正的时间步，CLI 不再可能因 `dt=0` 死循环。
+
+### Changed
+
+- `Content-Type` 只接受媒体类型 `application/json`（允许 `charset` 参数），`application/jsonx` 等后缀不再误放行。
+- `Store::cancel` 改为单条条件 UPDATE，消除“queued 被 worker 抢到 running 与取消同时发生”的读改写竞态。
+- `Store::create` 使用 `BEGIN IMMEDIATE` 事务，把容量检查和插入放在同一个写锁内，避免并发创建把队列挤过容量。
+
+### Verification
+
+- `cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全过（65 项）。
+- 60 s soak smoke 重新跑通：30/30 succeeded、P50 2.807 ms、P95 3.359 ms、max RSS 12,800 KB、13 fds；24 h soak 仍未执行，`completed_24h=false`。
+
 ## [0.0.5] — 2026-11-28
 
 ### Added
