@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.0.8] — 2026-11-28
+
+### Added
+
+- `analysis.rs`：出水限值评分卡（A/B/C/D/N-A）、告警（超标、低 DO、三本账未闭合、无样本/稀疏样本/非有限值）、日/周聚合、数据质量。
+- `GET /api/v1/experiments/{id}/daily.csv` 与 `weekly.csv`；detail 新增 `analysis`；报告新增 Scorecard / Alarms / Daily averages / Weekly averages / Data quality。
+- UI 右栏出水评分卡、告警条、日汇总/周汇总下载；7 d 实验评分卡 A、6/6 达标，但 `MASS_BALANCE_OPEN` 6.55% 如实显示。
+- `scripts/journeys_v2.py`：暴雨 1500 m³/h、风机故障 KLa=0、三级过滤开/关 what-if、7 d 周报、脏数据五条角色旅程。
+- `docs/journeys-v2.json`、`docs/screenshots/v2-ui-scorecard.png`、`docs/screenshots/v2-ui-alarm.png`。
+
+### Changed
+
+- 版本统一到 `0.0.8`；`/api/health` 返回 `version`，UI 顶栏从 health 读取，不再硬编码。
+- OpenAPI 收录 `daily.csv`/`weekly.csv`，12 paths；`info.version` 由 `CARGO_PKG_VERSION` 提供。
+- 周期边界样本归入刚结束的周期：7 d 得到 7 个日桶、1 个周桶；`LOW_DO` 只看 60 min 之后，避免启动 0 DO 误报。
+- 评分卡只对出水限值打分；短时三本账未闭合单独告警，不把 A 冒充整厂闭环。
+- ASM1 只评 COD/SS/NH4-N/TN 四项，不把未建模的 TP=0 当通过；UI 同步隐藏 TP/PO4。
+
+### Verification
+
+- `cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全过（73 项 = model 39 + engine 8 + service 25 + worker 1）。
+- OpenAPI 0.0.8 用 `openapi-spec-validator` 验证通过，12 paths。
+- 五条角色旅程 5/5 通过，3.745 s；三级过滤开/关 TP 0.1496 vs 1.0430 mg/L；脏数据覆盖 400/422/409/404/415。
+- 浏览器实测 30 d 评分卡 A、6/6、0 告警；7 d 评分卡 A、6/6、1 个 `MASS_BALANCE_OPEN`；`daily.csv` 7 行、`weekly.csv` 1 行。
+- wall-clock 24 h soak 仍未执行；`completed_24h=false`，V2-3 仍不标完成。
+
 ## [0.0.7] — 2026-11-28
 
 ### Added

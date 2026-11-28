@@ -1,6 +1,6 @@
 # AquaPilot V2 Rust 服务 API
 
-> 版本 0.0.7。状态（2026-11-28）：`aquapilot-service` 已落地 HTTP + SSE、SQLite 持久实验队列、幂等、取消/恢复、CSV/Markdown 报告、OpenAPI 3.1 和同源可视化编排台（`GET /`、`GET /api/v1/presets`）。代表性端到端矩阵 11/11 通过（`docs/coverage-matrix.json`）；wall-clock 24 h soak 仍未执行，60 s smoke 见 `docs/soak-smoke-summary.json`。首版不包含 Bearer 角色鉴权、MCP 或 WebSocket；实时推送使用 SSE，单进程单 worker。
+> 版本 0.0.8。状态（2026-11-28）：`aquapilot-service` 已落地 HTTP + SSE、SQLite 持久实验队列、幂等、取消/恢复、CSV/Markdown 报告、OpenAPI 3.1、同源可视化编排台（`GET /`、`GET /api/v1/presets`），以及出水评分卡、告警、日/周聚合与五条角色旅程。代表性端到端矩阵 11/11 通过（`docs/coverage-matrix.json`），五条旅程 5/5 通过（`docs/journeys-v2.json`）；wall-clock 24 h soak 仍未执行，60 s smoke 见 `docs/soak-smoke-summary.json`。首版不包含 Bearer 角色鉴权、MCP 或 WebSocket；实时推送使用 SSE，单进程单 worker。
 
 ## 启动
 
@@ -50,7 +50,7 @@ cargo run -q -p aquapilot-cli -- serve \
 | Method | Path | 语义 |
 | --- | --- | --- |
 | `GET` | `/` | 同源单文件工艺编排台（HTML） |
-| `GET` | `/api/health` | 队列深度、容量、uptime |
+| `GET` | `/api/health` | 队列深度、容量、版本、uptime |
 | `GET` | `/api/openapi.json` | OpenAPI 3.1.0 |
 | `GET` | `/api/v1/presets` | 6 个内嵌场景预设与完整 model config |
 | `POST` | `/api/v1/experiments` | 入队，`202`；幂等重放 `200` |
@@ -58,8 +58,10 @@ cargo run -q -p aquapilot-cli -- serve \
 | `GET` | `/api/v1/experiments/{id}` | 详情；成功时含 `result` 快照 |
 | `POST` | `/api/v1/experiments/{id}/cancel` | 取消 queued，或给 running 设取消标记 |
 | `GET` | `/api/v1/experiments/{id}/events` | SSE 状态流，每 0.5 s 一帧，终态后关闭 |
-| `GET` | `/api/v1/experiments/{id}/samples.csv` | 成功实验的采样序列 |
-| `GET` | `/api/v1/experiments/{id}/report.md` | 成功实验的 Markdown 报告 |
+| `GET` | `/api/v1/experiments/{id}/samples.csv` | 成功实验的原始采样序列 |
+| `GET` | `/api/v1/experiments/{id}/daily.csv` | 按 1440 min 聚合的日均值 |
+| `GET` | `/api/v1/experiments/{id}/weekly.csv` | 按 10080 min 聚合的周均值 |
+| `GET` | `/api/v1/experiments/{id}/report.md` | 成功实验的 Markdown 报告（含评分卡、告警、日/周汇总） |
 
 状态：`queued → running → succeeded | failed | cancelled`；running 且已请求取消时，详情里的展示状态是 `cancelling`，数据库仍是 running，worker 在下一个检查点收口。
 
@@ -72,7 +74,7 @@ GET /                     HTML 工艺编排台
 GET /api/v1/presets       { default, presets: [{ id, label, model, description, config }] }
 ```
 
-页面能力：6 个 preset；拖拽改反应器顺序；新增/复制/删除反应器；编辑池型/池容/温度/KLa/DO；二沉池 RAS/WAS、内回流端点与流量（可新增/删除）、PAC（点胶囊进入）、三级过滤（点胶囊进入）、进水边界；高流量、低 DO、冬季、PAC 停加、过滤旁路、厌氧扩容 6 类工况注入；高级 JSON 导入导出；SSE 实验监看、队列、出水趋势、三本账和 CSV/Markdown 下载。
+页面能力：6 个 preset；拖拽改反应器顺序；新增/复制/删除反应器；编辑池型/池容/温度/KLa/DO；二沉池 RAS/WAS、内回流端点与流量（可新增/删除）、PAC（点胶囊进入）、三级过滤（点胶囊进入）、进水边界；高流量、低 DO、冬季、PAC 停加、过滤旁路、厌氧扩容 6 类工况注入；高级 JSON 导入导出；SSE 实验监看、队列、出水趋势、三本账、出水评分卡/告警、日汇总/周汇总 CSV 和 Markdown 报告下载。
 
 ### SSE
 
@@ -164,7 +166,19 @@ minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,
 po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m
 ```
 
-BOD、pH、温度、MLSS、SRT、能耗、评分、泥毯厚度在当前 V2 模型中多数未建模，CSV 留空；这不是 0 值。报告只汇总最终出水、三本账和请求 spec，不伪造未建模指标。
+BOD、pH、温度、MLSS、SRT、能耗、评分、泥毯厚度在当前 V2 模型中多数未建模，CSV 留空；这不是 0 值。报告汇总最终出水、三本账、请求 spec，并附出水评分卡、告警、日/周汇总和数据质量；不伪造未建模指标。
+
+### 结果分析层（0.0.8）
+
+`detail` 在 `include_result=true`（默认）时带 `analysis`：
+
+- `applicability`：`effluent_compliance` 或 `process_only`；ASM1 检查 COD/SS/NH4-N/TN 四项，ASM2d 与 loop 再加 TP/PO4-P，ADM1/泥线不冒充出水合规。
+- `scorecard`：`grade` A/B/C/D/N/A、`score`、`passed`/`total`、各项 `limit`/`value`/`passed`、`mass_balance_closed`。等级只基于出水指标，不把短时三本账包装成达标。
+- `alarms`：`EFFLUENT_*_HIGH`、`LOW_DO`、`MASS_BALANCE_OPEN`、`NO_SAMPLES`、`SPARSE_SAMPLES`、`NONFINITE_SAMPLE`。`LOW_DO` 只看 60 min 之后的样本，避免启动瞬时 0 DO 误报。
+- `data_quality`：样本数、有限值数、重复分钟数、缺失可选字段。
+- `daily`/`weekly`：周期边界样本归入刚结束的周期，7 d 实验得到 7 个日桶 + 1 个周桶，不生成“只有一个末点”的第 8 天/第 2 周。`daily.csv`/`weekly.csv` 是派生聚合，不覆盖 `samples.csv` 原始数据。
+
+对 `asm2d-adm1-loop`/`adm1`/`sludge-line`，采样器当前只有最终状态一行，日/周聚合只是终态单桶，并会触发 `SPARSE_SAMPLES`；不能把这些桶当趋势。
 
 ## Soak
 
@@ -191,4 +205,22 @@ python3 scripts/soak_v2.py --duration 86400 --interval 30 \
 python3 scripts/coverage_v2.py --summary docs/coverage-matrix.json
 ```
 
-结果（`docs/coverage-matrix.json`）：11/11 通过，72.571 s；覆盖 `asm1`、`asm2d`、`asm2d-adm1-loop`、`adm1`、`sludge-line` 五个模型，以及 A2O 基础、PAC + 三级过滤、高流量、低 DO、冬季、PAC 停加、过滤旁路 7 个工况组合。每个 case 都检查 `202` 入队、终态、detail、`samples.csv`、`report.md`，有 `mass_balance`/`whole_balance` 的模型还检查残差 ≤ 5%。loop 30 天单例 56.132 s，最大残差 2.85%。`completed_24h` 仍为 `false`。
+结果（`docs/coverage-matrix.json`）：11/11 通过，82.598 s；覆盖 `asm1`、`asm2d`、`asm2d-adm1-loop`、`adm1`、`sludge-line` 五个模型，以及 A2O 基础、PAC + 三级过滤、高流量、低 DO、冬季、PAC 停加、过滤旁路 7 个工况组合。每个 case 都检查 `202` 入队、终态、detail、`samples.csv`、`report.md`，有 `mass_balance`/`whole_balance` 的模型还检查残差 ≤ 5%。loop 30 天单例 62.208 s，最大残差 2.85%。`completed_24h` 仍为 `false`。
+
+### 五条角色旅程（0.0.8）
+
+```bash
+python3 scripts/journeys_v2.py --summary docs/journeys-v2.json
+```
+
+结果（`docs/journeys-v2.json`）：5/5 通过，总耗时约 3.7 s，仍明确 `completed_24h=false`。
+
+| 旅程 | 证据 |
+| --- | --- |
+| 暴雨 1500 m³/h 24 h | 202 → succeeded，出水流量 1480 m³/h，六项出水有限且非负 |
+| 风机故障/KLa=0 | succeeded，触发 `LOW_DO`，同时给出六项 `EFFLUENT_*_HIGH`，没有 NaN |
+| 三级过滤开/关 what-if | 30 d 出水 TP：开 0.1496 vs 关 1.0430 mg/L |
+| 7 d 周报 | `daily` 7 行、`weekly` 1 行；`daily.csv`/`weekly.csv` 200；报告含评分卡/告警/日周/数据质量 |
+| 脏数据 | 400 `MALFORMED_JSON` + problem+json、422 校验、409 幂等冲突、404、415 |
+
+旅程只证明角色路径和错误路径通，不替代 24 h soak，也不把三级过滤当真实滤池标定。

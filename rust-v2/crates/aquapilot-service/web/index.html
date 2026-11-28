@@ -244,6 +244,17 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 .chart-wrap{border:1px solid var(--line);border-radius:10px;background:linear-gradient(180deg,#fbfdf9,#fff);overflow:hidden}
 .chart-wrap svg{display:block;width:100%;height:150px}
 .chart-empty{height:150px;display:grid;place-items:center;color:var(--faint);font-size:11px}
+.scorecard{margin-top:9px;border:1px solid var(--line);border-radius:10px;padding:8px 9px;background:#fff}
+.score-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.score-label{font-size:9px;color:var(--muted);letter-spacing:.4px}
+.score-grade{font-family:var(--display);font-size:21px;line-height:1;color:var(--teal)}
+.score-meta{font-family:var(--mono);font-size:9.5px;color:var(--muted);text-align:right}
+.score-bar{height:3px;background:#edf0e9;border-radius:99px;overflow:hidden;margin-top:6px}
+.score-bar i{display:block;height:100%;background:linear-gradient(90deg,#2b8c76,#74c69d)}
+.alarm-list{margin-top:7px;display:grid;gap:4px}
+.alarm-item{font-size:9.5px;color:#8a5a16;background:#fff8e8;border-left:2px solid var(--amber);padding:3px 5px;border-radius:3px;line-height:1.35}
+.alarm-item.high{color:#9b3b32;background:#fff1ee;border-left-color:var(--red)}
+.score-ok{font-size:9.5px;color:var(--teal);margin-top:5px}
 .balance{margin-top:10px;border-top:1px solid var(--line);padding-top:9px}
 .balance-row{display:flex;justify-content:space-between;gap:8px;padding:4px 0;font-size:10px}
 .balance-row .bar{height:3px;width:82px;background:#edf0e9;border-radius:99px;overflow:hidden;margin-left:auto}
@@ -297,7 +308,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   <div class="top-status">
     <div class="status-chip" title="服务健康"><span class="dot" id="svc-dot"></span><span id="svc-label">连接中</span></div>
     <div class="status-chip"><span class="mono" id="queue-chip">队列 0 / 32</span></div>
-    <div class="status-chip"><span class="mono">v0.0.7</span></div>
+    <div class="status-chip"><span class="mono" id="svc-version">v0.0.8</span></div>
   </div>
   <button class="top-link" id="open-api">API 契约 ↗</button>
 </header>
@@ -400,6 +411,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
         <button class="btn ghost" id="refresh-exp" disabled>刷新</button>
       </div>
       <div class="metric-grid" id="metric-grid"></div>
+      <div class="scorecard" id="scorecard"><div class="score-label">出水评分</div><div class="score-meta">等待实验</div></div>
       <div class="chart-head"><strong>出水趋势</strong><select id="chart-metric"><option value="cod">COD</option><option value="nh4">NH4-N</option><option value="tn">TN</option><option value="tp">TP</option><option value="ss">SS</option><option value="po4">PO4-P</option></select></div>
       <div class="chart-wrap" id="chart-wrap"><div class="chart-empty">实验成功后显示采样序列</div></div>
       <div class="balance" id="balance"></div>
@@ -412,7 +424,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       <div class="queue-list" id="queue-list"><div class="empty">加载中…</div></div>
     </div>
 
-    <div class="footer-note">数据源：`/api/v1/experiments`、`/events`、`/samples.csv`、`/report.md`。SSE 终止后自动断开；取消 running 实验先进入 `cancelling`。</div>
+    <div class="footer-note">数据源：`/api/v1/experiments`、`/events`、`/samples.csv`、`/daily.csv`、`/weekly.csv`、`/report.md`。SSE 终止后自动断开；取消 running 实验先进入 `cancelling`。</div>
   </aside>
 </main>
 
@@ -1096,6 +1108,28 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     return result.whole_balance || result.mass_balance || null;
   }
 
+  function renderScorecard(analysis) {
+    const el = $("#scorecard");
+    if (!analysis || !analysis.scorecard) {
+      el.innerHTML = `<div class="score-label">出水评分</div><div class="score-meta">等待实验</div>`;
+      return;
+    }
+    const score = analysis.scorecard;
+    const alarms = analysis.alarms || [];
+    const grade = score.grade === "N/A" ? "过程模型" : score.grade;
+    const pct = score.total ? Math.round(score.score) : 0;
+    el.innerHTML = `
+      <div class="score-head">
+        <div><div class="score-label">出水评分</div><span class="score-grade">${esc(grade)}</span></div>
+        <div class="score-meta">${score.total ? `${score.passed}/${score.total} 达标` : "无出水限值"}<br>${alarms.length} 个告警</div>
+      </div>
+      <div class="score-bar"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></div>
+      ${alarms.length
+        ? `<div class="alarm-list">${alarms.slice(0, 4).map((alarm) => `<div class="alarm-item ${esc(alarm.severity)}">${esc(alarm.code)} · ${esc(alarm.message)}</div>`).join("")}</div>`
+        : `<div class="score-ok">无告警；出水指标在已检查限值内。</div>`}
+    `;
+  }
+
   function renderTelemetry() {
     const exp = state.exp;
     const status = exp?.status || "idle";
@@ -1115,15 +1149,16 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       ["COD", effluent.cod, "mg/L", 50],
       ["NH₄-N", effluent.nh4_n, "mg/L", 5],
       ["TN", effluent.tn, "mg/L", 15],
-      ["TP", effluent.tp, "mg/L", 0.5],
+      ...(state.model === "asm1" ? [] : [["TP", effluent.tp, "mg/L", 0.5]]),
       ["SS", effluent.ss, "mg/L", 10],
-      ["PO₄-P", effluent.po4_p, "mg/L", 0.5],
+      ...(state.model === "asm1" ? [] : [["PO₄-P", effluent.po4_p, "mg/L", 0.5]]),
     ];
     $("#metric-grid").innerHTML = metrics.map(([key, value, unit, limit]) => {
       const has = Number.isFinite(Number(value));
       const good = has && Number(value) <= limit;
       return `<div class="metric ${has ? (good ? "good" : "warn") : ""}"><div class="k">${key}</div><div class="v">${has ? fmt(value, key === "TP" ? 3 : 2) : "—"}<span class="u">${unit}</span></div></div>`;
     }).join("");
+    renderScorecard(exp?.analysis);
     const balance = balanceOf(result);
     if (balance && typeof balance === "object") {
       const rows = Object.entries(balance).filter(([, value]) => value && typeof value === "object").slice(0, 4).map(([key, value]) => {
@@ -1143,7 +1178,9 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     }
     const links = [];
     if (exp && status === "succeeded") {
-      links.push(`<a class="btn" href="/api/v1/experiments/${encodeURIComponent(exp.id)}/samples.csv">下载 CSV</a>`);
+      links.push(`<a class="btn" href="/api/v1/experiments/${encodeURIComponent(exp.id)}/samples.csv">采样 CSV</a>`);
+      links.push(`<a class="btn" href="/api/v1/experiments/${encodeURIComponent(exp.id)}/daily.csv">日汇总</a>`);
+      links.push(`<a class="btn" href="/api/v1/experiments/${encodeURIComponent(exp.id)}/weekly.csv">周汇总</a>`);
       links.push(`<a class="btn" href="/api/v1/experiments/${encodeURIComponent(exp.id)}/report.md" target="_blank" rel="noopener">打开报告</a>`);
     }
     $("#download-links").innerHTML = links.join("");
@@ -1206,6 +1243,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       const health = await api("/api/health");
       $("#svc-dot").className = "dot";
       $("#svc-label").textContent = "服务正常";
+      $("#svc-version").textContent = health.version ? `v${health.version}` : "v—";
       const q = health.queue || {};
       $("#queue-chip").textContent = `队列 ${q.active ?? 0} / ${q.capacity ?? 32}`;
     } catch (_) {

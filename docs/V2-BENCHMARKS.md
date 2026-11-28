@@ -1,7 +1,7 @@
 # AquaPilot v2 基准记录
 
 > 记录日期：2026-11-28
-> 代码：`rust-v2/`，版本 0.0.7
+> 代码：`rust-v2/`，版本 0.0.8
 > 口径：clean-room 实现；不读取旧 `src/sim` 或旧 `rust/` 源码。
 
 ## 1. V2-1 BSM1-like 整厂
@@ -384,7 +384,7 @@ cargo test --workspace
 - 三级过滤按固定 TSS 捕集率 + 经验 PO4 抛光效率计算，不含反冲洗水、滤料级配和过滤压头；BOD、粪大肠菌群、色度等未建模。
 - 没有 24 h soak；V2-3 已有 HTTP + SSE 服务和首版可视化编排台，WebSocket 尚未实现。
 
-## 6. V2-3 服务与实验（2026-11-28，版本 0.0.7）
+## 6. V2-3 服务与实验（2026-11-28，版本 0.0.8）
 
 ### 6.1 服务测试
 
@@ -452,13 +452,33 @@ python3 scripts/coverage_v2.py --summary docs/coverage-matrix.json
 | 指标 | 值 |
 | --- | --- |
 | case 数 / 通过 / 失败 | 11 / 11 / 0 |
-| 总耗时 | 72.571 s |
+| 总耗时 | 82.598 s |
 | 模型覆盖 | `asm1`、`asm2d`、`asm2d-adm1-loop`、`adm1`、`sludge-line` |
 | 工况覆盖 | 基础 A2O、PAC + 三级过滤、高流量 1500、低 DO 1.0、冬季 12 °C、PAC 停加、过滤旁路 |
 | 每个 case 检查 | 202 入队 → 终态 → detail → samples.csv → report.md |
 | 质量平衡检查 | 有 `mass_balance`/`whole_balance` 的 case 残差 ≤ 5% |
 | 最大三本账残差 | 2.85%（loop 30 天） |
-| loop 30 天单例 | 56.132 s |
+| loop 30 天单例 | 62.208 s |
 | `completed_24h` | false |
 
 矩阵 11/11 通过说明每条服务分支都跑通；它不能替代 wall-clock 24 h 的内存/句柄稳定性结论。24 h 仍需在常开主机或外部调度上执行，正式命令见 `docs/V2-API.md`。
+
+### 6.6 五条角色旅程（0.0.8，不是 wall-clock 24 h）
+
+命令：
+
+```bash
+python3 scripts/journeys_v2.py --summary docs/journeys-v2.json
+```
+
+结果：`docs/journeys-v2.json`，5/5 通过，3.745 s。
+
+| 旅程 | 证据 |
+| --- | --- |
+| 暴雨 1500 m³/h 24 h | 202 → succeeded；出水流量 1480 m³/h；六项出水有限且非负 |
+| 风机故障 KLa=0 | succeeded；`LOW_DO` + 六项 `EFFLUENT_*_HIGH`；无 NaN |
+| 三级过滤开/关 what-if | 30 d 出水 TP 0.1496 vs 1.0430 mg/L |
+| 7 d 周报 | `daily` 7 行、`weekly` 1 行；两条 CSV 200；报告含 Scorecard/Alarms/Daily/Weekly/Data quality |
+| 脏数据 | 400 `MALFORMED_JSON`、422 `VALIDATION_FAILED`、409 `IDEMPOTENCY_KEY_REUSED`、404、415 |
+
+评分卡只对出水限值打分；7 d 实验三本账未闭合时仍显示 A，但同时给出 `MASS_BALANCE_OPEN`（6.55%），不把短时库存变化包装成整厂闭环。`completed_24h` 仍为 `false`。

@@ -184,7 +184,7 @@ v2 首版不引入 Node。前端作为静态资源由 Rust 服务托管；v2.0 �
 - [x] 请求步数/采样预算、ADM1 时间步保护、原子取消、`backup` 一致快照；
 - [x] 18 项 service 单元测试 + 1 项 worker 集成、60 s soak smoke（30 个实验全部成功）；
 - [x] 同源可视化编排台（`GET /`、`GET /api/v1/presets`）；浏览器实测 6 个 preset、场景注入、新增反应器、ASM1/ASM2d 提交；
-- [x] 代表性端到端矩阵 11/11 通过（`docs/coverage-matrix.json`），覆盖 5 个服务模型 + 5 类工况，72.571 s；最大三本账残差 2.85%。
+- [x] 代表性端到端矩阵 11/11 通过（`docs/coverage-matrix.json`），覆盖 5 个服务模型 + 5 类工况，82.598 s；最大三本账残差 2.85%。
 
 未完成：
 
@@ -201,17 +201,18 @@ v2 首版不引入 Node。前端作为静态资源由 Rust 服务托管；v2.0 �
 - [x] 同源单文件工艺编排台：6 个 preset，A2O 画布，反应器增删/拖拽/参数编辑，二沉池/内回流/PAC/三级过滤/进水边界；
 - [x] 工况注入：高流量、低 DO、冬季、PAC 停加、过滤旁路、厌氧扩容；
 - [x] SSE 实验监看、队列、出水指标、三本账、趋势图、CSV/报告下载；
-- [x] 高级 JSON 导入导出；ASM1/ADM1/泥线从同一页面提交。
+- [x] 高级 JSON 导入导出；ASM1/ADM1/泥线从同一页面提交；
+- [x] 告警、评分卡、日/周汇总；UI 显示评分卡/告警并下载 `daily.csv`/`weekly.csv`；
+- [x] 五条角色旅程：暴雨、风机故障、三级过滤 what-if、7 d 周报、脏数据；`docs/journeys-v2.json` 5/5 通过。
 
 未完成：
 
 - [ ] 任意节点自由连线/分支管网的可视化编排（当前是线性池链 + 显式回流）；
-- [ ] 告警、评分卡、日报/周报、脏数据旅程；
 - [ ] OPC UA/Modbus/MQTT 模拟适配层与写审计；
 - [ ] AI Provider、审计链、限流、看门狗；
-- [ ] 五条真实角色旅程与 24 h 内存/句柄验收。
+- [ ] 24 h wall-clock 内存/句柄验收（`completed_24h=false`）。
 
-硬门禁：五条真实角色旅程（暴雨、风机故障、what-if、周报、脏数据）通过；24 h soak 内存/句柄无增长。
+硬门禁：五条角色旅程已通过；24 h soak 内存/句柄无增长仍未通过，V2-4 不能标完成。
 
 ## 8. Cutover Gate
 
@@ -260,6 +261,6 @@ v2 不直接替换 TS 生产入口。满足以下条件才切换：
 | V2-0 骨架 + 单池 | 已完成 | `rust-v2/`；单池与三段串联 24 h 跑通；当前全工程 22 项测试 |
 | V2-1 整厂 ASM1 | 已完成 | 5 池 + 二沉池 + RAS/内回流 + DO；30 天 BSM1-like 出水 COD 58.01、SS 12.20、NH4-N 0.292；官方参数集 S_S/SS/NO3/碱度/MLSS 接近 Table 6，NH4/DO 未全过；校准候选在 ±20% 内通过 Table 6 关键指标 |
 | V2-2 ASM2d + ADM1 | 已完成 | ASM2d 19 组分/21 过程 + A2O 整厂 30 天跑通，内部 COD/N/P 账 2.13%/1.09%/1.52% 闭合；多系列 2×500 m3/h 汇总通过；ADM1 核心、独立泥线、双向接口与回流闭环已落，整厂 COD/N/P 残差 -1.03%/2.19%/0.71% 均 closed；PAC 基础投加 + 三级过滤已落，PAC + 三级过滤回流闭环 TP 0.387 mg/L，整厂 COD/N/P -1.07%/2.16%/1.29% 均 closed |
-| V2-3 服务 + 实验 | 进行中 | `aquapilot-service` + CLI `serve`/`backup`；18 项单元 + 1 项 worker；60 s smoke 30/30；代表性矩阵 11/11（5 模型 + 5 工况，72.571 s）；24 h soak 未跑 |
-| V2-4 界面 + 验收 | 进行中 | 首版同源编排台已落：6 preset、A2O 画布、增删/拖拽、回流/二沉池/PAC/三级过滤、工况注入、SSE/队列/趋势/报告；截图 `docs/screenshots/v2-ui-editor.png`，说明 `docs/V2-UI.md`；任意连线、告警/评分卡、工业接口和五条角色旅程未完成 |
+| V2-3 服务 + 实验 | 进行中 | `aquapilot-service` + CLI `serve`/`backup`；25 项 service 单测 + 1 项 worker；60 s smoke 30/30；代表性矩阵 11/11（5 模型 + 5 工况，82.598 s）；24 h soak 未跑 |
+| V2-4 界面 + 验收 | 进行中 | 同源编排台：6 preset、A2O 画布、增删/拖拽、回流/二沉池/PAC/三级过滤、工况注入、SSE/队列/趋势/报告；0.0.8 增加评分卡/告警/日周汇总，五条角色旅程 5/5（`docs/journeys-v2.json`）；截图 `v2-ui-editor.png`/`v2-ui-scorecard.png`/`v2-ui-alarm.png`，说明 `docs/V2-UI.md`；任意连线、工业接口、AI/审计和 24 h soak 未完成 |
 | Cutover | 未开始 | — |

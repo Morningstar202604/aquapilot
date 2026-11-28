@@ -1,10 +1,16 @@
 # V2 可视化编排台
 
-> 版本 0.0.7。服务启动后直接打开 `http://127.0.0.1:5173/`。这是 V2-3 之后补上的第一版可交互前端，不是只读仪表盘：工况可以在画布上改，也可以注入预设场景后直接提交到同一条持久实验队列。
+> 版本 0.0.8。服务启动后直接打开 `http://127.0.0.1:5173/`。这是 V2-3 之后补上的第一版可交互前端，不是只读仪表盘：工况可以在画布上改，也可以注入预设场景后直接提交到同一条持久实验队列。
 
 ![V2 工艺编排台](screenshots/v2-ui-editor.png)
 
 ![PAC 参数面板](screenshots/v2-ui-pac.png)
+
+![30 d 出水评分卡与日/周汇总入口](screenshots/v2-ui-scorecard.png)
+
+![7 d 未闭合三本账告警](screenshots/v2-ui-alarm.png)
+
+![ASM1 只评四项，不伪造 TP](screenshots/v2-ui-asm1-alarm.png)
 
 ## 1. 之前为什么没有前端
 
@@ -77,7 +83,8 @@ cargo run -q -p aquapilot-cli -- serve \
 点“启动实验”后，页面用 `POST /api/v1/experiments` 提交（带 `Idempotency-Key`），随后打开 `GET /api/v1/experiments/{id}/events` 的 SSE：
 
 - 状态 `queued → running → succeeded | failed | cancelled`，running 取消后显示 `cancelling`；
-- 成功后展示 COD、NH₄-N、TN、TP、SS、PO₄-P，三本账残差，CSV 趋势和 Markdown 报告入口；
+- 成功后展示 COD、NH₄-N、TN、TP、SS、PO₄-P，出水评分卡（A/B/C/D）、告警、三本账残差、CSV 趋势，以及 `samples.csv`、`daily.csv`、`weekly.csv` 和 Markdown 报告入口；
+- 评分卡只对出水限值打分；短时三本账未闭合会单独给出 `MASS_BALANCE_OPEN` 告警，不会把 A 伪装成整厂闭环；
 - 三本账面板会区分短时实验与 30 d 闭环：短时残差来自初始场/库存变化，不当作失败；
 - 队列卡片可回读最近 12 个实验；
 - 失败/422 以 toast 展示服务端 `problem+json` 的 `code`、`detail`、`errors`，不伪造成功。
@@ -93,9 +100,12 @@ cargo run -q -p aquapilot-cli -- serve \
 ## 6. 验收
 
 - 页面由服务真实托管：`GET /` 返回 `text/html`，`GET /api/v1/presets` 返回 6 个 preset；
-- 浏览器实测：默认 PAC + 三级过滤 30 天成功，出水 COD 32.46、NH₄-N 0.75、TN 9.24、TP 0.150、SS 1.15、PO₄-P 0.05 mg/L；三本账 COD/N/P 2.13% / 1.09% / 1.49%；
+- 浏览器实测：默认 PAC + 三级过滤 30 天成功，出水 COD 32.46、NH₄-N 0.75、TN 9.24、TP 0.150、SS 1.15、PO₄-P 0.05 mg/L；三本账 COD/N/P 2.13% / 1.09% / 1.49%；评分卡 A、6/6 达标、0 告警；`daily.csv` 30 行、`weekly.csv` 5 行；
 - 同页切换 BSM1 预设，1 天实验成功，证明非可视化模型也能从同一界面提交；
 - 场景注入与新增反应器已在浏览器中验证，校验从 `5 池 · 1 内回流 · 1 二沉池` 变为 `6 池 · 1 内回流 · 1 二沉池`；
 - PAC 面板改为数字索引（投加点 2）、剂量 25 mg/L；二沉池 RAS 回流点改为好氧池 3（索引 4）；1 天实验提交成功，未出现 422，说明 select→number 的绑定已生效；
 - `+ 内回流` 新增 4→1 回流、删除恢复；厌氧池后移后校验仍为 `5 池 · 1 内回流 · 1 二沉池`，回流端点随池序重映射；
-- 代表性端到端矩阵见 `docs/coverage-matrix.json`：11/11 通过，覆盖 5 个模型 + 5 个工况，72.571 s；loop 30 天单例 56.132 s，最大三本账残差 2.85%。
+- 7 d 实验评分卡 A、6/6 达标，但 `MASS_BALANCE_OPEN` 残差 6.55%；`daily` 7 行、`weekly` 1 行，证明边界样本不会被拆成第 8 天/第 2 周。
+- BSM1/ASM1 1 d 实测：只显示 COD/NH4-N/TN/SS 四项，评分 D、2/4 达标，`EFFLUENT_SS_HIGH` 与 `EFFLUENT_TN_HIGH` 两个告警；页面不显示 TP/PO4 假通过。
+- 代表性端到端矩阵见 `docs/coverage-matrix.json`：11/11 通过，覆盖 5 个模型 + 5 个工况，82.598 s；loop 30 天单例 62.208 s，最大三本账残差 2.85%。
+- 五条角色旅程见 `docs/journeys-v2.json`：5/5 通过，覆盖暴雨、风机故障、三级过滤开/关、7 d 周报、脏数据；仍明确 `completed_24h=false`。

@@ -5,12 +5,14 @@ on:
     paths:
       - 'rust-v2/**'
       - 'scripts/coverage_v2.py'
+      - 'scripts/journeys_v2.py'
       - 'scripts/soak_v2.py'
       - '.github/workflows/v2-ci.yml'
   pull_request:
     paths:
       - 'rust-v2/**'
       - 'scripts/coverage_v2.py'
+      - 'scripts/journeys_v2.py'
       - 'scripts/soak_v2.py'
       - '.github/workflows/v2-ci.yml'
 
@@ -59,6 +61,19 @@ jobs:
           assert len(matrix['models_covered']) == 5
           assert matrix['completed_24h'] is False
           print('coverage matrix ok', matrix['passed_count'], matrix['elapsed_seconds'])
+          PY
+
+      - name: Five role journeys
+        run: |
+          python3 ../scripts/journeys_v2.py --summary /tmp/journeys-v2.json
+          python3 - <<'PY'
+          import json
+          journeys = json.load(open('/tmp/journeys-v2.json'))
+          assert journeys['journeys_complete'] is True
+          assert journeys['passed_count'] == 5
+          assert journeys['failed_count'] == 0
+          assert journeys['completed_24h'] is False
+          print('role journeys ok', journeys['passed_count'], journeys['elapsed_seconds'])
           PY
 
       - name: Smoke single reactor

@@ -17,6 +17,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::analysis::{analyze, daily_csv, weekly_csv};
 use crate::error::ApiError;
 use crate::runner::{samples_csv, ExperimentRequest, Sample};
 use crate::store::{to_api_error, CancelOutcome, ExperimentRecord, Store};
@@ -45,6 +46,8 @@ pub fn build_router(store: Store) -> Router {
         .route("/api/v1/experiments/{id}/cancel", post(cancel_experiment))
         .route("/api/v1/experiments/{id}/events", get(stream_experiment))
         .route("/api/v1/experiments/{id}/samples.csv", get(get_samples_csv))
+        .route("/api/v1/experiments/{id}/daily.csv", get(get_daily_csv))
+        .route("/api/v1/experiments/{id}/weekly.csv", get(get_weekly_csv))
         .route(
             "/api/v1/experiments/{id}/report.md",
             get(get_report_markdown),
@@ -87,6 +90,7 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
     Json(json!({
         "ok": true,
         "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
         "uptime_seconds": state.started.elapsed().as_secs_f64(),
         "queue": {
             "active": active,
@@ -389,6 +393,52 @@ async fn get_samples_csv(
     Ok(response)
 }
 
+async fn get_daily_csv(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    get_period_csv(state, id, true).await
+}
+
+async fn get_weekly_csv(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    get_period_csv(state, id, false).await
+}
+
+async fn get_period_csv(state: AppState, id: String, daily: bool) -> Result<Response, ApiError> {
+    let record = state
+        .store
+        .get(&id)
+        .map_err(to_api_error)?
+        .ok_or_else(|| ApiError::not_found(format!("experiment {id} does not exist")))?;
+    ensure_succeeded(&record)?;
+    let analysis = analyze(&record).ok_or_else(|| {
+        ApiError::internal("ANALYSIS_DECODE_ERROR", "stored result is not decodable")
+    })?;
+    let csv = if daily {
+        daily_csv(&analysis)
+    } else {
+        weekly_csv(&analysis)
+    };
+    let mut response = (StatusCode::OK, csv).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/csv; charset=utf-8"),
+    );
+    if let Ok(value) = HeaderValue::from_str(&format!(
+        "attachment; filename=\"experiment-{}-{}.csv\"",
+        record.id,
+        if daily { "daily" } else { "weekly" }
+    )) {
+        response
+            .headers_mut()
+            .insert(header::CONTENT_DISPOSITION, value);
+    }
+    Ok(response)
+}
+
 async fn get_report_markdown(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -492,16 +542,49 @@ fn experiment_view(record: &ExperimentRecord, include_result: bool, include_spec
             "self": format!("/api/v1/experiments/{}", record.id),
             "cancel": format!("/api/v1/experiments/{}/cancel", record.id),
             "samples": format!("/api/v1/experiments/{}/samples.csv", record.id),
+            "daily": format!("/api/v1/experiments/{}/daily.csv", record.id),
+            "weekly": format!("/api/v1/experiments/{}/weekly.csv", record.id),
             "report": format!("/api/v1/experiments/{}/report.md", record.id),
         },
     });
     if include_spec {
         value["spec"] = request;
     }
-    if let Some(result) = result {
-        value["result"] = result;
+    if include_result {
+        if let Some(result) = result {
+            value["result"] = result;
+        }
+        if let Some(analysis) =
+            analyze(record).and_then(|analysis| serde_json::to_value(analysis).ok())
+        {
+            value["analysis"] = analysis;
+        }
     }
     value
+}
+
+fn period_markdown(periods: &[crate::analysis::PeriodSummary]) -> String {
+    if periods.is_empty() {
+        return "No samples in this period range.\n".to_owned();
+    }
+    let mut text = String::from(
+        "| Period | Samples | COD | SS | NH4-N | TN | TP | DO min | Flow |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|\n",
+    );
+    for period in periods {
+        text.push_str(&format!(
+            "| {} | {} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {:.1} |\n",
+            period.period,
+            period.sample_count,
+            period.cod_mean,
+            period.ss_mean,
+            period.nh4_n_mean,
+            period.tn_mean,
+            period.tp_mean,
+            period.do_min,
+            period.flow_mean
+        ));
+    }
+    text
 }
 
 fn report_markdown(record: &ExperimentRecord) -> String {
@@ -555,6 +638,48 @@ fn report_markdown(record: &ExperimentRecord) -> String {
     } else {
         report.push_str("No mass-balance object in the final snapshot.\n");
     }
+    if let Some(analysis) = analyze(record) {
+        report.push_str("\n## Scorecard\n\n");
+        report.push_str(&format!(
+            "- Grade: **{}** (effluent score {:.1}/100, {}/{} limits passed)\n",
+            analysis.scorecard.grade,
+            analysis.scorecard.score,
+            analysis.scorecard.passed,
+            analysis.scorecard.total
+        ));
+        if let Some(closed) = analysis.scorecard.mass_balance_closed {
+            report.push_str(&format!(
+                "- Mass balance closed: `{}`; max residual: {:.2}%\n",
+                closed,
+                analysis.scorecard.max_balance_residual_pct.unwrap_or(0.0)
+            ));
+        }
+        report.push_str(&format!("- Applicability: `{}`\n", analysis.applicability));
+        report.push_str("\n## Alarms\n\n");
+        if analysis.alarms.is_empty() {
+            report.push_str("No alarms.\n");
+        } else {
+            report.push_str("| Code | Severity | Scope | Message |\n|---|---|---|---|\n");
+            for alarm in &analysis.alarms {
+                report.push_str(&format!(
+                    "| `{}` | {} | {} | {} |\n",
+                    alarm.code, alarm.severity, alarm.scope, alarm.message
+                ));
+            }
+        }
+        report.push_str("\n## Daily averages\n\n");
+        report.push_str(&period_markdown(&analysis.daily));
+        report.push_str("\n## Weekly averages\n\n");
+        report.push_str(&period_markdown(&analysis.weekly));
+        report.push_str("\n## Data quality\n\n");
+        report.push_str(&format!(
+            "- Samples: {}; finite: {}; duplicate minutes: {}\n- Missing optional fields: `{}`\n",
+            analysis.data_quality.sample_count,
+            analysis.data_quality.finite_sample_count,
+            analysis.data_quality.duplicate_minutes,
+            analysis.data_quality.missing_optional_fields.join(", ")
+        ));
+    }
     report.push_str("\n## Reproduction\n\n");
     report.push_str(
         "Submit the same `spec` body to `POST /api/v1/experiments` with the same\n\
@@ -576,7 +701,7 @@ fn openapi_document() -> Value {
         "openapi": "3.1.0",
         "info": {
             "title": "AquaPilot V2 experiment API",
-            "version": "0.0.7",
+            "version": env!("CARGO_PKG_VERSION"),
             "description": "Persistent, idempotent wastewater treatment experiments."
         },
         "paths": {
@@ -642,6 +767,20 @@ fn openapi_document() -> Value {
             "/api/v1/experiments/{id}/samples.csv": {
                 "get": {
                     "summary": "Final/sampled time series as CSV",
+                    "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+                    "responses": {"200": {"description": "CSV"}, "409": {"description": "Experiment not succeeded"}}
+                }
+            },
+            "/api/v1/experiments/{id}/daily.csv": {
+                "get": {
+                    "summary": "Daily averages as CSV",
+                    "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+                    "responses": {"200": {"description": "CSV"}, "409": {"description": "Experiment not succeeded"}}
+                }
+            },
+            "/api/v1/experiments/{id}/weekly.csv": {
+                "get": {
+                    "summary": "Weekly averages as CSV",
                     "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
                     "responses": {"200": {"description": "CSV"}, "409": {"description": "Experiment not succeeded"}}
                 }
@@ -785,6 +924,132 @@ mod tests {
         let problem = body_json(response).await;
         assert_eq!(problem["code"], "VALIDATION_FAILED");
         assert!(!problem["errors"].as_array().expect("errors").is_empty());
+    }
+
+    #[tokio::test]
+    async fn detail_analysis_daily_weekly_and_report_routes() {
+        let store = Store::in_memory(2).expect("store");
+        let router = build_router(store.clone());
+        let response = router
+            .clone()
+            .oneshot(request(minimal_body("analysis-route")))
+            .await
+            .expect("post");
+        let created = body_json(response).await;
+        let id = created["id"].as_str().expect("id").to_owned();
+        let record = store.claim_next().expect("claim").expect("queued record");
+        assert_eq!(record.id, id);
+
+        let samples = vec![
+            Sample {
+                minute: 0.0,
+                flow_m3_h: 1000.0,
+                cod: 30.0,
+                bod: Some(8.0),
+                ss: 2.0,
+                nh4_n: 1.0,
+                tn: 8.0,
+                tp: 0.1,
+                po4_p: Some(0.05),
+                ph: Some(7.0),
+                temperature_c: Some(20.0),
+                do_mg_l: 2.0,
+                mlss: Some(3000.0),
+                srt_d: Some(15.0),
+                energy_kw: Some(100.0),
+                score: None,
+                blanket_depth_m: Some(0.5),
+            },
+            Sample {
+                minute: 1440.0,
+                flow_m3_h: 1000.0,
+                cod: 30.0,
+                bod: Some(8.0),
+                ss: 2.0,
+                nh4_n: 1.0,
+                tn: 8.0,
+                tp: 0.1,
+                po4_p: Some(0.05),
+                ph: Some(7.0),
+                temperature_c: Some(20.0),
+                do_mg_l: 2.0,
+                mlss: Some(3000.0),
+                srt_d: Some(15.0),
+                energy_kw: Some(100.0),
+                score: None,
+                blanket_depth_m: Some(0.5),
+            },
+        ];
+        let result = json!({
+            "effluent": {"cod": 30.0, "ss": 2.0, "nh4_n": 1.0, "tn": 8.0, "tp": 0.1, "po4_p": 0.05, "flow_m3_h": 1000.0}
+        });
+        assert!(store
+            .finish_success(
+                &id,
+                &result.to_string(),
+                &serde_json::to_string(&samples).expect("samples")
+            )
+            .expect("finish"));
+
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/experiments/{id}"))
+                    .body(Body::empty())
+                    .expect("detail request"),
+            )
+            .await
+            .expect("detail");
+        assert_eq!(response.status(), StatusCode::OK);
+        let detail = body_json(response).await;
+        assert_eq!(detail["analysis"]["scorecard"]["grade"], "A");
+        assert_eq!(detail["analysis"]["scorecard"]["passed"], 6);
+        assert_eq!(
+            detail["analysis"]["daily"].as_array().expect("daily").len(),
+            1
+        );
+
+        for suffix in ["daily.csv", "weekly.csv"] {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/api/v1/experiments/{id}/{suffix}"))
+                        .body(Body::empty())
+                        .expect("period csv"),
+                )
+                .await
+                .expect("period csv response");
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = response
+                .into_body()
+                .collect()
+                .await
+                .expect("body")
+                .to_bytes();
+            assert!(bytes.starts_with(b"period,start_minute,end_minute"));
+        }
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/experiments/{id}/report.md"))
+                    .body(Body::empty())
+                    .expect("report"),
+            )
+            .await
+            .expect("report response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let text = std::str::from_utf8(&bytes).expect("utf8");
+        assert!(text.contains("## Scorecard"));
+        assert!(text.contains("## Daily averages"));
     }
 
     #[tokio::test]
@@ -971,9 +1236,11 @@ mod tests {
         assert_eq!(openapi.status(), StatusCode::OK);
         let document = body_json(openapi).await;
         assert_eq!(document["openapi"], "3.1.0");
-        assert_eq!(document["info"]["version"], "0.0.7");
+        assert_eq!(document["info"]["version"], "0.0.8");
         assert!(document["paths"]["/api/v1/experiments"].is_object());
         assert!(document["paths"]["/api/v1/presets"].is_object());
+        assert!(document["paths"]["/api/v1/experiments/{id}/daily.csv"].is_object());
+        assert!(document["paths"]["/api/v1/experiments/{id}/weekly.csv"].is_object());
 
         let health = router
             .clone()

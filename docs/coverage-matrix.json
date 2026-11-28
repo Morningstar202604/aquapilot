@@ -1,7 +1,7 @@
 {
   "schema": "aquapilot.coverage.v1",
-  "generated_at_unix": 1795854186,
-  "elapsed_seconds": 72.571,
+  "generated_at_unix": 1795862713,
+  "elapsed_seconds": 82.598,
   "coverage_complete": true,
   "completed_24h": false,
   "bin": "/home/user/Doubao/chats/38455916662454018/aquapilot/rust-v2/target/debug/aquapilot-v2",
@@ -41,13 +41,13 @@
         "csv_rows": 25,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 7349
+        "report_bytes": 8207
       },
       "submit_http": 202,
-      "experiment_id": "53825c2b-d09f-4ed1-9cfd-5f93e4a313a5",
-      "wait_seconds": 0.253,
+      "experiment_id": "657937bc-a004-4c52-8bf1-ee500ffe056b",
+      "wait_seconds": 0.257,
       "progress": 1.0,
-      "elapsed_seconds": 0.257
+      "elapsed_seconds": 0.265
     },
     {
       "id": "asm2d-basic",
@@ -74,13 +74,13 @@
         "csv_rows": 121,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 6348
+        "report_bytes": 9654
       },
       "submit_http": 202,
-      "experiment_id": "d4747f93-46fd-463d-a9e1-963676005ce8",
-      "wait_seconds": 1.008,
+      "experiment_id": "f4e038d7-715c-4e83-a972-0c056ce20541",
+      "wait_seconds": 1.269,
       "progress": 1.0,
-      "elapsed_seconds": 1.012
+      "elapsed_seconds": 1.278
     },
     {
       "id": "asm2d-pac-tertiary",
@@ -107,13 +107,13 @@
         "csv_rows": 121,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 6683
+        "report_bytes": 9765
       },
       "submit_http": 202,
-      "experiment_id": "08b273f2-3fed-4ea2-81ac-2f43cdc3968b",
-      "wait_seconds": 1.008,
+      "experiment_id": "de6e2e88-994a-4baa-a1e7-f184a89efbe3",
+      "wait_seconds": 1.268,
       "progress": 1.0,
-      "elapsed_seconds": 1.013
+      "elapsed_seconds": 1.277
     },
     {
       "id": "asm2d-loop",
@@ -140,13 +140,13 @@
         "csv_rows": 1,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 6734
+        "report_bytes": 7594
       },
       "submit_http": 202,
-      "experiment_id": "91443f78-b131-4fa1-b724-f9b7bcadf0ec",
-      "wait_seconds": 56.129,
+      "experiment_id": "911c84f8-f5b2-49c9-a04b-eba9f2480476",
+      "wait_seconds": 62.2,
       "progress": 1.0,
-      "elapsed_seconds": 56.132
+      "elapsed_seconds": 62.208
     },
     {
       "id": "adm1-tutorial",
@@ -162,13 +162,13 @@
         "csv_rows": 1,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 2906
+        "report_bytes": 3815
       },
       "submit_http": 202,
-      "experiment_id": "e39991f9-ea20-44f5-856b-61125e4f94e2",
-      "wait_seconds": 2.768,
+      "experiment_id": "72f60d09-af36-46aa-be0a-b694cf660b9e",
+      "wait_seconds": 3.033,
       "progress": 1.0,
-      "elapsed_seconds": 2.771
+      "elapsed_seconds": 3.037
     },
     {
       "id": "sludge-line",
@@ -184,13 +184,13 @@
         "csv_rows": 1,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 3289
+        "report_bytes": 4196
       },
       "submit_http": 202,
-      "experiment_id": "05c0a5a2-db44-491e-9da3-e049beb4b286",
-      "wait_seconds": 6.796,
+      "experiment_id": "2bb7dc59-8564-40d3-a5ad-fba8c3c40828",
+      "wait_seconds": 8.091,
       "progress": 1.0,
-      "elapsed_seconds": 6.8
+      "elapsed_seconds": 8.095
     },
     {
       "id": "scenario-high-flow",
@@ -217,13 +217,13 @@
         "csv_rows": 121,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 6674
+        "report_bytes": 9825
       },
       "submit_http": 202,
-      "experiment_id": "578d8ddb-12f5-4c9e-8f5f-aacbf682e4ba",
-      "wait_seconds": 1.01,
+      "experiment_id": "25b7c8c4-a092-4d03-a236-fed2a56499c8",
+      "wait_seconds": 1.269,
       "progress": 1.0,
-      "elapsed_seconds": 1.015
+      "elapsed_seconds": 1.277
     },
     {
       "id": "scenario-low-do",
@@ -250,13 +250,13 @@
         "csv_rows": 121,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 6672
+        "report_bytes": 9885
       },
       "submit_http": 202,
-      "experiment_id": "270528c5-c545-4fae-8fe6-b8f080797c63",
-      "wait_seconds": 0.756,
+      "experiment_id": "c6e1c704-be79-4c42-9407-963e5483de91",
+      "wait_seconds": 1.268,
       "progress": 1.0,
-      "elapsed_seconds": 0.762
+      "elapsed_seconds": 1.277
     },
     {
       "id": "scenario-winter",
@@ -283,13 +283,13 @@
         "csv_rows": 121,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 6663
+        "report_bytes": 9746
       },
       "submit_http": 202,
-      "experiment_id": "9c151e08-3416-4b12-8160-a528afa27198",
-      "wait_seconds": 1.008,
+      "experiment_id": "3d32d888-91a8-4ff1-8f8a-78fefe499665",
+      "wait_seconds": 1.268,
       "progress": 1.0,
-      "elapsed_seconds": 1.013
+      "elapsed_seconds": 1.276
     },
     {
       "id": "scenario-pac-off",
@@ -316,13 +316,13 @@
         "csv_rows": 121,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 6672
+        "report_bytes": 9755
       },
       "submit_http": 202,
-      "experiment_id": "f16968ea-4b3e-4f2b-9d4f-0ba2123d743a",
-      "wait_seconds": 1.007,
+      "experiment_id": "be2d5b17-d317-4153-be51-edaa83cd786f",
+      "wait_seconds": 1.268,
       "progress": 1.0,
-      "elapsed_seconds": 1.012
+      "elapsed_seconds": 1.277
     },
     {
       "id": "scenario-tertiary-bypass",
@@ -349,16 +349,16 @@
         "csv_rows": 121,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 6690
+        "report_bytes": 9996
       },
       "submit_http": 202,
-      "experiment_id": "300be6e1-ef0a-40ff-b00a-3d1fe9e3f7c7",
-      "wait_seconds": 0.756,
+      "experiment_id": "0b3d0eeb-bb48-48e4-afac-844b0e2372b8",
+      "wait_seconds": 1.268,
       "progress": 1.0,
-      "elapsed_seconds": 0.76
+      "elapsed_seconds": 1.276
     }
   ],
-  "service_log": "/tmp/aquapilot-coverage-d38alh15/service.log",
-  "db_path": "/tmp/aquapilot-coverage-d38alh15/aquapilot.sqlite",
+  "service_log": "/tmp/aquapilot-coverage-76mk_4k6/service.log",
+  "db_path": "/tmp/aquapilot-coverage-76mk_4k6/aquapilot.sqlite",
   "note": "Representative end-to-end coverage: every service model plus A2O operating disturbances through submit → queue → worker → detail → samples.csv → report.md → mass balance. This is not a wall-clock 24 h soak; completed_24h remains false."
 }

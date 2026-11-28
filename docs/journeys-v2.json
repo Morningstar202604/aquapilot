@@ -1,0 +1,86 @@
+{
+  "schema": "aquapilot.journeys.v1",
+  "completed_24h": false,
+  "case_count": 5,
+  "passed_count": 5,
+  "failed_count": 0,
+  "elapsed_seconds": 3.745,
+  "journeys_complete": true,
+  "cases": [
+    {
+      "id": "storm",
+      "label": "\u66b4\u96e8\u9ad8\u6d41\u91cf 24 h",
+      "status": "passed",
+      "checks": {
+        "submit_http": 202,
+        "terminal": "succeeded",
+        "effluent_flow_m3_h": 1480.0
+      },
+      "failures": []
+    },
+    {
+      "id": "blower-failure",
+      "label": "\u98ce\u673a\u6545\u969c/\u4f4e DO",
+      "status": "passed",
+      "checks": {
+        "submit_http": 202,
+        "terminal": "succeeded",
+        "alarm_codes": [
+          "EFFLUENT_COD_HIGH",
+          "EFFLUENT_SS_HIGH",
+          "EFFLUENT_NH4_N_HIGH",
+          "EFFLUENT_TN_HIGH",
+          "EFFLUENT_TP_HIGH",
+          "EFFLUENT_PO4_P_HIGH",
+          "LOW_DO",
+          "MASS_BALANCE_OPEN"
+        ]
+      },
+      "failures": []
+    },
+    {
+      "id": "what-if",
+      "label": "\u4e09\u7ea7\u8fc7\u6ee4\u5f00/\u5173 what-if",
+      "status": "passed",
+      "checks": {
+        "tp_mg_l": {
+          "tertiary-off": 1.0429827130198486,
+          "tertiary-on": 0.1496429847374591
+        }
+      },
+      "failures": []
+    },
+    {
+      "id": "weekly-report",
+      "label": "7 d \u5468\u62a5",
+      "status": "passed",
+      "checks": {
+        "submit_http": 202,
+        "daily_rows": 7,
+        "weekly_rows": 1,
+        "daily.csv_http": 200,
+        "weekly.csv_http": 200,
+        "report_http": 200
+      },
+      "failures": []
+    },
+    {
+      "id": "dirty-data",
+      "label": "\u810f\u6570\u636e/\u9519\u8bef\u8def\u5f84",
+      "status": "passed",
+      "checks": {
+        "malformed_http": 400,
+        "malformed_type": "application/problem+json",
+        "invalid_config_http": 422,
+        "idem_create_http": 202,
+        "idem_conflict_http": 409,
+        "idem_conflict_code": "IDEMPOTENCY_KEY_REUSED",
+        "not_found_http": 404,
+        "wrong_type_http": 415
+      },
+      "failures": []
+    }
+  ],
+  "service_log": "/tmp/aquapilot-journeys-24lnzk7k/service.log",
+  "note": "Five representative role journeys for V2-4; not a wall-clock 24 h soak."
+}
