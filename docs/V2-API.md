@@ -1,6 +1,6 @@
 # AquaPilot V2 Rust 服务 API
 
-> 版本 0.0.11。状态（2026-11-28）：`aquapilot-service` 已落地 HTTP + SSE、SQLite 持久实验队列、幂等、取消/恢复、CSV/Markdown 报告、OpenAPI 3.1、同源可视化编排台（`GET /`、`GET /api/v1/presets`）、ASM1 自由拓扑校验（`POST /api/v1/topologies/validate`），以及出水评分卡、告警、日/周聚合、五条角色旅程与自由拓扑验收旅程。代表性端到端矩阵 11/11 通过（`docs/coverage-matrix.json`），五条旅程 5/5 通过（`docs/journeys-v2.json`）；wall-clock 24 h soak 已启动、尚未完成，60 s smoke 见 `docs/soak-smoke-summary.json`。首版不包含 Bearer 角色鉴权、MCP 或 WebSocket；实时推送使用 SSE，单进程单 worker。
+> 版本 0.0.12。状态（2026-11-28）：`aquapilot-service` 已落地 HTTP + SSE、SQLite 持久实验队列、幂等、取消/恢复、CSV/Markdown 报告、OpenAPI 3.1、同源可视化编排台（`GET /`、`GET /api/v1/presets`）、ASM1 自由拓扑校验（`POST /api/v1/topologies/validate`），以及出水评分卡、告警、日/周聚合、五条角色旅程与自由拓扑验收旅程。代表性端到端矩阵 11/11 通过（`docs/coverage-matrix.json`），五条旅程 5/5 通过（`docs/journeys-v2.json`）；wall-clock 24 h soak 已启动、尚未完成，60 s smoke 见 `docs/soak-smoke-summary.json`。首版不包含 Bearer 角色鉴权、MCP 或 WebSocket；实时推送使用 SSE，单进程单 worker。
 
 ## 启动
 

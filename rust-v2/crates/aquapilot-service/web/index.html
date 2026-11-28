@@ -296,6 +296,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 .topo-toolbar{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:8px;position:relative;z-index:2}
 .topo-toolbar .chip{padding:4px 8px;font-size:9.5px}
 .topo-toolbar .chip:hover{border-color:var(--teal);color:var(--teal);background:var(--teal-soft)}
+.topo-toolbar .chip:disabled{opacity:.4;cursor:not-allowed;border-color:var(--line);color:var(--faint);background:var(--paper)}
 .topo-toolbar .toolbar-label{font-family:var(--mono);font-size:9px;color:var(--faint);margin-right:4px}
 .topo-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
 .topo-edge{fill:none;stroke:#8fb9aa;stroke-width:1.4;pointer-events:none}
@@ -349,7 +350,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   <div class="top-status">
     <div class="status-chip" title="服务健康"><span class="dot" id="svc-dot"></span><span id="svc-label">连接中</span></div>
     <div class="status-chip"><span class="mono" id="queue-chip">队列 0 / 32</span></div>
-    <div class="status-chip"><span class="mono" id="svc-version">v0.0.11</span></div>
+    <div class="status-chip"><span class="mono" id="svc-version">v0.0.12</span></div>
   </div>
   <button class="top-link" id="open-api">API 契约 ↗</button>
 </header>
@@ -538,6 +539,8 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     busy: false,
     topologyValidationSeq: 0,
     topologyValidationTimer: null,
+    topologyHistory: [],
+    topologyFuture: [],
   };
 
   const SCENARIOS = [
@@ -743,6 +746,8 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     state.selected = {type: "unit", id: state.config.units?.[0]?.id || ""};
     state.exp = null;
     state.samples = [];
+    state.topologyHistory = [];
+    state.topologyFuture = [];
     if (state.source) { state.source.close(); state.source = null; }
     validate();
     renderPresets();
@@ -766,6 +771,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     const topology = getTopology();
     if (!topology) return;
     if (id === "reset") { loadPreset(state.presetId || state.defaultPreset); return; }
+    pushTopologyHistory();
     if (id === "storm15") {
       const influent = topology.units.find((unit) => topologyType(unit) === "influent");
       if (influent) influent.flow_m3_h = num(influent.flow_m3_h, 0) * 1.5;
@@ -1050,6 +1056,8 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
         <button class="chip" data-topo-add="clarifier">+ 二沉池</button>
         <button class="chip" data-topo-add="effluent">+ 出水</button>
         <button class="chip" id="topo-relayout">重新布局</button>
+        <button class="chip" id="topo-undo" title="撤销上一步结构编辑">↶ 撤销</button>
+        <button class="chip" id="topo-redo" title="重做">↷ 重做</button>
         <span class="faint" style="font-size:9px">节点自动排布；连线由连接表决定</span>
       </div>`;
     const svg = `<svg class="topo-svg" viewBox="0 0 ${layout.width} ${layout.height}" width="${layout.width}" height="${layout.height}" aria-label="ASM1 自由拓扑连线">
@@ -1083,6 +1091,8 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     $("#recycle-strip").innerHTML = `<span class="faint" style="font-size:9.5px">${topology.units.length} 节点 · ${topology.connections.length} 连接 · 选中节点或连线后在下方编辑</span>`;
     $$("[data-topo-add]").forEach((button) => button.addEventListener("click", () => addTopologyUnit(button.dataset.topoAdd)));
     $("#topo-relayout").addEventListener("click", () => { renderFlow(); toast("已按前向拓扑重新布局。"); });
+    $("#topo-undo").addEventListener("click", undoTopology);
+    $("#topo-redo").addEventListener("click", redoTopology);
     $$(".topo-unit").forEach((node) => node.addEventListener("click", () => {
       state.selected = {type: "unit", id: node.dataset.unitId};
       renderFlow(); renderInspector();
@@ -1092,6 +1102,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       state.selected = {type: "edge", id: path.dataset.edgeId};
       renderFlow(); renderInspector();
     }));
+    updateTopologyHistoryButtons();
   }
 
   function renderTopologyInspector() {
@@ -1253,6 +1264,49 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     return `${prefix}-${counter}`;
   }
 
+  function topologySnapshot() {
+    return {config: clone(state.config), selected: clone(state.selected)};
+  }
+
+  function pushTopologyHistory() {
+    if (!getTopology()) return;
+    state.topologyHistory.push(topologySnapshot());
+    if (state.topologyHistory.length > 50) state.topologyHistory.shift();
+    state.topologyFuture = [];
+    updateTopologyHistoryButtons();
+  }
+
+  function updateTopologyHistoryButtons() {
+    const undo = $("#topo-undo");
+    const redo = $("#topo-redo");
+    if (undo) undo.disabled = !state.topologyHistory.length;
+    if (redo) redo.disabled = !state.topologyFuture.length;
+  }
+
+  function restoreTopologySnapshot(snapshot) {
+    state.config = clone(snapshot.config);
+    state.selected = clone(snapshot.selected);
+    validate();
+    renderFlow();
+    renderInspector();
+  }
+
+  function undoTopology() {
+    if (!state.topologyHistory.length) return;
+    state.topologyFuture.push(topologySnapshot());
+    const previous = state.topologyHistory.pop();
+    restoreTopologySnapshot(previous);
+    toast("已撤销上一步拓扑编辑。");
+  }
+
+  function redoTopology() {
+    if (!state.topologyFuture.length) return;
+    state.topologyHistory.push(topologySnapshot());
+    const next = state.topologyFuture.pop();
+    restoreTopologySnapshot(next);
+    toast("已重做拓扑编辑。");
+  }
+
   function addTopologyUnit(type) {
     const topology = getTopology();
     if (!topology) return;
@@ -1285,6 +1339,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     } else if (type === "waste") {
       unit = {id, name: "废弃", type: "waste"};
     } else return;
+    pushTopologyHistory();
     topology.units.push(unit);
     // If a reactor is inserted after a selected node, split its existing forward edge
     // so the new node is not silently disconnected.
@@ -1309,16 +1364,33 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     if (type === "influent" || type === "effluent") { toast("进水/出水边界不能删除。", "warn"); return; }
     const reactors = topology.units.filter((item) => ["aerobic","anoxic","anaerobic"].includes(topologyType(item)));
     if (["aerobic","anoxic","anaerobic"].includes(type) && reactors.length <= 1) { toast("至少保留一个反应器。", "warn"); return; }
+    pushTopologyHistory();
+    // When a reactor sits on a single forward chain, bridge the predecessor to
+    // the successor instead of leaving both sides disconnected. Recycle edges
+    // attached to the deleted node are intentionally dropped.
+    let bridging = null;
+    if (["aerobic","anoxic","anaerobic"].includes(type)) {
+      const isProcess = (edge) => !edge.recycle || edge.recycle === "none";
+      const incoming = topology.connections.filter((edge) => edge.to === unit.id && isProcess(edge));
+      const outgoing = topology.connections.filter((edge) => edge.from === unit.id && isProcess(edge));
+      if (incoming.length === 1 && outgoing.length === 1 && Math.abs(num(incoming[0].flow_m3_h, 0) - num(outgoing[0].flow_m3_h, 0)) < 1e-6) {
+        let counter = 1;
+        while (topology.connections.some((edge) => edge.id === `edge-${counter}`)) counter++;
+        bridging = {id: `edge-${counter}`, from: incoming[0].from, to: outgoing[0].to, flow_m3_h: num(incoming[0].flow_m3_h, 0), stream: "process"};
+      }
+    }
     topology.units = topology.units.filter((item) => item.id !== unit.id);
     topology.connections = topology.connections.filter((edge) => edge.from !== unit.id && edge.to !== unit.id);
+    if (bridging) topology.connections.push(bridging);
     state.selected = {type: "unit", id: topology.units[0]?.id};
     validate(); renderFlow(); renderInspector();
-    toast(`已删除 ${unit.name || unit.id} 及其连接。`);
+    toast(bridging ? `已删除 ${unit.name || unit.id}，并桥接 ${bridging.from} → ${bridging.to}。` : `已删除 ${unit.name || unit.id} 及其连接。`);
   }
 
   function deleteTopologyEdge() {
     const topology = getTopology();
     if (!topology || state.selected.type !== "edge") return;
+    pushTopologyHistory();
     topology.connections = topology.connections.filter((edge) => edge.id !== state.selected.id);
     state.selected = {type: "unit", id: topology.units[0]?.id};
     validate(); renderFlow(); renderInspector();
@@ -1334,6 +1406,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     if (!from || !to || from === to) { toast("起点和终点必须是不同的节点。", "error"); return; }
     const existing = topology.connections.find((edge) => edge.from === from && edge.to === to);
     if (existing) { toast("这条连接已存在，请直接编辑它的流量/类型。", "warn"); return; }
+    pushTopologyHistory();
     let counter = 1;
     while (topology.connections.some((edge) => edge.id === `edge-${counter}`)) counter++;
     topology.connections.push({id: `edge-${counter}`, from, to, flow_m3_h: flow, stream: recycle === "none" ? "process" : "recycle", recycle});
@@ -1914,6 +1987,8 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     state.sampleEveryMin = preset.model === "asm1" ? 60 : 360;
     state.exp = null;
     state.samples = [];
+    state.topologyHistory = [];
+    state.topologyFuture = [];
     if (state.source) { state.source.close(); state.source = null; }
     validate();
     renderPresets();
@@ -1958,6 +2033,8 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       const value = JSON.parse($("#json-text").value);
       if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("config 必须是 JSON 对象");
       if (isVisualModel(state.model) && !value.plant && !Array.isArray(value.reactors)) throw new Error("可视化模型需要 {plant:{...}} 或 {reactors:[...]}");
+      state.topologyHistory = [];
+      state.topologyFuture = [];
       state.config = value;
       state.selected = isVisualModel(state.model)
         ? {type: "reactor", index: 0}
@@ -2027,6 +2104,13 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       state.selected = {type: "tertiary"}; renderFlow(); renderInspector();
     });
     $("#reset-preset").addEventListener("click", () => loadPreset(state.presetId));
+    document.addEventListener("keydown", (event) => {
+      if (!isTopologyModel(state.model) || !(event.ctrlKey || event.metaKey)) return;
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName)) return;
+      const key = event.key.toLowerCase();
+      if (key === "z") { event.preventDefault(); event.shiftKey ? redoTopology() : undoTopology(); }
+      else if (key === "y") { event.preventDefault(); redoTopology(); }
+    });
     $("#topo-save").addEventListener("click", saveCurrentTopology);
     $("#topo-name").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); saveCurrentTopology(); } });
     $("#topo-library").addEventListener("click", (event) => {
@@ -2073,6 +2157,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       const target = event.target.closest("[data-bind]");
       if (!target) return;
       const value = target.type === "number" ? num(target.value, 0) : target.value;
+      if (isTopologyModel(state.model) && ["unit.type", "edge.recycle"].includes(target.dataset.bind)) pushTopologyHistory();
       setPath(target.dataset.bind, value);
       validate(); renderFlow(); renderInspector();
     });
