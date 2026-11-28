@@ -194,7 +194,7 @@ v2 首版不引入 Node。前端作为静态资源由 Rust 服务托管；v2.0 �
 
 硬门禁：OpenAPI 契约测试、幂等重放、队列满 429、取消语义、24 h soak 有 `summary.json`。前四项已测；代表性矩阵已过，但 wall-clock 24 h 未过，V2-3 仍不能标完成。
 
-### V2-4 界面与工业验收（进行中，0.0.9 自由拓扑、0.0.10 工况、0.0.11 本机拓扑库、0.0.12 撤销/重做、0.0.13 告警解释、0.0.14 自定义工况、0.0.15 ASM2d 自定义工况、0.0.16 ASM2d 多系列画布已落）
+### V2-4 界面与工业验收（进行中，0.0.9 自由拓扑、0.0.10 工况、0.0.11 本机拓扑库、0.0.12 撤销/重做、0.0.13 告警解释、0.0.14 自定义工况、0.0.15 ASM2d 自定义工况、0.0.16 ASM2d 多系列画布、0.0.17 工业网关/鉴权/AI/看门狗已落）
 
 已交付（2026-11-28）：
 
@@ -205,13 +205,15 @@ v2 首版不引入 Node。前端作为静态资源由 Rust 服务托管；v2.0 �
 - [x] ASM1 任意节点/分支的可视化编排：增删节点、连接表、内回流/RAS/WAS、服务端编译预览；`docs/topology-journey.json` 3 预设 + 编辑后 1 d 运行；
 - [x] 告警、评分卡、日/周汇总；UI 显示评分卡/告警并下载 `daily.csv`/`weekly.csv`；
 - [x] 五条角色旅程：暴雨、风机故障、三级过滤 what-if、7 d 周报、脏数据；`docs/journeys-v2.json` 5/5 通过；
-- [x] ASM2d 多系列画布：系列标签、逐系列编辑、全系列工况、跨系列撤销/重做、逐系列校验与总流量汇总；`docs/visual-multi-train-check.json`，截图 `docs/screenshots/v2-ui-asm2d-multi-train.png`。
+- [x] ASM2d 多系列画布：系列标签、逐系列编辑、全系列工况、跨系列撤销/重做、逐系列校验与总流量汇总；`docs/visual-multi-train-check.json`，截图 `docs/screenshots/v2-ui-asm2d-multi-train.png`；
+- [x] 工业模拟适配层：OPC UA/Modbus/MQTT 共 10 点位、7 个可写设定点、范围/只读校验、SHA-256 审计链；`docs/industrial-adapter-check.json`、`docs/V2-INDUSTRIAL.md`；
+- [x] Bearer + RBAC、按主体限流、本地 evidence AI 解读、队列看门狗；`docs/security-ai-check.json`、截图 `docs/screenshots/v2-ui-ai-explain.png`。
 
 未完成：
 
 - [ ] ASM2d 分支管网画布（当前每个系列仍是线性池链，节点间分叉/合并未可画）；
-- [ ] OPC UA/Modbus/MQTT 模拟适配层与写审计；
-- [ ] AI Provider、审计链、限流、看门狗；
+- [ ] 真实 OPC UA/Modbus/MQTT 现场连接（当前是模拟适配层，不冒充 PLC 对接）；
+- [ ] 远程 AI Provider（当前是 local-evidence 规则提供者）；
 - [ ] 24 h wall-clock 内存/句柄验收（`completed_24h=false`）。
 
 硬门禁：五条角色旅程与自由拓扑验收旅程已通过；24 h soak 内存/句柄无增长仍未通过，V2-4 不能标完成。
@@ -264,5 +266,5 @@ v2 不直接替换 TS 生产入口。满足以下条件才切换：
 | V2-1 整厂 ASM1 | 已完成 | 5 池 + 二沉池 + RAS/内回流 + DO；30 天 BSM1-like 出水 COD 58.01、SS 12.20、NH4-N 0.292；官方参数集 S_S/SS/NO3/碱度/MLSS 接近 Table 6，NH4/DO 未全过；校准候选在 ±20% 内通过 Table 6 关键指标 |
 | V2-2 ASM2d + ADM1 | 已完成 | ASM2d 19 组分/21 过程 + A2O 整厂 30 天跑通，内部 COD/N/P 账 2.13%/1.09%/1.52% 闭合；多系列 2×500 m3/h 汇总通过；ADM1 核心、独立泥线、双向接口与回流闭环已落，整厂 COD/N/P 残差 -1.03%/2.19%/0.71% 均 closed；PAC 基础投加 + 三级过滤已落，PAC + 三级过滤回流闭环 TP 0.387 mg/L，整厂 COD/N/P -1.07%/2.16%/1.29% 均 closed |
 | V2-3 服务 + 实验 | 进行中 | `aquapilot-service` + CLI `serve`/`backup`；26 项 service 单测 + 1 项 worker；60 s smoke 30/30；代表性矩阵 11/11（5 模型 + 5 工况，95.938 s）；0.0.14 24 h soak 在 17 分钟时被环境重启打断，未完成 |
-| V2-4 界面 + 验收 | 进行中 | 同源编排台：9 preset、A2O 画布、ASM1 自由拓扑画布（增删节点/连接/回流边、服务端编译）、回流/二沉池/PAC/三级过滤、工况注入、SSE/队列/趋势/报告；0.0.8 评分卡/告警/日周汇总 + 五条角色旅程；0.0.9 自由拓扑验收 3 预设 + 编辑后 1 d 运行（`docs/topology-journey.json`）；0.0.10 自由拓扑工况（高流量/低 DO/冬季）；0.0.11 本机拓扑库（保存/载入/删除）；0.0.12 拓扑撤销/重做与删除自动桥接；0.0.13 告警解释（证据/可能原因/建议动作）；0.0.14 自定义工况（流量/DO/KLa/温度）；0.0.15 ASM2d 可视化自定义工况（流量含内回流/RAS/WAS、反应器温度、撤销/重做）；0.0.16 ASM2d 多系列画布（系列 A/B 切换、逐系列编辑、全系列工况、逐系列校验、总流量汇总）；截图 `v2-ui-asm2d-multi-train.png`、 `v2-ui-custom-scenario.png`、`v2-ui-asm2d-custom-scenario.png`、 `v2-ui-alarm-explain.png`、 `v2-ui-topology-history.png`、 `v2-ui-topology.png`、`v2-ui-topology-scenarios.png`、`v2-ui-topology-library.png` 等；ASM2d 分支管网、工业接口、AI/审计和 24 h soak 未完成 |
+| V2-4 界面 + 验收 | 进行中 | 同源编排台：9 preset、A2O 画布、ASM1 自由拓扑画布（增删节点/连接/回流边、服务端编译）、回流/二沉池/PAC/三级过滤、工况注入、SSE/队列/趋势/报告；0.0.8 评分卡/告警/日周汇总 + 五条角色旅程；0.0.9 自由拓扑验收 3 预设 + 编辑后 1 d 运行（`docs/topology-journey.json`）；0.0.10 自由拓扑工况（高流量/低 DO/冬季）；0.0.11 本机拓扑库（保存/载入/删除）；0.0.12 拓扑撤销/重做与删除自动桥接；0.0.13 告警解释（证据/可能原因/建议动作）；0.0.14 自定义工况（流量/DO/KLa/温度）；0.0.15 ASM2d 可视化自定义工况（流量含内回流/RAS/WAS、反应器温度、撤销/重做）；0.0.16 ASM2d 多系列画布（系列 A/B 切换、逐系列编辑、全系列工况、逐系列校验、总流量汇总）；0.0.17 工业模拟网关 + 写审计、Bearer/RBAC + 限流、local-evidence AI、看门狗；截图 `v2-ui-asm2d-multi-train.png`、 `v2-ui-custom-scenario.png`、`v2-ui-asm2d-custom-scenario.png`、 `v2-ui-alarm-explain.png`、 `v2-ui-topology-history.png`、 `v2-ui-topology.png`、`v2-ui-topology-scenarios.png`、`v2-ui-topology-library.png` 等；ASM2d 分支管网画布、真实现场协议、远程 AI Provider 和 24 h soak 未完成 |
 | Cutover | 未开始 | — |

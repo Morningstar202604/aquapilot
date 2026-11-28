@@ -33,6 +33,7 @@ pub struct ApiError {
     pub detail: String,
     pub errors: Vec<FieldError>,
     pub retry_after: Option<u64>,
+    pub www_authenticate: Option<&'static str>,
     pub instance: String,
 }
 
@@ -50,6 +51,7 @@ impl ApiError {
             detail: detail.into(),
             errors: Vec::new(),
             retry_after: None,
+            www_authenticate: None,
             instance: "urn:aquapilot:request".to_owned(),
         }
     }
@@ -136,6 +138,11 @@ impl IntoResponse for ApiError {
             if let Ok(value) = HeaderValue::from_str(&seconds.to_string()) {
                 response.headers_mut().insert(header::RETRY_AFTER, value);
             }
+        }
+        if let Some(value) = self.www_authenticate {
+            response
+                .headers_mut()
+                .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static(value));
         }
         response
     }

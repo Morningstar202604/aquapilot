@@ -243,6 +243,18 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 .inspector-empty{padding:15px 4px;color:var(--muted);font-size:12px;line-height:1.6}
 .empty-visual{padding:30px 18px;text-align:center;color:var(--muted);font-size:12px;line-height:1.6}
 .empty-visual strong{display:block;color:var(--ink);font-size:14px;margin-bottom:4px}
+.adapter-row{display:flex;gap:5px;flex-wrap:wrap;margin:7px 0}
+.adapter-chip{display:flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-family:var(--mono);font-size:8px;color:var(--muted)}
+.adapter-chip i{width:5px;height:5px;border-radius:50%;background:var(--teal)}
+.gw-write{display:grid;grid-template-columns:1.1fr .7fr;gap:5px;margin-top:6px}
+.gw-write select,.gw-write input{min-width:0;font-family:var(--mono);font-size:9px;border:1px solid var(--line);border-radius:5px;padding:5px 6px;background:#fff}
+.gw-write .gw-reason{grid-column:1 / -1}
+.gw-write button{grid-column:1 / -1}
+.ai-panel{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+.ai-panel .faint{font-family:var(--mono);font-size:8px}
+.ai-answer{flex-basis:100%;white-space:pre-wrap;font-size:9px;line-height:1.55;color:var(--ink);background:#f7faf6;border:1px solid var(--line);border-radius:6px;padding:7px 8px}
+.ai-answer.hidden{display:none}
+.audit-line{margin-top:6px;font-family:var(--mono);font-size:8px;color:var(--faint);word-break:break-all;line-height:1.5}
 .monitor-card{background:#fff;border:1px solid var(--line);border-radius:15px;box-shadow:0 3px 16px rgba(16,35,31,.04);padding:12px 13px;margin-bottom:12px}
 .monitor-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .monitor-top h2{margin:0;font-size:13px}
@@ -377,7 +389,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   <div class="top-status">
     <div class="status-chip" title="服务健康"><span class="dot" id="svc-dot"></span><span id="svc-label">连接中</span></div>
     <div class="status-chip"><span class="mono" id="queue-chip">队列 0 / 32</span></div>
-    <div class="status-chip"><span class="mono" id="svc-version">v0.0.16</span></div>
+    <div class="status-chip"><span class="mono" id="svc-version">v0.0.17</span></div>
   </div>
   <button class="top-link" id="open-api">API 契约 ↗</button>
 </header>
@@ -492,11 +504,24 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       </div>
       <div class="metric-grid" id="metric-grid"></div>
       <div class="scorecard" id="scorecard"><div class="score-label">出水评分</div><div class="score-meta">等待实验</div></div>
+      <div class="ai-panel"><button class="btn ghost" id="ai-explain" disabled>AI 解读</button><span class="faint" id="ai-provider">local-evidence · rules-v1</span><div class="ai-answer hidden" id="ai-answer"></div></div>
       <div class="chart-head"><strong>出水趋势</strong><select id="chart-metric"><option value="cod">COD</option><option value="nh4">NH4-N</option><option value="tn">TN</option><option value="tp">TP</option><option value="ss">SS</option><option value="po4">PO4-P</option></select></div>
       <div class="chart-wrap" id="chart-wrap"><div class="chart-empty">实验成功后显示采样序列</div></div>
       <div class="balance" id="balance"></div>
       <p class="hint balance-hint" id="balance-hint">三本账残差按边界库存计算；短时实验未闭合是初始场/库存变化，不是运行错误。</p>
       <div class="monitor-actions" id="download-links"></div>
+    </div>
+
+    <div class="monitor-card">
+      <div class="monitor-top"><div><h2>工业网关</h2><div class="exp-id">OPC UA / Modbus / MQTT · MOCK</div></div><span class="tag" id="gw-state">mock</span></div>
+      <div class="adapter-row" id="adapter-row"><span class="adapter-chip">加载中…</span></div>
+      <div class="gw-write">
+        <select id="gw-point" title="可写设定点"></select>
+        <input id="gw-value" type="number" step="any" placeholder="值" title="写入值">
+        <input id="gw-reason" class="gw-reason" placeholder="写入原因（进入审计链）" maxlength="120">
+        <button class="btn primary" id="gw-write">写入设定点</button>
+      </div>
+      <div class="audit-line" id="audit-line">尚未写入；审计链存在 SQLite。</div>
     </div>
 
     <div class="monitor-card">
@@ -571,6 +596,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     topologyValidationTimer: null,
     topologyHistory: [],
     topologyFuture: [],
+    industrial: {points: [], adapters: [], last: null},
   };
 
   const SCENARIOS = [
@@ -2121,6 +2147,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     $("#progress-bar").style.width = `${Math.max(0, Math.min(100, progress * 100))}%`;
     $("#progress-label").textContent = `${(progress * 100).toFixed(1)}%`;
     $("#cancel-exp").disabled = !exp || ["succeeded", "failed", "cancelled"].includes(status);
+    $("#ai-explain").disabled = status !== "succeeded";
     $("#refresh-exp").disabled = !exp;
     const result = exp?.result;
     const effluent = effluentOf(result);
@@ -2490,13 +2517,86 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     });
   }
 
+  function renderIndustrial() {
+    const row = $("#adapter-row");
+    row.innerHTML = (state.industrial.adapters || []).map((adapter) => `<span class="adapter-chip" title="${esc(adapter.endpoint)}"><i></i>${esc(adapter.kind)} · ${adapter.points}</span>`).join("") || `<span class="adapter-chip">未连接</span>`;
+    const select = $("#gw-point");
+    const writable = (state.industrial.points || []).filter((point) => point.writable);
+    select.innerHTML = writable.map((point) => `<option value="${esc(point.id)}">${esc(point.label)} · ${esc(point.unit)}</option>`).join("");
+    const selected = writable.find((point) => point.id === select.value) || writable[0];
+    if (selected) {
+      $("#gw-value").value = selected.value;
+      $("#gw-value").placeholder = `${selected.min}–${selected.max}`;
+    }
+    const last = state.industrial.last;
+    $("#audit-line").textContent = last
+      ? `#${last.seq} ${last.target} ${fmt(last.previous_value, 3)} → ${fmt(last.new_value, 3)} · ${last.hash.slice(0, 16)}…`
+      : "尚未写入；审计链存在 SQLite。";
+  }
+
+  async function loadIndustrial() {
+    try {
+      const [points, adapters] = await Promise.all([api("/api/v1/industrial/points"), api("/api/v1/industrial/adapters")]);
+      state.industrial.points = points.points || [];
+      state.industrial.adapters = adapters.adapters || [];
+      renderIndustrial();
+    } catch (error) {
+      $("#adapter-row").innerHTML = `<span class="adapter-chip" style="color:var(--red)">网关不可用</span>`;
+      $("#audit-line").textContent = error.message;
+    }
+  }
+
+  async function writeIndustrial() {
+    const point_id = $("#gw-point").value;
+    const value = Number($("#gw-value").value);
+    if (!point_id || !Number.isFinite(value)) { toast("选择设定点并填写有限数值。", "warn"); return; }
+    const button = $("#gw-write");
+    button.disabled = true;
+    try {
+      const result = await api("/api/v1/industrial/write", {
+        method: "POST",
+        body: JSON.stringify({point_id, value, client_id: "ui-operator", reason: $("#gw-reason").value}),
+      });
+      state.industrial.last = result.audit;
+      const point = (state.industrial.points || []).find((item) => item.id === point_id);
+      if (point) point.value = value;
+      renderIndustrial();
+      toast(`已写入 ${point_id} = ${fmt(value, 3)}，审计 #${result.audit.seq}`);
+    } catch (error) {
+      toast(`写入失败：${error.message}`, "error");
+    } finally { button.disabled = false; }
+  }
+
+  async function explainExperiment() {
+    if (!state.exp?.id) return;
+    const button = $("#ai-explain");
+    const box = $("#ai-answer");
+    button.disabled = true;
+    box.classList.remove("hidden");
+    box.textContent = "正在读取评分卡、告警与三本账…";
+    try {
+      const result = await api("/api/v1/ai/explain", {
+        method: "POST",
+        body: JSON.stringify({experiment_id: state.exp.id, question: "这组结果最该先处理什么？"}),
+      });
+      box.textContent = result.answer;
+      $("#ai-provider").textContent = `${result.provider} · ${result.model} · audit #${result.audit.seq}`;
+    } catch (error) {
+      box.textContent = `解读失败：${error.message}`;
+    } finally { button.disabled = false; }
+  }
+
   async function init() {
     bindEvents();
     state.topologies = readTopologyLibrary();
     renderTopologyLibrary();
     renderScenarios();
     state.name = nowName();
+    $("#gw-write").addEventListener("click", writeIndustrial);
+    $("#ai-explain").addEventListener("click", explainExperiment);
+    $("#gw-point").addEventListener("change", renderIndustrial);
     await loadPresets();
+    loadIndustrial();
     pollHealth();
     refreshQueue();
     setInterval(pollHealth, 8000);

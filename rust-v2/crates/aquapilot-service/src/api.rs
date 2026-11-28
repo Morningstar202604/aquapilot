@@ -17,22 +17,41 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::ai::AiProvider;
 use crate::analysis::{analyze, daily_csv, weekly_csv};
 use crate::error::{ApiError, FieldError};
+use crate::industrial::{IndustrialHub, WriteRequest};
 use crate::runner::{samples_csv, ExperimentRequest, Sample};
+use crate::security::{Role, Security};
 use crate::store::{to_api_error, CancelOutcome, ExperimentRecord, Store};
+use crate::watchdog::Watchdog;
 use aquapilot_domain::PlantTopology;
 use aquapilot_engine::{CompiledPlant, EngineError};
 
 #[derive(Clone)]
 pub struct AppState {
     pub store: Store,
+    pub industrial: IndustrialHub,
+    pub ai: AiProvider,
+    pub security: Security,
+    pub watchdog: Watchdog,
     pub started: Arc<Instant>,
 }
 
 pub fn build_router(store: Store) -> Router {
+    build_router_with(store, Security::from_env(), None)
+}
+
+pub fn build_router_with(store: Store, security: Security, watchdog: Option<Watchdog>) -> Router {
+    let industrial = IndustrialHub::new(store.clone());
+    let ai = AiProvider::new(store.clone());
+    let watchdog = watchdog.unwrap_or_else(|| Watchdog::new(store.clone()));
     let state = AppState {
         store,
+        industrial,
+        ai,
+        security,
+        watchdog,
         started: Arc::new(Instant::now()),
     };
     Router::new()
@@ -40,6 +59,12 @@ pub fn build_router(store: Store) -> Router {
         .route("/api/health", get(health))
         .route("/api/openapi.json", get(openapi))
         .route("/api/v1/presets", get(presets))
+        .route("/api/v1/industrial/points", get(industrial_points))
+        .route("/api/v1/industrial/adapters", get(industrial_adapters))
+        .route("/api/v1/industrial/write", post(industrial_write))
+        .route("/api/v1/industrial/audit", get(industrial_audit))
+        .route("/api/v1/watchdog", get(watchdog_status))
+        .route("/api/v1/ai/explain", post(ai_explain))
         .route("/api/v1/topologies/validate", post(validate_topology))
         .route(
             "/api/v1/experiments",
@@ -100,11 +125,71 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
             "capacity": state.store.capacity()
         },
         "persistence": "sqlite",
+        "watchdog": state.watchdog.snapshot(),
+        "auth": { "enabled": state.security.enabled(), "mode": if state.security.enabled() { "bearer+rbac" } else { "local-dev" } },
     }))
 }
 
 async fn openapi() -> Json<Value> {
     Json(openapi_document())
+}
+
+async fn industrial_points(State(state): State<AppState>) -> Json<Value> {
+    Json(json!({ "points": state.industrial.points() }))
+}
+
+async fn industrial_adapters(State(state): State<AppState>) -> Json<Value> {
+    Json(state.industrial.adapters())
+}
+
+#[derive(Debug, Deserialize)]
+struct AuditQuery {
+    limit: Option<usize>,
+}
+
+async fn industrial_write(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<WriteRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let auth = state.security.authorize(&headers, Role::Operator)?;
+    state.security.check_rate(&auth.subject)?;
+    let value = state.industrial.write(request, &auth.subject)?;
+    Ok((StatusCode::CREATED, Json(value)))
+}
+
+async fn industrial_audit(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<AuditQuery>,
+) -> Result<Json<Value>, ApiError> {
+    state.security.authorize(&headers, Role::Admin)?;
+    let limit = query.limit.unwrap_or(20).clamp(1, 200);
+    Ok(Json(json!({ "records": state.industrial.audit(limit)? })))
+}
+
+async fn watchdog_status(State(state): State<AppState>) -> Json<Value> {
+    Json(state.watchdog.snapshot())
+}
+
+#[derive(Debug, Deserialize)]
+struct AiExplainRequest {
+    experiment_id: String,
+    #[serde(default)]
+    question: String,
+}
+
+async fn ai_explain(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<AiExplainRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let auth = state.security.authorize(&headers, Role::Viewer)?;
+    state.security.check_rate(&auth.subject)?;
+    let value = state
+        .ai
+        .explain(&request.experiment_id, &request.question, &auth.subject)?;
+    Ok(Json(value))
 }
 
 async fn index() -> Response {
@@ -218,6 +303,8 @@ async fn create_experiment(
     body: Bytes,
 ) -> Result<Response, ApiError> {
     check_json_content_type(&headers)?;
+    let auth = state.security.authorize(&headers, Role::Operator)?;
+    state.security.check_rate(&auth.subject)?;
     let request: ExperimentRequest = serde_json::from_slice(&body).map_err(|error| {
         let mut api_error = ApiError::bad_request(
             "MALFORMED_JSON",
@@ -338,8 +425,10 @@ async fn get_experiment(
 
 async fn cancel_experiment(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
+    state.security.authorize(&headers, Role::Operator)?;
     match state.store.cancel(&id).map_err(to_api_error)? {
         CancelOutcome::NotFound => Err(ApiError::not_found(format!(
             "experiment {id} does not exist"
@@ -780,6 +869,30 @@ fn openapi_document() -> Value {
             "/api/health": {"get": {"summary": "Service health", "responses": {"200": {"description": "OK"}}}},
             "/api/openapi.json": {"get": {"summary": "This document", "responses": {"200": {"description": "OpenAPI 3.1 document"}}}},
             "/api/v1/presets": {"get": {"summary": "Embedded scenario presets", "responses": {"200": {"description": "Preset list with model configs"}}}},
+            "/api/v1/industrial/points": {"get": {"summary": "Simulated industrial point image", "responses": {"200": {"description": "Point list with adapter, range and quality"}}}},
+            "/api/v1/industrial/adapters": {"get": {"summary": "Simulated adapter health", "responses": {"200": {"description": "OPC UA / Modbus / MQTT adapter states"}}}},
+            "/api/v1/industrial/write": {
+                "post": {
+                    "summary": "Write a setpoint through the mock adapter and append audit",
+                    "requestBody": {"required": true, "content": {"application/json": {"schema": {
+                        "type": "object", "required": ["point_id", "value"],
+                        "properties": {"point_id": {"type": "string"}, "value": {"type": "number"}, "client_id": {"type": "string"}, "reason": {"type": "string"}}
+                    }}}},
+                    "responses": {"201": {"description": "Point updated and audit appended"}, "404": {"description": "Unknown point"}, "409": {"description": "Read-only point"}, "422": {"description": "Value outside range"}}
+                }
+            },
+            "/api/v1/industrial/audit": {"get": {"summary": "Hash-chained write audit", "parameters": [{"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 200}}], "responses": {"200": {"description": "Newest audit records first"}}}},
+            "/api/v1/watchdog": {"get": {"summary": "Queue watchdog status", "responses": {"200": {"description": "Last watchdog check, stale threshold and warning"}}}},
+            "/api/v1/ai/explain": {
+                "post": {
+                    "summary": "Explain a completed experiment with the local evidence provider",
+                    "requestBody": {"required": true, "content": {"application/json": {"schema": {
+                        "type": "object", "required": ["experiment_id"],
+                        "properties": {"experiment_id": {"type": "string", "format": "uuid"}, "question": {"type": "string", "maxLength": 500}}
+                    }}}},
+                    "responses": {"200": {"description": "Answer plus scorecard, alarms and audit"}, "404": {"description": "Experiment not found"}, "409": {"description": "Result not ready"}}
+                }
+            },
             "/api/v1/topologies/validate": {
                 "post": {
                     "summary": "Validate and compile an ASM1 PlantTopology without running it",
@@ -878,6 +991,9 @@ fn openapi_document() -> Value {
             }
         },
         "components": {
+            "securitySchemes": {
+                "bearerAuth": {"type": "http", "scheme": "bearer", "description": "Optional when AQUAPILOT_TOKENS or AQUAPILOT_API_TOKEN is set; roles: viewer, operator, admin."}
+            },
             "schemas": {
                 "ExperimentRequest": {
                     "type": "object",
@@ -1355,7 +1471,7 @@ mod tests {
         assert_eq!(openapi.status(), StatusCode::OK);
         let document = body_json(openapi).await;
         assert_eq!(document["openapi"], "3.1.0");
-        assert_eq!(document["info"]["version"], "0.0.16");
+        assert_eq!(document["info"]["version"], "0.0.17");
         assert!(document["paths"]["/api/v1/experiments"].is_object());
         assert!(document["paths"]["/api/v1/presets"].is_object());
         assert!(document["paths"]["/api/v1/topologies/validate"].is_object());
@@ -1393,5 +1509,161 @@ mod tests {
             "application/problem+json"
         );
         assert_eq!(body_json(method).await["code"], "METHOD_NOT_ALLOWED");
+    }
+
+    #[tokio::test]
+    async fn industrial_write_is_validated_and_audited() {
+        let store = Store::in_memory(2).expect("store");
+        let router = build_router(store);
+        let points = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/industrial/points")
+                    .body(Body::empty())
+                    .expect("points"),
+            )
+            .await
+            .expect("points response");
+        assert_eq!(points.status(), StatusCode::OK);
+        let document = body_json(points).await;
+        assert_eq!(document["points"].as_array().expect("points").len(), 10);
+
+        let write = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/industrial/write")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"point_id":"influent.flow","value":1500,"client_id":"test-op","reason":"acceptance"}"#))
+                    .expect("write"),
+            )
+            .await
+            .expect("write response");
+        assert_eq!(write.status(), StatusCode::CREATED);
+        let written = body_json(write).await;
+        assert_eq!(written["point"]["value"], 1500.0);
+        assert_eq!(written["audit"]["seq"], 1);
+        assert_eq!(written["audit"]["previous_hash"], "genesis");
+
+        let read_only = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/industrial/write")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"point_id":"effluent.cod","value":10}"#))
+                    .expect("read-only"),
+            )
+            .await
+            .expect("read-only response");
+        assert_eq!(read_only.status(), StatusCode::CONFLICT);
+
+        let range = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/industrial/write")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"point_id":"aerobic.do","value":99}"#))
+                    .expect("range"),
+            )
+            .await
+            .expect("range response");
+        assert_eq!(range.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+        let audit = router
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/industrial/audit?limit=5")
+                    .body(Body::empty())
+                    .expect("audit"),
+            )
+            .await
+            .expect("audit response");
+        assert_eq!(audit.status(), StatusCode::OK);
+        let records = body_json(audit).await;
+        let records = records["records"].as_array().expect("records");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["actor"], "local-dev");
+        assert_eq!(records[0]["new_value"], 1500.0);
+        assert_eq!(records[0]["hash"].as_str().expect("hash").len(), 64);
+    }
+
+    #[tokio::test]
+    async fn bearer_roles_rate_limit_and_audit_access_are_enforced() {
+        let store = Store::in_memory(4).expect("store");
+        let security = Security::with_tokens(&[("ops", Role::Operator), ("root", Role::Admin)], 1);
+        let router = build_router_with(store, security, None);
+
+        let unauthorized = router
+            .clone()
+            .oneshot(request(
+                json!({"name": "no-auth", "model": "asm2d", "config": {}}),
+            ))
+            .await
+            .expect("unauthorized response");
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+        assert!(unauthorized
+            .headers()
+            .get(header::WWW_AUTHENTICATE)
+            .is_some());
+
+        let mut authorized = request(minimal_body("with-auth"));
+        authorized.headers_mut().insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer ops"),
+        );
+        let created = router.clone().oneshot(authorized).await.expect("create");
+        assert_eq!(created.status(), StatusCode::ACCEPTED);
+
+        let mut limited = request_with_key(minimal_body("rate-limited"), "test-key-2");
+        limited.headers_mut().insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer ops"),
+        );
+        let limited = router.clone().oneshot(limited).await.expect("limited");
+        assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(limited.headers().get(header::RETRY_AFTER).is_some());
+
+        let no_token = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/industrial/audit")
+                    .body(Body::empty())
+                    .expect("audit"),
+            )
+            .await
+            .expect("audit anon");
+        assert_eq!(no_token.status(), StatusCode::UNAUTHORIZED);
+
+        let ops_audit = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/industrial/audit")
+                    .header(header::AUTHORIZATION, "Bearer ops")
+                    .body(Body::empty())
+                    .expect("audit ops"),
+            )
+            .await
+            .expect("audit ops");
+        assert_eq!(ops_audit.status(), StatusCode::FORBIDDEN);
+
+        let root_audit = router
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/industrial/audit")
+                    .header(header::AUTHORIZATION, "Bearer root")
+                    .body(Body::empty())
+                    .expect("audit root"),
+            )
+            .await
+            .expect("audit root");
+        assert_eq!(root_audit.status(), StatusCode::OK);
     }
 }

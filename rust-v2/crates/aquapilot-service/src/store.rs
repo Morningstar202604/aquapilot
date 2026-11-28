@@ -11,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::ApiError;
 
@@ -53,6 +54,20 @@ pub struct CreateOutcome {
     pub record: ExperimentRecord,
     /// `true` when this request created a new resource, `false` for a replay.
     pub created: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditRecord {
+    pub seq: i64,
+    pub created_at: i64,
+    pub action: String,
+    pub actor: String,
+    pub target: String,
+    pub previous_value: Option<f64>,
+    pub new_value: Option<f64>,
+    pub reason: String,
+    pub previous_hash: String,
+    pub hash: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,7 +127,19 @@ impl Store {
                  ON experiments(idempotency_key_hash)
                  WHERE idempotency_key_hash IS NOT NULL;
              CREATE INDEX IF NOT EXISTS idx_experiments_status
-                 ON experiments(status, created_at);",
+                 ON experiments(status, created_at);
+             CREATE TABLE IF NOT EXISTS audit_log (
+                 seq INTEGER PRIMARY KEY,
+                 created_at INTEGER NOT NULL,
+                 action TEXT NOT NULL,
+                 actor TEXT NOT NULL,
+                 target TEXT NOT NULL,
+                 previous_value REAL,
+                 new_value REAL,
+                 reason TEXT NOT NULL,
+                 previous_hash TEXT NOT NULL,
+                 hash TEXT NOT NULL
+             );",
         )?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -122,6 +149,108 @@ impl Store {
 
     pub fn capacity(&self) -> usize {
         self.capacity
+    }
+
+    /// Append an immutable, hash-chained audit record. The chain is persisted in
+    /// the same SQLite file as the queue so a write cannot survive without its
+    /// audit row.
+    #[allow(clippy::too_many_arguments)]
+    pub fn append_audit(
+        &self,
+        action: &str,
+        actor: &str,
+        target: &str,
+        previous_value: Option<f64>,
+        new_value: Option<f64>,
+        reason: &str,
+    ) -> Result<AuditRecord, StoreError> {
+        let mut conn = self.conn.lock().expect("store mutex poisoned");
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let seq: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(seq), 0) + 1 FROM audit_log",
+            [],
+            |row| row.get(0),
+        )?;
+        let previous_hash: Option<String> = tx
+            .query_row(
+                "SELECT hash FROM audit_log ORDER BY seq DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let previous_hash = previous_hash.unwrap_or_else(|| "genesis".to_owned());
+        let created_at = unix_now();
+        let material = format!(
+            "{previous_hash}|{seq}|{created_at}|{action}|{actor}|{target}|{}|{}|{reason}",
+            option_number(previous_value),
+            option_number(new_value),
+        );
+        let hash = hex::encode(Sha256::digest(material.as_bytes()));
+        tx.execute(
+            "INSERT INTO audit_log (seq, created_at, action, actor, target, previous_value, new_value, reason, previous_hash, hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                seq,
+                created_at,
+                action,
+                actor,
+                target,
+                previous_value,
+                new_value,
+                reason,
+                previous_hash,
+                hash,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(AuditRecord {
+            seq,
+            created_at,
+            action: action.to_owned(),
+            actor: actor.to_owned(),
+            target: target.to_owned(),
+            previous_value,
+            new_value,
+            reason: reason.to_owned(),
+            previous_hash,
+            hash,
+        })
+    }
+
+    /// Age in seconds of the least-recently-updated running experiment. `None`
+    /// means the worker is idle.
+    pub fn oldest_running_age_seconds(&self) -> Result<Option<u64>, StoreError> {
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        let oldest: Option<i64> = conn.query_row(
+            "SELECT MIN(updated_at) FROM experiments WHERE status = 'running'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(oldest.map(|timestamp| (unix_now() - timestamp).max(0) as u64))
+    }
+
+    pub fn list_audit(&self, limit: usize) -> Result<Vec<AuditRecord>, StoreError> {
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        let mut statement = conn.prepare(
+            "SELECT seq, created_at, action, actor, target, previous_value, new_value, reason, previous_hash, hash
+             FROM audit_log ORDER BY seq DESC LIMIT ?1",
+        )?;
+        let rows = statement.query_map([limit as i64], |row| {
+            Ok(AuditRecord {
+                seq: row.get(0)?,
+                created_at: row.get(1)?,
+                action: row.get(2)?,
+                actor: row.get(3)?,
+                target: row.get(4)?,
+                previous_value: row.get(5)?,
+                new_value: row.get(6)?,
+                reason: row.get(7)?,
+                previous_hash: row.get(8)?,
+                hash: row.get(9)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StoreError::from)
     }
 
     /// Requeue experiments that were running when the process stopped. A
@@ -491,6 +620,17 @@ pub fn to_api_error(error: StoreError) -> ApiError {
     }
 }
 
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
+}
+
+fn option_number(value: Option<f64>) -> String {
+    value.map_or_else(|| "-".to_owned(), |number| number.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -645,5 +785,38 @@ mod tests {
         store.recover().expect("recover");
         let loaded = store.get("exp-1").expect("get").expect("record");
         assert_eq!(loaded.status, "cancelled");
+    }
+
+    #[test]
+    fn audit_records_form_a_hash_chain() {
+        let store = store();
+        let first = store
+            .append_audit(
+                "industrial.write",
+                "op-1",
+                "influent.flow",
+                Some(1000.0),
+                Some(1500.0),
+                "test",
+            )
+            .expect("first audit");
+        let second = store
+            .append_audit(
+                "industrial.write",
+                "op-1",
+                "aerobic.do",
+                Some(2.0),
+                Some(3.0),
+                "test",
+            )
+            .expect("second audit");
+        assert_eq!(first.seq, 1);
+        assert_eq!(second.seq, 2);
+        assert_eq!(second.previous_hash, first.hash);
+        assert_ne!(first.hash, second.hash);
+        let listed = store.list_audit(10).expect("list");
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].seq, 2);
+        assert_eq!(listed[0].new_value, Some(3.0));
     }
 }

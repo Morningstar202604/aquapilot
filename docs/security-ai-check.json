@@ -1,0 +1,81 @@
+{
+  "version": "0.0.17",
+  "services": {
+    "5192": "auth off, local-dev",
+    "5193": "AQUAPILOT_TOKENS=reader:viewer,writer:operator,root:admin; rate 2/min"
+  },
+  "health": {
+    "auth": {
+      "enabled": false,
+      "mode": "local-dev"
+    },
+    "ok": true,
+    "persistence": "sqlite",
+    "queue": {
+      "active": 0,
+      "capacity": 16
+    },
+    "status": "ok",
+    "uptime_seconds": 45.577773886,
+    "version": "0.0.17",
+    "watchdog": {
+      "checked_at": 1795881855,
+      "healthy": true,
+      "oldest_running_seconds": null,
+      "stale_after_seconds": 300
+    }
+  },
+  "auth_checks": [
+    {
+      "case": "no token write",
+      "status": 401,
+      "code": "UNAUTHORIZED",
+      "www_authenticate": "Bearer realm=\"aquapilot\""
+    },
+    {
+      "case": "viewer write",
+      "status": 403,
+      "code": "ROLE_FORBIDDEN"
+    },
+    {
+      "case": "operator write",
+      "status": 201,
+      "actor": "token:operator"
+    },
+    {
+      "case": "viewer audit",
+      "status": 403,
+      "code": "ROLE_FORBIDDEN"
+    },
+    {
+      "case": "admin audit",
+      "status": 200
+    },
+    {
+      "case": "operator third write in window",
+      "status": 429,
+      "code": "RATE_LIMITED",
+      "retry_after_header": true
+    }
+  ],
+  "ai": {
+    "provider": "local-evidence",
+    "model": "rules-v1",
+    "experiment_id": "c15e311a-a209-49c7-8524-1ce65ba91729",
+    "audit_seq": 4,
+    "answer": "评分 A，6/6 项达标；最大三本账残差 45.83%。\n共 1 条告警：\n- MASS_BALANCE_OPEN：plant COD/N/P mass balance is not closed (max residual 45.83%)\n  可能原因：拓扑边界不完整：缺少二沉池、污泥线或弃流路径\n  建议：先核对拓扑是否覆盖所有进出水与污泥流，再判断是否需要调参\n针对“auth acceptance”：上面列出的告警和证据就是当前可复核的答案；短时实验的账本残差先看库存变化，不要当成模型错误。"
+  },
+  "watchdog": {
+    "checked_at": 1795881855,
+    "healthy": true,
+    "oldest_running_seconds": null,
+    "stale_after_seconds": 300
+  },
+  "screenshot": "docs/screenshots/v2-ui-ai-explain.png",
+  "checks": [
+    "AI 解读来自本地 evidence provider，不调用外部模型",
+    "AI 调用写入 ai.explain 审计链",
+    "watchdog 返回 healthy/checked_at/stale_after_seconds",
+    "health 返回 auth.enabled/mode"
+  ]
+}

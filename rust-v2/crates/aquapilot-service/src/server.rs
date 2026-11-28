@@ -5,8 +5,10 @@ use std::error::Error;
 
 use tokio::net::TcpListener;
 
-use crate::api::build_router;
+use crate::api::build_router_with;
+use crate::security::Security;
 use crate::store::Store;
+use crate::watchdog::Watchdog;
 use crate::worker::spawn_worker;
 
 #[derive(Debug, Clone)]
@@ -34,9 +36,12 @@ pub fn serve(config: ServiceConfig) -> Result<(), Box<dyn Error + Send + Sync>> 
         let store = Store::open(&config.db_path, config.queue_capacity)?;
         store.recover()?;
         let _worker = spawn_worker(store.clone());
+        let watchdog = Watchdog::new(store.clone());
+        watchdog.spawn();
+        let security = Security::from_env();
         let listener = TcpListener::bind(&config.bind).await?;
         tracing::info!(bind = %config.bind, db = %config.db_path, "aquapilot service listening");
-        axum::serve(listener, build_router(store))
+        axum::serve(listener, build_router_with(store, security, Some(watchdog)))
             .with_graceful_shutdown(async {
                 let _ = tokio::signal::ctrl_c().await;
             })

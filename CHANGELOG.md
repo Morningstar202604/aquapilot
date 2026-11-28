@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.0.17] — 2026-11-28
+
+### Added
+
+- 模拟工业适配层：OPC UA/Modbus/MQTT 三个 adapter、10 个点位（7 个可写设定点、3 个只读仪表），写入校验只读/范围，`/api/v1/industrial/points|adapters|write|audit`。
+- SQLite `audit_log`：写入在同一事务追加 SHA-256 哈希链，返回 seq、previous_hash、hash；audit 需 admin 角色。
+- 可选 Bearer + RBAC：`AQUAPILOT_TOKENS=token:role,...` 或 `AQUAPILOT_API_TOKEN`；viewer/operator/admin 分级，401 带 `WWW-Authenticate: Bearer`，403 角色不足；按主体 60 s 窗口限流，429 + `Retry-After`。
+- 本地 evidence AI Provider：`POST /api/v1/ai/explain` 读取已存实验分析，返回评分卡/告警/可能原因/建议与 `ai.explain` 审计；不调用外部模型。
+- 队列看门狗：每 5 s 检查 running 实验 checkpoint 年龄，`/api/health` 与 `/api/v1/watchdog` 暴露 healthy/checked_at/stale_after_seconds。
+- UI 增加工业网关卡片与 AI 解读卡片。
+
+### Verification
+
+- `cargo test --workspace` 82 项通过；fmt/clippy 通过；OpenAPI 3.1 validator 通过（19 paths）。
+- 工业验收：UI 写入 influent.flow 1000→1500，audit #1、genesis、64 hex；`docs/industrial-adapter-check.json`、`docs/screenshots/v2-ui-industrial-audit.png`。
+- 鉴权验收：5193 开启 token 后无 token 401、viewer 写 403、operator 写 201 actor=token:operator、admin audit 200、限流 429+Retry-After；`docs/security-ai-check.json`。
+- AI 验收：1 d ASM2d 实验 `c15e311a-a209-49c7-8524-1ce65ba91729` A 6/6；AI `local-evidence`/`rules-v1`，audit #4；截图 `docs/screenshots/v2-ui-ai-explain.png`。
+
 ## [0.0.16] — 2026-11-28
 
 ### Added

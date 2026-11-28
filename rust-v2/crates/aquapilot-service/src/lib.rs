@@ -9,12 +9,16 @@
 // problem fields inline is more readable than boxing every handler result.
 #![allow(clippy::result_large_err)]
 
+pub mod ai;
 pub mod analysis;
 pub mod api;
 pub mod error;
+pub mod industrial;
 pub mod runner;
+pub mod security;
 pub mod server;
 pub mod store;
+pub mod watchdog;
 pub mod worker;
 
 pub use api::{build_router, AppState};

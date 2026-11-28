@@ -1,0 +1,57 @@
+{
+  "version": "0.0.17",
+  "adapters": [
+    {
+      "endpoint": "opc.tcp://127.0.0.1:4840/aquapilot",
+      "kind": "opcua",
+      "points": 3,
+      "simulated": true,
+      "state": "connected"
+    },
+    {
+      "endpoint": "tcp://127.0.0.1:502",
+      "kind": "modbus",
+      "points": 4,
+      "simulated": true,
+      "state": "connected"
+    },
+    {
+      "endpoint": "mqtt://127.0.0.1:1883/aquapilot",
+      "kind": "mqtt",
+      "points": 3,
+      "simulated": true,
+      "state": "connected"
+    }
+  ],
+  "point_count": 10,
+  "writable_points": [
+    "influent.flow",
+    "aerobic.do",
+    "aerobic.kla",
+    "clarifier.ras",
+    "clarifier.was",
+    "pac.dose",
+    "reactor.temperature"
+  ],
+  "audit": [
+    {
+      "action": "industrial.write",
+      "actor": "ui-operator",
+      "created_at": 1795881466,
+      "hash": "11757b98a310dd17f6c3fe99603b724197a889aba9f515c0225908a9bd8980cd",
+      "new_value": 1500.0,
+      "previous_hash": "genesis",
+      "previous_value": 1000.0,
+      "reason": "验收：工业网关写入",
+      "seq": 1,
+      "target": "influent.flow"
+    }
+  ],
+  "screenshot": "docs/screenshots/v2-ui-industrial-audit.png",
+  "checks": [
+    "OPC UA/Modbus/MQTT 三个 adapter 均为 connected、simulated=true",
+    "UI 写入 influent.flow 1000→1500 m³/h 成功",
+    "写入返回审计 #1，previous_hash=genesis，hash 64 hex",
+    "audit 写入 SQLite，可在 /api/v1/industrial/audit 重读"
+  ]
+}
