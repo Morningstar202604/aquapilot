@@ -57,6 +57,13 @@
 - 多系列分支/汇流视图已上 UI，截图 `docs/screenshots/v2-ui-parallel-network.png`；任意分支拓扑编辑仍未实现。
 - 证据：`docs/cutover/asm2d-30d-v2-summary.json`、`docs/V2-0.0.21.md`。
 
+## 4.2 0.0.22 增量（不改变 NO-GO）
+
+- 远程 AI Provider 已落地：OpenAI-compatible `/chat/completions`，失败回退本地规则并标 `degraded`；mock 实机验证见 `docs/cutover/asm2d-30d-ai-remote.json`。
+- MCP stdio 工具桥已落地 6 个工具，`run_experiment` 实机创建 `aff3c40b-dc66-455b-ac18-04d9fb274630` 并 `succeeded`；证据 `docs/cutover/mcp-0.0.22-tools.json`。
+- 真实 OPC UA / Modbus TCP / MQTT 现场连接仍未实现；工业页仍是 `MOCK`。没有现场端点与凭据，不宣称现场验收。
+- 24 h soak 仍无 summary；Cutover 条件 1、2 未满足。
+
 ## 5. 重新评估条件
 
 同时满足以下条件才可把 `cutover_approved` 改为 true：

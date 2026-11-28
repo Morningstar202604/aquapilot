@@ -1,0 +1,1 @@
+{"fallback":"local-evidence on remote error","mode":"remote","model":"mock-model","note":"OpenAI-compatible /chat/completions; API key is read from AQUAPILOT_AI_API_KEY and never returned.","provider":"remote-openai-compatible","remote_configured":true}

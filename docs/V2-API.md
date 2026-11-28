@@ -1,6 +1,6 @@
 # AquaPilot V2 Rust 服务 API
 
-> 版本 0.0.19。状态（2026-11-28）：`aquapilot-service` 已落地 HTTP + SSE、SQLite 持久实验队列、幂等、取消/恢复、CSV/Markdown 报告、OpenAPI 3.1、同源可视化编排台（`GET /`、`GET /api/v1/presets`）、ASM1 自由拓扑校验（`POST /api/v1/topologies/validate`），以及出水评分卡、告警、日/周聚合、五条角色旅程与自由拓扑验收旅程。代表性端到端矩阵 11/11 通过（`docs/coverage-matrix.json`），五条旅程 5/5 通过（`docs/journeys-v2.json`）；0.0.14 的 wall-clock 24 h soak 在 17 分钟处被执行环境重启打断，`docs/soak-24h-summary.json` 未生成，不能算完成；60 s smoke 见 `docs/soak-smoke-summary.json`。9 个 preset 覆盖 ASM2d 整厂、ASM2d 双系列、ASM1、ADM1 与泥线；`asm2d-parallel` 配置为 `{name,trains[]}`，每个系列独立二沉池/RAS/WAS，结果按总流量汇总。0.0.17 增加模拟工业网关（OPC UA/Modbus/MQTT 点位、写入与 SHA-256 审计链）、可选 Bearer + RBAC、按主体限流、本地 evidence AI 解读与队列看门狗；详见 `docs/V2-INDUSTRIAL.md`。0.0.19 增加 ADM1/泥线/闭环的长模型运行中取消，以及旧版只读别名 `/api/auth-required`、`/api/standards`、`/api/limits`；健康响应同时带旧字段。OpenAPI 22 paths。仍不包含真实 PLC 连接、远程 AI Provider、MCP 或 WebSocket；实时推送使用 SSE，单进程单 worker。Cutover 判定见 `docs/CUTOVER.md`。
+> 版本 0.0.19。状态（2026-11-28）：`aquapilot-service` 已落地 HTTP + SSE、SQLite 持久实验队列、幂等、取消/恢复、CSV/Markdown 报告、OpenAPI 3.1、同源可视化编排台（`GET /`、`GET /api/v1/presets`）、ASM1 自由拓扑校验（`POST /api/v1/topologies/validate`），以及出水评分卡、告警、日/周聚合、五条角色旅程与自由拓扑验收旅程。代表性端到端矩阵 11/11 通过（`docs/coverage-matrix.json`），五条旅程 5/5 通过（`docs/journeys-v2.json`）；0.0.14 的 wall-clock 24 h soak 在 17 分钟处被执行环境重启打断，`docs/soak-24h-summary.json` 未生成，不能算完成；60 s smoke 见 `docs/soak-smoke-summary.json`。9 个 preset 覆盖 ASM2d 整厂、ASM2d 双系列、ASM1、ADM1 与泥线；`asm2d-parallel` 配置为 `{name,trains[]}`，每个系列独立二沉池/RAS/WAS，结果按总流量汇总。0.0.17 增加模拟工业网关（OPC UA/Modbus/MQTT 点位、写入与 SHA-256 审计链）、可选 Bearer + RBAC、按主体限流、本地 evidence AI 解读与队列看门狗；详见 `docs/V2-INDUSTRIAL.md`。0.0.19 增加 ADM1/泥线/闭环的长模型运行中取消，以及旧版只读别名 `/api/auth-required`、`/api/standards`、`/api/limits`；健康响应同时带旧字段。OpenAPI 22 paths。0.0.20–0.0.22 增加批量研究、旧版只读迁移层、远程 OpenAI-compatible AI Provider、MCP stdio 工具桥；仍不包含真实 PLC 连接与 WebSocket；实时推送使用 SSE，单进程单 worker。Cutover 判定见 `docs/CUTOVER.md`。
 
 ## 启动
 
@@ -301,3 +301,10 @@ python3 scripts/journeys_v2.py --summary docs/journeys-v2.json
 | GET | `/api/history/snapshots` | 成功实验历史投影 |
 
 没有成功实验时 snapshot/topology 返回 503 `NO_BASELINE`。能量、SRT、F/M 不存于 V2 结果，返回 `null` 并列在 `compatibility.missing`；不要把它们当 live 控制值。
+
+
+### 0.0.22 远程 AI 与 MCP
+
+- `GET /api/v1/ai/status`：返回 `provider/model/mode/remote_configured/fallback`；key 永不出现在响应。
+- `POST /api/v1/ai/explain`：配置 `AQUAPILOT_AI_BASE_URL` 后调用 OpenAI-compatible `/chat/completions`；远端失败回退本地规则，响应带 `degraded` 与 `provider_error`。
+- MCP stdio：`aquapilot-v2 mcp --api http://127.0.0.1:5173 [--token ...]`；提供 6 个工具，`tools/call` 的 `run_experiment` 直接桥接 `POST /api/v1/experiments`，走同一队列与幂等键。证据 `docs/V2-0.0.22.md`、`docs/cutover/mcp-0.0.22-tools.json`。

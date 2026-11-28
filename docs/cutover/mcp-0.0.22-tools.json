@@ -1,0 +1,53 @@
+{
+ "transport": "stdio newline-delimited JSON-RPC",
+ "server": "aquapilot-v2 0.0.22",
+ "tools": [
+  {
+   "id": 1,
+   "error": null,
+   "result": {
+    "capabilities": {
+     "tools": {
+      "listChanged": false
+     }
+    },
+    "protocolVersion": "2025-03-26",
+    "serverInfo": {
+     "name": "aquapilot-v2",
+     "version": "0.0.22"
+    }
+   }
+  },
+  {
+   "id": 2,
+   "error": null,
+   "tools": [
+    "aquapilot_list_experiments",
+    "aquapilot_get_experiment",
+    "aquapilot_get_experiment_report",
+    "aquapilot_run_experiment",
+    "aquapilot_explain_experiment",
+    "aquapilot_get_study"
+   ]
+  },
+  {
+   "id": 3,
+   "error": null,
+   "isError": false,
+   "content_prefix": "{\n  \"analysis\": {\n    \"alarms\": [\n      {\n        \"code\": \"EFFLUENT_COD_HIGH\",\n        \"evidence\": [\n          \"末次采样 minute=30：COD=415.9352 mg/L；限值 50.0 mg/L。\"\n        ],\n        \"limit\": 50.0,\n        \"message\": \"COD 41"
+  },
+  {
+   "id": 4,
+   "error": null,
+   "isError": false,
+   "content_prefix": "{\n  \"markdown\": \"# Experiment `bdc505d6-db9e-400d-a319-6fac3603dcc3` — AI remote mock 30min\\n\\n- Model: `asm2d`\\n- Status: `succeeded`\\n- Created: `1795887605`\\n- Updated: `1795887606`\\n- Progress: 100.0%\\n\\n## Effluent "
+  }
+ ],
+ "run_tool": {
+  "isError": false,
+  "experiment_id": "aff3c40b-dc66-455b-ac18-04d9fb274630",
+  "status": "succeeded",
+  "name": "MCP run 30min",
+  "verified_after": "GET /api/v1/experiments/aff3c40b-dc66-455b-ac18-04d9fb274630 -> succeeded, progress 1.0"
+ }
+}

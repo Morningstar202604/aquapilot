@@ -74,6 +74,7 @@ pub fn build_router_with(store: Store, security: Security, watchdog: Option<Watc
         .route("/api/v1/industrial/audit", get(industrial_audit))
         .route("/api/v1/watchdog", get(watchdog_status))
         .route("/api/v1/ai/explain", post(ai_explain))
+        .route("/api/v1/ai/status", get(ai_status))
         .route("/api/v1/topologies/validate", post(validate_topology))
         .route(
             "/api/v1/experiments",
@@ -213,6 +214,10 @@ struct AiExplainRequest {
     experiment_id: String,
     #[serde(default)]
     question: String,
+}
+
+async fn ai_status(State(state): State<AppState>) -> Json<Value> {
+    Json(state.ai.status())
 }
 
 async fn ai_explain(
@@ -1137,9 +1142,10 @@ fn openapi_document() -> Value {
             },
             "/api/v1/industrial/audit": {"get": {"summary": "Hash-chained write audit", "parameters": [{"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 200}}], "responses": {"200": {"description": "Newest audit records first"}}}},
             "/api/v1/watchdog": {"get": {"summary": "Queue watchdog status", "responses": {"200": {"description": "Last watchdog check, stale threshold and warning"}}}},
+            "/api/v1/ai/status": {"get": {"summary": "Configured AI provider status (remote or local evidence)", "responses": {"200": {"description": "Provider, model, mode and fallback policy"}}}},
             "/api/v1/ai/explain": {
                 "post": {
-                    "summary": "Explain a completed experiment with the local evidence provider",
+                    "summary": "Explain a completed experiment with the configured AI provider",
                     "requestBody": {"required": true, "content": {"application/json": {"schema": {
                         "type": "object", "required": ["experiment_id"],
                         "properties": {"experiment_id": {"type": "string", "format": "uuid"}, "question": {"type": "string", "maxLength": 500}}
@@ -2028,7 +2034,7 @@ mod tests {
         assert_eq!(openapi.status(), StatusCode::OK);
         let document = body_json(openapi).await;
         assert_eq!(document["openapi"], "3.1.0");
-        assert_eq!(document["info"]["version"], "0.0.21");
+        assert_eq!(document["info"]["version"], "0.0.22");
         assert!(document["paths"]["/api/v1/experiments"].is_object());
         assert!(document["paths"]["/api/v1/presets"].is_object());
         assert!(document["paths"]["/api/v1/topologies/validate"].is_object());

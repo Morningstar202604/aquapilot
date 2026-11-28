@@ -19,6 +19,7 @@ sha2 = "0.10"
 hex = "0.4"
 tracing = "0.1"
 futures-util = "0.3"
+ureq = { version = "2", features = ["json"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

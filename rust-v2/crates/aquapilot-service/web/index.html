@@ -2695,8 +2695,17 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     } finally { button.disabled = false; }
   }
 
+  async function loadAiStatus() {
+    try {
+      const info = await api("/api/v1/ai/status");
+      $("#ai-provider").textContent = `${info.provider} · ${info.model}`;
+      $("#ai-provider").title = info.note || "";
+    } catch (_) {}
+  }
+
   async function init() {
     bindEvents();
+    loadAiStatus();
     state.topologies = readTopologyLibrary();
     renderTopologyLibrary();
     renderScenarios();

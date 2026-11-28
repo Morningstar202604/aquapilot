@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.22] — 2026-11-29
+
+### Added
+
+- 远程 OpenAI-compatible AI Provider：`AQUAPILOT_AI_BASE_URL/API_KEY/MODEL/TIMEOUT_SECONDS`；远端失败回退本地规则并标记 `degraded/provider_error`；新增 `GET /api/v1/ai/status`。
+- MCP stdio 工具桥：`aquapilot-v2 mcp --api ...`，提供实验列表/详情/报告/提交/解释与批量研究详情 6 个工具，走同一 HTTP API、队列和幂等键。
+
+### Verification
+
+- `cargo test --workspace` 93 项通过；fmt/clippy 通过；版本 0.0.22。
+- 远程 AI 实机走本地 mock `/v1/chat/completions`，`bdc505d6-db9e-400d-a319-6fac3603dcc3` 返回远端答案，`degraded=false`；证据 `docs/cutover/asm2d-30d-ai-remote.json`。
+- MCP `run_experiment` 创建 `aff3c40b-dc66-455b-ac18-04d9fb274630` 并达到 `succeeded`；证据 `docs/cutover/mcp-0.0.22-tools.json`。
+- 真实 OPC UA/Modbus/MQTT 现场连接与 24 h soak 未完成；Cutover 仍 NO-GO。
+
 ## [0.0.21] — 2026-11-29
 
 ### Added

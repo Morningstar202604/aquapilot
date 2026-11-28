@@ -14,6 +14,8 @@ use aquapilot_model::asm2d_sludge::{simulate_asm2d_sludge, Asm2dSludgeConfig};
 use aquapilot_model::Asm1Params;
 use clap::{Parser, Subcommand, ValueEnum};
 
+mod mcp;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "aquapilot-v2",
@@ -57,6 +59,15 @@ enum Command {
         /// Maximum queued + running experiments.
         #[arg(long, default_value_t = 32)]
         queue_capacity: usize,
+    },
+    /// Run a minimal MCP stdio server that bridges to the HTTP API.
+    Mcp {
+        /// Base URL of a running AquaPilot service.
+        #[arg(long, default_value = "http://127.0.0.1:5173")]
+        api: String,
+        /// Bearer token; falls back to AQUAPILOT_TOKEN.
+        #[arg(long)]
+        token: Option<String>,
     },
     /// Write a consistent SQLite backup of the experiment database.
     Backup {
@@ -305,6 +316,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }) {
                 return Err(std::io::Error::other(error.to_string()).into());
             }
+        }
+        Command::Mcp { api, token } => {
+            let token = token.or_else(|| std::env::var("AQUAPILOT_TOKEN").ok());
+            mcp::McpServer::new(api, token).run()?;
         }
         Command::Backup { db, out, force } => {
             let store = aquapilot_service::Store::open(&db, 1)?;
