@@ -1,0 +1,83 @@
+{
+  "schema": "aquapilot.cutover.parity.v1",
+  "generated_at": "2026-11-28T16:30:00Z",
+  "reference": {
+    "version": "0.11.23",
+    "command": "node dist/cli.mjs experiment --model asm1 --minutes 43200 --sample 60 --json",
+    "file": "docs/cutover/old-experiment-30d.json",
+    "warmup_days": 5
+  },
+  "candidate": {
+    "version": "0.0.19",
+    "experiment_id": "4fb0a170-5481-4608-86c8-8263448e975c",
+    "file": "docs/cutover/rust-30d-samples.csv",
+    "warmup_excluded_minutes": 7200
+  },
+  "topology": {
+    "file": "docs/cutover/translated-topology-v2.json",
+    "source": "old /api/topology export + /api/snapshot states",
+    "geometry": "ana 3000 / anx 4500 / aer 5750x3 / clarifier 4800x4.5 m",
+    "boundary": "influent COD 330.09, NH4 31.86, TP 4.87, SS 179.94, flow 1800 m3/h; RAS 0.8Q, internal 2Q, WAS 0.022Q; temperature 16.67C",
+    "calibration": "clarifier v_max changed 474 -> 240 m/d to reproduce old xEff≈9.3 mg/L; no other kinetic parameter changed"
+  },
+  "comparison": {
+    "old": {
+      "cod": 43.8323,
+      "ss": 11.9118,
+      "nh": 0.3198,
+      "tn": 19.5044,
+      "tp": 4.9671
+    },
+    "new": {
+      "cod": 49.9043,
+      "ss": 11.4809,
+      "nh": 0.0732,
+      "tn": 17.9686,
+      "tp": 0.0,
+      "do": 1.999
+    },
+    "deviation_pct": {
+      "cod": 13.85,
+      "ss": -3.62,
+      "nh": -77.11,
+      "tn": -7.87,
+      "tp": -100.0,
+      "do": -0.05
+    }
+  },
+  "water_train_envelope": {
+    "criteria": {
+      "cod_mean_within_pct": 15,
+      "ss_mean_within_pct": 15,
+      "tn_mean_within_pct": 10,
+      "nh_abs_mean_mg_l": 0.3,
+      "do_mean_within_pct": 5
+    },
+    "passed": true,
+    "actual": {
+      "cod_pct": 13.85,
+      "ss_pct": -3.62,
+      "tn_pct": -7.87,
+      "nh_abs_delta": -0.2466,
+      "do_pct": -0.05
+    },
+    "note": "ASM1 has no BOD/TP state; six-item parity cannot be claimed from the ASM1 water train. BOD/TP are outside this envelope."
+  },
+  "rejected_oracle": {
+    "old_asm2d": {
+      "file": "docs/cutover/old-asm2d-30d.json",
+      "reason": "NH mean 28.19 mg/L and mass-balance residual 70.6% fail; not usable as a six-item oracle"
+    }
+  },
+  "unmet_gate_conditions": [
+    "24 h soak not completed",
+    "six-item effluent parity not established",
+    "reactor inventory and three-ledger parity not established",
+    "studies API not migrated"
+  ],
+  "decision": {
+    "cutover_approved": false,
+    "mode": "dual-track",
+    "reason": "water-train envelope passes, but soak and six-item/ledger/API conditions remain open"
+  }
+}

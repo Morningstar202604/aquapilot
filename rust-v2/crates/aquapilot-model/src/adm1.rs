@@ -714,12 +714,25 @@ pub struct Adm1Config {
 pub enum Adm1Error {
     #[error("volume and flow must be positive")]
     InvalidConfig,
+    #[error("simulation cancelled")]
+    Cancelled,
 }
 
 pub fn simulate_adm1(
     config: &Adm1Config,
     days: f64,
     dt_days: f64,
+) -> Result<Adm1Snapshot, Adm1Error> {
+    simulate_adm1_with_cancel(config, days, dt_days, &|| false)
+}
+
+/// Stepwise ADM1 integration with a cancellation callback. The callback is
+/// checked at every outer integration step, not only after the full run.
+pub fn simulate_adm1_with_cancel(
+    config: &Adm1Config,
+    days: f64,
+    dt_days: f64,
+    cancel: &dyn Fn() -> bool,
 ) -> Result<Adm1Snapshot, Adm1Error> {
     if config.volume_m3 <= 0.0
         || config.flow_m3_per_d <= 0.0
@@ -744,6 +757,9 @@ pub fn simulate_adm1(
     let mut n_out_kg = 0.0;
 
     while time < days - 1e-12 {
+        if cancel() {
+            return Err(Adm1Error::Cancelled);
+        }
         let remaining = days - time;
         let mut step = dt_days.min(remaining);
         loop {
@@ -1112,6 +1128,14 @@ mod tests {
         assert!(simulate_adm1(&config, 10.0, 0.0).is_err());
         assert!(simulate_adm1(&config, 10.0, -0.002).is_err());
         assert!(simulate_adm1(&config, f64::NAN, 0.002).is_err());
+    }
+
+    #[test]
+    fn cancellation_stops_before_the_whole_run_finishes() {
+        let config = tutorial_config();
+        let error =
+            simulate_adm1_with_cancel(&config, 10.0, 0.002, &|| true).expect_err("cancelled");
+        assert!(matches!(error, Adm1Error::Cancelled));
     }
 
     #[test]

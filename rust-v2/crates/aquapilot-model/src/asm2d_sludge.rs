@@ -16,8 +16,8 @@ use crate::adm1::{
     X_C4, X_FA, X_H2, X_I, X_PRO, X_SU,
 };
 use crate::adm1_sludge::{
-    default_digester_gas, default_digester_seed, simulate_sludge_line, DewateringConfig,
-    SludgeLineConfig, SludgeLineSnapshot, SludgeStream, ThickenerConfig,
+    default_digester_gas, default_digester_seed, simulate_sludge_line_with_cancel,
+    DewateringConfig, SludgeLineConfig, SludgeLineSnapshot, SludgeStream, ThickenerConfig,
 };
 use crate::asm2d::Asm2dState;
 
@@ -140,6 +140,24 @@ pub fn simulate_asm2d_sludge(
     days: f64,
     dt_days: f64,
 ) -> Result<Asm2dSludgeSnapshot, crate::adm1_sludge::SludgeLineError> {
+    simulate_asm2d_sludge_with_cancel(
+        asm2d_underflow,
+        was_flow_m3_h,
+        config,
+        days,
+        dt_days,
+        &|| false,
+    )
+}
+
+pub fn simulate_asm2d_sludge_with_cancel(
+    asm2d_underflow: &Asm2dState,
+    was_flow_m3_h: f64,
+    config: &Asm2dSludgeConfig,
+    days: f64,
+    dt_days: f64,
+    cancel: &dyn Fn() -> bool,
+) -> Result<Asm2dSludgeSnapshot, crate::adm1_sludge::SludgeLineError> {
     let flow_m3_per_d = was_flow_m3_h * 24.0;
     let (feed, _) = adm1_feed_from_asm2d(asm2d_underflow, flow_m3_per_d);
     let line_config = SludgeLineConfig {
@@ -153,7 +171,7 @@ pub fn simulate_asm2d_sludge(
         temperature_k: config.temperature_k,
         gas_volume_ratio: config.gas_volume_ratio,
     };
-    let line = simulate_sludge_line(&line_config, days, dt_days)?;
+    let line = simulate_sludge_line_with_cancel(&line_config, days, dt_days, cancel)?;
     Ok(Asm2dSludgeSnapshot {
         flow_m3_per_d,
         asm2d_cod_kg_per_m3: asm2d_underflow.total_cod(),

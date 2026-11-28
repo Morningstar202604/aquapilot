@@ -9,7 +9,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::adm1::{
-    simulate_adm1, Adm1Config, Adm1Error, Adm1Gas, Adm1Params, Adm1Snapshot, Adm1State, X_C, X_I,
+    simulate_adm1_with_cancel, Adm1Config, Adm1Error, Adm1Gas, Adm1Params, Adm1Snapshot, Adm1State,
+    X_C, X_I,
 };
 
 const PARTICULATE_START: usize = X_C;
@@ -186,6 +187,15 @@ pub fn simulate_sludge_line(
     days: f64,
     dt_days: f64,
 ) -> Result<SludgeLineSnapshot, SludgeLineError> {
+    simulate_sludge_line_with_cancel(config, days, dt_days, &|| false)
+}
+
+pub fn simulate_sludge_line_with_cancel(
+    config: &SludgeLineConfig,
+    days: f64,
+    dt_days: f64,
+    cancel: &dyn Fn() -> bool,
+) -> Result<SludgeLineSnapshot, SludgeLineError> {
     if !days.is_finite()
         || days <= 0.0
         || !dt_days.is_finite()
@@ -212,12 +222,15 @@ pub fn simulate_sludge_line(
         initial_gas: config.digester_initial_gas,
         params: config.digester_params,
     };
-    let digester = simulate_adm1(&digester_config, days, dt_days)?;
+    let digester = simulate_adm1_with_cancel(&digester_config, days, dt_days, cancel)?;
     let digester_effluent = SludgeStream {
         flow_m3_per_d: digester_flow,
         state: digester.effluent,
         phosphorus_kg_per_m3: thickened.phosphorus_kg_per_m3,
     };
+    if cancel() {
+        return Err(SludgeLineError::Adm1(Adm1Error::Cancelled));
+    }
     let (cake, filtrate) = dewater(&digester_effluent, config.dewatering);
 
     let cod_balance = line_balance(
@@ -449,5 +462,13 @@ mod tests {
             snapshot.phosphorus_balance.residual
         );
         assert!(snapshot.digester.methane_m3_per_d > 0.0);
+    }
+
+    #[test]
+    fn cancellation_reaches_the_digester() {
+        let config = line_config();
+        let error = simulate_sludge_line_with_cancel(&config, 20.0, 0.002, &|| true)
+            .expect_err("cancelled");
+        assert!(matches!(error, SludgeLineError::Adm1(Adm1Error::Cancelled)));
     }
 }

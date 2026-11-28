@@ -1,0 +1,204 @@
+{
+  "name": "old-standard-translated",
+  "units": [
+    {
+      "id": "in",
+      "name": "进水",
+      "type": "influent",
+      "flow_m3_h": 1800.0,
+      "water": {
+        "cod": 400.0,
+        "nh4_n": 30.0,
+        "no3_n": 0.0,
+        "tp": 5.0,
+        "ss": 200.0,
+        "alkalinity": 250.0,
+        "do": 0.5,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "ana",
+      "name": "厌氧池",
+      "type": "anaerobic",
+      "volume_m3": 3000.0,
+      "initial": {
+        "cod": 3500.0,
+        "nh4_n": 25.0,
+        "no3_n": 2.0,
+        "tp": 5.0,
+        "do": 0.05,
+        "alkalinity": 250.0,
+        "mlss": 3000.0,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "anx",
+      "name": "缺氧池",
+      "type": "anoxic",
+      "volume_m3": 4500.0,
+      "initial": {
+        "cod": 3500.0,
+        "nh4_n": 25.0,
+        "no3_n": 2.0,
+        "tp": 5.0,
+        "do": 0.05,
+        "alkalinity": 250.0,
+        "mlss": 3000.0,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "aer1",
+      "name": "好氧池 A",
+      "type": "aerobic",
+      "volume_m3": 5750.0,
+      "kla_h": 240.0,
+      "do_setpoint": 2.0,
+      "initial": {
+        "cod": 3500.0,
+        "nh4_n": 25.0,
+        "no3_n": 2.0,
+        "tp": 5.0,
+        "do": 0.05,
+        "alkalinity": 250.0,
+        "mlss": 3000.0,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "aer2",
+      "name": "好氧池 B",
+      "type": "aerobic",
+      "volume_m3": 5750.0,
+      "kla_h": 240.0,
+      "do_setpoint": 2.0,
+      "initial": {
+        "cod": 3500.0,
+        "nh4_n": 25.0,
+        "no3_n": 2.0,
+        "tp": 5.0,
+        "do": 0.05,
+        "alkalinity": 250.0,
+        "mlss": 3000.0,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "aer3",
+      "name": "好氧池 C",
+      "type": "aerobic",
+      "volume_m3": 5750.0,
+      "kla_h": 240.0,
+      "do_setpoint": 2.0,
+      "initial": {
+        "cod": 3500.0,
+        "nh4_n": 25.0,
+        "no3_n": 2.0,
+        "tp": 5.0,
+        "do": 0.05,
+        "alkalinity": 250.0,
+        "mlss": 3000.0,
+        "temperature_c": 20.0
+      }
+    },
+    {
+      "id": "clr",
+      "name": "二沉池",
+      "type": "clarifier",
+      "area_m2": 4800.0,
+      "depth_m": 4.5,
+      "layers": 10,
+      "feed_layer": 6,
+      "settling": {
+        "v_max_m_per_d": 474.0,
+        "x_max_g_per_m3": 3000.0,
+        "x_min_g_per_m3": 0.001,
+        "a_per_g_per_m3": 0.000576,
+        "b_per_g_per_m3": 0.00286
+      }
+    },
+    {
+      "id": "out",
+      "name": "排放口",
+      "type": "effluent"
+    },
+    {
+      "id": "waste",
+      "name": "污泥",
+      "type": "waste"
+    }
+  ],
+  "connections": [
+    {
+      "id": "in-ana",
+      "from": "in",
+      "to": "ana",
+      "flow_m3_h": 1800.0
+    },
+    {
+      "id": "ana-anx",
+      "from": "ana",
+      "to": "anx",
+      "flow_m3_h": 3600.0
+    },
+    {
+      "id": "anx-aer1",
+      "from": "anx",
+      "to": "aer1",
+      "flow_m3_h": 7200.0
+    },
+    {
+      "id": "aer1-aer2",
+      "from": "aer1",
+      "to": "aer2",
+      "flow_m3_h": 7200.0
+    },
+    {
+      "id": "aer2-aer3",
+      "from": "aer2",
+      "to": "aer3",
+      "flow_m3_h": 7200.0
+    },
+    {
+      "id": "aer3-clr",
+      "from": "aer3",
+      "to": "clr",
+      "flow_m3_h": 3600.0
+    },
+    {
+      "id": "internal",
+      "from": "aer3",
+      "to": "anx",
+      "flow_m3_h": 3600.0,
+      "stream": "recycle",
+      "recycle": "internal"
+    },
+    {
+      "id": "ras",
+      "from": "clr",
+      "to": "ana",
+      "flow_m3_h": 1800.0,
+      "stream": "recycle",
+      "recycle": "ras"
+    },
+    {
+      "id": "clr-out",
+      "from": "clr",
+      "to": "out",
+      "flow_m3_h": 1764.0
+    },
+    {
+      "id": "was",
+      "from": "clr",
+      "to": "waste",
+      "flow_m3_h": 36.0,
+      "stream": "recycle",
+      "recycle": "was"
+    }
+  ],
+  "metadata": {
+    "source": "black-box topology export 0.11.23, volumes preserved; solver parameters independently chosen for cutover envelope"
+  }
+}

@@ -6,7 +6,7 @@
 - Clean-room 规则：`../docs/CLEAN-ROOM.md`
 - 旧 `rust/` 已冻结为 v0.11.23 的历史 checkpoint，v2 不读取、不复制它的源码。
 
-## 当前状态：V2-1、V2-2、V2-3 服务与 V2-4 编排台（含 ASM1 自由拓扑、ASM2d 自定义工况、ASM2d 多系列画布与工业网关）已落地；24 h 连续 soak 受执行环境重启限制，未完成
+## 当前状态：V2-1、V2-2、V2-3 服务与 V2-4 编排台（含 ASM1 自由拓扑、ASM2d 自定义工况、ASM2d 多系列画布、工业网关与长模型取消）已落地；24 h soak 运行中，Cutover Gate 判定 NO-GO（双轨）
 
 V2-1 已完成并推送：ASM1 五池整厂、Takács 10 层二沉池、RAS/内回流/WAS、DO 控制、BSM1-like 与官方 BSM1 对照、22 项测试。
 
@@ -26,6 +26,7 @@ V2-2 当前已落：
 - V2-4 编排台：`GET /` 同源托管单文件页面，`GET /api/v1/presets` 提供 9 个场景预设；A2O 画布支持反应器增删/拖拽/参数编辑、二沉池、内回流、PAC、三级过滤、进水边界和 6 类工况注入；ASM1 自由拓扑画布支持增删节点/连接、回流边和参数编辑；ADM1/泥线通过高级 JSON 从同一页面提交；详见 `../docs/V2-UI.md`；
 - 0.0.8 结果决策层：`analysis.rs` 出水评分卡/告警/数据质量/日周聚合，detail 的 `analysis`、`daily.csv`、`weekly.csv`、报告章节和 UI 评分卡已接；评分卡只对出水限值打分，短时三本账未闭合单独告警；
 - 0.0.14 自定义工况：ASM1 自由拓扑可按倍率/DO/KLa/温度注入工况，范围校验、可撤销，空字段跳过；
+- 0.0.19 长模型取消与边界收口：ADM1、独立泥线、ASM2d+ADM1 回流闭环支持运行中取消（每积分步/每次迭代检查），取消映射为 `RunError::Cancelled`，不再把半截结果当成功；ADM1 与泥线在画布上提供只读物流摘要，自定义工况增加“将应用/空字段跳过”实时预览；新增旧版只读 API 别名 `/api/auth-required`、`/api/standards`、`/api/limits`，OpenAPI 22 paths；Cutover Gate 判定见 `../docs/CUTOVER.md`；
 - 0.0.17 工业网关与安全边界：模拟 OPC UA/Modbus/MQTT 10 点位、SHA-256 写入审计、可选 Bearer/RBAC、按主体限流、local-evidence AI 解读与队列看门狗；详见 `../docs/V2-INDUSTRIAL.md`；
 - 0.0.16 ASM2d 多系列画布：载入 `a2o-2train` 后出现系列 A/B 标签，逐系列编辑池体/回流/二沉池；自定义工况一次作用到所有系列，撤销/重做恢复整份配置；结果按总流量汇总，`docs/visual-multi-train-check.json` 记录 1 d 自定义验收；
 - 0.0.15 ASM2d 自定义工况：同一面板接到 A2O 可视化工艺链，流量同时乘进水/内回流/RAS/WAS，温度改所有反应器；可撤销/重做；
@@ -36,7 +37,7 @@ V2-2 当前已落：
 - 0.0.9 自由拓扑：`POST /api/v1/topologies/validate` 编译任意 ASM1 `PlantTopology`；8 个 preset 新增 `asm1-three-stage`、`asm1-single`；UI 画布可增删节点、改参数、增删连接和回流边，底部显示服务端编译结果；`scripts/topology_journey.py` 验证 3 个预设 + 删除厌氧池后重连 + 1 d 运行；
 - 代表性端到端矩阵：`scripts/coverage_v2.py` 11/11 通过，覆盖 5 个服务模型 + 5 类 A2O 工况，95.938 s；
 - 五条角色旅程：`scripts/journeys_v2.py` 5/5 通过（暴雨、风机故障、三级过滤 what-if、7 d 周报、脏数据），3.513 s；`completed_24h=false`；
-- 尚未完成：wall-clock 24 h soak、WebSocket（当前用 SSE）、Bearer 角色鉴权、MCP；ASM2d 任意分支管网、工业适配、AI/审计/限流/看门狗；PAC 仍为三价金属当量模型，三级过滤为理想化边界单元。
+- 尚未完成：wall-clock 24 h soak（0.0.19 已启动，未出 summary）、Cutover 六项出水/三本账/studies API、ASM2d 任意分支管网、真实 OPC UA/Modbus/MQTT 现场连接、远程 AI Provider、MCP；PAC 仍为三价金属当量模型，三级过滤为理想化边界单元。
 
 30 天 A2O ASM2d 实测（`fixtures/a2o-asm2d.json`）：
 

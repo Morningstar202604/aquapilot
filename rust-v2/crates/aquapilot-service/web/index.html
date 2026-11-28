@@ -111,6 +111,8 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 .cs-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
 .cs-field{display:flex;flex-direction:column;gap:2px}
 .cs-field label{font-size:8.5px;color:var(--muted)}
+.cs-field input::placeholder{color:#a8b4ac;font-style:italic}
+.cs-preview{margin-top:6px;font-family:var(--mono);font-size:8.5px;color:var(--muted);min-height:12px}
 .cs-field input{height:24px;padding:2px 6px;border:1px solid var(--line);border-radius:5px;background:#fff;font-family:var(--mono);font-size:9.5px;color:var(--ink);outline:none}
 .cs-field input:focus{border-color:var(--teal);box-shadow:0 0 0 2px rgba(15,118,110,.08)}
 .cs-actions{display:flex;gap:5px;margin-top:5px}
@@ -152,6 +154,11 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 }
 .flow-shell:before{content:"";position:absolute;inset:0;background-image:radial-gradient(rgba(15,118,110,.10) 1px,transparent 1px);background-size:18px 18px;opacity:.55;pointer-events:none}
 .flow-scroll{position:relative;z-index:1;overflow-x:auto;padding:22px 18px 18px}
+.special-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:10px 14px}
+.special-facts div{border:1px solid var(--line);border-radius:7px;padding:6px 8px;background:#fbfdfb}
+.special-facts span{display:block;font-size:8px;color:var(--faint)}
+.special-facts b{display:block;font-family:var(--mono);font-size:10px;color:var(--ink);margin-top:2px}
+.reactor-node.special{min-width:132px;background:linear-gradient(180deg,#f7fbf6,#fff)}
 .train-tabs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 9px;padding:0 1px}
 .train-tab{display:flex;flex-direction:column;align-items:flex-start;gap:2px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px 9px;cursor:pointer}
 .train-tab:hover{border-color:#a9c9bf}
@@ -979,22 +986,43 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     return `<div class="custom-scenario">
           <div class="cs-head"><b>自定义工况</b><span>${topology ? "叠加当前画布" : "叠加当前工艺链"}</span></div>
           <div class="cs-grid">
-            <div class="cs-field"><label>流量倍率 ×（0.2–5）</label><input id="cs-flow" type="number" min="0.2" max="5" step="0.1" placeholder="1.5"></div>
-            <div class="cs-field"><label>好氧 DO mg/L（0–10）</label><input id="cs-do" type="number" min="0" max="10" step="0.1" placeholder="1.0"></div>
-            <div class="cs-field"><label>好氧 KLa 1/h（0–600）</label><input id="cs-kla" type="number" min="0" max="600" step="1" placeholder="120"></div>
-            <div class="cs-field"><label>${topology ? "进水/池温" : "反应器温度"} °C（1–40）</label><input id="cs-temp" type="number" min="1" max="40" step="1" placeholder="12"></div>
+            <div class="cs-field"><label>流量倍率 ×（0.2–5）</label><input id="cs-flow" type="number" min="0.2" max="5" step="0.1" placeholder="留空跳过"></div>
+            <div class="cs-field"><label>好氧 DO mg/L（0–10）</label><input id="cs-do" type="number" min="0" max="10" step="0.1" placeholder="留空跳过"></div>
+            <div class="cs-field"><label>好氧 KLa 1/h（0–600）</label><input id="cs-kla" type="number" min="0" max="600" step="1" placeholder="留空跳过"></div>
+            <div class="cs-field"><label>${topology ? "进水/池温" : "反应器温度"} °C（1–40）</label><input id="cs-temp" type="number" min="1" max="40" step="1" placeholder="留空跳过"></div>
           </div>
           <div class="cs-actions">
             <button class="btn primary" id="cs-apply">应用自定义</button>
             <button class="btn" id="cs-clear">清空</button>
             ${topology ? "" : '<button class="btn ghost" id="cs-undo" title="撤销上一步配置编辑">↶</button><button class="btn ghost" id="cs-redo" title="重做">↷</button>'}
           </div>
-          <div class="hint">${topology ? "流量倍率只乘进水和所有连接，节点流平衡不变；DO/KLa 只改好氧池；温度同时改进水与反应器初始温度。空字段跳过。" : "流量倍率同时乘进水、内回流、RAS 与 WAS，保持整厂流量比例；DO/KLa 只改好氧池；温度改所有反应器。空字段跳过。"}</div>
+          <div class="cs-preview" id="cs-preview">尚未填值；空字段全部跳过。</div>
+          <div class="hint">${topology ? "流量倍率只乘进水和所有连接，节点流平衡不变；DO/KLa 只改好氧池；温度同时改进水与反应器初始温度。空字段跳过。" : "流量倍率同时乘进水、内回流、RAS 与 WAS，保持整厂流量比例；DO/KLa 只改好氧池；温度改所有反应器。空字段跳过。示例：流量 1.5、DO 3、KLa 120、温度 12。"}</div>
         </div>`;
+  }
+
+  function updateCustomPreview() {
+    const preview = $("#cs-preview");
+    if (!preview) return;
+    const items = [];
+    const add = (selector, label, suffix = "") => {
+      const raw = $(selector)?.value?.trim();
+      if (!raw) return;
+      const value = Number(raw);
+      if (!Number.isFinite(value)) { items.push(`${label} 非法`); return; }
+      items.push(`${label} ${fmt(value, value < 10 ? 2 : 0)}${suffix}`);
+    };
+    add("#cs-flow", "流量 ×");
+    add("#cs-do", "DO", " mg/L");
+    add("#cs-kla", "KLa", " 1/h");
+    add("#cs-temp", "温度", "°C");
+    preview.textContent = items.length ? `将应用：${items.join("，")}；空字段跳过。` : "尚未填值；空字段全部跳过。";
   }
 
   function bindCustomScenario(mode) {
     $("#cs-apply").addEventListener("click", applyCustomScenario);
+    ["#cs-flow", "#cs-do", "#cs-kla", "#cs-temp"].forEach((selector) => $(selector)?.addEventListener("input", updateCustomPreview));
+    updateCustomPreview();
     $("#cs-clear").addEventListener("click", () => {
       ["#cs-flow", "#cs-do", "#cs-kla", "#cs-temp"].forEach((selector) => { $(selector).value = ""; });
     });
@@ -1080,6 +1108,39 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     $("#stage-tag").textContent = `${modelLabel(state.model)}${trains?.length ? ` · ${trains.length} 系列` : ""}`;
   }
 
+  function flowTerminal(title, subtitle, tone = "") {
+    return `<div class="terminal ${tone}"><div class="t-icon"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M12 3c-.4 0-.7.2-.9.5C9.5 6 5 10.7 5 14.3c0 3.2 2.6 5.7 7 5.7s7-2.5 7-5.7C19 10.7 14.5 6 12.9 3.5c-.2-.3-.5-.5-.9-.5Z"/></svg></div><strong>${esc(title)}</strong><small>${subtitle}</small></div>`;
+  }
+
+  function flowArrow() {
+    return `<div class="flow-arrow"><svg viewBox="0 0 24 12"><path d="M2 6h17M15 1l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></div>`;
+  }
+
+  function renderSpecialFlow() {
+    const flow = $("#flow");
+    const config = state.config || {};
+    const model = state.model;
+    $("#recycle-strip").innerHTML = "";
+    let html = "";
+    if (model === "adm1") {
+      const feedFlow = num(config.flow_m3_per_d, 0) / 24;
+      const volume = num(config.volume_m3, 0);
+      const hrt = feedFlow > 0 ? volume / (config.flow_m3_per_d || 1) : 0;
+      html += flowTerminal("进料", `${fmt(feedFlow, 1)} m³/h<br><span class="faint">${fmt(config.flow_m3_per_d, 0)} m³/d</span>`) + flowArrow();
+      html += `<article class="reactor-node special"><div class="n-top"><span class="seq">01</span><span class="kind anaerobic">CSTR</span></div><h3>ADM1 消化器</h3><div class="n-meta">${fmt(volume, 0)} m³ · ${fmt(config.temperature_k, 1)} K</div><div class="vol-track"><i style="width:100%"></i></div><div class="n-foot"><span>HRT ${fmt(hrt, 1)} d</span><span>气液比 ${fmt(config.gas_volume_ratio, 2)}</span></div></article>` + flowArrow();
+      html += flowTerminal("消化液", "COD / N / pH 由 ADM1 状态输出", "out") + flowArrow();
+      html += flowTerminal("沼气", "CH₄ / CO₂ / H₂ 准稳态", "out");
+    } else {
+      const feedFlow = num(config.feed?.flow_m3_per_d, 0) / 24;
+      html += flowTerminal("污泥进料", `${fmt(feedFlow, 1)} m³/h<br><span class="faint">${fmt(config.feed?.flow_m3_per_d, 0)} m³/d</span>`) + flowArrow();
+      html += `<article class="reactor-node special"><div class="n-top"><span class="seq">01</span><span class="kind anoxic">THICKENER</span></div><h3>重力浓缩</h3><div class="n-meta">底流 ${fmt(num(config.thickener?.underflow_fraction, 0) * 100, 0)}% · 捕集 ${fmt(num(config.thickener?.solids_capture, 0) * 100, 0)}%</div><div class="vol-track"><i style="width:${Math.max(6, Math.min(100, num(config.thickener?.solids_capture, 0) * 100))}%"></i></div><div class="n-foot"><span>溢流回进水</span><span>P 示踪</span></div></article>` + flowArrow();
+      html += `<article class="reactor-node special"><div class="n-top"><span class="seq">02</span><span class="kind anaerobic">ADM1</span></div><h3>厌氧消化</h3><div class="n-meta">${fmt(config.digester_volume_m3, 0)} m³ · ${fmt(config.temperature_k, 1)} K</div><div class="vol-track"><i style="width:100%"></i></div><div class="n-foot"><span>沼气 ${fmt(config.gas_volume_ratio, 2)}</span><span>准稳态</span></div></article>` + flowArrow();
+      html += `<article class="reactor-node special"><div class="n-top"><span class="seq">03</span><span class="kind aerobic">DEWATER</span></div><h3>机械脱水</h3><div class="n-meta">泥饼 ${fmt(config.dewatering?.cake_ts_kg_per_m3, 1)} kg/m³</div><div class="vol-track"><i style="width:${Math.max(6, Math.min(100, num(config.dewatering?.solids_capture, 0) * 100))}%"></i></div><div class="n-foot"><span>捕集 ${fmt(num(config.dewatering?.solids_capture, 0) * 100, 0)}%</span><span>滤液回流</span></div></article>` + flowArrow();
+      html += flowTerminal("泥饼", "外运边界", "out") + flowArrow() + flowTerminal("滤液", "回流 A2O 进水", "out");
+    }
+    flow.innerHTML = html;
+  }
+
   function renderTrainTabs() {
     const wrap = $("#train-tabs");
     if (!wrap) return;
@@ -1110,16 +1171,22 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     renderTrainTabs();
     const flow = $("#flow");
     flow.className = "flow";
-    $("#crumb-model").textContent = isTopologyModel(state.model) ? "ASM1 · 自由拓扑" : isParallelModel(state.model) ? "ASM2d · 多系列" : isVisualModel(state.model) ? "ASM2d · 整厂" : "模型配置";
-    $("#stage-eyebrow").textContent = isTopologyModel(state.model) ? "PROCESS TOPOLOGY / FREEFORM" : isParallelModel(state.model) ? "PROCESS TOPOLOGY / MULTI-TRAIN" : "PROCESS TOPOLOGY / A2O";
+    const specialModel = state.model === "adm1" || state.model === "sludge-line";
+    $("#crumb-model").textContent = isTopologyModel(state.model) ? "ASM1 · 自由拓扑" : isParallelModel(state.model) ? "ASM2d · 多系列" : isVisualModel(state.model) ? "ASM2d · 整厂" : specialModel ? (state.model === "adm1" ? "ADM1 · 消化器" : "泥线 · 浓缩+消化+脱水") : "模型配置";
+    $("#stage-eyebrow").textContent = isTopologyModel(state.model) ? "PROCESS TOPOLOGY / FREEFORM" : isParallelModel(state.model) ? "PROCESS TOPOLOGY / MULTI-TRAIN" : specialModel ? (state.model === "adm1" ? "PROCESS / ADM1 CSTR" : "PROCESS / SLUDGE LINE") : "PROCESS TOPOLOGY / A2O";
     $("#stage-sub").textContent = isTopologyModel(state.model)
       ? "节点和连接都由你决定：工具栏加节点，连接表加边；选中节点在下方改池型、池容、DO 与进水组分。"
       : isParallelModel(state.model)
         ? "多系列并列：上方切换系列，每个系列独立编辑池体、回流与二沉池；结果按总流量汇总。"
-        : "拖拽池体改串联顺序，点选节点在下方改参数；内回流、RAS/WAS、PAC 与三级过滤都在同一条流程上可见。";
+        : specialModel
+          ? "只读工艺摘要：体积、流量、温度与沼气/泥饼边界一眼可见；详细参数在高级 JSON 中编辑。"
+          : "拖拽池体改串联顺序，点选节点在下方改参数；内回流、RAS/WAS、PAC 与三级过滤都在同一条流程上可见。";
     $(".stage-foot .legend").innerHTML = isTopologyModel(state.model)
       ? `<span><i class="swatch"></i>过程边</span><span><i class="swatch amber"></i>回流边</span><span><i class="swatch red"></i>边界/废弃</span>`
-      : `<span><i class="swatch"></i>厌氧 / 好氧</span><span><i class="swatch amber"></i>缺氧 / 回流</span><span><i class="swatch red"></i>限制 / 旁路</span>`;
+      : specialModel
+        ? `<span><i class="swatch"></i>物料流</span><span><i class="swatch amber"></i>沼气 / 回流</span><span><i class="swatch red"></i>泥饼 / 滤液</span>`
+        : `<span><i class="swatch"></i>厌氧 / 好氧</span><span><i class="swatch amber"></i>缺氧 / 回流</span><span><i class="swatch red"></i>限制 / 旁路</span>`;
+    if (specialModel) { renderSpecialFlow(); renderStageChips(); return; }
     if (isTopologyModel(state.model)) { renderTopologyFlow(); renderStageChips(); return; }
     const plant = getPlant();
     if (!isVisualModel(state.model) || !plant) {
@@ -1695,6 +1762,16 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     const inspector = $("#inspector");
     if (isTopologyModel(state.model)) { renderTopologyInspector(); return; }
     const plant = getPlant();
+    if (state.model === "adm1" || state.model === "sludge-line") {
+      const config = state.config || {};
+      const facts = state.model === "adm1"
+        ? [["体积", `${fmt(config.volume_m3, 0)} m³`], ["进料", `${fmt(config.flow_m3_per_d, 0)} m³/d`], ["温度", `${fmt(config.temperature_k, 1)} K`], ["气液比", fmt(config.gas_volume_ratio, 2)]]
+        : [["进料", `${fmt(config.feed?.flow_m3_per_d, 0)} m³/d`], ["消化器", `${fmt(config.digester_volume_m3, 0)} m³`], ["温度", `${fmt(config.temperature_k, 1)} K`], ["泥饼 TS", `${fmt(config.dewatering?.cake_ts_kg_per_m3, 1)} kg/m³`]];
+      inspector.innerHTML = `<div class="inspector-head"><div><h2>${state.model === "adm1" ? "ADM1 消化器" : "泥线边界"}</h2><div class="sub">只读摘要 · 高级 JSON 可改完整参数</div></div><span class="tag">${esc(state.model)}</span></div>
+        <div class="special-facts">${facts.map(([key, value]) => `<div><span>${esc(key)}</span><b>${esc(value)}</b></div>`).join("")}</div>
+        <div class="inspector-empty">画布展示主物料流；动力学参数、初始状态与消化器气体初值仍在“高级 JSON”编辑。运行参数在左侧设置，提交后进入同一持久队列。</div>`;
+      return;
+    }
     if (!isVisualModel(state.model) || !plant) {
       inspector.innerHTML = `<div class="inspector-head"><div><h2>JSON 配置</h2><div class="sub">该模型在画布上不展开 A2O 节点</div></div><span class="tag">${esc(state.model)}</span></div><div class="inspector-empty">当前模型的完整参数在高级 JSON 中编辑。运行参数仍可在左侧设置；服务端会按模型类型做校验。</div>`;
       return;

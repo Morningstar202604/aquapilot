@@ -57,6 +57,9 @@ pub fn build_router_with(store: Store, security: Security, watchdog: Option<Watc
     Router::new()
         .route("/", get(index))
         .route("/api/health", get(health))
+        .route("/api/auth-required", get(auth_required))
+        .route("/api/standards", get(legacy_standards))
+        .route("/api/limits", get(legacy_limits))
         .route("/api/openapi.json", get(openapi))
         .route("/api/v1/presets", get(presets))
         .route("/api/v1/industrial/points", get(industrial_points))
@@ -115,11 +118,18 @@ async fn map_body_limit_error(response: Response) -> Response {
 
 async fn health(State(state): State<AppState>) -> impl IntoResponse {
     let active = state.store.active_count().unwrap_or(0);
+    let uptime = state.started.elapsed();
     Json(json!({
         "ok": true,
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
-        "uptime_seconds": state.started.elapsed().as_secs_f64(),
+        "uptime_seconds": uptime.as_secs_f64(),
+        "uptimeSeconds": uptime.as_secs(),
+        "authRequired": state.security.enabled(),
+        "paused": false,
+        "tickErrors": 0,
+        "lastTickMs": 0.0,
+        "simulationMinutes": 0,
         "queue": {
             "active": active,
             "capacity": state.store.capacity()
@@ -130,9 +140,25 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
     }))
 }
 
+async fn auth_required(State(state): State<AppState>) -> Json<Value> {
+    Json(json!({"required": state.security.enabled()}))
+}
+
+async fn legacy_standards() -> Json<Value> {
+    Json(serde_json::from_str(LEGACY_STANDARDS).expect("valid legacy standards"))
+}
+
+async fn legacy_limits() -> Json<Value> {
+    Json(serde_json::from_str(LEGACY_LIMITS).expect("valid legacy limits"))
+}
+
 async fn openapi() -> Json<Value> {
     Json(openapi_document())
 }
+
+const LEGACY_STANDARDS: &str = r#"{"standards":[{"id":"gb18918-1a","label":"GB 18918-2002 一级 A","source":"GB 18918-2002 表 1","limits":{"cod":50,"bod":10,"ss":10,"nh":5,"tn":15,"tp":0.5},"note":"SS ≤ 10 严于 BSM1 基准厂的参考出水（TSS ≈ 11.7），基准厂在该口径下 SS 天然吃紧"},{"id":"gb18918-1b","label":"GB 18918-2002 一级 B","source":"GB 18918-2002 表 1","limits":{"cod":60,"bod":20,"ss":20,"nh":8,"tn":20,"tp":1},"note":"SS ≤ 20 与 BSM1 基准厂的出水水平相容"},{"id":"bsm1-reference","label":"BSM1 benchmark reference","source":"IWA BSM1 Technical Report","limits":{"cod":100,"bod":30,"ss":15,"nh":4,"tn":18,"tp":2},"note":"基准评估口径，非法定标准；用于判断模型复现是否忠实"}],"default":"gb18918-1a"}"#;
+
+const LEGACY_LIMITS: &str = r#"{"limits":{"cod":50,"bod":10,"ss":10,"nh":5,"tn":15,"tp":0.5,"phMin":6,"phMax":9},"bounds":{"doSetpoint":{"min":0.8,"max":4,"step":0.1,"unit":"mg/L","label":"好氧区溶解氧设定","precision":1},"internalRecirc":{"min":0,"max":3.5,"step":0.1,"unit":"×Q","label":"内回流比","precision":1},"rasRatio":{"min":0.3,"max":1.5,"step":0.05,"unit":"×Q","label":"污泥回流比","precision":2},"wasRatio":{"min":0.002,"max":0.03,"step":0.001,"unit":"×Q","label":"剩余污泥排放","precision":3},"pacDose":{"min":0,"max":60,"step":1,"unit":"mg/L","label":"PAC 投加","precision":0},"carbonDose":{"min":0,"max":60,"step":1,"unit":"mg/L","label":"碳源投加","precision":0},"alkDose":{"min":0,"max":120,"step":2,"unit":"mg/L","label":"碱度投加","precision":0},"stormStore":{"min":0,"max":1,"step":0.1,"unit":"","label":"雨水调蓄分流","precision":1},"stepFeed":{"min":0,"max":0.5,"step":0.05,"unit":"×Q","label":"缺氧区多点进水","precision":2}},"plant":{"name":"澄川再生水厂","code":"CC-WWTP-03","capacityM3d":48000,"designFlowM3h":2000,"clarifier":{"area":3600,"depth":4.5},"siteAreaHa":4.2,"dischargeStandard":"GB 18918-2002 一级 A"}}"#;
 
 async fn industrial_points(State(state): State<AppState>) -> Json<Value> {
     Json(json!({ "points": state.industrial.points() }))
@@ -867,6 +893,9 @@ fn openapi_document() -> Value {
         "paths": {
             "/": {"get": {"summary": "Visual process studio", "responses": {"200": {"description": "HTML console"}}}},
             "/api/health": {"get": {"summary": "Service health", "responses": {"200": {"description": "OK"}}}},
+            "/api/auth-required": {"get": {"summary": "Whether bearer auth is required", "responses": {"200": {"description": "Auth requirement"}}}},
+            "/api/standards": {"get": {"summary": "Legacy discharge standards envelope", "responses": {"200": {"description": "Standards"}}}},
+            "/api/limits": {"get": {"summary": "Legacy discharge limits and control bounds", "responses": {"200": {"description": "Limits"}}}},
             "/api/openapi.json": {"get": {"summary": "This document", "responses": {"200": {"description": "OpenAPI 3.1 document"}}}},
             "/api/v1/presets": {"get": {"summary": "Embedded scenario presets", "responses": {"200": {"description": "Preset list with model configs"}}}},
             "/api/v1/industrial/points": {"get": {"summary": "Simulated industrial point image", "responses": {"200": {"description": "Point list with adapter, range and quality"}}}},
@@ -1471,12 +1500,40 @@ mod tests {
         assert_eq!(openapi.status(), StatusCode::OK);
         let document = body_json(openapi).await;
         assert_eq!(document["openapi"], "3.1.0");
-        assert_eq!(document["info"]["version"], "0.0.17");
+        assert_eq!(document["info"]["version"], "0.0.19");
         assert!(document["paths"]["/api/v1/experiments"].is_object());
         assert!(document["paths"]["/api/v1/presets"].is_object());
         assert!(document["paths"]["/api/v1/topologies/validate"].is_object());
         assert!(document["paths"]["/api/v1/experiments/{id}/daily.csv"].is_object());
         assert!(document["paths"]["/api/v1/experiments/{id}/weekly.csv"].is_object());
+
+        let legacy = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/standards")
+                    .body(Body::empty())
+                    .expect("standards request"),
+            )
+            .await
+            .expect("standards response");
+        assert_eq!(legacy.status(), StatusCode::OK);
+        let standards = body_json(legacy).await;
+        assert_eq!(standards["default"], "gb18918-1a");
+        assert_eq!(standards["standards"][0]["limits"]["ss"], 10);
+
+        let auth = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/auth-required")
+                    .body(Body::empty())
+                    .expect("auth request"),
+            )
+            .await
+            .expect("auth response");
+        assert_eq!(auth.status(), StatusCode::OK);
+        assert_eq!(body_json(auth).await["required"], false);
 
         let health = router
             .clone()

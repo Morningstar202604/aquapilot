@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.0.19] — 2026-11-28
+
+### Added
+
+- 长模型运行中取消：ADM1、独立泥线、ASM2d+ADM1 回流闭环新增 cancellable API；ADM1 每个外层积分步检查取消，闭环每次迭代/每步检查，嵌套取消统一映射为 `RunError::Cancelled`；取消后实验落 `cancelled`，不提交半截结果。
+- ADM1 与泥线只读画布：显示进料、CSTR/浓缩/消化/脱水主物料流、体积/流量/温度/沼气/泥饼边界与关键摘要；完整参数仍在高级 JSON。
+- 自定义工况预览：空字段显示“留空跳过”，填值后实时显示“将应用：流量 ×…、DO…、KLa…、温度…；空字段跳过”，消除 placeholder 与真值视觉歧义。
+- 旧版只读 API 别名：`GET /api/auth-required`、`GET /api/standards`、`GET /api/limits`；`GET /api/health` 同时输出旧字段 `ok/authRequired/uptimeSeconds/paused/tickErrors/lastTickMs`。OpenAPI 22 paths。
+
+### Verification
+
+- `cargo test --workspace` 86 项通过；fmt/clippy 通过；OpenAPI 0.0.19、22 paths。
+- 取消单测：ADM1、泥线、闭环、runner 立即取消均返回 `Cancelled`；活动实验 `745ccd30-d674-4a18-8e14-2ed55b67171d` 在 running/0.05 进度被取消，终态 `cancelled`。
+- ADM1 截图 `docs/screenshots/v2-ui-adm1-flow.png`、泥线 `v2-ui-sludge-line-flow.png`、自定义预览 `v2-ui-custom-preview.png`。
+- 30 天 ASM1 水线包络：旧 COD 43.83 / SS 11.91 / NH 0.320 / TN 19.50，V2 49.90 / 11.48 / 0.073 / 17.97；偏差 +13.85% / −3.62% / −0.247 mg/L / −7.87%，通过约定包络；证据 `docs/cutover/parity-30d.json`，实验 `4fb0a170-5481-4608-86c8-8263448e975c`。
+- Cutover Gate 判定 **NO-GO（双轨）**：`docs/CUTOVER.md`。六项/三本账/studies API/24 h soak 未同时满足，不冒充切换完成。
+- 24 h soak 已启动，进度 `docs/soak-24h-progress.json`；完成前 `docs/soak-24h-summary.json` 不存在。
+
 ## [0.0.17] — 2026-11-28
 
 ### Added

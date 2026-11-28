@@ -1,16 +1,19 @@
 //! Experiment request validation and model execution.
 //!
 //! The runner deliberately calls the same public model functions as the CLI.
-//! ASM1 and ASM2d are stepped one integration step at a time so a running
-//! experiment can honor a cancel request; the coupled ASM2d/ADM1 loop is a
-//! whole-plant function and is checked before and after the call.
+//! ASM1, ASM2d, ADM1 and the coupled loop are stepped or callback-checked so a
+//! running experiment can honor a cancel request before the whole run ends.
 
 use aquapilot_domain::PlantTopology;
 use aquapilot_engine::{SimulationConfig, Simulator, Snapshot};
-use aquapilot_model::adm1::{simulate_adm1, Adm1Config, Adm1Snapshot};
-use aquapilot_model::adm1_sludge::{simulate_sludge_line, SludgeLineConfig};
+use aquapilot_model::adm1::{simulate_adm1_with_cancel, Adm1Config, Adm1Error, Adm1Snapshot};
+use aquapilot_model::adm1_sludge::{
+    simulate_sludge_line_with_cancel, SludgeLineConfig, SludgeLineError,
+};
 use aquapilot_model::asm2d::Asm2dParams;
-use aquapilot_model::asm2d_adm1_loop::{simulate_asm2d_adm1_loop, Asm2dAdm1LoopConfig};
+use aquapilot_model::asm2d_adm1_loop::{
+    simulate_asm2d_adm1_loop_with_cancel, Asm2dAdm1LoopConfig, Asm2dAdm1LoopError,
+};
 use aquapilot_model::asm2d_parallel::{
     Asm2dParallelConfig, Asm2dParallelSimulator, Asm2dParallelSnapshot,
 };
@@ -291,8 +294,8 @@ pub fn run(
         ModelKind::Asm2d => run_asm2d(request, cancel, progress),
         ModelKind::Asm2dParallel => run_asm2d_parallel(request, cancel, progress),
         ModelKind::Asm2dAdm1Loop => run_loop(request, cancel, progress),
-        ModelKind::Adm1 => run_adm1(request),
-        ModelKind::SludgeLine => run_sludge_line(request),
+        ModelKind::Adm1 => run_adm1(request, cancel, progress),
+        ModelKind::SludgeLine => run_sludge_line(request, cancel, progress),
     }
 }
 
@@ -454,13 +457,17 @@ fn run_loop(
         return Err(RunError::Cancelled);
     }
     progress(0.05);
-    let snapshot = simulate_asm2d_adm1_loop(
+    let snapshot = simulate_asm2d_adm1_loop_with_cancel(
         &config,
         simulation,
         request.sludge_days,
         request.sludge_dt_days,
+        cancel,
     )
-    .map_err(|error| RunError::Simulation(error.to_string()))?;
+    .map_err(|error| match error {
+        Asm2dAdm1LoopError::Cancelled => RunError::Cancelled,
+        other => RunError::Simulation(other.to_string()),
+    })?;
     if cancel() {
         return Err(RunError::Cancelled);
     }
@@ -473,12 +480,21 @@ fn run_loop(
     })
 }
 
-fn run_adm1(request: &ExperimentRequest) -> Result<RunResult, RunError> {
+fn run_adm1(
+    request: &ExperimentRequest,
+    cancel: &dyn Fn() -> bool,
+    progress: &dyn Fn(f64),
+) -> Result<RunResult, RunError> {
     let config: Adm1Config = serde_json::from_value(request.config.clone())
         .map_err(|error| RunError::Invalid(format!("invalid ADM1 config: {error}")))?;
     let days = request.duration_min / 1440.0;
-    let snapshot = simulate_adm1(&config, days, request.sludge_dt_days)
-        .map_err(|error| RunError::Simulation(error.to_string()))?;
+    progress(0.05);
+    let snapshot = simulate_adm1_with_cancel(&config, days, request.sludge_dt_days, cancel)
+        .map_err(|error| match error {
+            Adm1Error::Cancelled => RunError::Cancelled,
+            other => RunError::Simulation(other.to_string()),
+        })?;
+    progress(1.0);
     let sample = sample_from_adm1(&snapshot, config.flow_m3_per_d / 24.0);
     Ok(RunResult {
         snapshot: serde_json::to_value(&snapshot)
@@ -487,12 +503,21 @@ fn run_adm1(request: &ExperimentRequest) -> Result<RunResult, RunError> {
     })
 }
 
-fn run_sludge_line(request: &ExperimentRequest) -> Result<RunResult, RunError> {
+fn run_sludge_line(
+    request: &ExperimentRequest,
+    cancel: &dyn Fn() -> bool,
+    progress: &dyn Fn(f64),
+) -> Result<RunResult, RunError> {
     let config: SludgeLineConfig = serde_json::from_value(request.config.clone())
         .map_err(|error| RunError::Invalid(format!("invalid sludge-line config: {error}")))?;
     let days = request.duration_min / 1440.0;
-    let snapshot = simulate_sludge_line(&config, days, request.sludge_dt_days)
-        .map_err(|error| RunError::Simulation(error.to_string()))?;
+    progress(0.05);
+    let snapshot = simulate_sludge_line_with_cancel(&config, days, request.sludge_dt_days, cancel)
+        .map_err(|error| match error {
+            SludgeLineError::Adm1(Adm1Error::Cancelled) => RunError::Cancelled,
+            other => RunError::Simulation(other.to_string()),
+        })?;
+    progress(1.0);
     let sample = sample_from_adm1(&snapshot.digester, config.feed.flow_m3_per_d / 24.0);
     Ok(RunResult {
         snapshot: serde_json::to_value(&snapshot)
@@ -701,6 +726,27 @@ mod validation_tests {
         assert_eq!(result.snapshot["train_count"], 2);
         assert!(result.snapshot["effluent"]["flow_m3_h"].as_f64().unwrap() > 0.0);
         assert_eq!(result.samples.len(), 3);
+    }
+
+    #[test]
+    fn long_models_return_cancelled_not_a_partial_result() {
+        let config: Value =
+            serde_json::from_str(include_str!("../../../fixtures/adm1-tutorial.json"))
+                .expect("ADM1 fixture");
+        let request = ExperimentRequest {
+            name: "cancel-adm1".to_owned(),
+            model: ModelKind::Adm1,
+            config,
+            duration_min: 14_400.0,
+            dt_min: 1.0,
+            sample_every_min: 60.0,
+            sludge_days: 30.0,
+            sludge_dt_days: 0.002,
+            max_iterations: 0,
+            relaxation: 0.0,
+        };
+        let result = run(&request, &|| true, &|_| {});
+        assert!(matches!(result, Err(RunError::Cancelled)));
     }
 
     #[test]

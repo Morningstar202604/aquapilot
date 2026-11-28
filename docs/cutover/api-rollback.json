@@ -1,0 +1,84 @@
+{
+  "schema": "aquapilot.cutover.api.v1",
+  "old_version": "0.11.23",
+  "new_version": "0.0.17",
+  "shared_v1_paths": [
+    "/api/openapi.json",
+    "/api/v1/experiments",
+    "/api/v1/experiments/{id}",
+    "/api/v1/experiments/{id}/cancel",
+    "/api/v1/experiments/{id}/report.md",
+    "/api/v1/experiments/{id}/samples.csv"
+  ],
+  "missing_from_v2": [
+    "/api/v1/studies",
+    "/api/v1/studies/{id}",
+    "/api/v1/studies/{id}/cancel",
+    "/api/v1/studies/{id}/report.md"
+  ],
+  "v2_added_paths": [
+    "/",
+    "/api/health",
+    "/api/v1/ai/explain",
+    "/api/v1/experiments/{id}/daily.csv",
+    "/api/v1/experiments/{id}/events",
+    "/api/v1/experiments/{id}/weekly.csv",
+    "/api/v1/industrial/adapters",
+    "/api/v1/industrial/audit",
+    "/api/v1/industrial/points",
+    "/api/v1/industrial/write",
+    "/api/v1/presets",
+    "/api/v1/topologies/validate",
+    "/api/v1/watchdog"
+  ],
+  "legacy_read_aliases_added": [
+    "/api/auth-required",
+    "/api/standards",
+    "/api/limits"
+  ],
+  "compatibility": {
+    "experiment_v1": {
+      "status": "compatible",
+      "paths": [
+        "/api/v1/experiments",
+        "/api/v1/experiments/{id}",
+        "/api/v1/experiments/{id}/cancel",
+        "/api/v1/experiments/{id}/report.md",
+        "/api/v1/experiments/{id}/samples.csv"
+      ]
+    },
+    "study_v1": {
+      "status": "missing",
+      "paths": [
+        "/api/v1/studies",
+        "/api/v1/studies/{id}",
+        "/api/v1/studies/{id}/cancel",
+        "/api/v1/studies/{id}/report.md"
+      ]
+    },
+    "legacy_monitoring": {
+      "status": "partial",
+      "note": "health/auth-required/standards/limits implemented; snapshot/topology live streams are not carried over because V2 is experiment-based"
+    }
+  },
+  "rollback": {
+    "status": "executable",
+    "old_server": "node dist/server/index.mjs on 127.0.0.1:5180",
+    "old_health": {
+      "ok": true,
+      "authRequired": false,
+      "uptimeSeconds": 839
+    },
+    "old_binary_retained": "dist/server/index.mjs",
+    "old_data_dir": [
+      "data/aquapilot.db",
+      "data/topology.json"
+    ],
+    "v2_data_dir": "/tmp/aquapilot-ui19.sqlite (separate)",
+    "procedure": "stop V2 service, start old TS service against retained data directory, probe /api/health and /api/snapshot; no schema migration is applied to old data"
+  },
+  "decision": {
+    "api_compatible_for_cutover": false,
+    "reason": "v1 experiments compatible, studies API and live snapshot/topology/WebSocket are not; migration layer required"
+  }
+}

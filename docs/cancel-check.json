@@ -1,0 +1,27 @@
+{
+  "schema": "aquapilot.cancel.v1",
+  "version": "0.0.19",
+  "unit_tests": [
+    "adm1 cancellation",
+    "adm1_sludge cancellation",
+    "asm2d_adm1_loop cancellation",
+    "runner cancellation"
+  ],
+  "live": {
+    "queued_adm1": {
+      "id": "ffc58265-8daf-4ff8-b22f-faad80a7cbb4",
+      "model": "adm1",
+      "status": "cancelled",
+      "progress": 0.0,
+      "error": null
+    },
+    "running_loop": {
+      "id": "745ccd30-d674-4a18-8e14-2ed55b67171d",
+      "model": "asm2d-adm1-loop",
+      "status": "cancelled",
+      "progress": 0.05,
+      "error": null
+    }
+  },
+  "note": "running_loop reached running and was cancelled at progress 0.05; queued_adm1 was cancelled before claim. Unit tests cover model-level interruption."
+}

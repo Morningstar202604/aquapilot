@@ -7,14 +7,16 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::adm1::Adm1Error;
 use crate::adm1_sludge::{merge_sludge_streams, SludgeLineError};
 use crate::asm2d::{Asm2dParams, Asm2dState};
 use crate::asm2d_plant::{
-    simulate_asm2d, Asm2dInfluentConfig, Asm2dPlantConfig, Asm2dPlantError, Asm2dPlantSnapshot,
-    Asm2dSimulationConfig,
+    Asm2dInfluentConfig, Asm2dPlantConfig, Asm2dPlantError, Asm2dPlantSnapshot,
+    Asm2dSimulationConfig, Asm2dSimulator,
 };
 use crate::asm2d_sludge::{
-    asm2d_state_from_adm1, simulate_asm2d_sludge, Asm2dSludgeConfig, Asm2dSludgeSnapshot,
+    asm2d_state_from_adm1, simulate_asm2d_sludge_with_cancel, Asm2dSludgeConfig,
+    Asm2dSludgeSnapshot,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -81,6 +83,8 @@ pub enum Asm2dAdm1LoopError {
     Sludge(#[from] SludgeLineError),
     #[error("coupled-loop configuration is invalid")]
     InvalidConfig,
+    #[error("simulation cancelled")]
+    Cancelled,
 }
 
 pub fn simulate_asm2d_adm1_loop(
@@ -88,6 +92,16 @@ pub fn simulate_asm2d_adm1_loop(
     simulation: Asm2dSimulationConfig,
     sludge_days: f64,
     sludge_dt_days: f64,
+) -> Result<Asm2dAdm1LoopSnapshot, Asm2dAdm1LoopError> {
+    simulate_asm2d_adm1_loop_with_cancel(config, simulation, sludge_days, sludge_dt_days, &|| false)
+}
+
+pub fn simulate_asm2d_adm1_loop_with_cancel(
+    config: &Asm2dAdm1LoopConfig,
+    simulation: Asm2dSimulationConfig,
+    sludge_days: f64,
+    sludge_dt_days: f64,
+    cancel: &dyn Fn() -> bool,
 ) -> Result<Asm2dAdm1LoopSnapshot, Asm2dAdm1LoopError> {
     if config.max_iterations == 0
         || !(0.0..=1.0).contains(&config.relaxation)
@@ -109,18 +123,36 @@ pub fn simulate_asm2d_adm1_loop(
     let mut iterations = 0;
 
     for iteration in 0..config.max_iterations {
+        if cancel() {
+            return Err(Asm2dAdm1LoopError::Cancelled);
+        }
         iterations = iteration + 1;
         let mixed = mix_influent(base_influent.clone(), recycle, recycle_flow);
         let mut plant = config.plant.clone();
         plant.influent = mixed;
-        let asm2d = simulate_asm2d(plant, simulation, Asm2dParams::default())?;
-        let sludge = simulate_asm2d_sludge(
+        let mut asm2d_sim = Asm2dSimulator::new(plant, simulation, Asm2dParams::default())?;
+        let steps = (simulation.duration_min / simulation.dt_min)
+            .round()
+            .max(1.0) as u64;
+        for _ in 0..steps {
+            if cancel() {
+                return Err(Asm2dAdm1LoopError::Cancelled);
+            }
+            asm2d_sim.step()?;
+        }
+        let asm2d = asm2d_sim.snapshot();
+        let sludge = simulate_asm2d_sludge_with_cancel(
             &asm2d.waste.state,
             asm2d.waste.flow_m3_h,
             &config.sludge,
             sludge_days,
             sludge_dt_days,
-        )?;
+            cancel,
+        )
+        .map_err(|error| match error {
+            SludgeLineError::Adm1(Adm1Error::Cancelled) => Asm2dAdm1LoopError::Cancelled,
+            other => Asm2dAdm1LoopError::Sludge(other),
+        })?;
 
         let return_stream =
             merge_sludge_streams(sludge.line.thickener_overflow, sludge.line.filtrate);
@@ -332,5 +364,26 @@ mod tests {
         assert!((snapshot.recycle_flow_m3_h - expected).abs() < 1.0e-9);
         assert!(snapshot.whole_balance.cod.input_kg > 0.0);
         assert!(snapshot.whole_balance.phosphorus.input_kg > 0.0);
+    }
+
+    #[test]
+    fn cancellation_is_checked_between_iterations() {
+        let plant: Asm2dPlantConfig =
+            serde_json::from_str(include_str!("../../../fixtures/a2o-asm2d.json"))
+                .expect("fixture");
+        let config = Asm2dAdm1LoopConfig {
+            plant,
+            sludge: Asm2dSludgeConfig::default(),
+            max_iterations: 2,
+            relaxation: 1.0,
+            tolerance: 1.0e-3,
+        };
+        let simulation = Asm2dSimulationConfig {
+            dt_min: 1.0,
+            duration_min: 120.0,
+        };
+        let error = simulate_asm2d_adm1_loop_with_cancel(&config, simulation, 2.0, 0.01, &|| true)
+            .expect_err("cancelled");
+        assert!(matches!(error, Asm2dAdm1LoopError::Cancelled));
     }
 }

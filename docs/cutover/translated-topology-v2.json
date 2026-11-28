@@ -1,0 +1,210 @@
+{
+  "name": "old-standard-snapshot-translated",
+  "units": [
+    {
+      "id": "in",
+      "name": "进水",
+      "type": "influent",
+      "flow_m3_h": 1800.0,
+      "water": {
+        "cod": 330.09197553107936,
+        "nh4_n": 31.858561581643432,
+        "no3_n": 0.0,
+        "tp": 4.874698796093777,
+        "ss": 179.94146454471112,
+        "alkalinity": 324.2537530814549,
+        "do": 0.0,
+        "temperature_c": 16.669271557730344
+      }
+    },
+    {
+      "id": "ana",
+      "name": "厌氧池",
+      "type": "anaerobic",
+      "volume_m3": 3000.0,
+      "initial": {
+        "cod": 3381.5239608918187,
+        "nh4_n": 14.814155428537731,
+        "no3_n": 1.3505889204462227,
+        "tp": 4.7971714413946245,
+        "do": 0,
+        "alkalinity": 319.76,
+        "mlss": 2358,
+        "temperature_c": 16.669271557730344
+      }
+    },
+    {
+      "id": "anx",
+      "name": "缺氧池",
+      "type": "anoxic",
+      "volume_m3": 4500.0,
+      "initial": {
+        "cod": 2808.876755300515,
+        "nh4_n": 8.348156418101505,
+        "no3_n": 5.12097816593053,
+        "tp": 4.797146706545788,
+        "do": 0,
+        "alkalinity": 319.76,
+        "mlss": 1957,
+        "temperature_c": 16.669271557730344
+      }
+    },
+    {
+      "id": "aer1",
+      "name": "好氧池 A",
+      "type": "aerobic",
+      "volume_m3": 5750.0,
+      "kla_h": 4.363099496053815,
+      "do_setpoint": 2.0,
+      "initial": {
+        "cod": 2793.304054307411,
+        "nh4_n": 3.8091671535219103,
+        "no3_n": 9.144897246372317,
+        "tp": 4.796218244723028,
+        "do": 2.0,
+        "alkalinity": 319.76,
+        "mlss": 1946,
+        "temperature_c": 16.669271557730344
+      }
+    },
+    {
+      "id": "aer2",
+      "name": "好氧池 B",
+      "type": "aerobic",
+      "volume_m3": 5750.0,
+      "kla_h": 3.102519605462471,
+      "do_setpoint": 2.0,
+      "initial": {
+        "cod": 2781.381785172325,
+        "nh4_n": 1.1863202964820527,
+        "no3_n": 11.883071975458343,
+        "tp": 4.795576201087784,
+        "do": 2.0,
+        "alkalinity": 319.76,
+        "mlss": 1938,
+        "temperature_c": 16.669271557730344
+      }
+    },
+    {
+      "id": "aer3",
+      "name": "好氧池 C",
+      "type": "aerobic",
+      "volume_m3": 5750.0,
+      "kla_h": 1.8505981357481711,
+      "do_setpoint": 2.0,
+      "initial": {
+        "cod": 2772.20354562375,
+        "nh4_n": 0.3455542117189096,
+        "no3_n": 13.080524419344751,
+        "tp": 4.7964569977705125,
+        "do": 2.0,
+        "alkalinity": 319.76,
+        "mlss": 1932,
+        "temperature_c": 16.669271557730344
+      }
+    },
+    {
+      "id": "clr",
+      "name": "二沉池",
+      "type": "clarifier",
+      "area_m2": 4800.0,
+      "depth_m": 4.5,
+      "layers": 10,
+      "feed_layer": 5,
+      "settling": {
+        "v_max_m_per_d": 240.0,
+        "x_max_g_per_m3": 3000.0,
+        "x_min_g_per_m3": 0.001,
+        "a_per_g_per_m3": 0.000576,
+        "b_per_g_per_m3": 0.00286
+      }
+    },
+    {
+      "id": "out",
+      "name": "排放口",
+      "type": "effluent"
+    },
+    {
+      "id": "waste",
+      "name": "污泥",
+      "type": "waste"
+    }
+  ],
+  "connections": [
+    {
+      "id": "in-ana",
+      "from": "in",
+      "to": "ana",
+      "flow_m3_h": 1260.0
+    },
+    {
+      "id": "in-anx",
+      "from": "in",
+      "to": "anx",
+      "flow_m3_h": 540.0
+    },
+    {
+      "id": "ana-anx",
+      "from": "ana",
+      "to": "anx",
+      "flow_m3_h": 2700.0
+    },
+    {
+      "id": "anx-aer1",
+      "from": "anx",
+      "to": "aer1",
+      "flow_m3_h": 6840.0
+    },
+    {
+      "id": "aer1-aer2",
+      "from": "aer1",
+      "to": "aer2",
+      "flow_m3_h": 6840.0
+    },
+    {
+      "id": "aer2-aer3",
+      "from": "aer2",
+      "to": "aer3",
+      "flow_m3_h": 6840.0
+    },
+    {
+      "id": "aer3-clr",
+      "from": "aer3",
+      "to": "clr",
+      "flow_m3_h": 3240.0
+    },
+    {
+      "id": "internal",
+      "from": "aer3",
+      "to": "anx",
+      "flow_m3_h": 3600.0,
+      "stream": "recycle",
+      "recycle": "internal"
+    },
+    {
+      "id": "ras",
+      "from": "clr",
+      "to": "ana",
+      "flow_m3_h": 1440.0,
+      "stream": "recycle",
+      "recycle": "ras"
+    },
+    {
+      "id": "clr-out",
+      "from": "clr",
+      "to": "out",
+      "flow_m3_h": 1760.4
+    },
+    {
+      "id": "was",
+      "from": "clr",
+      "to": "waste",
+      "flow_m3_h": 39.599999999999994,
+      "stream": "recycle",
+      "recycle": "was"
+    }
+  ],
+  "metadata": {
+    "source": "black-box /api/snapshot 0.11.23 + topology export; design flow 1800 m3/h, snapshot states as initial"
+  }
+}

@@ -1,6 +1,6 @@
 # AquaPilot V2 Rust 服务 API
 
-> 版本 0.0.17。状态（2026-11-28）：`aquapilot-service` 已落地 HTTP + SSE、SQLite 持久实验队列、幂等、取消/恢复、CSV/Markdown 报告、OpenAPI 3.1、同源可视化编排台（`GET /`、`GET /api/v1/presets`）、ASM1 自由拓扑校验（`POST /api/v1/topologies/validate`），以及出水评分卡、告警、日/周聚合、五条角色旅程与自由拓扑验收旅程。代表性端到端矩阵 11/11 通过（`docs/coverage-matrix.json`），五条旅程 5/5 通过（`docs/journeys-v2.json`）；0.0.14 的 wall-clock 24 h soak 在 17 分钟处被执行环境重启打断，`docs/soak-24h-summary.json` 未生成，不能算完成；60 s smoke 见 `docs/soak-smoke-summary.json`。9 个 preset 覆盖 ASM2d 整厂、ASM2d 双系列、ASM1、ADM1 与泥线；`asm2d-parallel` 配置为 `{name,trains[]}`，每个系列独立二沉池/RAS/WAS，结果按总流量汇总。0.0.17 增加模拟工业网关（OPC UA/Modbus/MQTT 点位、写入与 SHA-256 审计链）、可选 Bearer + RBAC、按主体限流、本地 evidence AI 解读与队列看门狗；详见 `docs/V2-INDUSTRIAL.md`。仍不包含真实 PLC 连接、远程 AI Provider、MCP 或 WebSocket；实时推送使用 SSE，单进程单 worker。
+> 版本 0.0.19。状态（2026-11-28）：`aquapilot-service` 已落地 HTTP + SSE、SQLite 持久实验队列、幂等、取消/恢复、CSV/Markdown 报告、OpenAPI 3.1、同源可视化编排台（`GET /`、`GET /api/v1/presets`）、ASM1 自由拓扑校验（`POST /api/v1/topologies/validate`），以及出水评分卡、告警、日/周聚合、五条角色旅程与自由拓扑验收旅程。代表性端到端矩阵 11/11 通过（`docs/coverage-matrix.json`），五条旅程 5/5 通过（`docs/journeys-v2.json`）；0.0.14 的 wall-clock 24 h soak 在 17 分钟处被执行环境重启打断，`docs/soak-24h-summary.json` 未生成，不能算完成；60 s smoke 见 `docs/soak-smoke-summary.json`。9 个 preset 覆盖 ASM2d 整厂、ASM2d 双系列、ASM1、ADM1 与泥线；`asm2d-parallel` 配置为 `{name,trains[]}`，每个系列独立二沉池/RAS/WAS，结果按总流量汇总。0.0.17 增加模拟工业网关（OPC UA/Modbus/MQTT 点位、写入与 SHA-256 审计链）、可选 Bearer + RBAC、按主体限流、本地 evidence AI 解读与队列看门狗；详见 `docs/V2-INDUSTRIAL.md`。0.0.19 增加 ADM1/泥线/闭环的长模型运行中取消，以及旧版只读别名 `/api/auth-required`、`/api/standards`、`/api/limits`；健康响应同时带旧字段。OpenAPI 22 paths。仍不包含真实 PLC 连接、远程 AI Provider、MCP 或 WebSocket；实时推送使用 SSE，单进程单 worker。Cutover 判定见 `docs/CUTOVER.md`。
 
 ## 启动
 
@@ -259,3 +259,17 @@ python3 scripts/journeys_v2.py --summary docs/journeys-v2.json
 | 脏数据 | 400 `MALFORMED_JSON` + problem+json、422 校验、409 幂等冲突、404、415 |
 
 旅程只证明角色路径和错误路径通，不替代 24 h soak，也不把三级过滤当真实滤池标定。
+
+### 0.0.19 取消与旧版只读别名
+
+长模型 `adm1`、`sludge-line`、`asm2d-adm1-loop` 现在都接收同一取消信号：ADM1 每个外层积分步、闭环每次迭代/每步检查 `cancel_requested`，命中即返回 `RunError::Cancelled`，worker 落 `cancelled`，不会把半截状态写成成功。活动实验 `745ccd30-d674-4a18-8e14-2ed55b67171d` 在 `running`、progress 0.05 时取消，终态 `cancelled`。
+
+为旧监控/脚本补三个只读别名（不改变 v1 实验契约）：
+
+| 方法 | 路径 | 响应 |
+| --- | --- | --- |
+| GET | `/api/auth-required` | `{required: bool}` |
+| GET | `/api/standards` | 三套排放口径 + `default` |
+| GET | `/api/limits` | 一级 A 限值、控制边界、老厂常量 |
+
+`GET /api/health` 同时保留旧字段 `authRequired`、`uptimeSeconds`、`paused`、`tickErrors`、`lastTickMs`，以及 V2 的 `version/status/queue/watchdog`。这组别名只覆盖只读监控子集；旧版 `/api/snapshot`、`/api/topology`、WebSocket 仍不兼容，迁移层未完成，详见 `docs/CUTOVER.md`。
