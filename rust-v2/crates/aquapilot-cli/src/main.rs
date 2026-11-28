@@ -14,6 +14,7 @@ use aquapilot_model::asm2d_sludge::{simulate_asm2d_sludge, Asm2dSludgeConfig};
 use aquapilot_model::Asm1Params;
 use clap::{Parser, Subcommand, ValueEnum};
 
+mod gateway;
 mod mcp;
 
 #[derive(Debug, Parser)]
@@ -59,6 +60,14 @@ enum Command {
         /// Maximum queued + running experiments.
         #[arg(long, default_value_t = 32)]
         queue_capacity: usize,
+    },
+    /// Check real Modbus/MQTT/OPC UA endpoints, fail-closed.
+    GatewayCheck {
+        /// Path to the gateway JSON config.
+        config: PathBuf,
+        /// Optional path for the check result JSON.
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// Run a minimal MCP stdio server that bridges to the HTTP API.
     Mcp {
@@ -315,6 +324,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 queue_capacity,
             }) {
                 return Err(std::io::Error::other(error.to_string()).into());
+            }
+        }
+        Command::GatewayCheck { config, out } => {
+            let result = gateway::check(&config)?;
+            let text = serde_json::to_string_pretty(&result)?;
+            println!("{text}");
+            if let Some(out) = out {
+                std::fs::write(out, format!("{text}\n"))?;
+            }
+            if result["all_connected"].as_bool() != Some(true) {
+                return Err(std::io::Error::other("gateway check failed (fail-closed)").into());
             }
         }
         Command::Mcp { api, token } => {

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.23] — 2026-11-29
+
+### Added
+
+- `aquapilot-v2 gateway-check <config>`：真实 Modbus TCP Function 03 读寄存器、真实 MQTT 3.1.1 CONNECT/CONNACK 检查；配置显式端点，只读、不扫网、不写设备。
+- fail-closed 退出码：任一适配器失败退出 1；OPC UA 明确 `unsupported`，不以 TCP 可达冒充会话。
+
+### Verification
+
+- `cargo test --workspace` 97 项通过；fmt/clippy 通过；版本 0.0.23。
+- 本地 Modbus/MQTT mock：`all_connected=true`，寄存器 100 × scale 10 = 1000；证据 `docs/cutover/gateway-check-real-modbus-mqtt.json`。
+- 拒绝连接 + OPC UA 未实现：`all_connected=false`，退出 1；证据 `docs/cutover/gateway-check-failclosed.json`。
+- 服务运行时轮询、OPC UA 会话与 24 h soak 未完成；Cutover 仍 NO-GO。
+
 ## [0.0.22] — 2026-11-29
 
 ### Added

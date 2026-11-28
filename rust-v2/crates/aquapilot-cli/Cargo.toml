@@ -15,5 +15,6 @@ aquapilot-model = { path = "../aquapilot-model" }
 aquapilot-service = { path = "../aquapilot-service" }
 clap.workspace = true
 serde_json.workspace = true
+serde.workspace = true
 ureq = { version = "2", features = ["json"] }
 thiserror.workspace = true

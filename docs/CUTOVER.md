@@ -64,6 +64,12 @@
 - 真实 OPC UA / Modbus TCP / MQTT 现场连接仍未实现；工业页仍是 `MOCK`。没有现场端点与凭据，不宣称现场验收。
 - 24 h soak 仍无 summary；Cutover 条件 1、2 未满足。
 
+## 4.3 0.0.23 增量（不改变 NO-GO）
+
+- 新增 `gateway-check`：真实 Modbus TCP Function 03 读寄存器、真实 MQTT 3.1.1 CONNECT/CONNACK；成功与拒绝连接两组实机证据见 `docs/cutover/gateway-check-real-modbus-mqtt.json`、`gateway-check-failclosed.json`。
+- 这是独立连接检查，不是服务运行时轮询，也不回写现场设定点；OPC UA 会话明确 `unsupported`。
+- 24 h soak 仍无 summary；Cutover 条件 1、2 未满足。
+
 ## 5. 重新评估条件
 
 同时满足以下条件才可把 `cutover_approved` 改为 true：

@@ -1,0 +1,25 @@
+{
+  "adapters": [
+    {
+      "connected": false,
+      "endpoint": "127.0.0.1:1",
+      "error": "connect 127.0.0.1:1: Connection refused (os error 111)",
+      "kind": "modbus",
+      "mode": "real-tcp",
+      "values": []
+    },
+    {
+      "connected": false,
+      "endpoint": "opc.tcp://127.0.0.1:4840",
+      "error": "OPC UA session handshake is not implemented; a TCP connect would not be an OPC UA connection.",
+      "kind": "opcua",
+      "mode": "unsupported"
+    }
+  ],
+  "all_connected": false,
+  "checked_at_unix": 1795887958,
+  "config": "/tmp/gateway-fail.json",
+  "fail_closed": true,
+  "note": "Only a completed protocol handshake is reported as connected. OPC UA TCP reachability is not a session and is reported as unsupported.",
+  "schema": "aquapilot.gateway.check.v1"
+}

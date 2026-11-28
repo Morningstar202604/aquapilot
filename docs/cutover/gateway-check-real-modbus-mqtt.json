@@ -1,0 +1,34 @@
+{
+  "adapters": [
+    {
+      "connected": true,
+      "endpoint": "127.0.0.1:15020",
+      "error": null,
+      "kind": "modbus",
+      "mode": "real-tcp",
+      "unit": 1,
+      "values": [
+        {
+          "point_id": "influent_flow",
+          "raw": 100,
+          "register": 0,
+          "value": 1000.0
+        }
+      ]
+    },
+    {
+      "client_id": "aquapilot-probe",
+      "connected": true,
+      "endpoint": "127.0.0.1:18830",
+      "error": null,
+      "kind": "mqtt",
+      "mode": "real-mqtt-3.1.1"
+    }
+  ],
+  "all_connected": true,
+  "checked_at_unix": 1795887954,
+  "config": "/tmp/gateway-config.json",
+  "fail_closed": true,
+  "note": "Only a completed protocol handshake is reported as connected. OPC UA TCP reachability is not a session and is reported as unsupported.",
+  "schema": "aquapilot.gateway.check.v1"
+}
