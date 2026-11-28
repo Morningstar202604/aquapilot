@@ -21,6 +21,7 @@ pub struct IndustrialHub {
     store: Store,
     real: Option<Arc<RealGateway>>,
     last_check: Arc<Mutex<Option<Value>>>,
+    mqtt_runtime: Arc<Mutex<Value>>,
 }
 
 #[derive(Debug, Clone)]
@@ -94,11 +95,16 @@ impl IndustrialHub {
     }
 
     fn with_real(store: Store, real: Option<RealGateway>) -> Self {
+        let mqtt_runtime = real
+            .as_ref()
+            .map(|gateway| mqtt_runtime_config(&gateway.config))
+            .unwrap_or_else(|| json!({"state": "disabled", "connected": false, "messages": 0, "bad_payloads": 0}));
         Self {
             points: Arc::new(Mutex::new(default_points())),
             store,
             real: real.map(Arc::new),
             last_check: Arc::new(Mutex::new(None)),
+            mqtt_runtime: Arc::new(Mutex::new(mqtt_runtime)),
         }
     }
 
@@ -141,6 +147,179 @@ impl IndustrialHub {
                 tokio::time::sleep(interval).await;
             }
         });
+        self.spawn_mqtt_consumer();
+    }
+
+    pub fn spawn_mqtt_consumer(&self) {
+        let Some(real) = &self.real else {
+            return;
+        };
+        if real.error.is_some() {
+            return;
+        }
+        let Some(mqtt) = real.config.get("mqtt").cloned() else {
+            return;
+        };
+        if mqtt_runtime_config(&real.config)["state"] == "disabled" {
+            return;
+        }
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        let hub = self.clone();
+        tokio::task::spawn_blocking(move || hub.mqtt_loop(mqtt));
+    }
+
+    fn mqtt_loop(&self, mqtt: Value) {
+        loop {
+            self.set_mqtt_state(json!({"state": "connecting", "connected": false, "error": null}));
+            let result = gateway::mqtt_consume(&mqtt, None, |event| match event {
+                gateway::MqttEvent::Connected => self.set_mqtt_state(json!({
+                    "state": "connected",
+                    "connected": true,
+                    "error": null,
+                    "connected_at_unix": unix_now(),
+                })),
+                gateway::MqttEvent::Message { topic, payload } => {
+                    self.apply_mqtt_message(&mqtt, &topic, &payload)
+                }
+            });
+            match result {
+                Ok(()) => self.set_mqtt_state(json!({"state": "disconnected", "connected": false, "error": "subscriber stopped"})),
+                Err(error) => {
+                    tracing::warn!("MQTT runtime disconnected: {error}");
+                    self.set_mqtt_state(json!({"state": "error", "connected": false, "error": error}));
+                }
+            }
+            std::thread::sleep(Duration::from_secs(5));
+        }
+    }
+
+    fn set_mqtt_state(&self, patch: Value) {
+        let mut runtime = self.mqtt_runtime.lock().expect("mqtt runtime mutex");
+        if let (Some(target), Some(source)) = (runtime.as_object_mut(), patch.as_object()) {
+            for (key, value) in source {
+                target.insert(key.clone(), value.clone());
+            }
+        } else {
+            *runtime = patch;
+        }
+    }
+
+    fn apply_mqtt_message(&self, mqtt: &Value, topic: &str, payload: &[u8]) {
+        match self.decode_mqtt_reading(mqtt, topic, payload) {
+            Ok((point_id, value)) => {
+                let updated = {
+                    let mut points = self.points.lock().expect("industrial points mutex");
+                    if let Some(point) = points.iter_mut().find(|point| point.id == point_id) {
+                        point.value = value;
+                        point.quality = "good".to_owned();
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if updated {
+                    self.set_mqtt_state(json!({
+                        "state": "connected",
+                        "connected": true,
+                        "last_topic": topic,
+                        "last_point_id": point_id,
+                        "last_value": value,
+                        "last_message_at_unix": unix_now(),
+                    }));
+                    let mut runtime = self.mqtt_runtime.lock().expect("mqtt runtime mutex");
+                    let messages = runtime["messages"].as_u64().unwrap_or(0) + 1;
+                    runtime["messages"] = json!(messages);
+                } else {
+                    self.mqtt_bad_payload(
+                        topic,
+                        format!("point {point_id} is not in the adapter image"),
+                    );
+                }
+            }
+            Err(error) => self.mqtt_bad_payload(topic, error),
+        }
+    }
+
+    fn mqtt_bad_payload(&self, topic: &str, error: String) {
+        tracing::warn!("MQTT payload rejected on {topic}: {error}");
+        let mut runtime = self.mqtt_runtime.lock().expect("mqtt runtime mutex");
+        runtime["bad_payloads"] = json!(runtime["bad_payloads"].as_u64().unwrap_or(0) + 1);
+        runtime["last_error"] = json!(error);
+        runtime["last_error_topic"] = json!(topic);
+        runtime["last_error_at_unix"] = json!(unix_now());
+    }
+
+    fn decode_mqtt_reading(
+        &self,
+        mqtt: &Value,
+        topic: &str,
+        payload: &[u8],
+    ) -> Result<(String, f64), String> {
+        let body: Value = serde_json::from_slice(payload)
+            .map_err(|error| format!("payload is not JSON: {error}"))?;
+        let reads = mqtt
+            .get("read")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let mapping = body
+            .get("point_id")
+            .and_then(Value::as_str)
+            .and_then(|id| reads.iter().find(|read| read["point_id"] == id))
+            .or_else(|| {
+                reads
+                    .iter()
+                    .find(|read| read["topic"].as_str() == Some(topic))
+            })
+            .or_else(|| {
+                reads
+                    .iter()
+                    .find(|read| topic_matches(read["topic"].as_str().unwrap_or(""), topic))
+            });
+        let Some(mapping) = mapping else {
+            return Err(format!("no mqtt.read mapping for topic {topic}"));
+        };
+        let point_id = body
+            .get("point_id")
+            .and_then(Value::as_str)
+            .or_else(|| mapping["point_id"].as_str())
+            .ok_or("mapping has no point_id")?
+            .to_owned();
+        let path = mapping
+            .get("value_path")
+            .or_else(|| mapping.get("path"))
+            .and_then(Value::as_str);
+        let raw = match path {
+            Some(path) => body
+                .pointer(&format!("/{}", path.replace('.', "/")))
+                .and_then(Value::as_f64),
+            None => body
+                .get("value")
+                .and_then(Value::as_f64)
+                .or_else(|| body.as_f64()),
+        }
+        .ok_or_else(|| {
+            format!(
+                "payload has no numeric value{}",
+                path.map(|path| format!(" at {path}")).unwrap_or_default()
+            )
+        })?;
+        let scale = mapping.get("scale").and_then(Value::as_f64).unwrap_or(1.0);
+        let offset = mapping.get("offset").and_then(Value::as_f64).unwrap_or(0.0);
+        let value = raw * scale + offset;
+        if !value.is_finite() {
+            return Err("decoded MQTT value is not finite".to_owned());
+        }
+        Ok((point_id, value))
+    }
+
+    pub fn mqtt_runtime(&self) -> Value {
+        self.mqtt_runtime
+            .lock()
+            .expect("mqtt runtime mutex")
+            .clone()
     }
 
     pub fn poll_once(&self) -> Result<Value, ApiError> {
@@ -202,6 +381,7 @@ impl IndustrialHub {
         let points = self.points();
         if let Some(real) = &self.real {
             let check = self.last_check();
+            let mqtt_runtime = self.mqtt_runtime();
             let adapters = if let Some(error) = &real.error {
                 json!([{
                     "kind": "gateway",
@@ -211,7 +391,21 @@ impl IndustrialHub {
                     "error": error,
                 }])
             } else if let Some(check) = &check {
-                check["adapters"].clone()
+                let mut merged = check["adapters"].clone();
+                if let Some(list) = merged.as_array_mut() {
+                    for adapter in list {
+                        adapter["points"] = json!(points
+                            .iter()
+                            .filter(|point| point.adapter == adapter["kind"].as_str().unwrap_or(""))
+                            .count());
+                        if adapter["kind"] == "mqtt" && mqtt_runtime["state"] != "disabled" {
+                            adapter["connected"] =
+                                json!(mqtt_runtime["connected"].as_bool() == Some(true));
+                            adapter["runtime"] = mqtt_runtime.clone();
+                        }
+                    }
+                }
+                merged
             } else {
                 let mut list = Vec::new();
                 for kind in ["opcua", "modbus", "mqtt"] {
@@ -227,13 +421,21 @@ impl IndustrialHub {
                 }
                 Value::Array(list)
             };
+            let protocol_connected = check
+                .as_ref()
+                .and_then(|value| value["all_connected"].as_bool())
+                .unwrap_or(false);
+            let mqtt_required = mqtt_runtime["state"] != "disabled";
+            let mqtt_connected =
+                !mqtt_required || mqtt_runtime["connected"].as_bool() == Some(true);
             return json!({
                 "adapters": adapters,
                 "real": true,
                 "source": real.source,
-                "all_connected": check.as_ref().and_then(|value| value["all_connected"].as_bool()).unwrap_or(false),
+                "all_connected": protocol_connected && mqtt_connected,
                 "last_check": check,
-                "note": "Real gateway: polling is fail-closed; only configured endpoints are contacted. Writes require a modbus.write mapping.",
+                "mqtt_runtime": mqtt_runtime,
+                "note": "Real gateway: polling is fail-closed; MQTT telemetry is consumed by the service runtime. Only configured endpoints are contacted. Writes require a modbus.write mapping.",
             });
         }
         let adapters = ["opcua", "modbus", "mqtt"].map(|kind| {
@@ -419,6 +621,53 @@ impl IndustrialHub {
             )
         })
     }
+}
+
+fn mqtt_runtime_config(config: &Value) -> Value {
+    let topics = gateway::mqtt_topics(config.get("mqtt").unwrap_or(&Value::Null));
+    if topics.is_empty() {
+        return json!({"state": "disabled", "connected": false, "messages": 0, "bad_payloads": 0, "topics": []});
+    }
+    json!({
+        "state": "starting",
+        "connected": false,
+        "messages": 0,
+        "bad_payloads": 0,
+        "topics": topics,
+        "last_topic": Value::Null,
+        "last_point_id": Value::Null,
+        "last_value": Value::Null,
+        "error": Value::Null,
+    })
+}
+
+fn topic_matches(filter: &str, topic: &str) -> bool {
+    if filter == topic {
+        return true;
+    }
+    let filter_parts: Vec<&str> = filter.split('/').collect();
+    let topic_parts: Vec<&str> = topic.split('/').collect();
+    let mut index = 0;
+    for (position, part) in filter_parts.iter().enumerate() {
+        if *part == "#" {
+            return position == filter_parts.len() - 1;
+        }
+        if topic_parts.get(index).is_none() {
+            return false;
+        }
+        if *part != "+" && *part != topic_parts[index] {
+            return false;
+        }
+        index += 1;
+    }
+    index == topic_parts.len()
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
 }
 
 fn configured_points(config: &Value) -> Vec<String> {
@@ -650,6 +899,96 @@ mod tests {
         assert_eq!(result["point"]["value"], 1500.0);
         assert_eq!(result["audit"]["seq"], 1);
         server.join().expect("server");
+    }
+
+    #[test]
+    fn runtime_mqtt_message_updates_measurement_point() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let endpoint = listener.local_addr().expect("addr").to_string();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut header = [0_u8; 2];
+            stream.read_exact(&mut header).expect("connect header");
+            let mut body = vec![0_u8; header[1] as usize];
+            stream.read_exact(&mut body).expect("connect body");
+            stream
+                .write_all(&[0x20, 0x02, 0x00, 0x00])
+                .expect("connack");
+            let mut subscribe = [0_u8; 2];
+            stream.read_exact(&mut subscribe).expect("subscribe header");
+            let mut remaining = [0_u8; 1];
+            stream.read_exact(&mut remaining).expect("subscribe length");
+            let mut body = vec![0_u8; remaining[0] as usize];
+            stream.read_exact(&mut body).expect("subscribe body");
+            stream
+                .write_all(&[0x90, 0x03, 0x00, 0x01, 0x00])
+                .expect("suback");
+            let topic = b"aquapilot/telemetry/effluent/cod";
+            let payload = b"{\"value\":42.5}";
+            let mut publish = vec![0x30, 0];
+            publish[1] = (2 + topic.len() + payload.len()) as u8;
+            publish.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+            publish.extend_from_slice(topic);
+            publish.extend_from_slice(payload);
+            stream.write_all(&publish).expect("publish");
+            std::thread::sleep(Duration::from_millis(500));
+        });
+        let config = json!({"mqtt":{"broker":endpoint,"client_id":"aquapilot-test","read":[{"topic":"aquapilot/telemetry/effluent/cod","point_id":"effluent.cod"}]}});
+        let hub = IndustrialHub::with_real_config(store(), config.clone());
+        gateway::mqtt_consume(&config["mqtt"], Some(1), |event| match event {
+            gateway::MqttEvent::Connected => {
+                hub.set_mqtt_state(json!({"state":"connected","connected":true}))
+            }
+            gateway::MqttEvent::Message { topic, payload } => {
+                hub.apply_mqtt_message(&config["mqtt"], &topic, &payload)
+            }
+        })
+        .expect("consume");
+        let point = hub
+            .points()
+            .into_iter()
+            .find(|point| point.id == "effluent.cod")
+            .expect("point");
+        assert_eq!(point.value, 42.5);
+        assert_eq!(point.quality, "good");
+        assert_eq!(hub.mqtt_runtime()["messages"], 1);
+        assert_eq!(hub.mqtt_runtime()["last_point_id"], "effluent.cod");
+        server.join().expect("server");
+    }
+
+    #[test]
+    fn mqtt_payload_with_bad_topic_mapping_is_counted_not_written() {
+        let hub = IndustrialHub::with_real_config(
+            store(),
+            json!({"mqtt":{"broker":"127.0.0.1:1","read":[{"topic":"expected/topic","point_id":"effluent.cod"}]}}),
+        );
+        hub.apply_mqtt_message(
+            &json!({"read":[{"topic":"expected/topic","point_id":"effluent.cod"}]}),
+            "wrong/topic",
+            b"{\"value\":1.0}",
+        );
+        assert_eq!(hub.mqtt_runtime()["bad_payloads"], 1);
+        let point = hub
+            .points()
+            .into_iter()
+            .find(|point| point.id == "effluent.cod")
+            .expect("point");
+        assert_eq!(point.value, 32.5);
+    }
+
+    #[test]
+    fn adapters_are_not_all_connected_until_mqtt_runtime_is_live() {
+        let hub = IndustrialHub::with_real_config(
+            store(),
+            json!({"mqtt":{"broker":"127.0.0.1:1","read":[{"topic":"telemetry/cod","point_id":"effluent.cod"}]}}),
+        );
+        *hub.last_check.lock().expect("check") = Some(json!({
+            "adapters":[{"kind":"mqtt","connected":true}],
+            "all_connected": true
+        }));
+        assert_eq!(hub.adapters()["all_connected"], false);
+        hub.set_mqtt_state(json!({"state":"connected","connected":true}));
+        assert_eq!(hub.adapters()["all_connected"], true);
     }
 
     #[test]

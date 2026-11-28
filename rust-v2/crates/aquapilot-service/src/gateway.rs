@@ -10,6 +10,12 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+#[derive(Debug, Clone)]
+pub enum MqttEvent {
+    Connected,
+    Message { topic: String, payload: Vec<u8> },
+}
+
 pub fn check(config_path: &std::path::Path) -> Result<Value, String> {
     let config: Value = serde_json::from_str(
         &std::fs::read_to_string(config_path).map_err(|error| error.to_string())?,
@@ -271,25 +277,40 @@ pub fn modbus_write(
 
 fn mqtt_connect(broker: &str, client_id: &str, timeout: Duration) -> Result<(), String> {
     let mut stream = connect(broker, timeout)?;
-    let mut payload = Vec::new();
-    payload.extend_from_slice(client_id.as_bytes());
+    mqtt_send_connect(&mut stream, client_id, 30)?;
+    mqtt_read_connack(&mut stream)
+}
+
+fn mqtt_send_connect(
+    stream: &mut TcpStream,
+    client_id: &str,
+    keepalive: u16,
+) -> Result<(), String> {
     let mut packet = vec![
-        0x10, 0, // CONNECT, remaining length placeholder
-        0, 4, b'M', b'T', b'T', b'Q', // protocol name
+        0x10,
+        0, // CONNECT, remaining length placeholder
+        0,
+        4,
+        b'M',
+        b'T',
+        b'T',
+        b'Q', // protocol name
         4,    // MQTT 3.1.1
         0x02, // clean session
-        0, 30, // keepalive
+        keepalive.to_be_bytes()[0],
+        keepalive.to_be_bytes()[1],
     ];
-    packet.extend_from_slice(&(payload.len() as u16).to_be_bytes());
-    packet.extend_from_slice(&payload);
+    packet.extend_from_slice(&(client_id.len() as u16).to_be_bytes());
+    packet.extend_from_slice(client_id.as_bytes());
     let remaining = packet.len() - 2;
-    if remaining > 127 {
-        return Err("MQTT client id too long for a single-byte remaining length".to_owned());
-    }
-    packet[1] = remaining as u8;
+    let length = mqtt_length_bytes(remaining)?;
+    packet.splice(1..2, length);
     stream
         .write_all(&packet)
-        .map_err(|error| format!("write MQTT CONNECT: {error}"))?;
+        .map_err(|error| format!("write MQTT CONNECT: {error}"))
+}
+
+fn mqtt_read_connack(stream: &mut TcpStream) -> Result<(), String> {
     let mut connack = [0_u8; 4];
     stream
         .read_exact(&mut connack)
@@ -302,6 +323,256 @@ fn mqtt_connect(broker: &str, client_id: &str, timeout: Duration) -> Result<(), 
         return Err(format!("MQTT CONNACK refused with code {code}"));
     }
     Ok(())
+}
+
+fn mqtt_length_bytes(value: usize) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::with_capacity(4);
+    let mut remaining = value;
+    loop {
+        let mut byte = (remaining % 128) as u8;
+        remaining /= 128;
+        if remaining > 0 {
+            byte |= 0x80;
+        }
+        bytes.push(byte);
+        if remaining == 0 {
+            break;
+        }
+        if bytes.len() == 4 {
+            return Err("MQTT remaining length exceeds 4 bytes".to_owned());
+        }
+    }
+    Ok(bytes)
+}
+
+pub(crate) fn mqtt_topics(config: &Value) -> Vec<String> {
+    let mut topics: Vec<String> = Vec::new();
+    let mut push = |topic: &str| {
+        let topic = topic.trim();
+        if !topic.is_empty() && !topics.iter().any(|value| value == topic) {
+            topics.push(topic.to_owned());
+        }
+    };
+    if let Some(list) = config.get("topics").and_then(Value::as_array) {
+        for topic in list.iter().filter_map(Value::as_str) {
+            push(topic);
+        }
+    }
+    if let Some(topic) = config.get("topic").and_then(Value::as_str) {
+        push(topic);
+    }
+    for read in config
+        .get("read")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(topic) = read.get("topic").and_then(Value::as_str) {
+            push(topic);
+        }
+    }
+    topics
+}
+
+fn mqtt_subscribe(stream: &mut TcpStream, topics: &[String]) -> Result<(), String> {
+    if topics.is_empty() {
+        return Err("mqtt topics/read[].topic is empty; nothing to subscribe".to_owned());
+    }
+    let mut packet = vec![0x82, 0, 0, 1]; // SUBSCRIBE, packet id 1
+    for topic in topics {
+        packet.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+        packet.extend_from_slice(topic.as_bytes());
+        packet.push(0); // QoS 0
+    }
+    let remaining = packet.len() - 2;
+    let length = mqtt_length_bytes(remaining)?;
+    packet.splice(1..2, length);
+    stream
+        .write_all(&packet)
+        .map_err(|error| format!("write MQTT SUBSCRIBE: {error}"))?;
+    let mut header = [0_u8; 1];
+    stream
+        .read_exact(&mut header)
+        .map_err(|error| format!("read MQTT SUBACK header: {error}"))?;
+    if header[0] != 0x90 {
+        return Err(format!("expected SUBACK 0x90, got 0x{:02x}", header[0]));
+    }
+    let remaining = mqtt_read_remaining_length(stream)?;
+    let mut body = vec![0_u8; remaining];
+    stream
+        .read_exact(&mut body)
+        .map_err(|error| format!("read MQTT SUBACK body: {error}"))?;
+    if body.len() < 2 || body[0..2] != [0, 1] {
+        return Err("MQTT SUBACK packet id mismatch".to_owned());
+    }
+    if body.iter().skip(2).any(|code| *code == 0x80) {
+        return Err("MQTT broker rejected a subscription".to_owned());
+    }
+    Ok(())
+}
+
+fn mqtt_read_remaining_length(stream: &mut TcpStream) -> Result<usize, String> {
+    let mut value = 0_usize;
+    let mut multiplier = 1_usize;
+    for _ in 0..4 {
+        let mut byte = [0_u8; 1];
+        stream
+            .read_exact(&mut byte)
+            .map_err(|error| format!("read MQTT remaining length: {error}"))?;
+        value += ((byte[0] & 0x7f) as usize) * multiplier;
+        if byte[0] & 0x80 == 0 {
+            return Ok(value);
+        }
+        multiplier *= 128;
+    }
+    Err("MQTT remaining length exceeds 4 bytes".to_owned())
+}
+
+fn mqtt_packet(buffer: &mut Vec<u8>) -> Option<Result<(u8, Vec<u8>), String>> {
+    if buffer.len() < 2 {
+        return None;
+    }
+    let mut remaining = 0_usize;
+    let mut multiplier = 1_usize;
+    let mut length_bytes = 0_usize;
+    for (index, byte) in buffer.iter().enumerate().take(5).skip(1) {
+        remaining += ((*byte & 0x7f) as usize) * multiplier;
+        if *byte & 0x80 == 0 {
+            length_bytes = index;
+            break;
+        }
+        multiplier *= 128;
+    }
+    if length_bytes == 0 {
+        if buffer.len() >= 5 {
+            return Some(Err("MQTT remaining length exceeds 4 bytes".to_owned()));
+        }
+        return None;
+    }
+    let total = 1 + length_bytes + remaining;
+    if buffer.len() < total {
+        return None;
+    }
+    let header = buffer[0];
+    let payload = buffer[1 + length_bytes..total].to_vec();
+    buffer.drain(..total);
+    Some(Ok((header, payload)))
+}
+
+fn mqtt_publish(header: u8, payload: &[u8]) -> Result<(String, u16, Vec<u8>), String> {
+    if payload.len() < 2 {
+        return Err("MQTT PUBLISH has no topic length".to_owned());
+    }
+    let topic_len = u16::from_be_bytes([payload[0], payload[1]]) as usize;
+    if payload.len() < 2 + topic_len {
+        return Err("MQTT PUBLISH topic is truncated".to_owned());
+    }
+    let topic = String::from_utf8(payload[2..2 + topic_len].to_vec())
+        .map_err(|error| format!("MQTT PUBLISH topic is not UTF-8: {error}"))?;
+    let qos = (header >> 1) & 0x03;
+    let mut position = 2 + topic_len;
+    let packet_id = if qos > 0 {
+        if payload.len() < position + 2 {
+            return Err("MQTT PUBLISH packet id is missing".to_owned());
+        }
+        let id = u16::from_be_bytes([payload[position], payload[position + 1]]);
+        position += 2;
+        id
+    } else {
+        0
+    };
+    if qos == 2 {
+        return Err("MQTT QoS 2 PUBLISH is not supported by this subscriber".to_owned());
+    }
+    Ok((topic, packet_id, payload[position..].to_vec()))
+}
+
+/// Open a real MQTT 3.1.1 session, subscribe to the configured topic filters,
+/// and forward each PUBLISH payload. `max_messages` exists for deterministic tests;
+/// production passes `None` and keeps consuming until the socket fails.
+pub fn mqtt_consume<F>(
+    config: &Value,
+    max_messages: Option<usize>,
+    mut on_event: F,
+) -> Result<(), String>
+where
+    F: FnMut(MqttEvent),
+{
+    let broker = config.get("broker").and_then(Value::as_str).unwrap_or("");
+    let base_client_id = config
+        .get("client_id")
+        .and_then(Value::as_str)
+        .unwrap_or("aquapilot-service");
+    let client_id = format!("{base_client_id}-runtime");
+    let timeout = timeout(config);
+    let topics = mqtt_topics(config);
+    let mut stream = connect(broker, timeout)?;
+    mqtt_send_connect(&mut stream, &client_id, 30)?;
+    mqtt_read_connack(&mut stream)?;
+    mqtt_subscribe(&mut stream, &topics)?;
+    on_event(MqttEvent::Connected);
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .map_err(|error| error.to_string())?;
+    let mut buffer = Vec::new();
+    let mut messages = 0_usize;
+    let mut last_ping = std::time::Instant::now();
+    loop {
+        if let Some(limit) = max_messages {
+            if messages >= limit {
+                return Ok(());
+            }
+        }
+        let mut chunk = [0_u8; 4096];
+        match stream.read(&mut chunk) {
+            Ok(0) => return Err("MQTT broker closed the connection".to_owned()),
+            Ok(size) => {
+                buffer.extend_from_slice(&chunk[..size]);
+            }
+            Err(error)
+                if error.kind() == std::io::ErrorKind::WouldBlock
+                    || error.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                if last_ping.elapsed() >= Duration::from_secs(15) {
+                    stream
+                        .write_all(&[0xc0, 0x00])
+                        .map_err(|error| format!("write MQTT PINGREQ: {error}"))?;
+                    last_ping = std::time::Instant::now();
+                }
+                continue;
+            }
+            Err(error) => return Err(format!("read MQTT packet: {error}")),
+        }
+        while let Some(packet) = mqtt_packet(&mut buffer) {
+            let (header, payload) = packet?;
+            match header >> 4 {
+                3 => {
+                    let (topic, packet_id, body) = mqtt_publish(header, &payload)?;
+                    if (header >> 1) & 0x03 == 1 {
+                        let ack = [
+                            0x40,
+                            0x02,
+                            packet_id.to_be_bytes()[0],
+                            packet_id.to_be_bytes()[1],
+                        ];
+                        stream
+                            .write_all(&ack)
+                            .map_err(|error| format!("write MQTT PUBACK: {error}"))?;
+                    }
+                    on_event(MqttEvent::Message {
+                        topic,
+                        payload: body,
+                    });
+                    messages += 1;
+                }
+                13 => {}
+                14 => return Err("MQTT broker sent DISCONNECT".to_owned()),
+                other => {
+                    tracing::debug!("ignoring MQTT packet type {other}");
+                }
+            }
+        }
+    }
 }
 
 fn unix_now() -> u64 {
@@ -356,6 +627,63 @@ mod tests {
         });
         mqtt_connect(&endpoint, "aquapilot-test", Duration::from_secs(2)).expect("mqtt");
         server.join().expect("server");
+    }
+
+    #[test]
+    fn mqtt_consume_subscribes_and_forwards_publish() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let endpoint = listener.local_addr().expect("addr").to_string();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut header = [0_u8; 2];
+            stream.read_exact(&mut header).expect("connect header");
+            assert_eq!(header[0], 0x10);
+            let mut body = vec![0_u8; header[1] as usize];
+            stream.read_exact(&mut body).expect("connect body");
+            stream
+                .write_all(&[0x20, 0x02, 0x00, 0x00])
+                .expect("connack");
+            let mut subscribe = [0_u8; 2];
+            stream.read_exact(&mut subscribe).expect("subscribe header");
+            assert_eq!(subscribe[0], 0x82);
+            let mut remaining = [0_u8; 1];
+            stream.read_exact(&mut remaining).expect("subscribe length");
+            let mut body = vec![0_u8; remaining[0] as usize];
+            stream.read_exact(&mut body).expect("subscribe body");
+            stream
+                .write_all(&[0x90, 0x03, 0x00, 0x01, 0x00])
+                .expect("suback");
+            let payload = b"{\"value\":42.5}";
+            let topic = b"aquapilot/telemetry/effluent/cod";
+            let mut publish = vec![0x30, 0];
+            let remaining = (2 + topic.len() + payload.len()) as u8;
+            publish[1] = remaining;
+            publish.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+            publish.extend_from_slice(topic);
+            publish.extend_from_slice(payload);
+            stream.write_all(&publish).expect("publish");
+            std::thread::sleep(Duration::from_millis(500));
+        });
+        let mut events = Vec::new();
+        let config = json!({"broker": endpoint, "client_id": "aquapilot-test", "read":[{"topic":"aquapilot/telemetry/effluent/cod","point_id":"effluent.cod"}]});
+        mqtt_consume(&config, Some(1), |event| events.push(event)).expect("consume");
+        assert!(matches!(events.first(), Some(MqttEvent::Connected)));
+        assert!(
+            matches!(events.get(1), Some(MqttEvent::Message { topic, payload }) if topic == "aquapilot/telemetry/effluent/cod" && payload == b"{\"value\":42.5}")
+        );
+        server.join().expect("server");
+    }
+
+    #[test]
+    fn mqtt_topic_filter_matches_wildcards() {
+        let config = json!({"topics":["aquapilot/telemetry/#"],"read":[{"topic":"aquapilot/telemetry/effluent/cod","point_id":"effluent.cod"}]});
+        assert_eq!(
+            mqtt_topics(&config),
+            vec![
+                "aquapilot/telemetry/#".to_owned(),
+                "aquapilot/telemetry/effluent/cod".to_owned()
+            ]
+        );
     }
 
     #[test]

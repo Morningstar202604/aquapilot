@@ -1,0 +1,66 @@
+{
+ "schema": "aquapilot.gateway.runtime.mqtt.v1",
+ "service_version": "0.0.25",
+ "config": "/tmp/gateway-service-025.json",
+ "mode": "real MQTT 3.1.1 subscribe; service consumes telemetry topics and updates points",
+ "all_connected": true,
+ "mqtt_runtime": {
+  "bad_payloads": 0,
+  "connected": true,
+  "connected_at_unix": 1795893390,
+  "error": null,
+  "last_message_at_unix": 1795893425,
+  "last_point_id": "effluent.tp",
+  "last_topic": "aquapilot/telemetry/effluent/tp",
+  "last_value": 0.148,
+  "messages": 54,
+  "state": "connected",
+  "topics": [
+   "aquapilot/telemetry/effluent/cod",
+   "aquapilot/telemetry/effluent/nh4",
+   "aquapilot/telemetry/effluent/tp"
+  ]
+ },
+ "sample_a": {
+  "at": "2026-11-29T03:17:05.171346+08:00",
+  "mqtt_points": [
+   {
+    "point_id": "effluent.cod",
+    "value": 40.0,
+    "quality": "good"
+   },
+   {
+    "point_id": "effluent.nh4",
+    "value": 0.72,
+    "quality": "good"
+   },
+   {
+    "point_id": "effluent.tp",
+    "value": 0.148,
+    "quality": "good"
+   }
+  ]
+ },
+ "sample_b": {
+  "at": "2026-11-29T03:17:07.173287+08:00",
+  "mqtt_points": [
+   {
+    "point_id": "effluent.cod",
+    "value": 41.5,
+    "quality": "good"
+   },
+   {
+    "point_id": "effluent.nh4",
+    "value": 0.72,
+    "quality": "good"
+   },
+   {
+    "point_id": "effluent.tp",
+    "value": 0.148,
+    "quality": "good"
+   }
+  ]
+ },
+ "changed": true,
+ "note": "Local MQTT broker double, not a field broker or site acceptance. QoS0 subscription; payload JSON value."
+}

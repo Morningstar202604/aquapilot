@@ -1,0 +1,32 @@
+{
+ "schema": "aquapilot.gateway.runtime.mqtt.failclosed.v1",
+ "service_version": "0.0.25",
+ "at": "2026-11-29T03:18:53.063496+08:00",
+ "scenario": "local MQTT broker stopped after live subscription",
+ "all_connected": false,
+ "mqtt_runtime": {
+  "bad_payloads": 0,
+  "connected": false,
+  "connected_at_unix": 1795893516,
+  "error": "MQTT broker closed the connection",
+  "last_message_at_unix": 1795893527,
+  "last_point_id": "effluent.tp",
+  "last_topic": "aquapilot/telemetry/effluent/tp",
+  "last_value": 0.148,
+  "messages": 18,
+  "state": "error",
+  "topics": [
+   "aquapilot/telemetry/effluent/cod",
+   "aquapilot/telemetry/effluent/nh4",
+   "aquapilot/telemetry/effluent/tp"
+  ]
+ },
+ "last_check_all_connected": true,
+ "assertion": "runtime disconnected => all_connected false even with stale protocol check",
+ "recovery": {
+  "at": "2026-11-29T03:20:36.807870+08:00",
+  "all_connected": true,
+  "mqtt_state": "connected",
+  "messages": 171
+ }
+}

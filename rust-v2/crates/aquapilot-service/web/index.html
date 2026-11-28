@@ -267,6 +267,11 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 .adapter-row{display:flex;gap:5px;flex-wrap:wrap;margin:7px 0}
 .adapter-chip{display:flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-family:var(--mono);font-size:8px;color:var(--muted)}
 .adapter-chip i{width:5px;height:5px;border-radius:50%;background:var(--teal)}
+.gw-telemetry{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin:6px 0}
+.gw-telemetry .gw-metric{border:1px solid var(--line);border-radius:6px;padding:5px 6px;background:#fff}
+.gw-telemetry .gw-metric span{display:block;font-family:var(--mono);font-size:7px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gw-telemetry .gw-metric b{display:block;margin-top:2px;font-family:var(--mono);font-size:12px;color:var(--ink)}
+.gw-telemetry .gw-metric b.bad{color:var(--red)}
 .gw-write{display:grid;grid-template-columns:1.1fr .7fr;gap:5px;margin-top:6px}
 .gw-write select,.gw-write input{min-width:0;font-family:var(--mono);font-size:9px;border:1px solid var(--line);border-radius:5px;padding:5px 6px;background:#fff}
 .gw-write .gw-reason{grid-column:1 / -1}
@@ -537,6 +542,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     <div class="monitor-card">
       <div class="monitor-top"><div><h2>工业网关</h2><div class="exp-id" id="gw-mode">OPC UA / Modbus / MQTT · MOCK</div></div><span class="tag" id="gw-state">mock</span></div>
       <div class="adapter-row" id="adapter-row"><span class="adapter-chip">加载中…</span></div>
+      <div class="gw-telemetry" id="gw-telemetry"></div>
       <div class="gw-write">
         <select id="gw-point" title="可写设定点"></select>
         <input id="gw-value" type="number" step="any" placeholder="值" title="写入值">
@@ -618,7 +624,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     topologyValidationTimer: null,
     topologyHistory: [],
     topologyFuture: [],
-    industrial: {points: [], adapters: [], last: null},
+    industrial: {points: [], adapters: [], last: null, mqttRuntime: null},
   };
 
   const SCENARIOS = [
@@ -2636,9 +2642,12 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     $("#gw-state").textContent = real ? (allConnected ? "real" : "real/error") : "mock";
     row.innerHTML = adapters.map((adapter) => {
       const count = adapter.points ?? points.filter((point) => point.adapter === adapter.kind).length;
-      const stateText = adapter.connected === false ? " · 断开" : "";
+      const messages = adapter.runtime?.messages;
+      const stateText = adapter.connected === false ? " · 断开" : (messages ? ` · ${messages} msg` : "");
       return `<span class="adapter-chip" title="${esc(adapter.endpoint || adapter.error || "")}"><i></i>${esc(adapter.kind)} · ${count}${stateText}</span>`;
     }).join("") || `<span class="adapter-chip">未连接</span>`;
+    const measured = points.filter((point) => point.adapter === "mqtt" && point.kind === "measurement");
+    $("#gw-telemetry").innerHTML = measured.map((point) => `<div class="gw-metric"><span>${esc(point.label)}</span><b class="${point.quality === "good" ? "" : "bad"}">${fmt(point.value, 3)} <small>${esc(point.unit)}</small></b></div>`).join("") || `<div class="gw-metric"><span>MQTT 遥测</span><b>等待消息</b></div>`;
     const select = $("#gw-point");
     const writable = (state.industrial.points || []).filter((point) => point.writable);
     select.innerHTML = writable.map((point) => `<option value="${esc(point.id)}">${esc(point.label)} · ${esc(point.unit)}</option>`).join("");
@@ -2660,6 +2669,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       state.industrial.adapters = adapters.adapters || [];
       state.industrial.real = adapters.real === true;
       state.industrial.allConnected = adapters.all_connected === true;
+      state.industrial.mqttRuntime = adapters.mqtt_runtime || null;
       renderIndustrial();
     } catch (error) {
       $("#adapter-row").innerHTML = `<span class="adapter-chip" style="color:var(--red)">网关不可用</span>`;

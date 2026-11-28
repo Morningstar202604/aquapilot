@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.25] — 2026-11-29
+
+### Added
+
+- 服务运行时真实 MQTT 3.1.1 订阅：按 `mqtt.topics/topic/read[].topic` 订阅 QoS 0，解析 JSON 遥测并更新 `IndustrialHub` 点位；断线每 5 s 重连，`mqtt_runtime` 暴露 connected/messages/bad_payloads/last_*。
+- `all_connected` 合并 MQTT 运行时状态；MQTT 断开时 fail-closed 变 false。UI 显示 MQTT 消息数及 COD/NH4/TP 遥测。
+
+### Verification
+
+- `cargo test --workspace` 106 项通过；fmt/clippy 通过；版本 0.0.25。
+- 本地真实 MQTT 双端：5204 服务订阅三条主题，COD 40.0→41.5，`all_connected=true`；证据 `docs/cutover/gateway-runtime-mqtt-0.0.25.json`。
+- OPC UA、现场设备验收、24 h soak 未完成；Cutover 仍 NO-GO。
+
 ## [0.0.24] — 2026-11-29
 
 ### Added

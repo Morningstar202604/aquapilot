@@ -76,6 +76,12 @@
 - 实机证据 `docs/cutover/gateway-runtime-modbus-0.0.24.json`：轮询 1500，写入 2000，审计 #1。
 - 仍是本地 Modbus 双端，不是现场设备；OPC UA、MQTT 主题消费未接入。24 h soak 仍无 summary。
 
+## 4.5 0.0.25 增量（不改变 NO-GO）
+
+- 服务运行时真实 MQTT 订阅已接入：三条遥测主题更新 COD/NH4/TP 点位，`mqtt_runtime` 可见 connected/messages/last_*；证据 `docs/cutover/gateway-runtime-mqtt-0.0.25.json`。
+- MQTT 断线时 `all_connected=false`；但这只是本地协议双端，不是现场 broker 验收。
+- OPC UA 会话、现场设备、24 h soak 仍未完成；Cutover 判定不变。
+
 ## 5. 重新评估条件
 
 同时满足以下条件才可把 `cutover_approved` 改为 true：
