@@ -272,4 +272,31 @@ python3 scripts/journeys_v2.py --summary docs/journeys-v2.json
 | GET | `/api/standards` | 三套排放口径 + `default` |
 | GET | `/api/limits` | 一级 A 限值、控制边界、老厂常量 |
 
-`GET /api/health` 同时保留旧字段 `authRequired`、`uptimeSeconds`、`paused`、`tickErrors`、`lastTickMs`，以及 V2 的 `version/status/queue/watchdog`。这组别名只覆盖只读监控子集；旧版 `/api/snapshot`、`/api/topology`、WebSocket 仍不兼容，迁移层未完成，详见 `docs/CUTOVER.md`。
+`GET /api/health` 同时保留旧字段 `authRequired`、`uptimeSeconds`、`paused`、`tickErrors`、`lastTickMs`，以及 V2 的 `version/status/queue/watchdog`。这组别名只覆盖只读监控子集；0.0.20 新增 `/api/snapshot`、`/api/topology` 的派生只读迁移层（`compatibility.liveTick=false`），WebSocket 仍未迁移，详见 `docs/CUTOVER.md`。
+
+### 0.0.20 批量研究 + 只读迁移层
+
+`POST /api/v1/studies` 现在是一等入口：持久 study 父记录 + 整批原子入队，变体支持 `config`、RFC 7396 `config_patch` 或 `controls`（DO/内回流/RAS/WAS/PAC）。容量不足整批 429；旧版 `ExperimentSpec` 中 V2 无法兑现的 `scenario/warmupDays/plantEnabled` 等字段返回 422 `UNSUPPORTED_FIELD`，不静默忽略。
+
+```json
+{
+  "name": "do-scan",
+  "base": {"model": "asm2d", "duration_min": 1440},
+  "variants": [
+    {"name": "do-2", "controls": {"do_setpoint": 2.0}},
+    {"name": "do-1", "controls": {"do_setpoint": 1.0}}
+  ],
+  "objectives": [{"metric": "effluent.cod", "direction": "min"}]
+}
+```
+
+只读迁移层：
+
+| 方法 | 路径 | 语义 |
+| --- | --- | --- |
+| GET | `/api/snapshot` | 最新成功实验的旧版字段投影；`compatibility.liveTick=false` |
+| GET | `/api/topology` | 最新实验请求配置翻译成旧 topology 形状 |
+| GET | `/api/metrics` | Prometheus 文本子集，不是旧版按路由计数器 |
+| GET | `/api/history/snapshots` | 成功实验历史投影 |
+
+没有成功实验时 snapshot/topology 返回 503 `NO_BASELINE`。能量、SRT、F/M 不存于 V2 结果，返回 `null` 并列在 `compatibility.missing`；不要把它们当 live 控制值。

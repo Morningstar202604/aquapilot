@@ -21,9 +21,11 @@ use crate::ai::AiProvider;
 use crate::analysis::{analyze, daily_csv, weekly_csv};
 use crate::error::{ApiError, FieldError};
 use crate::industrial::{IndustrialHub, WriteRequest};
+use crate::legacy;
 use crate::runner::{samples_csv, ExperimentRequest, Sample};
 use crate::security::{Role, Security};
-use crate::store::{to_api_error, CancelOutcome, ExperimentRecord, Store};
+use crate::store::{to_api_error, CancelOutcome, ExperimentRecord, Store, StudyChildSpec};
+use crate::study::{study_detail, study_report, study_status, StudyRequest};
 use crate::watchdog::Watchdog;
 use aquapilot_domain::PlantTopology;
 use aquapilot_engine::{CompiledPlant, EngineError};
@@ -60,6 +62,10 @@ pub fn build_router_with(store: Store, security: Security, watchdog: Option<Watc
         .route("/api/auth-required", get(auth_required))
         .route("/api/standards", get(legacy_standards))
         .route("/api/limits", get(legacy_limits))
+        .route("/api/snapshot", get(legacy_snapshot))
+        .route("/api/topology", get(legacy_topology))
+        .route("/api/metrics", get(legacy_metrics))
+        .route("/api/history/snapshots", get(legacy_history))
         .route("/api/openapi.json", get(openapi))
         .route("/api/v1/presets", get(presets))
         .route("/api/v1/industrial/points", get(industrial_points))
@@ -83,6 +89,10 @@ pub fn build_router_with(store: Store, security: Security, watchdog: Option<Watc
             "/api/v1/experiments/{id}/report.md",
             get(get_report_markdown),
         )
+        .route("/api/v1/studies", post(create_study).get(list_studies))
+        .route("/api/v1/studies/{id}", get(get_study))
+        .route("/api/v1/studies/{id}/cancel", post(cancel_study))
+        .route("/api/v1/studies/{id}/report.md", get(get_study_report))
         .fallback(not_found)
         .layer(DefaultBodyLimit::max(64 * 1024))
         .layer(middleware::map_response(map_body_limit_error))
@@ -671,6 +681,217 @@ fn ensure_succeeded(record: &ExperimentRecord) -> Result<(), ApiError> {
     }
 }
 
+async fn legacy_snapshot(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    state.security.authorize(&headers, Role::Viewer)?;
+    Ok(Json(legacy::snapshot(&state.store)?))
+}
+
+async fn legacy_topology(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    state.security.authorize(&headers, Role::Viewer)?;
+    Ok(Json(legacy::topology(&state.store)?))
+}
+
+async fn legacy_history(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Value>, ApiError> {
+    state.security.authorize(&headers, Role::Viewer)?;
+    let limit = query.limit.unwrap_or(20).clamp(1, 100);
+    Ok(Json(legacy::history(&state.store, limit)?))
+}
+
+async fn legacy_metrics(State(state): State<AppState>) -> Response {
+    let uptime = state.started.elapsed().as_secs();
+    let text = legacy::metrics(&state.store, env!("CARGO_PKG_VERSION"), uptime);
+    let mut response = (StatusCode::OK, text).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; version=0.0.4; charset=utf-8"),
+    );
+    response
+}
+
+async fn create_study(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    check_json_content_type(&headers)?;
+    let auth = state.security.authorize(&headers, Role::Operator)?;
+    state.security.check_rate(&auth.subject)?;
+    let request: StudyRequest = serde_json::from_slice(&body).map_err(|error| {
+        ApiError::bad_request(
+            "MALFORMED_JSON",
+            format!("study request body is not valid JSON: {error}"),
+        )
+    })?;
+    let idempotency = parse_idempotency_key(&headers)?;
+    let key_hash = idempotency
+        .as_deref()
+        .map(|value| sha256_hex(value.as_bytes()));
+    let request_hash = sha256_hex(&body);
+    let ids: Vec<String> = (0..24).map(|_| uuid::Uuid::new_v4().to_string()).collect();
+    let expanded = request.expand(&ids).map_err(ApiError::invalid_request)?;
+    let spec_json = serde_json::to_string(&request)
+        .map_err(|error| ApiError::internal("SERIALIZE_ERROR", error.to_string()))?;
+    let child_specs: Vec<StudyChildSpec> = expanded
+        .children
+        .iter()
+        .zip(expanded.assignments.iter())
+        .map(|(child, assignment)| {
+            Ok(StudyChildSpec {
+                id: assignment.id.clone(),
+                name: child.name.clone(),
+                model: child.model.as_str().to_owned(),
+                request_json: serde_json::to_string(child)
+                    .map_err(|error| ApiError::internal("SERIALIZE_ERROR", error.to_string()))?,
+            })
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
+    let study_id = uuid::Uuid::new_v4().to_string();
+    let outcome = state
+        .store
+        .create_study(
+            &study_id,
+            request.name.trim(),
+            &spec_json,
+            &child_specs,
+            key_hash.as_deref(),
+            &request_hash,
+        )
+        .map_err(to_api_error)?;
+    let status = if outcome.created {
+        StatusCode::ACCEPTED
+    } else {
+        StatusCode::OK
+    };
+    let body = Json(study_detail(&outcome.record, &outcome.children));
+    let mut response = (status, body).into_response();
+    response.headers_mut().insert(
+        header::LOCATION,
+        HeaderValue::from_str(&format!("/api/v1/studies/{}", outcome.record.id))
+            .expect("study location is ASCII"),
+    );
+    Ok(response)
+}
+
+async fn list_studies(
+    State(state): State<AppState>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = query.limit.unwrap_or(20).clamp(1, 100);
+    let records = state.store.list_studies(limit).map_err(to_api_error)?;
+    let mut items = Vec::new();
+    for record in records {
+        let children = state.store.study_children(&record).map_err(to_api_error)?;
+        if let Some(status) = query.status.as_deref() {
+            if study_status(&children) != status {
+                continue;
+            }
+        }
+        items.push(study_detail(&record, &children));
+    }
+    Ok(Json(json!({"items": items})))
+}
+
+async fn get_study(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let record = state
+        .store
+        .get_study(&id)
+        .map_err(to_api_error)?
+        .ok_or_else(|| not_found_error("study", &id))?;
+    let children = state.store.study_children(&record).map_err(to_api_error)?;
+    Ok(Json(study_detail(&record, &children)))
+}
+
+async fn cancel_study(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let auth = state.security.authorize(&headers, Role::Operator)?;
+    state.security.check_rate(&auth.subject)?;
+    let record = state
+        .store
+        .get_study(&id)
+        .map_err(to_api_error)?
+        .ok_or_else(|| not_found_error("study", &id))?;
+    let children = state.store.study_children(&record).map_err(to_api_error)?;
+    let mut cancelled = 0;
+    let mut requested = 0;
+    let mut terminal = 0;
+    for child in &children {
+        match state.store.cancel(&child.id).map_err(to_api_error)? {
+            CancelOutcome::Cancelled => cancelled += 1,
+            CancelOutcome::CancelRequested => requested += 1,
+            CancelOutcome::Terminal => terminal += 1,
+            CancelOutcome::NotFound => {}
+        }
+    }
+    let children = state.store.study_children(&record).map_err(to_api_error)?;
+    let mut detail = study_detail(&record, &children);
+    detail["cancel"] = json!({
+        "cancelled": cancelled,
+        "cancel_requested": requested,
+        "already_terminal": terminal,
+    });
+    Ok(Json(detail))
+}
+
+async fn get_study_report(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    let record = state
+        .store
+        .get_study(&id)
+        .map_err(to_api_error)?
+        .ok_or_else(|| not_found_error("study", &id))?;
+    let children = state.store.study_children(&record).map_err(to_api_error)?;
+    let mut response = (StatusCode::OK, study_report(&record, &children)).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/markdown; charset=utf-8"),
+    );
+    Ok(response)
+}
+
+fn parse_idempotency_key(headers: &HeaderMap) -> Result<Option<String>, ApiError> {
+    let key = headers
+        .get("idempotency-key")
+        .map(|value| value.to_str())
+        .transpose()
+        .map_err(|_| {
+            ApiError::bad_request("INVALID_IDEMPOTENCY_KEY", "Idempotency-Key must be ASCII")
+        })?
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    if let Some(key) = &key {
+        if key.len() > 128 || key.chars().any(char::is_control) {
+            return Err(ApiError::bad_request(
+                "INVALID_IDEMPOTENCY_KEY",
+                "Idempotency-Key must be 1 to 128 ASCII characters",
+            ));
+        }
+    }
+    Ok(key)
+}
+
+fn not_found_error(kind: &str, id: &str) -> ApiError {
+    ApiError::not_found(format!("no {kind} exists with id {id}"))
+}
+
 fn experiment_view(record: &ExperimentRecord, include_result: bool, include_spec: bool) -> Value {
     let request: Value = if include_spec {
         serde_json::from_str(&record.request_json).unwrap_or(Value::Null)
@@ -896,6 +1117,10 @@ fn openapi_document() -> Value {
             "/api/auth-required": {"get": {"summary": "Whether bearer auth is required", "responses": {"200": {"description": "Auth requirement"}}}},
             "/api/standards": {"get": {"summary": "Legacy discharge standards envelope", "responses": {"200": {"description": "Standards"}}}},
             "/api/limits": {"get": {"summary": "Legacy discharge limits and control bounds", "responses": {"200": {"description": "Limits"}}}},
+            "/api/snapshot": {"get": {"summary": "Legacy read-only snapshot derived from the newest succeeded experiment", "responses": {"200": {"description": "Snapshot with compatibility metadata"}, "503": {"description": "No succeeded experiment yet"}}}},
+            "/api/topology": {"get": {"summary": "Legacy read-only topology translated from the newest experiment request", "responses": {"200": {"description": "Topology with compatibility metadata"}, "503": {"description": "No experiment yet"}}}},
+            "/api/metrics": {"get": {"summary": "Prometheus text metrics (V2 subset)", "responses": {"200": {"description": "text/plain metrics"}}}},
+            "/api/history/snapshots": {"get": {"summary": "Succeeded experiment history projection", "responses": {"200": {"description": "History items"}}}},
             "/api/openapi.json": {"get": {"summary": "This document", "responses": {"200": {"description": "OpenAPI 3.1 document"}}}},
             "/api/v1/presets": {"get": {"summary": "Embedded scenario presets", "responses": {"200": {"description": "Preset list with model configs"}}}},
             "/api/v1/industrial/points": {"get": {"summary": "Simulated industrial point image", "responses": {"200": {"description": "Point list with adapter, range and quality"}}}},
@@ -1017,6 +1242,49 @@ fn openapi_document() -> Value {
                     "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
                     "responses": {"200": {"description": "Markdown report"}, "409": {"description": "Experiment not succeeded"}}
                 }
+            },
+            "/api/v1/studies": {
+                "post": {
+                    "summary": "Queue a reproducible batch study",
+                    "parameters": [{"name": "Idempotency-Key", "in": "header", "required": false, "schema": {"type": "string", "maxLength": 128}}],
+                    "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StudyRequest"}}}},
+                    "responses": {
+                        "202": {"description": "Study and children queued; Location points to the study"},
+                        "200": {"description": "Idempotent replay"},
+                        "409": {"description": "Idempotency key reused with a different body"},
+                        "422": {"description": "Validation failed"},
+                        "429": {"description": "Not enough queue capacity for the whole study"}
+                    }
+                },
+                "get": {
+                    "summary": "List studies",
+                    "parameters": [
+                        {"name": "status", "in": "query", "required": false, "schema": {"type": "string", "enum": ["queued", "running", "succeeded", "partial", "failed", "cancelled"]}},
+                        {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100}}
+                    ],
+                    "responses": {"200": {"description": "Study summaries"}}
+                }
+            },
+            "/api/v1/studies/{id}": {
+                "get": {
+                    "summary": "Study detail with variant aggregates and Pareto frontier",
+                    "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+                    "responses": {"200": {"description": "Study detail"}, "404": {"description": "Not found"}}
+                }
+            },
+            "/api/v1/studies/{id}/cancel": {
+                "post": {
+                    "summary": "Cancel queued children and request cancellation for running children",
+                    "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+                    "responses": {"200": {"description": "Cancellation counts and current study detail"}, "404": {"description": "Not found"}}
+                }
+            },
+            "/api/v1/studies/{id}/report.md": {
+                "get": {
+                    "summary": "Study Markdown report",
+                    "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+                    "responses": {"200": {"description": "Markdown report"}, "404": {"description": "Not found"}}
+                }
             }
         },
         "components": {
@@ -1024,6 +1292,56 @@ fn openapi_document() -> Value {
                 "bearerAuth": {"type": "http", "scheme": "bearer", "description": "Optional when AQUAPILOT_TOKENS or AQUAPILOT_API_TOKEN is set; roles: viewer, operator, admin."}
             },
             "schemas": {
+                "StudyRequest": {
+                    "type": "object",
+                    "required": ["name", "base"],
+                    "properties": {
+                        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+                        "base": {
+                            "type": "object",
+                            "required": ["model"],
+                            "properties": {
+                                "model": {"type": "string", "enum": ["asm1", "asm2d", "asm2d-parallel", "asm2d-adm1-loop", "adm1", "sludge-line"]},
+                                "config": {"type": "object", "description": "Omit to use the bundled default for asm1/asm2d/asm2d-parallel/adm1/sludge-line"},
+                                "duration_min": {"type": "number", "minimum": 1, "maximum": 525600, "default": 1440},
+                                "dt_min": {"type": "number", "exclusiveMinimum": 0, "maximum": 1, "default": 1},
+                                "sample_every_min": {"type": "number", "exclusiveMinimum": 0, "default": 60}
+                            }
+                        },
+                        "variants": {
+                            "type": "array", "maxItems": 12,
+                            "items": {
+                                "type": "object", "required": ["name"],
+                                "properties": {
+                                    "name": {"type": "string", "maxLength": 64},
+                                    "config": {"type": "object"},
+                                    "config_patch": {"type": "object", "description": "RFC 7396 merge patch applied to base.config"},
+                                    "controls": {
+                                        "type": "object",
+                                        "properties": {
+                                            "do_setpoint": {"type": "number", "minimum": 0, "maximum": 10},
+                                            "internal_recirc": {"type": "number", "minimum": 0, "maximum": 5},
+                                            "ras_ratio": {"type": "number", "minimum": 0, "maximum": 5},
+                                            "was_ratio": {"type": "number", "minimum": 0, "maximum": 0.5},
+                                            "pac_dose": {"type": "number", "minimum": 0, "maximum": 200}
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "replicates": {"type": "integer", "minimum": 1, "maximum": 3, "default": 1},
+                        "objectives": {
+                            "type": "array", "maxItems": 4,
+                            "items": {
+                                "type": "object", "required": ["metric"],
+                                "properties": {
+                                    "metric": {"type": "string", "enum": ["score", "passed", "max_balance_residual_pct", "effluent.cod", "effluent.ss", "effluent.nh4_n", "effluent.tn", "effluent.tp"]},
+                                    "direction": {"type": "string", "enum": ["min", "max"], "default": "min"}
+                                }
+                            }
+                        }
+                    }
+                },
                 "ExperimentRequest": {
                     "type": "object",
                     "required": ["name", "model", "config"],
@@ -1100,6 +1418,216 @@ mod tests {
             .expect("body")
             .to_bytes();
         serde_json::from_slice(&bytes).expect("json response")
+    }
+
+    #[tokio::test]
+    async fn study_create_detail_report_replay_and_conflict() {
+        let store = Store::in_memory(8).expect("store");
+        let router = build_router(store);
+        let body = json!({
+            "name": "study-api",
+            "base": {
+                "model": "asm2d",
+                "config": serde_json::from_str::<Value>(include_str!("../../../fixtures/a2o-asm2d.json")).expect("fixture"),
+                "duration_min": 30.0
+            },
+            "variants": [
+                {"name": "do-2", "controls": {"do_setpoint": 2.0}},
+                {"name": "do-1", "controls": {"do_setpoint": 1.0}}
+            ],
+            "objectives": [{"metric": "effluent.cod", "direction": "min"}]
+        });
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/v1/studies")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("Idempotency-Key", "study-key")
+            .body(Body::from(serde_json::to_vec(&body).expect("json")))
+            .expect("request");
+        let response = router.clone().oneshot(request).await.expect("post");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let location = response
+            .headers()
+            .get(header::LOCATION)
+            .expect("location")
+            .to_str()
+            .expect("location text")
+            .to_owned();
+        let created = body_json(response).await;
+        let id = created["id"].as_str().expect("id").to_owned();
+        assert_eq!(location, format!("/api/v1/studies/{id}"));
+        assert_eq!(created["children"].as_array().expect("children").len(), 2);
+        assert_eq!(created["status"], "queued");
+
+        let same = Request::builder()
+            .method("POST")
+            .uri("/api/v1/studies")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("Idempotency-Key", "study-key")
+            .body(Body::from(serde_json::to_vec(&body).expect("json")))
+            .expect("request");
+        let response = router.clone().oneshot(same).await.expect("replay");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(body_json(response).await["id"], id);
+
+        let detail = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/studies/{id}"))
+                    .body(Body::empty())
+                    .expect("detail"),
+            )
+            .await
+            .expect("detail");
+        assert_eq!(detail.status(), StatusCode::OK);
+        assert_eq!(
+            body_json(detail).await["aggregate"]["variants"]
+                .as_array()
+                .expect("variants")
+                .len(),
+            2
+        );
+
+        let report = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/studies/{id}/report.md"))
+                    .body(Body::empty())
+                    .expect("report"),
+            )
+            .await
+            .expect("report");
+        assert_eq!(report.status(), StatusCode::OK);
+        assert_eq!(
+            report.headers().get(header::CONTENT_TYPE).expect("type"),
+            "text/markdown; charset=utf-8"
+        );
+
+        let mut changed = body;
+        changed["name"] = json!("study-api-2");
+        let conflict = Request::builder()
+            .method("POST")
+            .uri("/api/v1/studies")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("Idempotency-Key", "study-key")
+            .body(Body::from(serde_json::to_vec(&changed).expect("json")))
+            .expect("request");
+        let response = router.oneshot(conflict).await.expect("conflict");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn legacy_read_projection_is_explicitly_not_live() {
+        let store = Store::in_memory(2).expect("store");
+        let router = build_router(store.clone());
+        let response = router
+            .clone()
+            .oneshot(request(minimal_body("legacy-projection")))
+            .await
+            .expect("post");
+        let created = body_json(response).await;
+        let id = created["id"].as_str().expect("id").to_owned();
+        let _ = store.claim_next().expect("claim").expect("queued");
+        let samples = vec![Sample {
+            minute: 1440.0,
+            flow_m3_h: 1000.0,
+            cod: 30.0,
+            bod: Some(8.0),
+            ss: 2.0,
+            nh4_n: 1.0,
+            tn: 8.0,
+            tp: 0.1,
+            po4_p: Some(0.05),
+            ph: Some(7.0),
+            temperature_c: Some(20.0),
+            do_mg_l: 2.0,
+            mlss: Some(3000.0),
+            srt_d: Some(15.0),
+            energy_kw: Some(100.0),
+            score: None,
+            blanket_depth_m: Some(0.5),
+        }];
+        let result = json!({
+            "time_min": 1440.0,
+            "effluent": {"flow_m3_h": 1000.0, "cod": 30.0, "ss": 2.0, "nh4_n": 1.0, "tn": 8.0, "tp": 0.1},
+            "reactors": [{"id": "anaerobic", "name": "厌氧池", "kind": "anaerobic", "volume_m3": 1000.0, "flow_in_m3_h": 1000.0, "mlss": 3000.0, "do": 0.0, "cod": 100.0, "nh4_n": 10.0}]
+        });
+        store
+            .finish_success(
+                &id,
+                &result.to_string(),
+                &serde_json::to_string(&samples).expect("samples"),
+            )
+            .expect("finish");
+
+        let snapshot = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/snapshot")
+                    .body(Body::empty())
+                    .expect("snapshot"),
+            )
+            .await
+            .expect("snapshot response");
+        assert_eq!(snapshot.status(), StatusCode::OK);
+        let snapshot = body_json(snapshot).await;
+        assert_eq!(snapshot["compatibility"]["liveTick"], false);
+        assert_eq!(snapshot["compatibility"]["experimentId"], id);
+        assert_eq!(snapshot["effluent"]["cod"], 30.0);
+        assert_eq!(snapshot["energy"]["totalKw"], Value::Null);
+
+        let topology = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/topology")
+                    .body(Body::empty())
+                    .expect("topology"),
+            )
+            .await
+            .expect("topology response");
+        assert_eq!(topology.status(), StatusCode::OK);
+        assert_eq!(
+            body_json(topology).await["compatibility"]["mode"],
+            "translated-read-only"
+        );
+
+        let metrics = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/metrics")
+                    .body(Body::empty())
+                    .expect("metrics"),
+            )
+            .await
+            .expect("metrics response");
+        assert_eq!(metrics.status(), StatusCode::OK);
+        assert_eq!(
+            metrics.headers().get(header::CONTENT_TYPE).expect("type"),
+            "text/plain; version=0.0.4; charset=utf-8"
+        );
+
+        let history = router
+            .oneshot(
+                Request::builder()
+                    .uri("/api/history/snapshots")
+                    .body(Body::empty())
+                    .expect("history"),
+            )
+            .await
+            .expect("history response");
+        assert_eq!(history.status(), StatusCode::OK);
+        assert_eq!(
+            body_json(history).await["items"]
+                .as_array()
+                .expect("items")
+                .len(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -1500,12 +2028,14 @@ mod tests {
         assert_eq!(openapi.status(), StatusCode::OK);
         let document = body_json(openapi).await;
         assert_eq!(document["openapi"], "3.1.0");
-        assert_eq!(document["info"]["version"], "0.0.19");
+        assert_eq!(document["info"]["version"], "0.0.20");
         assert!(document["paths"]["/api/v1/experiments"].is_object());
         assert!(document["paths"]["/api/v1/presets"].is_object());
         assert!(document["paths"]["/api/v1/topologies/validate"].is_object());
         assert!(document["paths"]["/api/v1/experiments/{id}/daily.csv"].is_object());
         assert!(document["paths"]["/api/v1/experiments/{id}/weekly.csv"].is_object());
+        assert!(document["paths"]["/api/v1/studies"].is_object());
+        assert!(document["paths"]["/api/v1/studies/{id}/report.md"].is_object());
 
         let legacy = router
             .clone()

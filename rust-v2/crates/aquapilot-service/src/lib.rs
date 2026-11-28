@@ -8,16 +8,19 @@
 // Axum handlers return this error type directly; keeping the RFC 9457
 // problem fields inline is more readable than boxing every handler result.
 #![allow(clippy::result_large_err)]
+#![recursion_limit = "256"]
 
 pub mod ai;
 pub mod analysis;
 pub mod api;
 pub mod error;
 pub mod industrial;
+pub mod legacy;
 pub mod runner;
 pub mod security;
 pub mod server;
 pub mod store;
+pub mod study;
 pub mod watchdog;
 pub mod worker;
 

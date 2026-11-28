@@ -49,6 +49,35 @@ pub struct ExperimentRecord {
     pub request_hash: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StudyRecord {
+    pub id: String,
+    pub name: String,
+    pub spec_json: String,
+    pub child_ids_json: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(skip)]
+    pub idempotency_key_hash: Option<String>,
+    #[serde(skip)]
+    pub request_hash: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StudyChildSpec {
+    pub id: String,
+    pub name: String,
+    pub model: String,
+    pub request_json: String,
+}
+
+#[derive(Debug)]
+pub struct StudyOutcome {
+    pub record: StudyRecord,
+    pub children: Vec<ExperimentRecord>,
+    pub created: bool,
+}
+
 #[derive(Debug)]
 pub struct CreateOutcome {
     pub record: ExperimentRecord,
@@ -128,6 +157,19 @@ impl Store {
                  WHERE idempotency_key_hash IS NOT NULL;
              CREATE INDEX IF NOT EXISTS idx_experiments_status
                  ON experiments(status, created_at);
+             CREATE TABLE IF NOT EXISTS studies (
+                 id TEXT PRIMARY KEY,
+                 name TEXT NOT NULL,
+                 spec_json TEXT NOT NULL,
+                 child_ids_json TEXT NOT NULL,
+                 created_at INTEGER NOT NULL,
+                 updated_at INTEGER NOT NULL,
+                 idempotency_key_hash TEXT,
+                 request_hash TEXT
+             );
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_studies_idempotency
+                 ON studies(idempotency_key_hash)
+                 WHERE idempotency_key_hash IS NOT NULL;
              CREATE TABLE IF NOT EXISTS audit_log (
                  seq INTEGER PRIMARY KEY,
                  created_at INTEGER NOT NULL,
@@ -325,6 +367,114 @@ impl Store {
             record,
             created: true,
         })
+    }
+
+    pub fn create_study(
+        &self,
+        id: &str,
+        name: &str,
+        spec_json: &str,
+        children: &[StudyChildSpec],
+        idempotency_key_hash: Option<&str>,
+        request_hash: &str,
+    ) -> Result<StudyOutcome, StoreError> {
+        let mut conn = self.conn.lock().expect("store mutex poisoned");
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(key_hash) = idempotency_key_hash {
+            if let Some(existing) = find_study_by_idempotency(&tx, key_hash)? {
+                if existing.request_hash.as_deref() == Some(request_hash) {
+                    let children = study_children_in_conn(&tx, &existing)?;
+                    return Ok(StudyOutcome {
+                        record: existing,
+                        children,
+                        created: false,
+                    });
+                }
+                return Err(StoreError::IdempotencyConflict);
+            }
+        }
+        let active: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM experiments WHERE status IN ('queued', 'running')",
+            [],
+            |row| row.get(0),
+        )?;
+        if (active as usize).saturating_add(children.len()) > self.capacity {
+            return Err(StoreError::QueueFull);
+        }
+        let now = now_unix();
+        tx.execute(
+            "INSERT INTO studies
+             (id, name, spec_json, child_ids_json, created_at, updated_at,
+              idempotency_key_hash, request_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7)",
+            params![
+                id,
+                name,
+                spec_json,
+                serde_json::to_string(
+                    &children
+                        .iter()
+                        .map(|child| child.id.as_str())
+                        .collect::<Vec<_>>()
+                )
+                .map_err(|error| StoreError::Sqlite(
+                    rusqlite::Error::ToSqlConversionFailure(Box::new(error))
+                ))?,
+                now,
+                idempotency_key_hash,
+                request_hash,
+            ],
+        )?;
+        for child in children {
+            tx.execute(
+                "INSERT INTO experiments
+                 (id, name, model, status, progress, cancel_requested, created_at, updated_at,
+                  request_json, idempotency_key_hash, request_hash)
+                 VALUES (?1, ?2, ?3, 'queued', 0.0, 0, ?4, ?4, ?5, NULL, ?6)",
+                params![
+                    child.id,
+                    child.name,
+                    child.model,
+                    now,
+                    child.request_json,
+                    request_hash
+                ],
+            )?;
+        }
+        let record = study_in_tx(&tx, id)?.expect("inserted study must exist");
+        let children = study_children_in_conn(&tx, &record)?;
+        tx.commit()?;
+        Ok(StudyOutcome {
+            record,
+            children,
+            created: true,
+        })
+    }
+
+    pub fn get_study(&self, id: &str) -> Result<Option<StudyRecord>, StoreError> {
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        study_in_conn(&conn, id)
+    }
+
+    pub fn list_studies(&self, limit: usize) -> Result<Vec<StudyRecord>, StoreError> {
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        let limit = limit.clamp(1, 100) as i64;
+        let mut statement = conn.prepare(
+            "SELECT id, name, spec_json, child_ids_json, created_at, updated_at,
+                    idempotency_key_hash, request_hash
+             FROM studies ORDER BY created_at DESC, id DESC LIMIT ?1",
+        )?;
+        let rows = statement.query_map([limit], row_to_study)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StoreError::from)
+    }
+
+    pub fn study_children(
+        &self,
+        record: &StudyRecord,
+    ) -> Result<Vec<ExperimentRecord>, StoreError> {
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        study_children_in_conn(&conn, record)
     }
 
     /// Write a consistent SQLite snapshot with `VACUUM INTO`. The source
@@ -553,6 +703,75 @@ fn find_by_idempotency(
     )
     .optional()
     .map_err(StoreError::from)
+}
+
+fn find_study_by_idempotency(
+    tx: &Transaction<'_>,
+    key_hash: &str,
+) -> Result<Option<StudyRecord>, StoreError> {
+    let record = tx
+        .query_row(
+            "SELECT id, name, spec_json, child_ids_json, created_at, updated_at,
+                    idempotency_key_hash, request_hash
+             FROM studies WHERE idempotency_key_hash = ?1",
+            params![key_hash],
+            row_to_study,
+        )
+        .optional()?;
+    Ok(record)
+}
+
+fn study_in_conn(conn: &Connection, id: &str) -> Result<Option<StudyRecord>, StoreError> {
+    let record = conn
+        .query_row(
+            "SELECT id, name, spec_json, child_ids_json, created_at, updated_at,
+                    idempotency_key_hash, request_hash
+             FROM studies WHERE id = ?1",
+            params![id],
+            row_to_study,
+        )
+        .optional()?;
+    Ok(record)
+}
+
+fn study_in_tx(tx: &Transaction<'_>, id: &str) -> Result<Option<StudyRecord>, StoreError> {
+    let record = tx
+        .query_row(
+            "SELECT id, name, spec_json, child_ids_json, created_at, updated_at,
+                    idempotency_key_hash, request_hash
+             FROM studies WHERE id = ?1",
+            params![id],
+            row_to_study,
+        )
+        .optional()?;
+    Ok(record)
+}
+
+fn study_children_in_conn(
+    conn: &Connection,
+    record: &StudyRecord,
+) -> Result<Vec<ExperimentRecord>, StoreError> {
+    let ids: Vec<String> = serde_json::from_str(&record.child_ids_json).unwrap_or_default();
+    let mut children = Vec::with_capacity(ids.len());
+    for id in ids {
+        if let Some(child) = get_in_conn(conn, &id)? {
+            children.push(child);
+        }
+    }
+    Ok(children)
+}
+
+fn row_to_study(row: &rusqlite::Row<'_>) -> rusqlite::Result<StudyRecord> {
+    Ok(StudyRecord {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        spec_json: row.get(2)?,
+        child_ids_json: row.get(3)?,
+        created_at: row.get(4)?,
+        updated_at: row.get(5)?,
+        idempotency_key_hash: row.get(6)?,
+        request_hash: row.get(7)?,
+    })
 }
 
 fn get_in_conn(conn: &Connection, id: &str) -> Result<Option<ExperimentRecord>, StoreError> {

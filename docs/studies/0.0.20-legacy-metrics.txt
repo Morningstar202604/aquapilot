@@ -1,0 +1,16 @@
+# HELP aquapilot_v2_info AquaPilot V2 build information
+# TYPE aquapilot_v2_info gauge
+aquapilot_v2_info{version="0.0.20",compatibility="legacy-read-projection"} 1
+# HELP aquapilot_queue_active Queued or running experiments
+# TYPE aquapilot_queue_active gauge
+aquapilot_queue_active 0
+# HELP aquapilot_queue_capacity Configured experiment queue capacity
+# TYPE aquapilot_queue_capacity gauge
+aquapilot_queue_capacity 32
+# HELP aquapilot_studies Number of durable studies
+# TYPE aquapilot_studies gauge
+aquapilot_studies 1
+# HELP aquapilot_uptime_seconds Process uptime
+# TYPE aquapilot_uptime_seconds counter
+aquapilot_uptime_seconds 78
+# NOTE per-route HTTP counters are not exposed by the V2 service; scrape the process supervisor for transport metrics.

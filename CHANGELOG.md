@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.0.20] — 2026-11-29
+
+### Added
+
+- 持久批量研究 `studies` API：原子整批入队、变体 `config`/`config_patch`/`controls`、重复、目标、取消、报告、Pareto；详情补旧版 `createdAt/aggregate/children` 字段；旧版 StudySpec 不支持字段显式 422。
+- 旧版只读迁移层：`/api/snapshot`、`/api/topology`、`/api/metrics`、`/api/history/snapshots`；全部带 `compatibility`，明确 `liveTick=false`，缺失能量/SRT/F-M 返回 null。
+- OpenAPI 增加 study 与 legacy read paths；版本 0.0.20。
+
+### Verification
+
+- `cargo test --workspace` 91 项通过；fmt/clippy 通过。
+- Study `cfc58d64-585d-4582-9e95-9652bc0da138` succeeded，2/2 子实验；证据 `docs/studies/0.0.20-study-detail.json`。
+- Legacy snapshot 来自 `73265e4a-c008-4d23-9baf-0e1e386b1153`；证据 `docs/studies/0.0.20-legacy-snapshot.json`。
+- 24 h soak 仍在运行，未生成 summary；Cutover 仍 NO-GO。
+
+
 ## [0.0.19] — 2026-11-28
 
 ### Added
