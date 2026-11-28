@@ -15,6 +15,10 @@ pub fn check(config_path: &std::path::Path) -> Result<Value, String> {
         &std::fs::read_to_string(config_path).map_err(|error| error.to_string())?,
     )
     .map_err(|error| format!("invalid gateway config JSON: {error}"))?;
+    Ok(check_config(&config, &config_path.display().to_string()))
+}
+
+pub fn check_config(config: &Value, source: &str) -> Value {
     let mut adapters = Vec::new();
     if let Some(modbus) = config.get("modbus") {
         adapters.push(check_modbus(modbus));
@@ -29,15 +33,15 @@ pub fn check(config_path: &std::path::Path) -> Result<Value, String> {
         && adapters
             .iter()
             .all(|adapter| adapter["connected"].as_bool() == Some(true));
-    Ok(json!({
+    json!({
         "schema": "aquapilot.gateway.check.v1",
         "checked_at_unix": unix_now(),
-        "config": config_path.display().to_string(),
+        "config": source,
         "adapters": adapters,
         "all_connected": all_connected,
         "fail_closed": true,
         "note": "Only a completed protocol handshake is reported as connected. OPC UA TCP reachability is not a session and is reported as unsupported.",
-    }))
+    })
 }
 
 fn check_modbus(config: &Value) -> Value {
@@ -208,6 +212,61 @@ fn modbus_read(
         }));
     }
     Ok(values)
+}
+
+pub fn modbus_write(
+    endpoint: &str,
+    unit: u8,
+    timeout: Duration,
+    register: u16,
+    value: u16,
+) -> Result<(), String> {
+    let mut stream = connect(endpoint, timeout)?;
+    let transaction: u16 = 1;
+    let request = [
+        transaction.to_be_bytes()[0],
+        transaction.to_be_bytes()[1],
+        0,
+        0,
+        0,
+        6,
+        unit,
+        6,
+        register.to_be_bytes()[0],
+        register.to_be_bytes()[1],
+        value.to_be_bytes()[0],
+        value.to_be_bytes()[1],
+    ];
+    stream
+        .write_all(&request)
+        .map_err(|error| format!("write modbus request: {error}"))?;
+    let mut header = [0_u8; 7];
+    stream
+        .read_exact(&mut header)
+        .map_err(|error| format!("read modbus header: {error}"))?;
+    let length = u16::from_be_bytes([header[4], header[5]]) as usize;
+    let mut body = vec![0_u8; length.saturating_sub(1)];
+    stream
+        .read_exact(&mut body)
+        .map_err(|error| format!("read modbus body: {error}"))?;
+    if body.first() != Some(&6) {
+        return Err(format!(
+            "modbus write exception/function mismatch: {}",
+            body.first().copied().unwrap_or(0)
+        ));
+    }
+    let echoed_register = u16::from_be_bytes([
+        *body.get(1).ok_or("modbus write echo missing register")?,
+        *body.get(2).ok_or("modbus write echo missing register")?,
+    ]);
+    let echoed_value = u16::from_be_bytes([
+        *body.get(3).ok_or("modbus write echo missing value")?,
+        *body.get(4).ok_or("modbus write echo missing value")?,
+    ]);
+    if echoed_register != register || echoed_value != value {
+        return Err("modbus write echo does not match request".to_owned());
+    }
+    Ok(())
 }
 
 fn mqtt_connect(broker: &str, client_id: &str, timeout: Duration) -> Result<(), String> {

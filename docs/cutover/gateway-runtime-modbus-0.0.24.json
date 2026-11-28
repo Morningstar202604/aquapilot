@@ -1,0 +1,116 @@
+{
+ "schema": "aquapilot.gateway.runtime.v1",
+ "service": "0.0.24",
+ "config": "AQUAPILOT_GATEWAY_CONFIG=/tmp/gateway-service.json; poll=2s",
+ "adapters": {
+  "adapters": [
+   {
+    "connected": true,
+    "endpoint": "127.0.0.1:15021",
+    "error": null,
+    "kind": "modbus",
+    "mode": "real-tcp",
+    "unit": 1,
+    "values": [
+     {
+      "point_id": "influent.flow",
+      "raw": 150,
+      "register": 0,
+      "value": 1500.0
+     }
+    ]
+   }
+  ],
+  "last_check": {
+   "adapters": [
+    {
+     "connected": true,
+     "endpoint": "127.0.0.1:15021",
+     "error": null,
+     "kind": "modbus",
+     "mode": "real-tcp",
+     "unit": 1,
+     "values": [
+      {
+       "point_id": "influent.flow",
+       "raw": 150,
+       "register": 0,
+       "value": 1500.0
+      }
+     ]
+    }
+   ],
+   "all_connected": true,
+   "checked_at_unix": 1795888505,
+   "config": "/tmp/gateway-service.json",
+   "fail_closed": true,
+   "note": "Only a completed protocol handshake is reported as connected. OPC UA TCP reachability is not a session and is reported as unsupported.",
+   "schema": "aquapilot.gateway.check.v1"
+  },
+  "note": "Real gateway: polling is fail-closed; only configured endpoints are contacted. Writes require a modbus.write mapping.",
+  "real": true,
+  "source": "/tmp/gateway-service.json"
+ },
+ "points_before_write": {
+  "influent.flow": {
+   "value": 1500.0,
+   "quality": "good"
+  }
+ },
+ "write": {
+  "audit": {
+   "action": "industrial.write",
+   "actor": "local-dev",
+   "created_at": 1795888507,
+   "hash": "939dc60c1d9b576df2936ef56f21c95bf964d1031b2d2838c52a359b79fd6fd4",
+   "new_value": 2000.0,
+   "previous_hash": "genesis",
+   "previous_value": 1500.0,
+   "reason": "0.0.24 real modbus write",
+   "seq": 1,
+   "target": "influent.flow"
+  },
+  "point": {
+   "adapter": "modbus",
+   "id": "influent.flow",
+   "kind": "setpoint",
+   "label": "进水流量",
+   "max": 3000.0,
+   "min": 200.0,
+   "quality": "good",
+   "unit": "m³/h",
+   "value": 2000.0,
+   "writable": true
+  },
+  "previous_value": 1500.0
+ },
+ "points_after_write": [
+  {
+   "adapter": "modbus",
+   "id": "influent.flow",
+   "kind": "setpoint",
+   "label": "进水流量",
+   "max": 3000.0,
+   "min": 200.0,
+   "quality": "good",
+   "unit": "m³/h",
+   "value": 2000.0,
+   "writable": true
+  }
+ ],
+ "audit": [
+  {
+   "action": "industrial.write",
+   "actor": "local-dev",
+   "created_at": 1795888507,
+   "hash": "939dc60c1d9b576df2936ef56f21c95bf964d1031b2d2838c52a359b79fd6fd4",
+   "new_value": 2000.0,
+   "previous_hash": "genesis",
+   "previous_value": 1500.0,
+   "reason": "0.0.24 real modbus write",
+   "seq": 1,
+   "target": "influent.flow"
+  }
+ ],
+ "note": "Real Modbus TCP runtime poll updated 1500 from register 150 x10; real function 6 write forwarded 2000 before audit #1."
+}

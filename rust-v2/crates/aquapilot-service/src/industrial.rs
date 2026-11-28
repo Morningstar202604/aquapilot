@@ -6,17 +6,29 @@
 //! health, and a hash-chained write audit persisted in SQLite.
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::error::ApiError;
+use crate::gateway;
 use crate::store::{AuditRecord, Store};
 
 #[derive(Clone)]
 pub struct IndustrialHub {
     points: Arc<Mutex<Vec<Point>>>,
     store: Store,
+    real: Option<Arc<RealGateway>>,
+    last_check: Arc<Mutex<Option<Value>>>,
+}
+
+#[derive(Debug, Clone)]
+struct RealGateway {
+    config: Value,
+    source: String,
+    error: Option<String>,
+    interval: Duration,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -46,10 +58,140 @@ pub struct WriteRequest {
 
 impl IndustrialHub {
     pub fn new(store: Store) -> Self {
+        let real = std::env::var("AQUAPILOT_GATEWAY_CONFIG")
+            .ok()
+            .map(Self::load_real);
+        Self::with_real(store, real)
+    }
+
+    fn load_real(source: String) -> RealGateway {
+        let interval = Duration::from_secs(
+            std::env::var("AQUAPILOT_GATEWAY_POLL_SECONDS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(15)
+                .clamp(2, 3600),
+        );
+        match std::fs::read_to_string(&source)
+            .map_err(|error| error.to_string())
+            .and_then(|text| {
+                serde_json::from_str::<Value>(&text)
+                    .map_err(|error| format!("invalid gateway config JSON: {error}"))
+            }) {
+            Ok(config) => RealGateway {
+                config,
+                source,
+                error: None,
+                interval,
+            },
+            Err(error) => RealGateway {
+                config: Value::Null,
+                source,
+                error: Some(error),
+                interval,
+            },
+        }
+    }
+
+    fn with_real(store: Store, real: Option<RealGateway>) -> Self {
         Self {
             points: Arc::new(Mutex::new(default_points())),
             store,
+            real: real.map(Arc::new),
+            last_check: Arc::new(Mutex::new(None)),
         }
+    }
+
+    #[cfg(test)]
+    fn with_real_config(store: Store, config: Value) -> Self {
+        Self::with_real(
+            store,
+            Some(RealGateway {
+                config,
+                source: "test-config".to_owned(),
+                error: None,
+                interval: Duration::from_secs(2),
+            }),
+        )
+    }
+
+    pub fn real_configured(&self) -> bool {
+        self.real.is_some()
+    }
+
+    pub fn spawn_poller(&self) {
+        let Some(real) = &self.real else {
+            return;
+        };
+        if real.error.is_some() {
+            return;
+        }
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        let hub = self.clone();
+        let interval = real.interval;
+        tokio::spawn(async move {
+            loop {
+                let probe = hub.clone();
+                let result = tokio::task::spawn_blocking(move || probe.poll_once()).await;
+                if let Ok(Err(error)) = result {
+                    tracing::warn!("industrial gateway poll failed: {error:?}");
+                }
+                tokio::time::sleep(interval).await;
+            }
+        });
+    }
+
+    pub fn poll_once(&self) -> Result<Value, ApiError> {
+        let real = self.real.as_ref().ok_or_else(|| {
+            ApiError::conflict(
+                "GATEWAY_NOT_CONFIGURED",
+                "no AQUAPILOT_GATEWAY_CONFIG is active",
+            )
+        })?;
+        if let Some(error) = &real.error {
+            return Err(ApiError::new(
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "GATEWAY_CONFIG_ERROR",
+                "Gateway config is invalid",
+                error.clone(),
+            ));
+        }
+        let check = gateway::check_config(&real.config, &real.source);
+        let connected = check["all_connected"].as_bool() == Some(true);
+        let mut points = self.points.lock().expect("industrial points mutex");
+        for adapter in check["adapters"].as_array().into_iter().flatten() {
+            for value in adapter["values"].as_array().into_iter().flatten() {
+                let Some(id) = value["point_id"].as_str() else {
+                    continue;
+                };
+                let Some(reading) = value["value"].as_f64() else {
+                    continue;
+                };
+                if let Some(point) = points.iter_mut().find(|point| point.id == id) {
+                    point.value = reading;
+                    point.quality = if connected { "good" } else { "bad" }.to_owned();
+                }
+            }
+        }
+        if !connected {
+            for id in configured_points(&real.config) {
+                if let Some(point) = points.iter_mut().find(|point| point.id == id) {
+                    point.quality = "bad".to_owned();
+                }
+            }
+        }
+        drop(points);
+        *self.last_check.lock().expect("industrial check mutex") = Some(check.clone());
+        Ok(check)
+    }
+
+    pub fn last_check(&self) -> Option<Value> {
+        self.last_check
+            .lock()
+            .expect("industrial check mutex")
+            .clone()
     }
 
     pub fn points(&self) -> Vec<Point> {
@@ -58,6 +200,41 @@ impl IndustrialHub {
 
     pub fn adapters(&self) -> Value {
         let points = self.points();
+        if let Some(real) = &self.real {
+            let check = self.last_check();
+            let adapters = if let Some(error) = &real.error {
+                json!([{
+                    "kind": "gateway",
+                    "endpoint": real.source,
+                    "state": "config_error",
+                    "simulated": false,
+                    "error": error,
+                }])
+            } else if let Some(check) = &check {
+                check["adapters"].clone()
+            } else {
+                let mut list = Vec::new();
+                for kind in ["opcua", "modbus", "mqtt"] {
+                    if let Some(config) = real.config.get(kind) {
+                        list.push(json!({
+                            "kind": kind,
+                            "endpoint": config.get("endpoint").or_else(|| config.get("broker")).and_then(Value::as_str).unwrap_or(""),
+                            "state": "configured",
+                            "simulated": false,
+                            "points": points.iter().filter(|point| point.adapter == kind).count(),
+                        }));
+                    }
+                }
+                Value::Array(list)
+            };
+            return json!({
+                "adapters": adapters,
+                "real": true,
+                "source": real.source,
+                "last_check": check,
+                "note": "Real gateway: polling is fail-closed; only configured endpoints are contacted. Writes require a modbus.write mapping.",
+            });
+        }
         let adapters = ["opcua", "modbus", "mqtt"].map(|kind| {
             let count = points.iter().filter(|point| point.adapter == kind).count();
             json!({
@@ -123,6 +300,9 @@ impl IndustrialHub {
                 ),
             ));
         }
+        if let Some(real) = &self.real {
+            self.write_real(real, &point.id, request.value)?;
+        }
         let old_value = point.value;
         point.value = request.value;
         let reason = if request.reason.trim().is_empty() {
@@ -155,6 +335,79 @@ impl IndustrialHub {
         }))
     }
 
+    fn write_real(&self, real: &RealGateway, point_id: &str, value: f64) -> Result<(), ApiError> {
+        if let Some(error) = &real.error {
+            return Err(ApiError::new(
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "GATEWAY_CONFIG_ERROR",
+                "Gateway config is invalid",
+                error.clone(),
+            ));
+        }
+        let modbus = real.config.get("modbus").ok_or_else(|| {
+            ApiError::conflict(
+                "NO_WRITE_MAPPING",
+                "no modbus adapter is configured for this write",
+            )
+        })?;
+        let writes = modbus
+            .get("write")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                ApiError::conflict(
+                    "NO_WRITE_MAPPING",
+                    "modbus.write mapping is not configured; refusing to mirror a field write",
+                )
+            })?;
+        let mapping = writes
+            .iter()
+            .find(|mapping| mapping.get("point_id").and_then(Value::as_str) == Some(point_id))
+            .ok_or_else(|| {
+                ApiError::conflict(
+                    "POINT_NOT_MAPPED",
+                    format!("{point_id} has no modbus.write mapping"),
+                )
+            })?;
+        let register = mapping.get("register").and_then(Value::as_u64).unwrap_or(0) as u16;
+        let scale = mapping.get("scale").and_then(Value::as_f64).unwrap_or(1.0);
+        let offset = mapping.get("offset").and_then(Value::as_f64).unwrap_or(0.0);
+        if scale == 0.0 || !scale.is_finite() || !offset.is_finite() {
+            return Err(ApiError::new(
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "GATEWAY_WRITE_MAPPING",
+                "Invalid modbus.write scale/offset",
+                "scale must be finite and non-zero; offset must be finite",
+            ));
+        }
+        let raw = ((value - offset) / scale).round();
+        if !(0.0..=65535.0).contains(&raw) {
+            return Err(ApiError::new(
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                "GATEWAY_WRITE_RANGE",
+                "Value cannot be encoded as a 16-bit register",
+                format!("raw={raw} from value={value}"),
+            ));
+        }
+        let endpoint = modbus.get("endpoint").and_then(Value::as_str).unwrap_or("");
+        let unit = modbus.get("unit").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let timeout = Duration::from_millis(
+            (modbus
+                .get("timeout_seconds")
+                .and_then(Value::as_f64)
+                .unwrap_or(2.0)
+                * 1000.0)
+                .clamp(200.0, 30_000.0) as u64,
+        );
+        gateway::modbus_write(endpoint, unit, timeout, register, raw as u16).map_err(|error| {
+            ApiError::new(
+                axum::http::StatusCode::BAD_GATEWAY,
+                "GATEWAY_WRITE_FAILED",
+                "Real Modbus write failed",
+                error,
+            )
+        })
+    }
+
     pub fn audit(&self, limit: usize) -> Result<Vec<AuditRecord>, ApiError> {
         self.store.list_audit(limit).map_err(|error| {
             ApiError::new(
@@ -165,6 +418,24 @@ impl IndustrialHub {
             )
         })
     }
+}
+
+fn configured_points(config: &Value) -> Vec<String> {
+    let mut ids = Vec::new();
+    for adapter in ["modbus", "mqtt"] {
+        for read in config
+            .get(adapter)
+            .and_then(|value| value.get("read"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(id) = read.get("point_id").and_then(Value::as_str) {
+                ids.push(id.to_owned());
+            }
+        }
+    }
+    ids
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -306,4 +577,125 @@ fn default_points() -> Vec<Point> {
             false,
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    use super::*;
+
+    fn store() -> Store {
+        Store::in_memory(4).expect("store")
+    }
+
+    #[test]
+    fn poll_once_reads_real_modbus_value() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let endpoint = listener.local_addr().expect("addr").to_string();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = [0_u8; 12];
+            stream.read_exact(&mut request).expect("read");
+            stream
+                .write_all(&[0, 1, 0, 0, 0, 5, 1, 3, 2, 0, 100])
+                .expect("write");
+        });
+        let hub = IndustrialHub::with_real_config(
+            store(),
+            json!({"modbus":{"endpoint":endpoint,"unit":1,"timeout_seconds":2,"read":[{"point_id":"influent.flow","register":0,"scale":10}]}}),
+        );
+        let check = hub.poll_once().expect("poll");
+        assert_eq!(check["all_connected"], true);
+        let point = hub
+            .points()
+            .into_iter()
+            .find(|point| point.id == "influent.flow")
+            .expect("point");
+        assert_eq!(point.value, 1000.0);
+        assert_eq!(point.quality, "good");
+        server.join().expect("server");
+    }
+
+    #[test]
+    fn real_modbus_write_is_forwarded_before_audit() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let endpoint = listener.local_addr().expect("addr").to_string();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = [0_u8; 12];
+            stream.read_exact(&mut request).expect("read");
+            assert_eq!(&request[7..], &[6, 0, 10, 0, 100]);
+            stream
+                .write_all(&[0, 1, 0, 0, 0, 6, 1, 6, 0, 10, 0, 100])
+                .expect("write");
+        });
+        let hub = IndustrialHub::with_real_config(
+            store(),
+            json!({"modbus":{"endpoint":endpoint,"unit":1,"timeout_seconds":2,"write":[{"point_id":"influent.flow","register":10,"scale":15}]}}),
+        );
+        let result = hub
+            .write(
+                WriteRequest {
+                    point_id: "influent.flow".to_owned(),
+                    value: 1500.0,
+                    client_id: "test".to_owned(),
+                    reason: "test write".to_owned(),
+                },
+                "tester",
+            )
+            .expect("write");
+        assert_eq!(result["point"]["value"], 1500.0);
+        assert_eq!(result["audit"]["seq"], 1);
+        server.join().expect("server");
+    }
+
+    #[test]
+    fn unmapped_real_write_fails_closed_without_audit() {
+        let hub = IndustrialHub::with_real_config(
+            store(),
+            json!({"modbus":{"endpoint":"127.0.0.1:1","unit":1,"timeout_seconds":0.2,"read":[]}}),
+        );
+        let error = hub
+            .write(
+                WriteRequest {
+                    point_id: "influent.flow".to_owned(),
+                    value: 1500.0,
+                    client_id: "test".to_owned(),
+                    reason: "test".to_owned(),
+                },
+                "tester",
+            )
+            .expect_err("unmapped write");
+        assert_eq!(error.code, "NO_WRITE_MAPPING");
+        assert_eq!(hub.audit(5).expect("audit").len(), 0);
+    }
+
+    #[test]
+    fn unreachable_real_write_keeps_value_and_audit_clean() {
+        let hub = IndustrialHub::with_real_config(
+            store(),
+            json!({"modbus":{"endpoint":"127.0.0.1:1","unit":1,"timeout_seconds":0.2,"write":[{"point_id":"influent.flow","register":10}]}}),
+        );
+        let error = hub
+            .write(
+                WriteRequest {
+                    point_id: "influent.flow".to_owned(),
+                    value: 1500.0,
+                    client_id: "test".to_owned(),
+                    reason: "test".to_owned(),
+                },
+                "tester",
+            )
+            .expect_err("unreachable write");
+        assert_eq!(error.code, "GATEWAY_WRITE_FAILED");
+        assert_eq!(hub.audit(5).expect("audit").len(), 0);
+        let point = hub
+            .points()
+            .into_iter()
+            .find(|point| point.id == "influent.flow")
+            .expect("point");
+        assert_eq!(point.value, 1000.0);
+    }
 }

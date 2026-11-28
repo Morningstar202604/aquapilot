@@ -14,6 +14,7 @@ pub mod ai;
 pub mod analysis;
 pub mod api;
 pub mod error;
+pub mod gateway;
 pub mod industrial;
 pub mod legacy;
 pub mod runner;

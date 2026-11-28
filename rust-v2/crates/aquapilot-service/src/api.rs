@@ -56,6 +56,7 @@ pub fn build_router_with(store: Store, security: Security, watchdog: Option<Watc
         watchdog,
         started: Arc::new(Instant::now()),
     };
+    state.industrial.spawn_poller();
     Router::new()
         .route("/", get(index))
         .route("/api/health", get(health))
@@ -1128,11 +1129,11 @@ fn openapi_document() -> Value {
             "/api/history/snapshots": {"get": {"summary": "Succeeded experiment history projection", "responses": {"200": {"description": "History items"}}}},
             "/api/openapi.json": {"get": {"summary": "This document", "responses": {"200": {"description": "OpenAPI 3.1 document"}}}},
             "/api/v1/presets": {"get": {"summary": "Embedded scenario presets", "responses": {"200": {"description": "Preset list with model configs"}}}},
-            "/api/v1/industrial/points": {"get": {"summary": "Simulated industrial point image", "responses": {"200": {"description": "Point list with adapter, range and quality"}}}},
-            "/api/v1/industrial/adapters": {"get": {"summary": "Simulated adapter health", "responses": {"200": {"description": "OPC UA / Modbus / MQTT adapter states"}}}},
+            "/api/v1/industrial/points": {"get": {"summary": "Industrial point image (mock or real gateway)", "responses": {"200": {"description": "Point list with adapter, range and quality"}}}},
+            "/api/v1/industrial/adapters": {"get": {"summary": "Industrial adapter health; real gateway includes last check", "responses": {"200": {"description": "OPC UA / Modbus / MQTT adapter states"}}}},
             "/api/v1/industrial/write": {
                 "post": {
-                    "summary": "Write a setpoint through the mock adapter and append audit",
+                    "summary": "Write a setpoint through the mock adapter or configured real Modbus mapping, then append audit",
                     "requestBody": {"required": true, "content": {"application/json": {"schema": {
                         "type": "object", "required": ["point_id", "value"],
                         "properties": {"point_id": {"type": "string"}, "value": {"type": "number"}, "client_id": {"type": "string"}, "reason": {"type": "string"}}
@@ -2034,7 +2035,7 @@ mod tests {
         assert_eq!(openapi.status(), StatusCode::OK);
         let document = body_json(openapi).await;
         assert_eq!(document["openapi"], "3.1.0");
-        assert_eq!(document["info"]["version"], "0.0.23");
+        assert_eq!(document["info"]["version"], "0.0.24");
         assert!(document["paths"]["/api/v1/experiments"].is_object());
         assert!(document["paths"]["/api/v1/presets"].is_object());
         assert!(document["paths"]["/api/v1/topologies/validate"].is_object());

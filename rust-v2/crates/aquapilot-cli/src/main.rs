@@ -14,7 +14,6 @@ use aquapilot_model::asm2d_sludge::{simulate_asm2d_sludge, Asm2dSludgeConfig};
 use aquapilot_model::Asm1Params;
 use clap::{Parser, Subcommand, ValueEnum};
 
-mod gateway;
 mod mcp;
 
 #[derive(Debug, Parser)]
@@ -327,7 +326,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Command::GatewayCheck { config, out } => {
-            let result = gateway::check(&config)?;
+            let result = aquapilot_service::gateway::check(&config)?;
             let text = serde_json::to_string_pretty(&result)?;
             println!("{text}");
             if let Some(out) = out {

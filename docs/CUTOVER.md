@@ -70,6 +70,12 @@
 - 这是独立连接检查，不是服务运行时轮询，也不回写现场设定点；OPC UA 会话明确 `unsupported`。
 - 24 h soak 仍无 summary；Cutover 条件 1、2 未满足。
 
+## 4.4 0.0.24 增量（不改变 NO-GO）
+
+- `IndustrialHub` 已接真实 Modbus 轮询与 Function 06 写入：点位值来自 PLC，写入成功后才落审计；失败保持旧值、无审计。
+- 实机证据 `docs/cutover/gateway-runtime-modbus-0.0.24.json`：轮询 1500，写入 2000，审计 #1。
+- 仍是本地 Modbus 双端，不是现场设备；OPC UA、MQTT 主题消费未接入。24 h soak 仍无 summary。
+
 ## 5. 重新评估条件
 
 同时满足以下条件才可把 `cutover_approved` 改为 true：

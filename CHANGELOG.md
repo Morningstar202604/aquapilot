@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.24] — 2026-11-29
+
+### Added
+
+- 服务运行时真实 Modbus TCP：`AQUAPILOT_GATEWAY_CONFIG` + `AQUAPILOT_GATEWAY_POLL_SECONDS`；轮询 read 映射写回点位，失败标 `quality=bad`；adapter 返回 `real=true` 与 `last_check`。
+- 真实写入：`modbus.write` 映射先发 Function 06、校验 echo，成功后才更新镜像并写审计；无映射 409、连接失败 502，点位与审计不变。
+
+### Verification
+
+- `cargo test --workspace` 101 项通过；fmt/clippy 通过；版本 0.0.24。
+- 本地真实 Modbus 双端：轮询 150×10=1500，写入 2000，审计 #1 previous 1500 → new 2000；证据 `docs/cutover/gateway-runtime-modbus-0.0.24.json`。
+- OPC UA、MQTT 主题消费、现场设备验收与 24 h soak 未完成；Cutover 仍 NO-GO。
+
 ## [0.0.23] — 2026-11-29
 
 ### Added
