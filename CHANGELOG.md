@@ -11,6 +11,7 @@
 
 - ASM1 三池 1 d 实测：5 节点/4 连接，succeeded，D 1/4，三条 `EFFLUENT_*_HIGH`；展开 SS 告警可见“minute=1440、SS=1978.8112 mg/L、限值 10.0”及三条建议。截图 `docs/screenshots/v2-ui-alarm-explain.png`；机器可读证据 `docs/alarm-explain-check.json`。
 - 同一实验 detail 的 `analysis.alarms[]` 返回三段解释；`report.md` 含 `### Alarm explanations`；`cargo test` 75 项、OpenAPI 13 paths。
+- 24 h soak 已用 0.0.13 二进制重启（端口 5202，持久 workdir `soak-24h-run-013`）：旧的 0.0.11 运行已停止，避免用旧 analysis 响应冒充当前版本；当前只有 `docs/soak-24h-progress.json` checkpoint，`docs/soak-24h-summary.json` 未生成，`completed_24h=false`。
 
 ## [0.0.12] — 2026-11-28
 
