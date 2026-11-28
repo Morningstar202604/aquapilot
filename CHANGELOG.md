@@ -15,7 +15,7 @@
 ### Verification
 
 - `cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全过（74 项）。
-- 浏览器实测：三池拓扑点“高流量 ×1.5”后进水/4 条连接变为 1500 m³/h，底部仍显示“服务端已编译”；低 DO 和冬季注入后节点参数同步变化；重置回预设正常。
+- 浏览器实测：三池拓扑点“高流量 ×1.5”后进水/4 条连接变为 1500 m³/h，底部仍显示“服务端已编译”；1 d 实验 succeeded、D 1/4、三条出水告警；低 DO 和冬季注入后节点参数同步变化；重置回预设正常。证据见 `docs/topology-scenario-check.json`。
 - wall-clock 24 h soak 仍在后台执行；本轮不能宣称 `completed_24h=true`。
 
 ## [0.0.9] — 2026-11-28

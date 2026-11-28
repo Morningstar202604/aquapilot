@@ -132,4 +132,4 @@ cargo run -q -p aquapilot-cli -- serve \
 - BSM1/ASM1 1 d 实测：只显示 COD/NH4-N/TN/SS 四项，评分 D、2/4 达标，`EFFLUENT_SS_HIGH` 与 `EFFLUENT_TN_HIGH` 两个告警；页面不显示 TP/PO4 假通过。
 - 代表性端到端矩阵见 `docs/coverage-matrix.json`：11/11 通过，覆盖 5 个模型 + 5 个工况，93.386 s；loop 30 天单例 72.101 s，最大三本账残差 2.85%。
 - 五条角色旅程见 `docs/journeys-v2.json`：5/5 通过，覆盖暴雨、风机故障、三级过滤开/关、7 d 周报、脏数据；仍明确 `completed_24h=false`。
-- 自由拓扑验收旅程见 `docs/topology-journey.json`：3 个 ASM1 预设全部 200 编译；删除厌氧池并补 `in → anx` 后 4 units / 3 connections 编译成功；1 d 实验 succeeded，D、1/4，三条出水告警；`completed_24h=false`。截图见 `screenshots/v2-ui-topology.png`。
+- 自由拓扑验收旅程见 `docs/topology-journey.json`：3 个 ASM1 预设全部 200 编译；删除厌氧池并补 `in → anx` 后 4 units / 3 connections 编译成功；1 d 实验 succeeded，D、1/4，三条出水告警；`completed_24h=false`。截图见 `screenshots/v2-ui-topology.png`。 0.0.10 自由拓扑工况验收见 `docs/topology-scenario-check.json`：高流量 ×1.5 编译 200、进水/出水 1500 m³/h、1 d 实验 succeeded、D 1/4、三条出水告警；低 DO 与冬季 12°C 编译 200。截图见 `screenshots/v2-ui-topology-scenarios.png`。

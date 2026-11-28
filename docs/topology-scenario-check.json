@@ -1,0 +1,52 @@
+{
+  "generated_at": "2026-11-28T11:52:52.624604Z",
+  "base": "http://127.0.0.1:5192",
+  "version": "0.0.10",
+  "preset": "asm1-three-stage",
+  "high_flow": {
+    "validate_http": 200,
+    "valid": true,
+    "units": 5,
+    "connections": 4,
+    "influent_flow_m3_h": 1500.0,
+    "effluent_flow_m3_h": 1500.0,
+    "experiment": {
+      "id": "e3259a3b-f94e-4d3f-b5fd-f0fcae8dc326",
+      "status": "succeeded",
+      "grade": "D",
+      "passed": 1,
+      "total": 4,
+      "alarms": [
+        "EFFLUENT_COD_HIGH",
+        "EFFLUENT_SS_HIGH",
+        "EFFLUENT_TN_HIGH"
+      ],
+      "effluent": {
+        "alkalinity": 0.0,
+        "cod": 2179.0402,
+        "do": 9.1,
+        "flow_m3_h": 1500.0,
+        "nh4_n": 0.1556,
+        "no3_n": 67.4426,
+        "s_s": 1.6109,
+        "ss": 1521.9565,
+        "tn": 246.8595,
+        "tp": 0.0
+      }
+    }
+  },
+  "low_do": {
+    "validate_http": 200,
+    "valid": true,
+    "aerobic_kla_h": 120,
+    "aerobic_do_setpoint": 1
+  },
+  "winter": {
+    "validate_http": 200,
+    "valid": true,
+    "influent_temperature_c": 12,
+    "reactor_initial_temperature_c": 12
+  },
+  "completed_24h": false,
+  "note": "UI scenario injection evidence only; not a wall-clock 24 h soak."
+}
