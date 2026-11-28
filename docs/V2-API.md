@@ -159,4 +159,13 @@ BOD、pH、温度、MLSS、SRT、能耗、评分、泥毯厚度在当前 V2 模�
 python3 scripts/soak_v2.py --duration 86400 --interval 30
 ```
 
-脚本启动独立服务、按间隔提交短 ASM1 实验、采样 RSS/fd/健康检查，最后写 `docs/soak-smoke-summary.json`。默认 60 s 是 smoke，不是 24 h 验收；`completed_24h` 字段会明确为 `false`。
+脚本启动独立服务、按间隔提交短 ASM1 实验、采样 RSS/fd/健康检查，最后写 `summary.json`。默认 60 s 是 smoke，不是 24 h 验收；`completed_24h` 字段会明确为 `false`。
+
+正式 24 h 验收应把 summary 单独落盘并保留数据库：
+
+```bash
+python3 scripts/soak_v2.py --duration 86400 --interval 30 \
+  --summary docs/soak-24h-summary.json --keep-db
+```
+
+只有实际跑满 24 h 且 `completed_24h=true`，才算通过 V2-3 的 soak 门。

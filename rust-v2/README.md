@@ -116,7 +116,14 @@ cd ..
 python3 scripts/soak_v2.py --duration 60 --interval 2
 ```
 
-24 h soak 尚未执行；不要用 smoke 结果冒充 24 h 验收。
+24 h soak 尚未执行；正式命令为：
+
+```bash
+python3 scripts/soak_v2.py --duration 86400 --interval 30 \
+  --summary docs/soak-24h-summary.json --keep-db
+```
+
+不要用 smoke 结果冒充 24 h 验收。
 
 仿真 CLI：
 
