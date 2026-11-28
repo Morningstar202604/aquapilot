@@ -25,6 +25,7 @@ V2-2 当前已落：
 - V2-3 服务主体：`aquapilot-service` 已实现 Axum HTTP、SSE 状态流、SQLite 持久实验队列、OpenAPI 3.1、RFC 9457、幂等键、取消/恢复、CSV/Markdown 报告；CLI `serve` 启动单二进制服务、`backup` 写一致 SQLite 快照；请求步数/采样预算与 ADM1 时间步保护已加；
 - V2-4 编排台：`GET /` 同源托管单文件页面，`GET /api/v1/presets` 提供 8 个场景预设；A2O 画布支持反应器增删/拖拽/参数编辑、二沉池、内回流、PAC、三级过滤、进水边界和 6 类工况注入；ASM1 自由拓扑画布支持增删节点/连接、回流边和参数编辑；ADM1/泥线通过高级 JSON 从同一页面提交；详见 `../docs/V2-UI.md`；
 - 0.0.8 结果决策层：`analysis.rs` 出水评分卡/告警/数据质量/日周聚合，detail 的 `analysis`、`daily.csv`、`weekly.csv`、报告章节和 UI 评分卡已接；评分卡只对出水限值打分，短时三本账未闭合单独告警；
+- 0.0.10 自由拓扑工况：ASM1 画布提供 `高流量 ×1.5`（进水与所有连接同乘，保持节点流平衡）、`低 DO 胁迫`、`冬季 12°C`、`回到预设`；注入后仍走服务端编译；
 - 0.0.9 自由拓扑：`POST /api/v1/topologies/validate` 编译任意 ASM1 `PlantTopology`；8 个 preset 新增 `asm1-three-stage`、`asm1-single`；UI 画布可增删节点、改参数、增删连接和回流边，底部显示服务端编译结果；`scripts/topology_journey.py` 验证 3 个预设 + 删除厌氧池后重连 + 1 d 运行；
 - 代表性端到端矩阵：`scripts/coverage_v2.py` 11/11 通过，覆盖 5 个服务模型 + 5 类 A2O 工况，93.386 s；
 - 五条角色旅程：`scripts/journeys_v2.py` 5/5 通过（暴雨、风机故障、三级过滤 what-if、7 d 周报、脏数据），3.503 s；`completed_24h=false`；

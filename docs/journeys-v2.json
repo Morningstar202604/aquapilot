@@ -4,7 +4,7 @@
   "case_count": 5,
   "passed_count": 5,
   "failed_count": 0,
-  "elapsed_seconds": 3.503,
+  "elapsed_seconds": 3.301,
   "journeys_complete": true,
   "cases": [
     {
@@ -81,6 +81,6 @@
       "failures": []
     }
   ],
-  "service_log": "/tmp/aquapilot-journeys-b511h1y0/service.log",
+  "service_log": "/tmp/aquapilot-journeys-s6xc2hb3/service.log",
   "note": "Five representative role journeys for V2-4; not a wall-clock 24 h soak."
 }

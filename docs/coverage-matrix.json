@@ -1,7 +1,7 @@
 {
   "schema": "aquapilot.coverage.v1",
-  "generated_at_unix": 1795865544,
-  "elapsed_seconds": 93.386,
+  "generated_at_unix": 1795866676,
+  "elapsed_seconds": 92.385,
   "coverage_complete": true,
   "completed_24h": false,
   "bin": "/home/user/Doubao/chats/38455916662454018/aquapilot/rust-v2/target/debug/aquapilot-v2",
@@ -44,7 +44,7 @@
         "report_bytes": 8207
       },
       "submit_http": 202,
-      "experiment_id": "daedcdf0-13af-4c9f-a009-6e7f1733f2c2",
+      "experiment_id": "27f5a97e-0eda-4716-91d8-bd156c8b5a59",
       "wait_seconds": 0.255,
       "progress": 1.0,
       "elapsed_seconds": 0.26
@@ -77,7 +77,7 @@
         "report_bytes": 9654
       },
       "submit_http": 202,
-      "experiment_id": "e0e24b4c-810f-48e7-b58f-e92a652544a5",
+      "experiment_id": "b5c6336f-b7d6-4a06-84bf-fbb26d24c666",
       "wait_seconds": 1.264,
       "progress": 1.0,
       "elapsed_seconds": 1.271
@@ -110,10 +110,10 @@
         "report_bytes": 9765
       },
       "submit_http": 202,
-      "experiment_id": "54488a04-704c-46c7-973f-5f270ff01029",
-      "wait_seconds": 1.264,
+      "experiment_id": "e49eb48b-188a-4511-b766-4c5a483807b0",
+      "wait_seconds": 1.012,
       "progress": 1.0,
-      "elapsed_seconds": 1.272
+      "elapsed_seconds": 1.019
     },
     {
       "id": "asm2d-loop",
@@ -143,10 +143,10 @@
         "report_bytes": 7594
       },
       "submit_http": 202,
-      "experiment_id": "00288636-a222-4737-b802-233ab50bcc18",
-      "wait_seconds": 72.096,
+      "experiment_id": "5317b283-c6fb-4941-8bbd-b6b77463328b",
+      "wait_seconds": 71.103,
       "progress": 1.0,
-      "elapsed_seconds": 72.101
+      "elapsed_seconds": 71.108
     },
     {
       "id": "adm1-tutorial",
@@ -165,10 +165,10 @@
         "report_bytes": 3815
       },
       "submit_http": 202,
-      "experiment_id": "db7514c6-d4c7-4504-b9cf-bc61cbd82811",
+      "experiment_id": "0a291df1-cf8a-4874-a066-d84a54146ae8",
       "wait_seconds": 3.273,
       "progress": 1.0,
-      "elapsed_seconds": 3.276
+      "elapsed_seconds": 3.277
     },
     {
       "id": "sludge-line",
@@ -187,10 +187,10 @@
         "report_bytes": 4196
       },
       "submit_http": 202,
-      "experiment_id": "54c97663-df28-4546-97d2-a7e485c7ee62",
-      "wait_seconds": 9.067,
+      "experiment_id": "df3744aa-d1b0-4430-ae6f-48003d985470",
+      "wait_seconds": 9.061,
       "progress": 1.0,
-      "elapsed_seconds": 9.07
+      "elapsed_seconds": 9.065
     },
     {
       "id": "scenario-high-flow",
@@ -220,10 +220,10 @@
         "report_bytes": 9825
       },
       "submit_http": 202,
-      "experiment_id": "6ff5d067-6206-48a7-8f97-40c8ffdaef7f",
-      "wait_seconds": 1.265,
+      "experiment_id": "751d83e4-f41d-4d2a-836d-224607e89ed1",
+      "wait_seconds": 1.264,
       "progress": 1.0,
-      "elapsed_seconds": 1.273
+      "elapsed_seconds": 1.271
     },
     {
       "id": "scenario-low-do",
@@ -253,10 +253,10 @@
         "report_bytes": 9885
       },
       "submit_http": 202,
-      "experiment_id": "f17572e4-ca00-4bd7-8676-3496ebb9eddc",
-      "wait_seconds": 1.27,
+      "experiment_id": "601f2d5d-b50a-41b1-bcfa-cfca3ed4ad1e",
+      "wait_seconds": 1.264,
       "progress": 1.0,
-      "elapsed_seconds": 1.276
+      "elapsed_seconds": 1.271
     },
     {
       "id": "scenario-winter",
@@ -286,7 +286,7 @@
         "report_bytes": 9746
       },
       "submit_http": 202,
-      "experiment_id": "0852d375-39d6-4139-b30b-07f063a2996e",
+      "experiment_id": "43a71a09-c895-4133-afc1-c54de112d0f1",
       "wait_seconds": 1.264,
       "progress": 1.0,
       "elapsed_seconds": 1.271
@@ -319,10 +319,10 @@
         "report_bytes": 9755
       },
       "submit_http": 202,
-      "experiment_id": "3575096b-37ae-4d2e-a7da-14bc66424dcf",
-      "wait_seconds": 1.264,
+      "experiment_id": "6a3b53c2-324d-4805-a1b0-5fa92a171f60",
+      "wait_seconds": 1.265,
       "progress": 1.0,
-      "elapsed_seconds": 1.271
+      "elapsed_seconds": 1.272
     },
     {
       "id": "scenario-tertiary-bypass",
@@ -352,13 +352,13 @@
         "report_bytes": 9996
       },
       "submit_http": 202,
-      "experiment_id": "be43a3f7-f1d1-48ab-ad6a-0bd768712108",
-      "wait_seconds": 1.012,
+      "experiment_id": "c5958bdd-4d48-4c39-8b90-2d48136c976e",
+      "wait_seconds": 1.265,
       "progress": 1.0,
-      "elapsed_seconds": 1.019
+      "elapsed_seconds": 1.272
     }
   ],
-  "service_log": "/tmp/aquapilot-coverage-wo5oti4f/service.log",
-  "db_path": "/tmp/aquapilot-coverage-wo5oti4f/aquapilot.sqlite",
+  "service_log": "/tmp/aquapilot-coverage-0f1heijj/service.log",
+  "db_path": "/tmp/aquapilot-coverage-0f1heijj/aquapilot.sqlite",
   "note": "Representative end-to-end coverage: every service model plus A2O operating disturbances through submit → queue → worker → detail → samples.csv → report.md → mass balance. This is not a wall-clock 24 h soak; completed_24h remains false."
 }

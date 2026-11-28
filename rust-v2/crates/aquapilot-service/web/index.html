@@ -340,7 +340,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   <div class="top-status">
     <div class="status-chip" title="服务健康"><span class="dot" id="svc-dot"></span><span id="svc-label">连接中</span></div>
     <div class="status-chip"><span class="mono" id="queue-chip">队列 0 / 32</span></div>
-    <div class="status-chip"><span class="mono" id="svc-version">v0.0.9</span></div>
+    <div class="status-chip"><span class="mono" id="svc-version">v0.0.10</span></div>
   </div>
   <button class="top-link" id="open-api">API 契约 ↗</button>
 </header>
@@ -652,9 +652,42 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       </button>`).join("");
   }
 
+  function applyTopologyScenario(id) {
+    const topology = getTopology();
+    if (!topology) return;
+    if (id === "reset") { loadPreset(state.presetId || state.defaultPreset); return; }
+    if (id === "storm15") {
+      const influent = topology.units.find((unit) => topologyType(unit) === "influent");
+      if (influent) influent.flow_m3_h = num(influent.flow_m3_h, 0) * 1.5;
+      topology.connections.forEach((edge) => { edge.flow_m3_h = num(edge.flow_m3_h, 0) * 1.5; });
+      toast("已把进水和所有连接流量放大 1.5×，节点流平衡保持。");
+    } else if (id === "lowdo") {
+      topology.units.filter((unit) => topologyType(unit) === "aerobic").forEach((unit) => {
+        unit.kla_h = 120;
+        unit.do_setpoint = 1;
+      });
+      toast("所有好氧池 KLa=120、DO 设定=1.0。");
+    } else if (id === "winter") {
+      topology.units.forEach((unit) => {
+        if (topologyType(unit) === "influent" && unit.water) unit.water.temperature_c = 12;
+        if (["aerobic","anoxic","anaerobic"].includes(topologyType(unit)) && unit.initial) unit.initial.temperature_c = 12;
+      });
+      toast("进水与反应器初始温度改为 12°C。");
+    }
+    validate(); renderFlow(); renderInspector();
+  }
+
   function renderScenarios() {
     if (isTopologyModel(state.model)) {
-      $("#scenario-grid").innerHTML = `<div class="hint" style="grid-column:1/-1;line-height:1.6">自由拓扑模式：用画布工具栏增删节点，选中节点后在下方改参数，用“新增连接”加边。每条连接都必须有显式流量；服务端会检查节点流平衡。</div>`;
+      const chips = [
+        ["storm15", "高流量 ×1.5", "warn"],
+        ["lowdo", "低 DO 胁迫", "warn"],
+        ["winter", "冬季 12°C", "warn"],
+        ["reset", "回到预设", ""],
+      ];
+      $("#scenario-grid").innerHTML = chips.map(([id, label, tone]) => `<button class="chip ${tone}" data-topo-scenario="${id}">${esc(label)}</button>`).join("") +
+        `<div class="hint" style="grid-column:1/-1;line-height:1.6">高流量会把进水和所有连接流量同乘 1.5，保持节点流平衡；低 DO 只改好氧池 KLa/DO；冬季只改温度。自由拓扑的增删节点和连接在画布工具栏。</div>`;
+      $$("#scenario-grid .chip").forEach((button) => button.addEventListener("click", () => applyTopologyScenario(button.dataset.topoScenario)));
       return;
     }
     $("#scenario-grid").innerHTML = SCENARIOS.map((scenario) => `<button class="chip ${scenario.tone}" data-scenario="${scenario.id}">${esc(scenario.label)}</button>`).join("");

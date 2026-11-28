@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-28T11:29:20Z",
+  "generated_at": "2026-11-28T11:49:40Z",
   "base": "http://127.0.0.1:5192",
   "presets": [
     {
@@ -35,7 +35,7 @@
     "effluent_flow_m3_h": 1000.0
   },
   "experiment": {
-    "id": "0e99c6b1-923c-4279-b92b-5eed99bbf916",
+    "id": "3892fc49-b234-405c-a15d-8c3bb3068cb5",
     "status": "succeeded",
     "minutes": 1440.0,
     "grade": "D",

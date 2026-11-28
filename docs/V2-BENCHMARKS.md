@@ -1,7 +1,7 @@
 # AquaPilot v2 基准记录
 
 > 记录日期：2026-11-28
-> 代码：`rust-v2/`，版本 0.0.9
+> 代码：`rust-v2/`，版本 0.0.10
 > 口径：clean-room 实现；不读取旧 `src/sim` 或旧 `rust/` 源码。
 
 ## 1. V2-1 BSM1-like 整厂
@@ -484,6 +484,13 @@ python3 scripts/journeys_v2.py --summary docs/journeys-v2.json
 评分卡只对出水限值打分；7 d 实验三本账未闭合时仍显示 A，但同时给出 `MASS_BALANCE_OPEN`（6.55%），不把短时库存变化包装成整厂闭环。`completed_24h` 仍为 `false`。
 
 ### 6.7 ASM1 自由拓扑验收（0.0.9，不是 wall-clock 24 h）
+
+### 6.8 ASM1 自由拓扑工况（0.0.10）
+
+- `高流量 ×1.5`：三池 preset 进水 1000→1500 m³/h，4 条连接同步 1500，`POST /topologies/validate` 仍 200；1 d 实验 `succeeded`，D、1/4，三条出水告警（COD 2179.04、SS 1521.96、TN 246.86）。
+- `低 DO 胁迫`：好氧池 KLa 120、DO 设定 1.0，服务端编译通过。
+- `冬季 12°C`：进水与反应器初始温度 12°C，服务端编译通过。
+- 这些是 UI 工况注入，不改变 24 h soak 结论；`completed_24h=false`。
 
 命令（服务已在 `127.0.0.1:5192` 启动）：
 
