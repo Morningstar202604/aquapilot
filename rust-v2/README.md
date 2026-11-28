@@ -6,7 +6,7 @@
 - Clean-room 规则：`../docs/CLEAN-ROOM.md`
 - 旧 `rust/` 已冻结为 v0.11.23 的历史 checkpoint，v2 不读取、不复制它的源码。
 
-## 当前状态：V2-1 已完成，V2-2 已完成（回流闭环 + PAC + 三级过滤）
+## 当前状态：V2-1、V2-2 已完成；V2-3 服务骨架已落地，24 h soak 待跑
 
 V2-1 已完成并推送：ASM1 五池整厂、Takács 10 层二沉池、RAS/内回流/WAS、DO 控制、BSM1-like 与官方 BSM1 对照、22 项测试。
 
@@ -22,7 +22,8 @@ V2-2 当前已落：
 - `aquapilot-model::asm2d_adm1_loop`：把浓缩溢流与滤液合并后接回 A2O 进水，successive substitution 迭代到回流状态稳定；整厂 COD/N/P 三本账以外部进水为输入，出水、泥饼、沼气、库存为输出；CLI `asm2d-loop`；
 - PAC 基础投加：`Asm2dPacConfig` 指定反应器、产品剂量、Al2O3 品位和金属氢氧化物当量；`asm2d`/`asm2d-loop` 支持 `--pac-dose`、`--pac-reactor`、`--pac-al2o3-fraction`；`fixtures/a2o-asm2d-pac.json` 为 40 mg/L 示例；
 - 三级过滤：`Asm2dTertiaryConfig` 在二沉池后按颗粒物捕集率去除 TSS/颗粒 COD/N/P，并可选 PO4 化学抛光；CLI 支持 `--tertiary-tss-removal`、`--tertiary-po4-removal`；`fixtures/a2o-asm2d-pac-tertiary.json` 为 PAC 20 mg/L + 90% TSS + 70% PO4 示例；
-- 尚未实现：HTTP/WS 服务、实验队列、界面、24 h soak；PAC 仍为三价金属当量模型，三级过滤为理想化边界单元。
+- V2-3 服务骨架：`aquapilot-service` 已实现 Axum HTTP、SSE 状态流、SQLite 持久实验队列、OpenAPI 3.1、RFC 9457、幂等键、取消/恢复、CSV/Markdown 报告；CLI `serve` 启动单二进制服务；
+- 尚未完成：24 h soak（仅跑过 60 s smoke）、WebSocket（当前用 SSE）、Bearer 角色鉴权、MCP、界面；PAC 仍为三价金属当量模型，三级过滤为理想化边界单元。
 
 30 天 A2O ASM2d 实测（`fixtures/a2o-asm2d.json`）：
 
@@ -94,6 +95,24 @@ V2-2 出水门按“关键指标 + 三本账闭合”验收通过；三级过滤
 
 ## 运行
 
+服务（HTTP + SSE，默认 `127.0.0.1:5173`）：
+
+```bash
+cd rust-v2
+cargo run -q -p aquapilot-cli -- serve --bind 127.0.0.1:5173 --db ./aquapilot.sqlite --queue-capacity 32
+```
+
+API 契约见 [`../docs/V2-API.md`](../docs/V2-API.md)。60 s soak smoke：
+
+```bash
+cd ..
+python3 scripts/soak_v2.py --duration 60 --interval 2
+```
+
+24 h soak 尚未执行；不要用 smoke 结果冒充 24 h 验收。
+
+仿真 CLI：
+
 ```bash
 cd rust-v2
 cargo run -p aquapilot-cli -- validate fixtures/single-aerobic.json
@@ -129,6 +148,7 @@ rust-v2/
 ├── crates/aquapilot-domain
 ├── crates/aquapilot-model
 ├── crates/aquapilot-engine
+├── crates/aquapilot-service
 ├── crates/aquapilot-cli
 └── fixtures/
 ```
@@ -142,4 +162,6 @@ rust-v2/
 - ASM2d A2O、ADM1 泥线、PAC + 三级过滤回流闭环的整厂 COD/N/P 三本账在 30 天 fixture 均闭合；闭合是质量账闭合，不等于全指标合规。
 - PAC 以产品 Al2O3 品位换算 Al，再按 `107/27` 映射为 `X_MeOH` 当量；化学沉淀沿用 ASM2d 默认 `3.45 g X_MeOH / g P` 与 `4.87 g X_MeP / g P` 系数。未区分 Al/Fe 形态。
 - 三级过滤按固定 TSS 捕集率与经验 PO4 抛光效率计算，捕集固体计入 `waste_kg`；未建模反冲洗水、滤料级配和过滤压头，不能当作详细滤池设计。
-- 未实现：HTTP/WS 服务、实验队列、界面、24 h soak；官方 BSM1 参数集仍未全部通过 Table 6，只有校准候选在 ±20% 内通过。
+- 服务是单进程、单 worker 的持久队列；`asm2d-adm1-loop`/`adm1`/`sludge-line` 的模型调用不可中断，运行中取消只能在当前运行结束后收口。
+- 服务首版无 Bearer/RBAC、无 MCP、无 WebSocket；实时状态用 SSE `/api/v1/experiments/{id}/events`。
+- 未完成：24 h soak、界面、工业接口；官方 BSM1 参数集仍未全部通过 Table 6，只有校准候选在 ±20% 内通过。

@@ -46,6 +46,18 @@ impl ParamSet {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Serve the persistent experiment API.
+    Serve {
+        /// Bind address for the HTTP API.
+        #[arg(long, default_value = "127.0.0.1:5173")]
+        bind: String,
+        /// SQLite database path.
+        #[arg(long, default_value = "aquapilot.sqlite")]
+        db: PathBuf,
+        /// Maximum queued + running experiments.
+        #[arg(long, default_value_t = 32)]
+        queue_capacity: usize,
+    },
     /// Validate and compile a topology file without running it.
     Validate {
         /// Path to the topology JSON file.
@@ -269,6 +281,19 @@ fn apply_tertiary_override(
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     match cli.command {
+        Command::Serve {
+            bind,
+            db,
+            queue_capacity,
+        } => {
+            if let Err(error) = aquapilot_service::serve(aquapilot_service::ServiceConfig {
+                bind,
+                db_path: db.display().to_string(),
+                queue_capacity,
+            }) {
+                return Err(std::io::Error::other(error.to_string()).into());
+            }
+        }
         Command::Validate { topology } => {
             let plant = load_topology(&topology)?;
             let compiled = CompiledPlant::compile(&plant)?;

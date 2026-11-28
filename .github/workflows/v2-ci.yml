@@ -30,6 +30,19 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
         run: cargo test --workspace
+      - name: Smoke experiment service
+        run: |
+          cargo build -q -p aquapilot-cli
+          python3 ../scripts/soak_v2.py --duration 5 --interval 1 --summary /tmp/soak-smoke.json
+          python3 - <<'PY'
+          import json
+          summary = json.load(open('/tmp/soak-smoke.json'))
+          assert summary['request_failures'] == 0
+          assert summary['health_failures'] == 0
+          assert summary['submitted'] >= 1
+          assert summary['completed_24h'] is False
+          print('service smoke ok', summary['final_status_counts'])
+          PY
       - name: Smoke single reactor
         run: cargo run -q -p aquapilot-cli -- validate fixtures/single-aerobic.json
       - name: Smoke three-stage series

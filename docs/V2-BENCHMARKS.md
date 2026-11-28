@@ -1,7 +1,7 @@
 # AquaPilot v2 基准记录
 
 > 记录日期：2026-11-28
-> 代码：`rust-v2/`，版本 0.0.4
+> 代码：`rust-v2/`，版本 0.0.5
 > 口径：clean-room 实现；不读取旧 `src/sim` 或旧 `rust/` 源码。
 
 ## 1. V2-1 BSM1-like 整厂
@@ -383,3 +383,42 @@ cargo test --workspace
 - PAC 使用三价金属当量与 ASM2d 默认 Fe(OH)3/FePO4 质量系数，未区分 Al/Fe 形态，未计入 PAC 水解碱度消耗。
 - 三级过滤按固定 TSS 捕集率 + 经验 PO4 抛光效率计算，不含反冲洗水、滤料级配和过滤压头；BOD、粪大肠菌群、色度等未建模。
 - 没有 24 h soak、没有 HTTP/WS 与界面。
+
+## 6. V2-3 服务与实验（2026-11-28，版本 0.0.5）
+
+### 6.1 服务测试
+
+`aquapilot-service` 11 项测试全过；全 workspace 57 项（model 38 + engine 8 + service 11）：
+
+- 5 项 SQLite store：创建/读取、幂等重放与冲突、队列满、queued 取消、运行时崩溃恢复；
+- 3 项 API 契约：创建/幂等/409 + 422、队列满 429 + `Retry-After: 30` + 取消、OpenAPI/健康检查。
+
+### 6.2 60 s soak smoke
+
+命令：
+
+```bash
+python3 scripts/soak_v2.py --duration 60 --interval 2
+```
+
+结果：`docs/soak-smoke-summary.json`
+
+| 指标 | 值 |
+| --- | --- |
+| 提交 / 成功入队 / 重放 / 队列满 | 30 / 30 / 0 / 0 |
+| 请求失败 / 健康检查失败 | 0 / 0 |
+| 最终状态 | 30 succeeded |
+| 创建延迟 P50 / P95 / max | 3.149 / 3.466 / 3.571 ms |
+| max RSS | 11,048 KB |
+| max open fds | 13 |
+| DB 文件（main + WAL + SHM） | 2,039,216 B |
+| `completed_24h` | false |
+
+这是 60 s smoke，不是 24 h 验收。24 h 命令为 `python3 scripts/soak_v2.py --duration 86400 --interval 30`；脚本只有在 `duration >= 86400` 且实际运行满 24 h 时才把 `completed_24h` 写成 true。
+
+### 6.3 手动端到端
+
+- ASM1 BSM1 24 h：202 入队，约 2 s 后 succeeded；出水 COD 48.52、SS 12.81 mg/L；CSV 25 行，报告含 COD 账。
+- ASM2d A2O + PAC 20 + 三级过滤 30 d：succeeded；出水 COD 32.46、NH4-N 0.755、TN 9.241、TP 0.1496、SS 1.151、PO4-P 0.0515 mg/L；三级过滤捕集固体 7,617.8 kg、捕集 P 537.7 kg、PO4 抛光 45.2 kg/30 d。
+- ASM2d/ADM1 回流闭环 30 d：succeeded；出水 COD 40.97、NH4-N 0.630、TN 10.011、TP 0.296、SS 1.176、PO4-P 0.183 mg/L；整厂 COD/N/P 残差 -0.78% / 2.52% / 2.85%，均 closed。
+- 365 d ASM2d 实验运行中终止进程，重启后自动重新入队并跑完；已完成实验重启后仍能读回结果。

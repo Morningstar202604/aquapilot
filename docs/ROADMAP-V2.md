@@ -173,16 +173,23 @@ v2 首版不引入 Node。前端作为静态资源由 Rust 服务托管；v2.0 �
 
 硬门禁：三本账 `closed=true`；ASM2d 状态边界诊断可见；出水门与 PAO 循环通过。V2-2 已按关键指标 + 三本账闭合验收；BOD、粪大肠菌群、色度等未建模，不能宣称全指标合规。
 
-### V2-3 服务与实验
+### V2-3 服务与实验（进行中）
 
-交付：
+已交付（2026-11-28）：
 
-- Axum HTTP/WS、OpenAPI、RFC 9457、幂等键；
-- 持久实验队列、取消/恢复、CSV/Markdown 报告；
-- CLI 与 API 共用同一 engine；
-- SQLite 持久化与备份/恢复。
+- [x] `aquapilot-service` crate：Axum HTTP、SSE 状态流、OpenAPI 3.1、RFC 9457；
+- [x] SQLite 持久实验队列：`queued/running/succeeded/failed/cancelled`、幂等键、队列满 429 + `Retry-After: 30`；
+- [x] 取消/恢复：queued 立即取消，ASM1/ASM2d 逐步检查；运行中重启自动重新入队；
+- [x] CSV/Markdown 报告、`GET /api/health`、CLI `serve` 单二进制；
+- [x] 11 项 service 测试（store + API 契约）、60 s soak smoke（30 个实验全部成功）。
 
-硬门禁：OpenAPI 契约测试、幂等重放、队列满 429、取消语义、24 h soak 有 `summary.json`。
+未完成：
+
+- [ ] 24 h soak 与正式 `summary.json`（当前只有 60 s smoke，`completed_24h=false`）；
+- [ ] WebSocket（当前用 SSE）、Bearer 角色鉴权、MCP、备份命令；
+- [ ] 长模型（`asm2d-adm1-loop`/`adm1`/`sludge-line`）的运行中取消只能在下一次运行边界生效。
+
+硬门禁：OpenAPI 契约测试、幂等重放、队列满 429、取消语义、24 h soak 有 `summary.json`。前四项已测，24 h soak 未过，V2-3 不能标完成。
 
 ### V2-4 界面与工业验收
 
@@ -242,6 +249,6 @@ v2 不直接替换 TS 生产入口。满足以下条件才切换：
 | V2-0 骨架 + 单池 | 已完成 | `rust-v2/`；单池与三段串联 24 h 跑通；当前全工程 22 项测试 |
 | V2-1 整厂 ASM1 | 已完成 | 5 池 + 二沉池 + RAS/内回流 + DO；30 天 BSM1-like 出水 COD 58.01、SS 12.20、NH4-N 0.292；官方参数集 S_S/SS/NO3/碱度/MLSS 接近 Table 6，NH4/DO 未全过；校准候选在 ±20% 内通过 Table 6 关键指标 |
 | V2-2 ASM2d + ADM1 | 已完成 | ASM2d 19 组分/21 过程 + A2O 整厂 30 天跑通，内部 COD/N/P 账 2.13%/1.09%/1.52% 闭合；多系列 2×500 m3/h 汇总通过；ADM1 核心、独立泥线、双向接口与回流闭环已落，整厂 COD/N/P 残差 -1.03%/2.19%/0.71% 均 closed；PAC 基础投加 + 三级过滤已落，PAC + 三级过滤回流闭环 TP 0.387 mg/L，整厂 COD/N/P -1.07%/2.16%/1.29% 均 closed |
-| V2-3 服务 + 实验 | 未开始 | — |
+| V2-3 服务 + 实验 | 进行中 | `aquapilot-service` + CLI `serve`；11 项 service 测试；60 s soak smoke 30/30 成功、max RSS 11,048 KB、13 fds；24 h soak 未跑 |
 | V2-4 界面 + 验收 | 未开始 | — |
 | Cutover | 未开始 | — |

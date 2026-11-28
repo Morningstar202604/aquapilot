@@ -12,6 +12,7 @@ path = "src/main.rs"
 aquapilot-domain = { path = "../aquapilot-domain" }
 aquapilot-engine = { path = "../aquapilot-engine" }
 aquapilot-model = { path = "../aquapilot-model" }
+aquapilot-service = { path = "../aquapilot-service" }
 clap.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

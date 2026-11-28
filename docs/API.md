@@ -1,5 +1,7 @@
 # HTTP API
 
+> **V2 Rust 服务状态（2026-11-28）**：当前可运行的 `aquapilot-service` 契约见 [`docs/V2-API.md`](V2-API.md)。它实现 HTTP + SSE、SQLite 持久队列、幂等、取消/恢复、CSV/Markdown 报告和 OpenAPI 3.1；不包含下方旧 TypeScript API 的 RBAC、MCP、studies、scenario/validation 字段。下面保留的是旧 TS 产品的历史契约，仅作 cutover 参考，不代表 Rust V2 已实现。
+
 Legacy endpoints below are **read-only** and answer `GET` (and `HEAD`); live
 write operations still go through the WebSocket protocol, see [Protocol](#websocket-protocol).
 The versioned experiment API adds `POST /api/v1/experiments` and is documented

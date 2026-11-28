@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.0.5] — 2026-11-28
+
+### Added
+
+- `aquapilot-service`：Axum HTTP + SSE（`/api/v1/experiments/{id}/events`）、OpenAPI 3.1、RFC 9457 problem+json（含 413/405 映射）、64 KiB 请求体上限。
+- SQLite 持久实验队列：`queued/running/succeeded/failed/cancelled`、队列容量 32、429 + `Retry-After: 30`、`Idempotency-Key` 重放/冲突、进程重启自动重排队。
+- 实验模型：`asm1`、`asm2d`、`asm2d-adm1-loop`、`adm1`、`sludge-line`；CLI `serve` 单二进制启动服务。
+- CSV 采样与 Markdown 报告；`GET /api/health`、`GET /api/openapi.json`。
+- `scripts/soak_v2.py`：60 s smoke / 24 h soak 脚本，输出 `summary.json` 与 RSS/fd/延迟。
+- 11 项 service 测试（10 单元 + 1 worker 集成）；60 s soak smoke 30/30 成功、max RSS 11,048 KB、13 fds。
+
+### Changed
+
+- workspace 版本 `0.0.4 → 0.0.5`；CLI 新增 `serve --bind/--db/--queue-capacity`。
+- `docs/V2-API.md` 成为 Rust V2 服务契约；`docs/API.md` 顶部标注旧 TS 契约仅作 cutover 参考。
+
+### Verification
+
+- `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` 全过（57 项）。
+- OpenAPI 3.1 文档通过 `openapi-spec-validator`。
+- 60 s soak smoke 通过；**24 h soak 未执行**，`completed_24h=false`，因此 V2-3 尚未标完成。
+
+
 ## [0.11.23] — 2026-11-26
 
 ### Added
