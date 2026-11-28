@@ -135,6 +135,50 @@ impl Asm2dPacConfig {
     }
 }
 
+/// Idealized tertiary solids-contact filtration after the secondary clarifier.
+///
+/// The filter captures a fixed fraction of every particulate ASM2d component
+/// while leaving dissolved species unchanged. Captured solids leave as a
+/// separate cake stream; the filter does not model backwash water, media
+/// head-loss or filtration kinetics. This is a boundary unit for effluent
+/// polishing, not a full granular-filter model.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Asm2dTertiaryConfig {
+    /// Fraction of particulate ASM2d solids captured by the filter.
+    #[serde(default = "default_tertiary_tss_removal")]
+    pub tss_removal_fraction: f64,
+    /// Fraction of dissolved S_PO4 removed by tertiary chemical polishing.
+    ///
+    /// This is an empirical boundary efficiency, not a stoichiometric Al/Fe
+    /// precipitation model; the removed P is booked to the filter cake.
+    #[serde(default)]
+    pub po4_removal_fraction: f64,
+}
+
+fn default_tertiary_tss_removal() -> f64 {
+    0.90
+}
+
+impl Asm2dTertiaryConfig {
+    fn validate(&self) -> Result<(), Asm2dPlantError> {
+        if !self.tss_removal_fraction.is_finite()
+            || !(0.0..=1.0).contains(&self.tss_removal_fraction)
+        {
+            return Err(Asm2dPlantError::InvalidConfig(
+                "tertiary TSS removal fraction must be in [0,1]".to_owned(),
+            ));
+        }
+        if !self.po4_removal_fraction.is_finite()
+            || !(0.0..=1.0).contains(&self.po4_removal_fraction)
+        {
+            return Err(Asm2dPlantError::InvalidConfig(
+                "tertiary PO4 removal fraction must be in [0,1]".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Asm2dPlantConfig {
     pub name: String,
@@ -145,6 +189,8 @@ pub struct Asm2dPlantConfig {
     pub internal_recycles: Vec<Asm2dRecycleConfig>,
     #[serde(default)]
     pub pac: Option<Asm2dPacConfig>,
+    #[serde(default)]
+    pub tertiary: Option<Asm2dTertiaryConfig>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -475,6 +521,20 @@ pub struct Asm2dPacSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Asm2dTertiarySnapshot {
+    pub capture_fraction: f64,
+    pub po4_removal_fraction: f64,
+    pub inlet_tss: f64,
+    pub outlet_tss: f64,
+    pub removed_tss: f64,
+    pub captured_solids_kg: f64,
+    pub captured_cod_kg: f64,
+    pub captured_nitrogen_kg: f64,
+    pub captured_phosphorus_kg: f64,
+    pub polishing_po4_removed_kg: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Asm2dPlantSnapshot {
     pub plant_name: String,
     pub time_min: f64,
@@ -484,6 +544,7 @@ pub struct Asm2dPlantSnapshot {
     pub effluent: Asm2dEffluentSnapshot,
     pub waste: Asm2dWasteSnapshot,
     pub pac: Option<Asm2dPacSnapshot>,
+    pub tertiary: Option<Asm2dTertiarySnapshot>,
     pub mass_balance: Asm2dMassBalance,
 }
 
@@ -511,6 +572,13 @@ pub struct Asm2dSimulator {
     pac_aluminum_kg: f64,
     pac_meoh_kg: f64,
     chemical_p_removed_kg: f64,
+    tertiary_effluent: Asm2dState,
+    tertiary_inlet_tss: f64,
+    tertiary_outlet_tss: f64,
+    tertiary_removed_tss: f64,
+    tertiary_cake_solids_kg: f64,
+    tertiary_chemical_p_kg: f64,
+    tertiary_cake: [f64; 3],
 }
 
 impl Asm2dSimulator {
@@ -549,6 +617,9 @@ impl Asm2dSimulator {
         }
         if let Some(pac) = &config.pac {
             pac.validate(config.reactors.len())?;
+        }
+        if let Some(tertiary) = &config.tertiary {
+            tertiary.validate()?;
         }
         let flows = compile_flows(&config)?;
         let state: Vec<Asm2dState> = config.reactors.iter().map(|r| r.initial).collect();
@@ -627,6 +698,13 @@ impl Asm2dSimulator {
             pac_aluminum_kg: 0.0,
             pac_meoh_kg: 0.0,
             chemical_p_removed_kg: 0.0,
+            tertiary_effluent: settler_overflow,
+            tertiary_inlet_tss: 0.0,
+            tertiary_outlet_tss: 0.0,
+            tertiary_removed_tss: 0.0,
+            tertiary_cake_solids_kg: 0.0,
+            tertiary_chemical_p_kg: 0.0,
+            tertiary_cake: [0.0; 3],
         };
         simulator.initial_inventory = simulator.inventory();
         Ok(simulator)
@@ -812,6 +890,42 @@ impl Asm2dSimulator {
             output,
         };
 
+        let mut effluent = self.clarifier_flow.overflow;
+        let mut tertiary_cake = [0.0; 3];
+        if let Some(tertiary) = self.config.tertiary {
+            let capture = tertiary.tss_removal_fraction;
+            self.tertiary_inlet_tss = effluent.suspended_solids();
+            let mut filtered = effluent;
+            let mut removed = Asm2dState::zeros();
+            for field in SETTLER_PARTICULATE_FIELDS {
+                let value = component(&effluent, field);
+                let captured = value * capture;
+                set_component(&mut filtered, field, value - captured);
+                set_component(&mut removed, field, captured);
+            }
+            let polishing_po4 = filtered.spo4 * tertiary.po4_removal_fraction;
+            filtered.spo4 -= polishing_po4;
+            self.tertiary_outlet_tss = filtered.suspended_solids();
+            self.tertiary_removed_tss = removed.suspended_solids();
+            let overflow_flow = self.flows.clarifier_overflow_flow_m3_h;
+            tertiary_cake[0] = mass_rate_kg_per_step(overflow_flow, removed.total_cod(), dt_h);
+            tertiary_cake[1] = mass_rate_kg_per_step(overflow_flow, removed.total_nitrogen(), dt_h);
+            tertiary_cake[2] =
+                mass_rate_kg_per_step(overflow_flow, removed.total_phosphorus(), dt_h)
+                    + mass_rate_kg_per_step(overflow_flow, polishing_po4, dt_h);
+            self.tertiary_chemical_p_kg +=
+                mass_rate_kg_per_step(overflow_flow, polishing_po4, dt_h);
+            self.tertiary_cake_solids_kg +=
+                mass_rate_kg_per_step(overflow_flow, removed.suspended_solids(), dt_h);
+            self.tertiary_cake[0] += tertiary_cake[0];
+            self.tertiary_cake[1] += tertiary_cake[1];
+            self.tertiary_cake[2] += tertiary_cake[2];
+            self.tertiary_effluent = filtered;
+            effluent = filtered;
+        } else {
+            self.tertiary_effluent = effluent;
+        }
+
         self.time_min += self.simulation.dt_min;
         self.step_count += 1;
         self.inflow[0] += mass_rate_kg_per_step(
@@ -829,7 +943,7 @@ impl Asm2dSimulator {
             self.config.influent.state.total_phosphorus(),
             dt_h,
         );
-        let effluent = self.clarifier_flow.overflow;
+        let waste = self.clarifier_flow.underflow;
         self.effluent[0] += mass_rate_kg_per_step(
             self.flows.clarifier_overflow_flow_m3_h,
             effluent.total_cod(),
@@ -845,19 +959,19 @@ impl Asm2dSimulator {
             effluent.total_phosphorus(),
             dt_h,
         );
-        let waste = self.clarifier_flow.underflow;
         self.waste[0] +=
-            mass_rate_kg_per_step(self.config.clarifier.was_flow_m3_h, waste.total_cod(), dt_h);
+            mass_rate_kg_per_step(self.config.clarifier.was_flow_m3_h, waste.total_cod(), dt_h)
+                + tertiary_cake[0];
         self.waste[1] += mass_rate_kg_per_step(
             self.config.clarifier.was_flow_m3_h,
             waste.total_nitrogen(),
             dt_h,
-        );
+        ) + tertiary_cake[1];
         self.waste[2] += mass_rate_kg_per_step(
             self.config.clarifier.was_flow_m3_h,
             waste.total_phosphorus(),
             dt_h,
-        );
+        ) + tertiary_cake[2];
 
         Ok(())
     }
@@ -895,8 +1009,20 @@ impl Asm2dSimulator {
                 }
             })
             .collect();
-        let effluent = self.clarifier_flow.overflow;
+        let effluent = self.tertiary_effluent;
         let waste = self.clarifier_flow.underflow;
+        let tertiary_snapshot = self.config.tertiary.map(|tertiary| Asm2dTertiarySnapshot {
+            capture_fraction: tertiary.tss_removal_fraction,
+            po4_removal_fraction: tertiary.po4_removal_fraction,
+            inlet_tss: self.tertiary_inlet_tss,
+            outlet_tss: self.tertiary_outlet_tss,
+            removed_tss: self.tertiary_removed_tss,
+            captured_solids_kg: self.tertiary_cake_solids_kg,
+            captured_cod_kg: self.tertiary_cake[0],
+            captured_nitrogen_kg: self.tertiary_cake[1],
+            captured_phosphorus_kg: self.tertiary_cake[2],
+            polishing_po4_removed_kg: self.tertiary_chemical_p_kg,
+        });
         let pac_snapshot = self.config.pac.map(|pac| {
             let influent_flow = self.config.influent.flow_m3_h;
             Asm2dPacSnapshot {
@@ -977,11 +1103,14 @@ impl Asm2dSimulator {
                 state: waste,
             },
             pac: pac_snapshot,
+            tertiary: tertiary_snapshot,
             mass_balance: Asm2dMassBalance {
                 cod,
                 nitrogen,
                 phosphorus,
-                note: if closed {
+                note: if closed && self.config.tertiary.is_some() {
+                    "ASM2d COD/N/P ledger closed at the 5% threshold; tertiary filter solids are included in waste_kg".to_owned()
+                } else if closed {
                     "ASM2d COD/N/P ledger closed at the 5% threshold".to_owned()
                 } else {
                     "ASM2d COD/N/P ledger residual exceeds 5%; inspect oxidation, storage and settler inventory terms".to_owned()
@@ -1235,7 +1364,36 @@ mod tests {
                 flow_m3_h: 2000.0,
             }],
             pac: None,
+            tertiary: None,
         }
+    }
+
+    #[test]
+    fn tertiary_configuration_rejects_invalid_fraction() {
+        assert!(Asm2dTertiaryConfig {
+            tss_removal_fraction: -0.1,
+            po4_removal_fraction: 0.0,
+        }
+        .validate()
+        .is_err());
+        assert!(Asm2dTertiaryConfig {
+            tss_removal_fraction: 1.1,
+            po4_removal_fraction: 0.0,
+        }
+        .validate()
+        .is_err());
+        assert!(Asm2dTertiaryConfig {
+            tss_removal_fraction: 0.9,
+            po4_removal_fraction: 1.1,
+        }
+        .validate()
+        .is_err());
+        assert!(Asm2dTertiaryConfig {
+            tss_removal_fraction: 0.9,
+            po4_removal_fraction: 0.7,
+        }
+        .validate()
+        .is_ok());
     }
 
     #[test]
@@ -1363,6 +1521,36 @@ mod tests {
         assert!(pac.net_chemical_p_removed_kg > 0.0);
         assert!(snapshot.effluent.po4_p < 0.5);
         assert!(snapshot.effluent.tp < 1.3);
+        assert!(snapshot.mass_balance.phosphorus.closed);
+    }
+
+    #[test]
+    fn tertiary_filter_polishes_pac_effluent_and_keeps_ledger_closed() {
+        let mut config: Asm2dPlantConfig =
+            serde_json::from_str(include_str!("../../../fixtures/a2o-asm2d-pac.json"))
+                .expect("PAC fixture");
+        config.pac.as_mut().expect("PAC config").dose_mg_l = 20.0;
+        config.tertiary = Some(Asm2dTertiaryConfig {
+            tss_removal_fraction: 0.90,
+            po4_removal_fraction: 0.70,
+        });
+        let snapshot = simulate_asm2d(
+            config,
+            Asm2dSimulationConfig {
+                dt_min: 1.0,
+                duration_min: 43_200.0,
+            },
+            Asm2dParams::default(),
+        )
+        .expect("30 day tertiary run");
+        let tertiary = snapshot.tertiary.as_ref().expect("tertiary snapshot");
+        assert!((tertiary.capture_fraction - 0.90).abs() < 1e-12);
+        assert!(tertiary.captured_solids_kg > 0.0);
+        assert!(tertiary.captured_phosphorus_kg > 0.0);
+        assert!(tertiary.polishing_po4_removed_kg > 0.0);
+        assert!(snapshot.effluent.ss < 3.0);
+        assert!(snapshot.effluent.tp < 0.3);
+        assert!(snapshot.effluent.po4_p < 0.1);
         assert!(snapshot.mass_balance.phosphorus.closed);
     }
 

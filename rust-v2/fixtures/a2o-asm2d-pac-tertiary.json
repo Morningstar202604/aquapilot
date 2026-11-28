@@ -1,0 +1,206 @@
+{
+  "name": "A2O ASM2d 1000 m3/h + PAC 20 mg/L + tertiary filter 90% + PO4 polish 70%",
+  "influent": {
+    "flow_m3_h": 1000.0,
+    "state": {
+      "so": 0.0,
+      "sn2": 0.0,
+      "snh4": 30.0,
+      "sno3": 0.0,
+      "spo4": 8.0,
+      "sf": 100.0,
+      "sa": 30.0,
+      "si": 30.0,
+      "salk": 300.0,
+      "xi": 50.0,
+      "xs": 150.0,
+      "xh": 20.0,
+      "xpao": 0.0,
+      "xpp": 0.0,
+      "xpha": 0.0,
+      "xaut": 0.0,
+      "xmeoh": 0.0,
+      "xmep": 0.0
+    }
+  },
+  "reactors": [
+    {
+      "id": "anaerobic",
+      "name": "厌氧池",
+      "kind": "anaerobic",
+      "volume_m3": 4000.0,
+      "temperature_c": 20.0,
+      "kla_h": 0.0,
+      "do_setpoint": 0.0,
+      "initial": {
+        "so": 0.0,
+        "sn2": 0.0,
+        "snh4": 20.0,
+        "sno3": 0.0,
+        "spo4": 5.0,
+        "sf": 20.0,
+        "sa": 20.0,
+        "si": 10.0,
+        "salk": 250.0,
+        "xi": 1000.0,
+        "xs": 200.0,
+        "xh": 1000.0,
+        "xpao": 300.0,
+        "xpp": 60.0,
+        "xpha": 40.0,
+        "xaut": 100.0,
+        "xmeoh": 5.0,
+        "xmep": 5.0
+      }
+    },
+    {
+      "id": "anoxic",
+      "name": "缺氧池",
+      "kind": "anoxic",
+      "volume_m3": 4000.0,
+      "temperature_c": 20.0,
+      "kla_h": 0.0,
+      "do_setpoint": 0.0,
+      "initial": {
+        "so": 0.1,
+        "sn2": 0.0,
+        "snh4": 20.0,
+        "sno3": 3.0,
+        "spo4": 5.0,
+        "sf": 20.0,
+        "sa": 20.0,
+        "si": 10.0,
+        "salk": 250.0,
+        "xi": 1000.0,
+        "xs": 200.0,
+        "xh": 1000.0,
+        "xpao": 300.0,
+        "xpp": 60.0,
+        "xpha": 40.0,
+        "xaut": 100.0,
+        "xmeoh": 5.0,
+        "xmep": 5.0
+      }
+    },
+    {
+      "id": "aerobic-1",
+      "name": "好氧池 1",
+      "kind": "aerobic",
+      "volume_m3": 2000.0,
+      "temperature_c": 20.0,
+      "kla_h": 8.0,
+      "do_setpoint": 2.0,
+      "initial": {
+        "so": 2.0,
+        "sn2": 0.0,
+        "snh4": 20.0,
+        "sno3": 2.0,
+        "spo4": 5.0,
+        "sf": 20.0,
+        "sa": 20.0,
+        "si": 10.0,
+        "salk": 250.0,
+        "xi": 1000.0,
+        "xs": 200.0,
+        "xh": 1000.0,
+        "xpao": 300.0,
+        "xpp": 60.0,
+        "xpha": 40.0,
+        "xaut": 100.0,
+        "xmeoh": 5.0,
+        "xmep": 5.0
+      }
+    },
+    {
+      "id": "aerobic-2",
+      "name": "好氧池 2",
+      "kind": "aerobic",
+      "volume_m3": 2000.0,
+      "temperature_c": 20.0,
+      "kla_h": 8.0,
+      "do_setpoint": 2.0,
+      "initial": {
+        "so": 2.0,
+        "sn2": 0.0,
+        "snh4": 20.0,
+        "sno3": 2.0,
+        "spo4": 5.0,
+        "sf": 20.0,
+        "sa": 20.0,
+        "si": 10.0,
+        "salk": 250.0,
+        "xi": 1000.0,
+        "xs": 200.0,
+        "xh": 1000.0,
+        "xpao": 300.0,
+        "xpp": 60.0,
+        "xpha": 40.0,
+        "xaut": 100.0,
+        "xmeoh": 5.0,
+        "xmep": 5.0
+      }
+    },
+    {
+      "id": "aerobic-3",
+      "name": "好氧池 3",
+      "kind": "aerobic",
+      "volume_m3": 2000.0,
+      "temperature_c": 20.0,
+      "kla_h": 8.0,
+      "do_setpoint": 2.0,
+      "initial": {
+        "so": 2.0,
+        "sn2": 0.0,
+        "snh4": 20.0,
+        "sno3": 2.0,
+        "spo4": 5.0,
+        "sf": 20.0,
+        "sa": 20.0,
+        "si": 10.0,
+        "salk": 250.0,
+        "xi": 1000.0,
+        "xs": 200.0,
+        "xh": 1000.0,
+        "xpao": 300.0,
+        "xpp": 60.0,
+        "xpha": 40.0,
+        "xaut": 100.0,
+        "xmeoh": 5.0,
+        "xmep": 5.0
+      }
+    }
+  ],
+  "clarifier": {
+    "area_m2": 6000.0,
+    "depth_m": 4.0,
+    "layers": 10,
+    "feed_layer": 5,
+    "settling": {
+      "v_max_m_per_d": 474.0,
+      "x_max_g_per_m3": 10000.0,
+      "x_min_g_per_m3": 0.001,
+      "a_per_g_per_m3": 0.0005,
+      "b_per_g_per_m3": 0.001
+    },
+    "ras_reactor": 0,
+    "ras_flow_m3_h": 1000.0,
+    "was_flow_m3_h": 20.0
+  },
+  "internal_recycles": [
+    {
+      "from": 4,
+      "to": 1,
+      "flow_m3_h": 2000.0
+    }
+  ],
+  "pac": {
+    "reactor": 4,
+    "dose_mg_l": 20.0,
+    "al2o3_fraction": 0.3,
+    "meoh_per_al": 3.962962962962963
+  },
+  "tertiary": {
+    "tss_removal_fraction": 0.9,
+    "po4_removal_fraction": 0.7
+  }
+}

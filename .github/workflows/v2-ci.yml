@@ -42,6 +42,8 @@ jobs:
         run: cargo run -q -p aquapilot-cli -- asm2d fixtures/a2o-asm2d.json --minutes 43200 --json > /tmp/a2o-30d.json
       - name: Smoke ASM2d A2O + PAC 30 days
         run: cargo run -q -p aquapilot-cli -- asm2d fixtures/a2o-asm2d-pac.json --minutes 43200 --json > /tmp/a2o-pac.json
+      - name: Smoke ASM2d A2O + PAC + tertiary 30 days
+        run: cargo run -q -p aquapilot-cli -- asm2d fixtures/a2o-asm2d-pac-tertiary.json --minutes 43200 --json > /tmp/a2o-tertiary.json
       - name: Smoke ASM2d two-train 30 days
         run: cargo run -q -p aquapilot-cli -- asm2d-parallel fixtures/a2o-asm2d-2train.json --minutes 43200 --json > /tmp/a2o-2train.json
       - name: Smoke ADM1 tutorial
@@ -89,6 +91,15 @@ jobs:
           assert p['effluent']['po4_p'] < 0.5
           assert p['effluent']['tp'] < 1.3
           assert p['mass_balance']['phosphorus']['closed'] is True
+
+          t = json.load(open('/tmp/a2o-tertiary.json'))
+          assert t['tertiary'] is not None
+          assert t['tertiary']['capture_fraction'] == 0.9
+          assert t['tertiary']['po4_removal_fraction'] == 0.7
+          assert t['tertiary']['captured_solids_kg'] > 0.0
+          assert t['effluent']['ss'] < 3.0
+          assert t['effluent']['tp'] < 0.5
+          assert t['mass_balance']['phosphorus']['closed'] is True
 
           m = json.load(open('/tmp/adm1.json'))
           assert 6.8 <= m['ph'] <= 7.8

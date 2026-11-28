@@ -6,7 +6,7 @@
 - Clean-room 规则：`../docs/CLEAN-ROOM.md`
 - 旧 `rust/` 已冻结为 v0.11.23 的历史 checkpoint，v2 不读取、不复制它的源码。
 
-## 当前状态：V2-1 已完成，V2-2 回流闭环 + PAC 基础投加已落
+## 当前状态：V2-1 已完成，V2-2 已完成（回流闭环 + PAC + 三级过滤）
 
 V2-1 已完成并推送：ASM1 五池整厂、Takács 10 层二沉池、RAS/内回流/WAS、DO 控制、BSM1-like 与官方 BSM1 对照、22 项测试。
 
@@ -21,7 +21,8 @@ V2-2 当前已落：
 - `aquapilot-model::asm2d_sludge`：ASM2d 与 ADM1 的双向翻译，A2O 二沉池底流按 COD/N/P 守恒进入泥线，泥线回流液按 COD/N/P 守恒翻回 ASM2d；CLI `asm2d-sludge` 可跑单向接入；
 - `aquapilot-model::asm2d_adm1_loop`：把浓缩溢流与滤液合并后接回 A2O 进水，successive substitution 迭代到回流状态稳定；整厂 COD/N/P 三本账以外部进水为输入，出水、泥饼、沼气、库存为输出；CLI `asm2d-loop`；
 - PAC 基础投加：`Asm2dPacConfig` 指定反应器、产品剂量、Al2O3 品位和金属氢氧化物当量；`asm2d`/`asm2d-loop` 支持 `--pac-dose`、`--pac-reactor`、`--pac-al2o3-fraction`；`fixtures/a2o-asm2d-pac.json` 为 40 mg/L 示例；
-- 尚未实现：HTTP/WS 服务、实验队列、界面、24 h soak；PAC 目前是三价金属当量模型，未区分 Al/Fe 形态。
+- 三级过滤：`Asm2dTertiaryConfig` 在二沉池后按颗粒物捕集率去除 TSS/颗粒 COD/N/P，并可选 PO4 化学抛光；CLI 支持 `--tertiary-tss-removal`、`--tertiary-po4-removal`；`fixtures/a2o-asm2d-pac-tertiary.json` 为 PAC 20 mg/L + 90% TSS + 70% PO4 示例；
+- 尚未实现：HTTP/WS 服务、实验队列、界面、24 h soak；PAC 仍为三价金属当量模型，三级过滤为理想化边界单元。
 
 30 天 A2O ASM2d 实测（`fixtures/a2o-asm2d.json`）：
 
@@ -68,11 +69,28 @@ PAC 40 mg/L 回流闭环 30 天实测（`fixtures/a2o-asm2d-pac.json`）：
 
 PAC 把回流闭环的出水 TP 从 3.872 压到 1.760 mg/L，降幅约 55%；但 1.760 仍高于常见排放限值，且 PAC 模型使用 ASM2d 默认三价金属（Fe(OH)3/FePO4）质量系数，未区分 Al/Fe 形态。因此这只是 PAC 基础投加与化学除磷，不是“TP 达标”或完整 V2-2 验收。
 
-当前仍不能把 V2-2 表述为完成：回流闭环、PAC 与整厂三本账已跑通，出水 TP 1.760 mg/L 未达常见限值，PAC 深度处理/形态区分未做。
+PAC 20 mg/L + 三级过滤（90% TSS、70% PO4 抛光）回流闭环 30 天实测（`fixtures/a2o-asm2d-pac-tertiary.json`）：
+
+| 指标 | 实测 |
+| --- | --- |
+| 迭代 / 回流 | 5 次收敛，19.884 m3/h |
+| PAC 产品 / Al / X_MeOH 当量 | 489.5 / 77.8 / 308.1 kg/d |
+| 净化学除磷 | 1,059.0 kg / 30 d |
+| 三级过滤 TSS / PO4 捕集 | 11.77 → 1.18 mg/L；PO4 抛光 126.6 kg/30 d |
+| A2O 出水 COD / NH4-N / TN / TP / SS | 41.66 / 0.617 / 10.073 / 0.387 / 1.18 mg/L |
+| 消化 pH / 沼气 / CH4 | 7.885 / 1,098 m3/d / 60.4% |
+| 泥饼 / 滤液 | 2.79 m3/d / 117.21 m3/d |
+| 整厂 COD / N / P 残差 | -1.07% / 2.16% / 1.29%，均 closed |
+
+三级过滤把回流闭环的 TP 从 PAC 40 的 1.760 进一步压到 0.387 mg/L；COD 41.66、SS 1.18、NH4-N 0.617、TN 10.073 也低于 GB 18918 一级 A 的常见限值（COD 50、SS 10、NH4-N 5、TN 15、TP 0.5）。BOD、粪大肠菌群、色度等未建模，不能宣称全指标合规。
+
+V2-2 出水门按“关键指标 + 三本账闭合”验收通过；三级过滤是理想化颗粒捕集 + 经验 PO4 抛光效率，没有滤池反冲洗水力学、滤料级配和 Al/Fe 形态区分。捕集固体与抛光 P 计入 `waste_kg`，整厂 `cake_kg` 含滤饼，不等同于泥线脱水机泥饼。
 
 ![V2 30 天质量账 dashboard](../docs/screenshots/v2-30d-dashboard.png)
 
 ![V2 PAC 回流闭环 dashboard](../docs/screenshots/v2-pac-loop-dashboard.png)
+
+![V2 三级过滤回流闭环 dashboard](../docs/screenshots/v2-tertiary-loop-dashboard.png)
 
 ## 运行
 
@@ -92,6 +110,8 @@ cargo run -p aquapilot-cli -- asm2d-sludge fixtures/a2o-asm2d.json --minutes 432
 cargo run -p aquapilot-cli -- asm2d-loop fixtures/a2o-asm2d.json --minutes 43200 --dt 1 --sludge-days 30 --sludge-dt 0.002 --max-iterations 6 --relaxation 1.0 --out /tmp/a2o-loop.json
 cargo run -p aquapilot-cli -- asm2d fixtures/a2o-asm2d-pac.json --minutes 43200 --out /tmp/a2o-pac.json
 cargo run -p aquapilot-cli -- asm2d-loop fixtures/a2o-asm2d-pac.json --minutes 43200 --dt 1 --sludge-days 30 --sludge-dt 0.002 --max-iterations 6 --relaxation 1.0 --out /tmp/a2o-loop-pac.json
+cargo run -p aquapilot-cli -- asm2d fixtures/a2o-asm2d-pac-tertiary.json --minutes 43200 --out /tmp/a2o-pac-tertiary.json
+cargo run -p aquapilot-cli -- asm2d-loop fixtures/a2o-asm2d-pac-tertiary.json --minutes 43200 --dt 1 --sludge-days 30 --sludge-dt 0.002 --max-iterations 8 --relaxation 1.0 --out /tmp/a2o-loop-pac-tertiary.json
 ```
 
 质量门：
@@ -119,6 +139,7 @@ rust-v2/
 - `dt` 上限 1 min；负值/非有限值在物理下界钳制并输出 `ASM1_STATE_CLAMPED` 诊断。
 - 二沉池是 10 层有限体积 Takács 风格模型；RAS 底流按缺氧处理（DO 置 0），WAS 进沉泥汇。
 - ASM1 COD 账只做到“进水/出水/排泥/库存变化/未解释项”，氧化项尚未入账，因此**不声称闭合**。
-- ASM2d A2O、ADM1 泥线、PAC 回流闭环的整厂 COD/N/P 三本账在 30 天 fixture 均闭合；闭合是质量账闭合，不等于出水指标达标。
-- PAC 以产品 Al2O3 品位换算 Al，再按 `107/27` 映射为 `X_MeOH` 当量；化学沉淀沿用 ASM2d 默认 `3.45 g X_MeOH / g P` 与 `4.87 g X_MeP / g P` 系数。未区分 Al/Fe 形态，也未做 PAC 深度处理。
+- ASM2d A2O、ADM1 泥线、PAC + 三级过滤回流闭环的整厂 COD/N/P 三本账在 30 天 fixture 均闭合；闭合是质量账闭合，不等于全指标合规。
+- PAC 以产品 Al2O3 品位换算 Al，再按 `107/27` 映射为 `X_MeOH` 当量；化学沉淀沿用 ASM2d 默认 `3.45 g X_MeOH / g P` 与 `4.87 g X_MeP / g P` 系数。未区分 Al/Fe 形态。
+- 三级过滤按固定 TSS 捕集率与经验 PO4 抛光效率计算，捕集固体计入 `waste_kg`；未建模反冲洗水、滤料级配和过滤压头，不能当作详细滤池设计。
 - 未实现：HTTP/WS 服务、实验队列、界面、24 h soak；官方 BSM1 参数集仍未全部通过 Table 6，只有校准候选在 ±20% 内通过。

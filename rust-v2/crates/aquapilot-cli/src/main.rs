@@ -8,7 +8,7 @@ use aquapilot_model::asm2d::Asm2dParams;
 use aquapilot_model::asm2d_adm1_loop::{simulate_asm2d_adm1_loop, Asm2dAdm1LoopConfig};
 use aquapilot_model::asm2d_parallel::{simulate_asm2d_parallel, Asm2dParallelConfig};
 use aquapilot_model::asm2d_plant::{
-    simulate_asm2d, Asm2dPacConfig, Asm2dPlantConfig, Asm2dSimulationConfig,
+    simulate_asm2d, Asm2dPacConfig, Asm2dPlantConfig, Asm2dSimulationConfig, Asm2dTertiaryConfig,
 };
 use aquapilot_model::asm2d_sludge::{simulate_asm2d_sludge, Asm2dSludgeConfig};
 use aquapilot_model::Asm1Params;
@@ -159,6 +159,12 @@ enum Command {
         /// Al2O3 mass fraction of the PAC product.
         #[arg(long)]
         pac_al2o3_fraction: Option<f64>,
+        /// Tertiary filter TSS capture fraction; overrides the fixture.
+        #[arg(long)]
+        tertiary_tss_removal: Option<f64>,
+        /// Tertiary dissolved-PO4 polishing removal fraction; overrides the fixture.
+        #[arg(long)]
+        tertiary_po4_removal: Option<f64>,
         /// Optional output path for the JSON snapshot.
         #[arg(long)]
         out: Option<PathBuf>,
@@ -202,6 +208,12 @@ enum Command {
         /// Al2O3 mass fraction of the PAC product.
         #[arg(long)]
         pac_al2o3_fraction: Option<f64>,
+        /// Tertiary filter TSS capture fraction; overrides the fixture.
+        #[arg(long)]
+        tertiary_tss_removal: Option<f64>,
+        /// Tertiary dissolved-PO4 polishing removal fraction; overrides the fixture.
+        #[arg(long)]
+        tertiary_po4_removal: Option<f64>,
         /// Optional output path for the JSON snapshot.
         #[arg(long)]
         out: Option<PathBuf>,
@@ -232,6 +244,25 @@ fn apply_pac_override(
             .or_else(|| existing.map(|pac| pac.al2o3_fraction))
             .unwrap_or(0.30),
         meoh_per_al: existing.map_or(107.0 / 27.0, |pac| pac.meoh_per_al),
+    });
+}
+
+fn apply_tertiary_override(
+    plant: &mut Asm2dPlantConfig,
+    tss_removal: Option<f64>,
+    po4_removal: Option<f64>,
+) {
+    if tss_removal.is_none() && po4_removal.is_none() {
+        return;
+    }
+    let existing = plant.tertiary;
+    plant.tertiary = Some(Asm2dTertiaryConfig {
+        tss_removal_fraction: tss_removal
+            .or_else(|| existing.map(|tertiary| tertiary.tss_removal_fraction))
+            .unwrap_or(0.90),
+        po4_removal_fraction: po4_removal
+            .or_else(|| existing.map(|tertiary| tertiary.po4_removal_fraction))
+            .unwrap_or(0.0),
     });
 }
 
@@ -393,12 +424,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             pac_dose,
             pac_reactor,
             pac_al2o3_fraction,
+            tertiary_tss_removal,
+            tertiary_po4_removal,
             out,
             json,
         } => {
             let text = std::fs::read_to_string(&config)?;
             let mut plant: Asm2dPlantConfig = serde_json::from_str(&text)?;
             apply_pac_override(&mut plant, pac_dose, pac_reactor, pac_al2o3_fraction);
+            apply_tertiary_override(&mut plant, tertiary_tss_removal, tertiary_po4_removal);
             let loop_config = Asm2dAdm1LoopConfig {
                 plant,
                 sludge: Asm2dSludgeConfig::default(),
@@ -647,12 +681,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             pac_dose,
             pac_reactor,
             pac_al2o3_fraction,
+            tertiary_tss_removal,
+            tertiary_po4_removal,
             out,
             json,
         } => {
             let text = std::fs::read_to_string(&config)?;
             let mut plant: Asm2dPlantConfig = serde_json::from_str(&text)?;
             apply_pac_override(&mut plant, pac_dose, pac_reactor, pac_al2o3_fraction);
+            apply_tertiary_override(&mut plant, tertiary_tss_removal, tertiary_po4_removal);
             let simulation = Asm2dSimulationConfig {
                 dt_min: dt,
                 duration_min: minutes,
@@ -706,6 +743,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         pac.aluminum_kg_d,
                         pac.meoh_kg_d,
                         pac.net_chemical_p_removed_kg
+                    );
+                }
+                if let Some(tertiary) = &snapshot.tertiary {
+                    println!(
+                        "Tertiary filter: capture={:.2}, inlet TSS={:.2} mg/L, outlet TSS={:.2} mg/L, captured solids={:.1} kg, captured P={:.1} kg",
+                        tertiary.capture_fraction,
+                        tertiary.inlet_tss,
+                        tertiary.outlet_tss,
+                        tertiary.captured_solids_kg,
+                        tertiary.captured_phosphorus_kg
                     );
                 }
                 for (name, ledger) in [
