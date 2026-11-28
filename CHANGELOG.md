@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.0.16] — 2026-11-28
+
+### Added
+
+- ASM2d 多系列服务：新增 `asm2d-parallel` 模型与 `Asm2dParallelSimulator`，逐系列步进、按 interval 采样、检查取消并汇总全厂出水/三本账；`a2o-2train` preset 为 2×500 m³/h，各系列独立二沉池/RAS/WAS。
+- 多系列画布：载入 `a2o-2train` 后出现系列 A/B 标签，切换标签编辑当前系列；所有系列的池体/回流/二沉池都可改，结果按总流量汇总。
+- 自定义工况一次作用到所有系列：流量倍率乘全部进水/内回流/RAS/WAS，DO/KLa 改全部好氧池，温度改全部反应器；撤销/重做恢复整份多系列配置。
+- 多系列校验逐系列检查重复 id、回流端点、RAS/PAC 投加点与进水流量，再显示系列数、池数与总进水；OpenAPI model enum 加入 `asm2d-parallel`，preset 数 9。
+
+### Verification
+
+- `cargo test --workspace` 77 项通过；`cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings` 通过；OpenAPI 0.0.16、13 paths、3.1 validator 通过。
+- API 1 d 多系列：`44c47adb-c7f4-4db8-bcb2-6e969ad1c93d`，succeeded，2 系列 ×500，总出水 980 m³/h，C 4/6，COD 账 2.67%。
+- UI 1 d 多系列 + 自定义 1.5/3/120/12：`dcc490e2-bcdd-4f34-a269-7baa5bce3924`，succeeded，2 系列各 750 m³/h，10 池 12°C、6 个好氧池 KLa 120/DO 3.0，二沉池 RAS 750/WAS 15，总出水 1470 m³/h；D 3/6，4 告警，最大三本账残差 30.75%（1 d 初始库存未闭合）。
+- 证据：`docs/visual-multi-train-check.json`、`docs/screenshots/v2-ui-asm2d-multi-train.png`。
+
 ## [0.0.15] — 2026-11-28
 
 ### Added

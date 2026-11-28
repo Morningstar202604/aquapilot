@@ -11,6 +11,9 @@ use aquapilot_model::adm1::{simulate_adm1, Adm1Config, Adm1Snapshot};
 use aquapilot_model::adm1_sludge::{simulate_sludge_line, SludgeLineConfig};
 use aquapilot_model::asm2d::Asm2dParams;
 use aquapilot_model::asm2d_adm1_loop::{simulate_asm2d_adm1_loop, Asm2dAdm1LoopConfig};
+use aquapilot_model::asm2d_parallel::{
+    Asm2dParallelConfig, Asm2dParallelSimulator, Asm2dParallelSnapshot,
+};
 use aquapilot_model::asm2d_plant::{
     Asm2dPlantConfig, Asm2dPlantSnapshot, Asm2dSimulationConfig, Asm2dSimulator,
 };
@@ -25,6 +28,7 @@ use crate::error::FieldError;
 pub enum ModelKind {
     Asm1,
     Asm2d,
+    Asm2dParallel,
     Asm2dAdm1Loop,
     Adm1,
     SludgeLine,
@@ -35,6 +39,7 @@ impl ModelKind {
         match self {
             Self::Asm1 => "asm1",
             Self::Asm2d => "asm2d",
+            Self::Asm2dParallel => "asm2d-parallel",
             Self::Asm2dAdm1Loop => "asm2d-adm1-loop",
             Self::Adm1 => "adm1",
             Self::SludgeLine => "sludge-line",
@@ -209,6 +214,11 @@ impl ExperimentRequest {
             ModelKind::Asm2d => serde_json::from_value::<Asm2dPlantConfig>(self.config.clone())
                 .map(|_| ())
                 .map_err(|error| format!("invalid ASM2d plant config: {error}")),
+            ModelKind::Asm2dParallel => {
+                serde_json::from_value::<Asm2dParallelConfig>(self.config.clone())
+                    .map(|_| ())
+                    .map_err(|error| format!("invalid ASM2d parallel config: {error}"))
+            }
             ModelKind::Asm2dAdm1Loop => {
                 serde_json::from_value::<LoopConfigInput>(self.config.clone())
                     .map(|_| ())
@@ -279,6 +289,7 @@ pub fn run(
     match request.model {
         ModelKind::Asm1 => run_asm1(request, cancel, progress),
         ModelKind::Asm2d => run_asm2d(request, cancel, progress),
+        ModelKind::Asm2dParallel => run_asm2d_parallel(request, cancel, progress),
         ModelKind::Asm2dAdm1Loop => run_loop(request, cancel, progress),
         ModelKind::Adm1 => run_adm1(request),
         ModelKind::SludgeLine => run_sludge_line(request),
@@ -357,6 +368,49 @@ fn run_asm2d(
     let final_sample = sample_from_asm2d(&simulator.snapshot());
     push_final_sample(&mut samples, final_sample);
     Ok(RunResult { snapshot, samples })
+}
+
+fn run_asm2d_parallel(
+    request: &ExperimentRequest,
+    cancel: &dyn Fn() -> bool,
+    progress: &dyn Fn(f64),
+) -> Result<RunResult, RunError> {
+    let config: Asm2dParallelConfig = serde_json::from_value(request.config.clone())
+        .map_err(|error| RunError::Invalid(format!("invalid ASM2d parallel config: {error}")))?;
+    let simulation = Asm2dSimulationConfig {
+        dt_min: request.dt_min,
+        duration_min: request.duration_min,
+    };
+    let mut simulator = Asm2dParallelSimulator::new(config, simulation, Asm2dParams::default())
+        .map_err(|error| RunError::Simulation(error.to_string()))?;
+    let steps = (request.duration_min / request.dt_min).round().max(1.0) as u64;
+    let interval = (request.sample_every_min / request.dt_min).round().max(1.0) as u64;
+    let mut samples = Vec::new();
+    for step in 0..steps {
+        if cancel() {
+            return Err(RunError::Cancelled);
+        }
+        simulator
+            .step()
+            .map_err(|error| RunError::Simulation(error.to_string()))?;
+        if step % interval == 0 || step + 1 == steps {
+            samples.push(sample_from_asm2d_parallel(&simulator.snapshot()));
+        }
+        if step % 60 == 0 {
+            progress((step + 1) as f64 / steps as f64);
+        }
+    }
+    progress(1.0);
+    let snapshot = simulator.snapshot();
+    let final_sample = sample_from_asm2d_parallel(&snapshot);
+    let serialized = serde_json::to_value(&snapshot).unwrap_or_else(|error| {
+        serde_json::json!({"error": format!("failed to serialize ASM2d parallel snapshot: {error}")})
+    });
+    push_final_sample(&mut samples, final_sample);
+    Ok(RunResult {
+        snapshot: serialized,
+        samples,
+    })
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -509,6 +563,29 @@ fn sample_from_asm2d(snapshot: &Asm2dPlantSnapshot) -> Sample {
     }
 }
 
+fn sample_from_asm2d_parallel(snapshot: &Asm2dParallelSnapshot) -> Sample {
+    let effluent = &snapshot.effluent;
+    Sample {
+        minute: snapshot.time_min,
+        flow_m3_h: effluent.flow_m3_h,
+        cod: effluent.cod,
+        bod: None,
+        ss: effluent.ss,
+        nh4_n: effluent.nh4_n,
+        tn: effluent.tn,
+        tp: effluent.tp,
+        po4_p: Some(effluent.po4_p),
+        ph: None,
+        temperature_c: None,
+        do_mg_l: effluent.dissolved_oxygen,
+        mlss: None,
+        srt_d: None,
+        energy_kw: None,
+        score: None,
+        blanket_depth_m: None,
+    }
+}
+
 fn sample_from_adm1(snapshot: &Adm1Snapshot, flow_m3_h: f64) -> Sample {
     Sample {
         minute: snapshot.days * 1440.0,
@@ -600,6 +677,30 @@ mod validation_tests {
     #[test]
     fn accepts_default_request() {
         valid_request().validate().expect("default request");
+    }
+
+    #[test]
+    fn parallel_model_runs_stepwise_and_aggregates() {
+        let config: Value =
+            serde_json::from_str(include_str!("../../../fixtures/a2o-asm2d-2train.json"))
+                .expect("2-train fixture");
+        let request = ExperimentRequest {
+            name: "parallel".to_owned(),
+            model: ModelKind::Asm2dParallel,
+            config,
+            duration_min: 120.0,
+            dt_min: 1.0,
+            sample_every_min: 60.0,
+            sludge_days: 30.0,
+            sludge_dt_days: 0.002,
+            max_iterations: 0,
+            relaxation: 0.0,
+        };
+        request.validate().expect("parallel request");
+        let result = run(&request, &|| false, &|_| {}).expect("parallel run");
+        assert_eq!(result.snapshot["train_count"], 2);
+        assert!(result.snapshot["effluent"]["flow_m3_h"].as_f64().unwrap() > 0.0);
+        assert_eq!(result.samples.len(), 3);
     }
 
     #[test]

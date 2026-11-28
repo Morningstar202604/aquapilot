@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::asm2d::{Asm2dParams, Asm2dState};
 use crate::asm2d_plant::{
     simulate_asm2d, Asm2dEffluentSnapshot, Asm2dMassBalance, Asm2dPlantConfig, Asm2dPlantSnapshot,
-    Asm2dSimulationConfig, Asm2dWasteSnapshot, MassLedger,
+    Asm2dSimulationConfig, Asm2dSimulator, Asm2dWasteSnapshot, MassLedger,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -43,6 +43,56 @@ pub struct Asm2dParallelSnapshot {
     pub effluent: Asm2dEffluentSnapshot,
     pub waste: Asm2dWasteSnapshot,
     pub mass_balance: Asm2dMassBalance,
+}
+
+/// Stepwise parallel wrapper used by the service queue so a running
+/// multi-train experiment can honor cancellation and emit time series.
+#[derive(Debug)]
+pub struct Asm2dParallelSimulator {
+    name: String,
+    trains: Vec<Asm2dSimulator>,
+}
+
+impl Asm2dParallelSimulator {
+    pub fn new(
+        config: Asm2dParallelConfig,
+        simulation: Asm2dSimulationConfig,
+        params: Asm2dParams,
+    ) -> Result<Self, Asm2dParallelError> {
+        if config.trains.is_empty() {
+            return Err(Asm2dParallelError::NoTrains);
+        }
+        let mut trains = Vec::with_capacity(config.trains.len());
+        for (index, train) in config.trains.into_iter().enumerate() {
+            if train.influent.flow_m3_h <= 0.0 {
+                return Err(Asm2dParallelError::ZeroFlow { index });
+            }
+            trains.push(
+                Asm2dSimulator::new(train, simulation, params)
+                    .map_err(|source| Asm2dParallelError::Train { index, source })?,
+            );
+        }
+        Ok(Self {
+            name: config.name,
+            trains,
+        })
+    }
+
+    pub fn step(&mut self) -> Result<(), Asm2dParallelError> {
+        for (index, train) in self.trains.iter_mut().enumerate() {
+            train
+                .step()
+                .map_err(|source| Asm2dParallelError::Train { index, source })?;
+        }
+        Ok(())
+    }
+
+    pub fn snapshot(&self) -> Asm2dParallelSnapshot {
+        aggregate(
+            self.name.clone(),
+            self.trains.iter().map(Asm2dSimulator::snapshot).collect(),
+        )
+    }
 }
 
 pub fn simulate_asm2d_parallel(
@@ -238,5 +288,32 @@ mod tests {
             .trains
             .iter()
             .all(|train| train.mass_balance.cod.closed));
+    }
+
+    #[test]
+    fn stepwise_parallel_matches_batch_after_one_day() {
+        let config = Asm2dParallelConfig {
+            name: "2 x A2O".to_owned(),
+            trains: vec![train(), train()],
+        };
+        let simulation = Asm2dSimulationConfig {
+            dt_min: 1.0,
+            duration_min: 1_440.0,
+        };
+        let mut simulator =
+            Asm2dParallelSimulator::new(config.clone(), simulation, Asm2dParams::default())
+                .expect("parallel simulator");
+        for _ in 0..1_440 {
+            simulator.step().expect("step");
+        }
+        let stepped = simulator.snapshot();
+        let batch = simulate_asm2d_parallel(config, simulation, Asm2dParams::default())
+            .expect("batch parallel");
+        assert!((stepped.effluent.cod - batch.effluent.cod).abs() < 1e-6);
+        assert!(
+            (stepped.mass_balance.cod.residual_fraction - batch.mass_balance.cod.residual_fraction)
+                .abs()
+                < 1e-6
+        );
     }
 }

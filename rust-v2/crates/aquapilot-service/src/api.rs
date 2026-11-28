@@ -141,6 +141,13 @@ async fn presets() -> Json<Value> {
                 "config": { "plant": fixture(include_str!("../../../fixtures/a2o-asm2d-pac-tertiary.json")) }
             },
             {
+                "id": "a2o-2train",
+                "label": "A2O 双系列 2×500",
+                "model": "asm2d-parallel",
+                "description": "两条并列 A2O 系列，各 500 m³/h，各自二沉池与 RAS/WAS；出水与三本账按流量加权汇总。",
+                "config": fixture(include_str!("../../../fixtures/a2o-asm2d-2train.json"))
+            },
+            {
                 "id": "bsm1",
                 "label": "BSM1 基准",
                 "model": "asm1",
@@ -877,7 +884,7 @@ fn openapi_document() -> Value {
                     "required": ["name", "model", "config"],
                     "properties": {
                         "name": {"type": "string", "minLength": 1, "maxLength": 128},
-                        "model": {"type": "string", "enum": ["asm1", "asm2d", "asm2d-adm1-loop", "adm1", "sludge-line"]},
+                        "model": {"type": "string", "enum": ["asm1", "asm2d", "asm2d-parallel", "asm2d-adm1-loop", "adm1", "sludge-line"]},
                         "config": {"type": "object", "description": "Model-specific plant or process configuration"},
                         "duration_min": {"type": "number", "minimum": 1, "maximum": 525600, "default": 1440},
                         "dt_min": {"type": "number", "exclusiveMinimum": 0, "maximum": 1, "default": 1},
@@ -1324,7 +1331,7 @@ mod tests {
         assert_eq!(presets.status(), StatusCode::OK);
         let document = body_json(presets).await;
         let items = document["presets"].as_array().expect("presets");
-        assert_eq!(items.len(), 8);
+        assert_eq!(items.len(), 9);
         assert!(items.iter().any(|item| item["label"] == "PAC + 三级过滤"));
         assert!(items
             .iter()
@@ -1348,7 +1355,7 @@ mod tests {
         assert_eq!(openapi.status(), StatusCode::OK);
         let document = body_json(openapi).await;
         assert_eq!(document["openapi"], "3.1.0");
-        assert_eq!(document["info"]["version"], "0.0.15");
+        assert_eq!(document["info"]["version"], "0.0.16");
         assert!(document["paths"]["/api/v1/experiments"].is_object());
         assert!(document["paths"]["/api/v1/presets"].is_object());
         assert!(document["paths"]["/api/v1/topologies/validate"].is_object());

@@ -1,0 +1,185 @@
+{
+  "version": "0.0.16",
+  "model": "asm2d-parallel",
+  "experiment_id": "dcc490e2-bcdd-4f34-a269-7baa5bce3924",
+  "name": "A2O 双系列 2×500 · ui-20261128-2347",
+  "duration_min": 1440.0,
+  "sample_every_min": 60.0,
+  "custom_scenario": {
+    "flow_multiplier": 1.5,
+    "do_mg_l": 3.0,
+    "kla_h": 120,
+    "temperature_c": 12
+  },
+  "train_count": 2,
+  "total_influent_flow_m3_h": 1500.0,
+  "train_effluent_flows_m3_h": [
+    735.0,
+    735.0
+  ],
+  "train_ras_flow_m3_h": [
+    750.0,
+    750.0
+  ],
+  "train_was_flow_m3_h": [
+    15.0,
+    15.0
+  ],
+  "aggregate_effluent": {
+    "alkalinity": 271.13760776543893,
+    "cod": 51.54462842188999,
+    "do": 3.511611858550406,
+    "flow_m3_h": 1470.0,
+    "nh4_n": 0.09571318423787212,
+    "no3_n": 8.587775768120068,
+    "po4_p": 0.01493093681902083,
+    "s_s": 2.776905500918047,
+    "ss": 17.311472268957576,
+    "tn": 10.007584803816664,
+    "tp": 0.8736830426420743
+  },
+  "aggregate_mass_balance": {
+    "cod": {
+      "closed": true,
+      "effluent_kg": 2162.6866664564704,
+      "gas_kg": 0.0,
+      "inflow_kg": 13680.0,
+      "inventory_change_kg": -5663.591318255814,
+      "oxidized_kg": 10035.780422147822,
+      "residual_fraction": 0.010530049226597398,
+      "unaccounted_kg": 144.0510734198524,
+      "waste_kg": 7001.0731562316705
+    },
+    "nitrogen": {
+      "closed": false,
+      "effluent_kg": 423.2582039619457,
+      "gas_kg": 1125.102368483324,
+      "inflow_kg": 1501.2000000000205,
+      "inventory_change_kg": -721.4059181491539,
+      "oxidized_kg": 0.0,
+      "residual_fraction": 0.2203519369009769,
+      "unaccounted_kg": 330.79232767575104,
+      "waste_kg": 343.4530180281535
+    },
+    "note": "parallel ASM2d aggregate ledger exceeds 5%; inspect train-level residuals",
+    "phosphorus": {
+      "closed": false,
+      "effluent_kg": 52.987415705094925,
+      "gas_kg": 0.0,
+      "inflow_kg": 410.4000000000109,
+      "inventory_change_kg": -50.303328726929976,
+      "oxidized_kg": 0.0,
+      "residual_fraction": 0.3075345511002684,
+      "unaccounted_kg": 126.21217977155352,
+      "waste_kg": 281.50373325029244
+    }
+  },
+  "scorecard": {
+    "grade": "D",
+    "passed": 3,
+    "total": 6,
+    "score": 50.0,
+    "note": "Effluent score = passed limits / checked limits. Missing indicators are excluded, not treated as passed.",
+    "max_balance_residual_pct": 30.753455110026838
+  },
+  "alarms": [
+    {
+      "code": "EFFLUENT_COD_HIGH",
+      "evidence": [
+        "末次采样 minute=1440：COD=51.5446 mg/L；限值 50.0 mg/L。"
+      ],
+      "limit": 50.0,
+      "message": "COD 51.545 exceeds 50.0 mg/L",
+      "metric": "cod",
+      "possible_causes": [
+        "进水 COD 负荷或流量超过当前池容/曝气能力",
+        "好氧池 HRT 过短、KLa 不足或 DO 长期偏低",
+        "自由拓扑没有二沉池，生物量随出水流失"
+      ],
+      "recommended_actions": [
+        "核对进水 COD 与流量，先做 1 d 短实验确认是否随负荷下降",
+        "检查好氧池池容、KLa、DO 设定与回流比",
+        "确认拓扑里有二沉池或等效固液分离单元"
+      ],
+      "scope": "effluent",
+      "severity": "high",
+      "value": 51.54462842188999
+    },
+    {
+      "code": "EFFLUENT_SS_HIGH",
+      "evidence": [
+        "末次采样 minute=1440：SS=17.3115 mg/L；限值 10.0 mg/L。"
+      ],
+      "limit": 10.0,
+      "message": "SS 17.311 exceeds 10.0 mg/L",
+      "metric": "ss",
+      "possible_causes": [
+        "自由拓扑缺少二沉池或过滤单元，悬浮固体直接穿透",
+        "污泥回流不足或排泥过量，生物量无法维持",
+        "进水 SS 过高或池体混合过强"
+      ],
+      "recommended_actions": [
+        "先确认拓扑中二沉池/过滤单元是否存在并连接",
+        "检查 RAS 回流比、污泥浓度与排泥设置",
+        "若模型边界没有沉淀单元，应在报告中说明，不能把 SS 解释成处理失败"
+      ],
+      "scope": "effluent",
+      "severity": "high",
+      "value": 17.311472268957576
+    },
+    {
+      "code": "EFFLUENT_TP_HIGH",
+      "evidence": [
+        "末次采样 minute=1440：TP=0.8737 mg/L；限值 0.5 mg/L。"
+      ],
+      "limit": 0.5,
+      "message": "TP 0.874 exceeds 0.5 mg/L",
+      "metric": "tp",
+      "possible_causes": [
+        "生物除磷不足：厌氧段缺失、VFA 不足或 SRT 不匹配",
+        "化学除磷剂量不足或 PAC 投加点不合理",
+        "二沉池/污泥回流异常导致磷释放或穿透"
+      ],
+      "recommended_actions": [
+        "先确认厌氧段与回流路径存在，且没有把 DO/NO3 带入厌氧区",
+        "核对 PAC 剂量与投加点，做 0/20/40 mg/L 小矩阵",
+        "检查剩余污泥排放是否正常，避免磷在系统内循环"
+      ],
+      "scope": "effluent",
+      "severity": "high",
+      "value": 0.8736830426420743
+    },
+    {
+      "code": "MASS_BALANCE_OPEN",
+      "evidence": [
+        "全厂 COD/N/P 账本中最大绝对残差 30.75%；闭合阈值 5.00%。"
+      ],
+      "limit": 5.0,
+      "message": "plant COD/N/P mass balance is not closed (max residual 30.75%)",
+      "metric": "mass_balance",
+      "possible_causes": [
+        "拓扑边界不完整：缺少二沉池、污泥线或弃流路径",
+        "未建模的化学沉淀、吸附或过滤路径被当成消失",
+        "自由拓扑存在未连接的支路，或有流量未进入账本",
+        "积分步长或采样间隔较粗，残差尚未收敛"
+      ],
+      "recommended_actions": [
+        "先核对拓扑是否覆盖所有进出水与污泥流，再判断是否需要调参",
+        "查看 whole_balance 中 COD/N/P 哪一本账残差最大",
+        "把时间步长减半复跑同一工况，观察残差是否下降",
+        "若残差来自已知未建模边界，应在报告中标注，不能强行改成闭合"
+      ],
+      "scope": "plant",
+      "severity": "medium",
+      "value": 30.753455110026838
+    }
+  ],
+  "screenshot": "docs/screenshots/v2-ui-asm2d-multi-train.png",
+  "checks": [
+    "two train tabs A/B each 750 m3/h after flow x1.5",
+    "all 10 reactors 12 C; six aerobic reactors KLa 120 and DO 3.0",
+    "each clarifier RAS 750 / WAS 15 after flow x1.5",
+    "undo restores 500/20/8/2; redo restores 750/12/120/3",
+    "aggregate effluent flow 1470 m3/h (2x735)"
+  ]
+}

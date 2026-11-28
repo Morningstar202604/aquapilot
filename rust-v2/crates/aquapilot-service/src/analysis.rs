@@ -124,7 +124,7 @@ pub fn analyze_parts(model: &str, result: &Value, samples: &[Sample]) -> Experim
     let mut limits = Vec::new();
 
     let check_metrics: &[(&str, &str, f64)] = match model {
-        "asm2d" | "asm2d-adm1-loop" => &[
+        "asm2d" | "asm2d-parallel" | "asm2d-adm1-loop" => &[
             ("cod", "COD", 50.0),
             ("ss", "SS", 10.0),
             ("nh4_n", "NH4-N", 5.0),

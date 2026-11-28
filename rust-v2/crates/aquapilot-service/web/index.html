@@ -152,6 +152,13 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 }
 .flow-shell:before{content:"";position:absolute;inset:0;background-image:radial-gradient(rgba(15,118,110,.10) 1px,transparent 1px);background-size:18px 18px;opacity:.55;pointer-events:none}
 .flow-scroll{position:relative;z-index:1;overflow-x:auto;padding:22px 18px 18px}
+.train-tabs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 9px;padding:0 1px}
+.train-tab{display:flex;flex-direction:column;align-items:flex-start;gap:2px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px 9px;cursor:pointer}
+.train-tab:hover{border-color:#a9c9bf}
+.train-tab.active{border-color:var(--teal);background:var(--teal-soft);box-shadow:0 0 0 2px rgba(15,118,110,.08)}
+.train-tab b{font-size:10px;color:var(--ink)}
+.train-tab span{font-family:var(--mono);font-size:8.5px;color:var(--faint)}
+.train-total{margin-left:auto;font-family:var(--mono);font-size:9px;color:var(--muted)}
 .flow{display:flex;align-items:center;gap:0;min-width:max-content}
 .terminal{
   width:104px;flex:0 0 104px;border:1px solid #bcd8cd;border-radius:12px;background:linear-gradient(160deg,#effaf5,#fbfffd);
@@ -370,7 +377,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   <div class="top-status">
     <div class="status-chip" title="服务健康"><span class="dot" id="svc-dot"></span><span id="svc-label">连接中</span></div>
     <div class="status-chip"><span class="mono" id="queue-chip">队列 0 / 32</span></div>
-    <div class="status-chip"><span class="mono" id="svc-version">v0.0.15</span></div>
+    <div class="status-chip"><span class="mono" id="svc-version">v0.0.16</span></div>
   </div>
   <button class="top-link" id="open-api">API 契约 ↗</button>
 </header>
@@ -398,7 +405,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
         <div class="field"><label for="exp-name">实验名称</label><input id="exp-name" class="control" autocomplete="off"></div>
       </div>
       <div class="form-row one">
-        <div class="field"><label for="model">计算模型</label><select id="model" class="control"><option value="asm2d">ASM2d 整厂</option><option value="asm2d-adm1-loop">ASM2d + ADM1 回流闭环</option><option value="asm1">ASM1 自由拓扑 / BSM1</option><option value="adm1">ADM1 消化器</option><option value="sludge-line">泥线</option></select></div>
+        <div class="field"><label for="model">计算模型</label><select id="model" class="control"><option value="asm2d">ASM2d 整厂</option><option value="asm2d-parallel">ASM2d 多系列 2×500</option><option value="asm2d-adm1-loop">ASM2d + ADM1 回流闭环</option><option value="asm1">ASM1 自由拓扑 / BSM1</option><option value="adm1">ADM1 消化器</option><option value="sludge-line">泥线</option></select></div>
       </div>
       <div class="form-row">
         <div class="field"><label for="duration" id="duration-label">模拟时长（分钟）</label><input id="duration" class="control mono" type="number" min="1" step="1"></div>
@@ -450,6 +457,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     </div>
 
     <div class="flow-shell">
+      <div class="train-tabs hidden" id="train-tabs"></div>
       <div class="flow-scroll"><div class="flow" id="flow"></div></div>
       <div class="recycle-strip" id="recycle-strip"></div>
     </div>
@@ -533,7 +541,8 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     const p = (n) => String(n).padStart(2, "0");
     return `ui-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
   };
-  const isVisualModel = (model) => model === "asm2d" || model === "asm2d-adm1-loop";
+  const isParallelModel = (model) => model === "asm2d-parallel";
+  const isVisualModel = (model) => model === "asm2d" || model === "asm2d-parallel" || model === "asm2d-adm1-loop";
   const isTopologyModel = (model) => model === "asm1";
   const isDaysModel = (model) => model === "adm1" || model === "sludge-line";
 
@@ -543,6 +552,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     defaultPreset: null,
     presetId: null,
     model: "asm2d",
+    train: 0,
     config: null,
     name: "",
     durationMin: 43200,
@@ -579,8 +589,22 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     { id: "reset", label: "回到预设", tone: "", apply: () => { loadPreset(state.presetId || state.defaultPreset); }},
   ];
 
+  function getParallelTrains() {
+    if (!state.config || !isParallelModel(state.model)) return null;
+    return Array.isArray(state.config.trains) ? state.config.trains : null;
+  }
+
+  function trainLabel(index = state.train) {
+    return `系列 ${String.fromCharCode(65 + Math.max(0, Number(index) || 0))}`;
+  }
+
   function getPlant() {
     if (!state.config) return null;
+    if (isParallelModel(state.model)) {
+      const trains = getParallelTrains();
+      if (!trains || !trains.length) return null;
+      return trains[Math.min(Math.max(0, state.train), trains.length - 1)] || null;
+    }
     return state.model === "asm2d-adm1-loop" ? state.config.plant : state.config;
   }
 
@@ -650,7 +674,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   }
 
   function modelLabel(model) {
-    return ({asm2d: "ASM2d 整厂", "asm2d-adm1-loop": "ASM2d + ADM1 闭环", asm1: "ASM1 自由拓扑", adm1: "ADM1 消化器", "sludge-line": "泥线"})[model] || model;
+    return ({asm2d: "ASM2d 整厂", "asm2d-parallel": "ASM2d 多系列", "asm2d-adm1-loop": "ASM2d + ADM1 闭环", asm1: "ASM1 自由拓扑", adm1: "ADM1 消化器", "sludge-line": "泥线"})[model] || model;
   }
 
   function statusClass(status) {
@@ -883,27 +907,29 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   }
 
   function applyPlantCustomScenario(values) {
-    const plant = getPlant();
-    if (!plant) return;
+    const plants = (isParallelModel(state.model) ? (getParallelTrains() || []) : [getPlant()]).filter(Boolean);
+    if (!plants.length) return;
     const {flow, doSet, kla, temp} = values;
-    const aerobics = (plant.reactors || []).filter((reactor) => reactor.kind === "aerobic");
+    const aerobics = plants.flatMap((plant) => (plant.reactors || []).filter((reactor) => reactor.kind === "aerobic"));
     if ((doSet.value !== null || kla.value !== null) && !aerobics.length) {
       toast("当前工艺链没有好氧池，无法应用 DO/KLa。", "warn");
       return;
     }
-    if (flow.value !== null && !plant.influent) {
+    if (flow.value !== null && plants.some((plant) => !plant.influent)) {
       toast("当前工艺链没有进水边界，无法应用流量倍率。", "warn");
       return;
     }
     pushTopologyHistory();
     const notes = [];
     if (flow.value !== null) {
-      plant.influent.flow_m3_h = num(plant.influent.flow_m3_h, 0) * flow.value;
-      (plant.internal_recycles || []).forEach((item) => { item.flow_m3_h = num(item.flow_m3_h, 0) * flow.value; });
-      if (plant.clarifier) {
-        plant.clarifier.ras_flow_m3_h = num(plant.clarifier.ras_flow_m3_h, 0) * flow.value;
-        plant.clarifier.was_flow_m3_h = num(plant.clarifier.was_flow_m3_h, 0) * flow.value;
-      }
+      plants.forEach((plant) => {
+        plant.influent.flow_m3_h = num(plant.influent.flow_m3_h, 0) * flow.value;
+        (plant.internal_recycles || []).forEach((item) => { item.flow_m3_h = num(item.flow_m3_h, 0) * flow.value; });
+        if (plant.clarifier) {
+          plant.clarifier.ras_flow_m3_h = num(plant.clarifier.ras_flow_m3_h, 0) * flow.value;
+          plant.clarifier.was_flow_m3_h = num(plant.clarifier.was_flow_m3_h, 0) * flow.value;
+        }
+      });
       notes.push(`流量 ×${fmt(flow.value, 2)}（含内回流/RAS/WAS）`);
     }
     if (doSet.value !== null) {
@@ -915,7 +941,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       notes.push(`KLa ${fmt(kla.value, 0)} 1/h`);
     }
     if (temp.value !== null) {
-      (plant.reactors || []).forEach((reactor) => { reactor.temperature_c = temp.value; });
+      plants.forEach((plant) => (plant.reactors || []).forEach((reactor) => { reactor.temperature_c = temp.value; }));
       notes.push(`温度 ${fmt(temp.value, 0)}°C`);
     }
     validate(); renderFlow(); renderInspector(); updateTopologyHistoryButtons();
@@ -976,8 +1002,9 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
         const scenario = SCENARIOS.find((s) => s.id === button.dataset.scenario);
         if (!scenario) return;
         if (scenario.id === "reset") { scenario.apply(); return; }
-        if (!getPlant()) { toast("当前模型没有可视化工艺链，请用高级 JSON 改配置。", "warn"); return; }
-        scenario.apply(getPlant());
+        const targets = isParallelModel(state.model) ? (getParallelTrains() || []) : [getPlant()].filter(Boolean);
+        if (!targets.length) { toast("当前模型没有可视化工艺链，请用高级 JSON 改配置。", "warn"); return; }
+        targets.forEach((plant) => scenario.apply(plant));
         validate(); renderFlow(); renderInspector(); toast(`已注入：${scenario.label}`);
       }));
       bindCustomScenario("plant");
@@ -1012,7 +1039,9 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     $("#topo-name").disabled = !topologyMode;
     $("#model-hint").textContent = days
       ? "ADM1 / 泥线用天为单位；模型只输出最终状态一行。"
-      : state.model === "asm2d-adm1-loop"
+      : isParallelModel(state.model)
+        ? "ASM2d 多系列：上方切换系列，每个系列独立编辑池体/二沉池；工况自定义会作用于所有系列，结果按总流量汇总。"
+        : state.model === "asm2d-adm1-loop"
         ? "可视化编辑 A2O 池体；泥线使用默认 Asm2dSludgeConfig（可在高级 JSON 里加 sludge）。"
         : isTopologyModel(state.model)
           ? "ASM1 自由拓扑：节点和连接由你增删；每条连接流量必须显式，服务端会编译并检查流平衡。"
@@ -1021,17 +1050,47 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
   }
 
   function renderStageTag() {
-    $("#stage-tag").textContent = modelLabel(state.model);
+    const trains = getParallelTrains();
+    $("#stage-tag").textContent = `${modelLabel(state.model)}${trains?.length ? ` · ${trains.length} 系列` : ""}`;
+  }
+
+  function renderTrainTabs() {
+    const wrap = $("#train-tabs");
+    if (!wrap) return;
+    const trains = getParallelTrains();
+    if (!trains || !trains.length) {
+      wrap.classList.add("hidden");
+      wrap.innerHTML = "";
+      return;
+    }
+    wrap.classList.remove("hidden");
+    const total = trains.reduce((sum, plant) => sum + num(plant.influent?.flow_m3_h, 0), 0);
+    wrap.innerHTML = trains.map((plant, index) => `
+      <button class="train-tab ${index === state.train ? "active" : ""}" data-train="${index}">
+        <b>${trainLabel(index)} · ${esc(plant.name || plant.id || `系列 ${index + 1}`)}</b>
+        <span>${fmt(plant.influent?.flow_m3_h, 0)} m³/h · ${plant.reactors?.length || 0} 池</span>
+      </button>`).join("") +
+      `<span class="train-total">总进水 ${fmt(total, 0)} m³/h · ${trains.length} 系列</span>`;
+    $$("#train-tabs .train-tab").forEach((tab) => tab.addEventListener("click", () => {
+      const index = Number(tab.dataset.train);
+      if (!Number.isInteger(index) || index === state.train) return;
+      state.train = index;
+      state.selected = {type: "reactor", index: 0};
+      renderFlow(); renderInspector();
+    }));
   }
 
   function renderFlow() {
+    renderTrainTabs();
     const flow = $("#flow");
     flow.className = "flow";
-    $("#crumb-model").textContent = isTopologyModel(state.model) ? "ASM1 · 自由拓扑" : isVisualModel(state.model) ? "ASM2d · 整厂" : "模型配置";
-    $("#stage-eyebrow").textContent = isTopologyModel(state.model) ? "PROCESS TOPOLOGY / FREEFORM" : "PROCESS TOPOLOGY / A2O";
+    $("#crumb-model").textContent = isTopologyModel(state.model) ? "ASM1 · 自由拓扑" : isParallelModel(state.model) ? "ASM2d · 多系列" : isVisualModel(state.model) ? "ASM2d · 整厂" : "模型配置";
+    $("#stage-eyebrow").textContent = isTopologyModel(state.model) ? "PROCESS TOPOLOGY / FREEFORM" : isParallelModel(state.model) ? "PROCESS TOPOLOGY / MULTI-TRAIN" : "PROCESS TOPOLOGY / A2O";
     $("#stage-sub").textContent = isTopologyModel(state.model)
       ? "节点和连接都由你决定：工具栏加节点，连接表加边；选中节点在下方改池型、池容、DO 与进水组分。"
-      : "拖拽池体改串联顺序，点选节点在下方改参数；内回流、RAS/WAS、PAC 与三级过滤都在同一条流程上可见。";
+      : isParallelModel(state.model)
+        ? "多系列并列：上方切换系列，每个系列独立编辑池体、回流与二沉池；结果按总流量汇总。"
+        : "拖拽池体改串联顺序，点选节点在下方改参数；内回流、RAS/WAS、PAC 与三级过滤都在同一条流程上可见。";
     $(".stage-foot .legend").innerHTML = isTopologyModel(state.model)
       ? `<span><i class="swatch"></i>过程边</span><span><i class="swatch amber"></i>回流边</span><span><i class="swatch red"></i>边界/废弃</span>`
       : `<span><i class="swatch"></i>厌氧 / 好氧</span><span><i class="swatch amber"></i>缺氧 / 回流</span><span><i class="swatch red"></i>限制 / 旁路</span>`;
@@ -1615,11 +1674,12 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       return;
     }
     const selected = state.selected;
+    const trainPrefix = isParallelModel(state.model) ? `${trainLabel()} · ` : "";
     if (selected.type === "reactor") {
       const reactor = plant.reactors[selected.index];
       if (!reactor) { state.selected = {type: "reactor", index: 0}; return renderInspector(); }
       inspector.innerHTML = `
-        <div class="inspector-head"><div><h2>${esc(reactor.name || reactor.id)}</h2><div class="sub">反应器 ${selected.index + 1} / ${plant.reactors.length} · ${esc(reactor.id)}</div></div><span class="tag">${esc(reactor.kind)}</span></div>
+        <div class="inspector-head"><div><h2>${esc(reactor.name || reactor.id)}</h2><div class="sub">${trainPrefix}反应器 ${selected.index + 1} / ${plant.reactors.length} · ${esc(reactor.id)}</div></div><span class="tag">${esc(reactor.kind)}</span></div>
         <div class="inspector-grid">
           ${field("名称", "reactor.name", reactor.name, {type: "text", span: "span2"})}
           ${selectField("池型", "reactor.kind", reactor.kind, [["anaerobic","厌氧"],["anoxic","缺氧"],["aerobic","好氧"]])}
@@ -1640,7 +1700,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       const c = plant.clarifier || {};
       const reactorOptions = plant.reactors.map((r, index) => [index, r.name || r.id]);
       inspector.innerHTML = `
-        <div class="inspector-head"><div><h2>二沉池 / 固液分离</h2><div class="sub">Takács 多层沉降 · 10 层默认</div></div><span class="tag">SETTLER</span></div>
+        <div class="inspector-head"><div><h2>二沉池 / 固液分离</h2><div class="sub">${trainPrefix}Takács 多层沉降 · 10 层默认</div></div><span class="tag">SETTLER</span></div>
         <div class="inspector-grid">
           ${field("面积 m²", "clarifier.area_m2", c.area_m2, {min: "10"})}
           ${field("深度 m", "clarifier.depth_m", c.depth_m, {min: "0.5", step: "0.1"})}
@@ -1695,7 +1755,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       const inf = plant.influent || {};
       const st = inf.state || {};
       inspector.innerHTML = `
-        <div class="inspector-head"><div><h2>进水边界</h2><div class="sub">全厂 COD / N / P 的外部输入</div></div><span class="tag">INFLUENT</span></div>
+        <div class="inspector-head"><div><h2>进水边界</h2><div class="sub">${trainPrefix}全厂 COD / N / P 的外部输入</div></div><span class="tag">INFLUENT</span></div>
         <div class="inspector-grid">
           ${field("流量 m³/h", "influent.flow_m3_h", inf.flow_m3_h, {min: "1"})}
           ${field("NH₄-N mg/L", "influent.state.snh4", st.snh4, {min: "0"})}
@@ -1825,6 +1885,31 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 
   function validate() {
     const output = $("#stage-validation");
+    if (isParallelModel(state.model)) {
+      const trains = getParallelTrains() || [];
+      if (!trains.length) { output.textContent = "多系列配置缺失"; output.style.color = "var(--red)"; return false; }
+      const errors = [];
+      trains.forEach((plant, trainIndex) => {
+        const label = trainLabel(trainIndex);
+        const reactors = plant.reactors || [];
+        if (!reactors.length) errors.push(`${label} 至少一个反应器`);
+        const ids = new Set();
+        reactors.forEach((r) => { if (ids.has(r.id)) errors.push(`${label} 重复 id：${r.id}`); ids.add(r.id); });
+        const validIndex = (value) => Number.isInteger(Number(value)) && Number(value) >= 0 && Number(value) < reactors.length;
+        (plant.internal_recycles || []).forEach((r) => {
+          if (!validIndex(r.from) || !validIndex(r.to)) errors.push(`${label} 内回流端点越界：${r.from} → ${r.to}`);
+        });
+        if (plant.clarifier && !validIndex(plant.clarifier.ras_reactor)) errors.push(`${label} RAS 端点越界：${plant.clarifier.ras_reactor}`);
+        if (plant.pac && !validIndex(plant.pac.reactor)) errors.push(`${label} PAC 投加点越界：${plant.pac.reactor}`);
+        if (!(num(plant.influent?.flow_m3_h, 0) > 0)) errors.push(`${label} 进水流量必须为正`);
+      });
+      if (errors.length) { output.textContent = errors[0]; output.style.color = "var(--red)"; return false; }
+      const totalReactors = trains.reduce((sum, plant) => sum + (plant.reactors?.length || 0), 0);
+      const totalFlow = trains.reduce((sum, plant) => sum + num(plant.influent?.flow_m3_h, 0), 0);
+      output.textContent = `${trains.length} 系列 · ${totalReactors} 池 · 总进水 ${fmt(totalFlow, 0)} m³/h`;
+      output.style.color = "";
+      return true;
+    }
     if (isTopologyModel(state.model)) {
       const topology = getTopology();
       if (!topology) { output.textContent = "拓扑配置缺失"; output.style.color = "var(--red)"; return false; }
@@ -2166,6 +2251,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
     state.presetId = preset.id;
     state.model = preset.model;
     state.config = clone(preset.config);
+    state.train = 0;
     state.name = `${preset.label} · ${nowName()}`;
     state.selected = isVisualModel(preset.model)
       ? {type: "reactor", index: 0}
@@ -2180,10 +2266,10 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       state.durationMin = preset.model === "adm1" ? 14400 : 28800;
       state.sludgeDtDays = 0.002;
     } else {
-      state.durationMin = preset.model === "asm1" ? 1440 : 43200;
+      state.durationMin = (preset.model === "asm1" || isParallelModel(preset.model)) ? 1440 : 43200;
     }
     state.dtMin = 1;
-    state.sampleEveryMin = preset.model === "asm1" ? 60 : 360;
+    state.sampleEveryMin = (preset.model === "asm1" || isParallelModel(preset.model)) ? 60 : 360;
     state.exp = null;
     state.samples = [];
     state.topologyHistory = [];
@@ -2200,6 +2286,11 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
 
   function setModel(model) {
     if (model === state.model) return;
+    if (isParallelModel(model) || isParallelModel(state.model)) {
+      const preset = state.presets.find((item) => item.model === model);
+      if (preset) loadPreset(preset.id);
+      return;
+    }
     if (isVisualModel(model)) {
       const plant = isVisualModel(state.model) && getPlant() ? clone(getPlant()) : null;
       if (!plant) {
@@ -2238,6 +2329,7 @@ textarea.control{height:auto;min-height:110px;padding:8px 9px;resize:vertical;fo
       state.topologyHistory = [];
       state.topologyFuture = [];
       state.config = value;
+      if (isParallelModel(state.model)) state.train = 0;
       state.selected = isVisualModel(state.model)
         ? {type: "reactor", index: 0}
         : isTopologyModel(state.model)
