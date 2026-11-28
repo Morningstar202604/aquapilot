@@ -1,6 +1,6 @@
 {
-  "version": "0.0.13",
-  "experiment_id": "a1bb02e3-a7ac-4472-bdd7-f244e4172a75",
+  "version": "0.0.14",
+  "experiment_id": "216c6faf-9dce-47b3-bb31-17ba510f5a23",
   "model": "asm1",
   "status": "succeeded",
   "scorecard": {
@@ -14,7 +14,7 @@
       "code": "EFFLUENT_COD_HIGH",
       "severity": "high",
       "evidence": [
-        "末次采样 minute=1440：COD=2818.9287 mg/L；限值 50.0 mg/L。"
+        "末次采样 minute=1440：COD=2193.9600 mg/L；限值 50.0 mg/L。"
       ],
       "possible_causes": [
         "进水 COD 负荷或流量超过当前池容/曝气能力",
@@ -31,7 +31,7 @@
       "code": "EFFLUENT_SS_HIGH",
       "severity": "high",
       "evidence": [
-        "末次采样 minute=1440：SS=1978.8112 mg/L；限值 10.0 mg/L。"
+        "末次采样 minute=1440：SS=1532.9207 mg/L；限值 10.0 mg/L。"
       ],
       "possible_causes": [
         "自由拓扑缺少二沉池或过滤单元，悬浮固体直接穿透",
@@ -48,7 +48,7 @@
       "code": "EFFLUENT_TN_HIGH",
       "severity": "high",
       "evidence": [
-        "末次采样 minute=1440：TN=319.7240 mg/L；限值 15.0 mg/L。"
+        "末次采样 minute=1440：TN=249.1161 mg/L；限值 15.0 mg/L。"
       ],
       "possible_causes": [
         "缺氧段不足或内回流比过低，反硝化不充分",

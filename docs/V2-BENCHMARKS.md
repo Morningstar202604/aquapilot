@@ -471,7 +471,7 @@ python3 scripts/coverage_v2.py --summary docs/coverage-matrix.json
 python3 scripts/journeys_v2.py --summary docs/journeys-v2.json
 ```
 
-结果：`docs/journeys-v2.json`，5/5 通过，3.503 s。
+结果：`docs/journeys-v2.json`，5/5 通过，3.307 s。
 
 | 旅程 | 证据 |
 | --- | --- |

@@ -4,12 +4,12 @@
   "case_count": 5,
   "passed_count": 5,
   "failed_count": 0,
-  "elapsed_seconds": 3.707,
+  "elapsed_seconds": 3.307,
   "journeys_complete": true,
   "cases": [
     {
       "id": "storm",
-      "label": "\u66b4\u96e8\u9ad8\u6d41\u91cf 24 h",
+      "label": "暴雨高流量 24 h",
       "status": "passed",
       "checks": {
         "submit_http": 202,
@@ -20,7 +20,7 @@
     },
     {
       "id": "blower-failure",
-      "label": "\u98ce\u673a\u6545\u969c/\u4f4e DO",
+      "label": "风机故障/低 DO",
       "status": "passed",
       "checks": {
         "submit_http": 202,
@@ -40,7 +40,7 @@
     },
     {
       "id": "what-if",
-      "label": "\u4e09\u7ea7\u8fc7\u6ee4\u5f00/\u5173 what-if",
+      "label": "三级过滤开/关 what-if",
       "status": "passed",
       "checks": {
         "tp_mg_l": {
@@ -52,7 +52,7 @@
     },
     {
       "id": "weekly-report",
-      "label": "7 d \u5468\u62a5",
+      "label": "7 d 周报",
       "status": "passed",
       "checks": {
         "submit_http": 202,
@@ -66,7 +66,7 @@
     },
     {
       "id": "dirty-data",
-      "label": "\u810f\u6570\u636e/\u9519\u8bef\u8def\u5f84",
+      "label": "脏数据/错误路径",
       "status": "passed",
       "checks": {
         "malformed_http": 400,
@@ -81,6 +81,7 @@
       "failures": []
     }
   ],
-  "service_log": "/tmp/aquapilot-journeys-wv3kuixn/service.log",
-  "note": "Five representative role journeys for V2-4; not a wall-clock 24 h soak."
+  "service_log": "/tmp/aquapilot-journeys-mwrzdw27/service.log",
+  "note": "Five representative role journeys for V2-4; not a wall-clock 24 h soak.",
+  "service_version": "0.0.14"
 }

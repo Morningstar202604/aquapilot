@@ -1,10 +1,10 @@
 {
   "schema": "aquapilot.coverage.v1",
-  "generated_at_unix": 1795872423,
-  "elapsed_seconds": 93.688,
+  "generated_at_unix": 1795875053,
+  "elapsed_seconds": 93.436,
   "coverage_complete": true,
   "completed_24h": false,
-  "bin": "/home/user/Doubao/chats/38455916662454018/aquapilot/rust-v2/target/debug/aquapilot-v2",
+  "bin": "rust-v2/target/debug/aquapilot-v2",
   "models_covered": [
     "adm1",
     "asm1",
@@ -41,13 +41,13 @@
         "csv_rows": 25,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 8207
+        "report_bytes": 9232
       },
       "submit_http": 202,
-      "experiment_id": "71298f32-5f1d-44f7-a90b-d2165321a01e",
-      "wait_seconds": 0.255,
+      "experiment_id": "1d5217a9-ed8b-4592-a103-5bf736cc383c",
+      "wait_seconds": 0.256,
       "progress": 1.0,
-      "elapsed_seconds": 0.26
+      "elapsed_seconds": 0.261
     },
     {
       "id": "asm2d-basic",
@@ -74,13 +74,13 @@
         "csv_rows": 121,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 9654
+        "report_bytes": 10744
       },
       "submit_http": 202,
-      "experiment_id": "efa6ffe9-e399-4c53-8338-a765e108b881",
-      "wait_seconds": 1.265,
+      "experiment_id": "4e1590c2-a3a7-49eb-94f7-8eb45fd709c5",
+      "wait_seconds": 1.266,
       "progress": 1.0,
-      "elapsed_seconds": 1.272
+      "elapsed_seconds": 1.274
     },
     {
       "id": "asm2d-pac-tertiary",
@@ -110,10 +110,10 @@
         "report_bytes": 9765
       },
       "submit_http": 202,
-      "experiment_id": "7ea12025-7e4f-42d8-b06d-3e26abf24a02",
-      "wait_seconds": 1.013,
+      "experiment_id": "76918ba6-d5cd-4ed6-824a-e5fb8a345c89",
+      "wait_seconds": 1.014,
       "progress": 1.0,
-      "elapsed_seconds": 1.02
+      "elapsed_seconds": 1.021
     },
     {
       "id": "asm2d-loop",
@@ -140,13 +140,13 @@
         "csv_rows": 1,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 7594
+        "report_bytes": 7984
       },
       "submit_http": 202,
-      "experiment_id": "7f1891f5-5556-4a3c-8797-2273f4d253e6",
-      "wait_seconds": 72.388,
+      "experiment_id": "eb8a5100-cd52-4073-9061-2569acc64263",
+      "wait_seconds": 71.874,
       "progress": 1.0,
-      "elapsed_seconds": 72.393
+      "elapsed_seconds": 71.879
     },
     {
       "id": "adm1-tutorial",
@@ -162,13 +162,13 @@
         "csv_rows": 1,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 3815
+        "report_bytes": 4755
       },
       "submit_http": 202,
-      "experiment_id": "11a3d645-66d5-44b5-ac2a-fc649a599c85",
-      "wait_seconds": 3.276,
+      "experiment_id": "831cd52e-a327-4697-b459-e1faa633ce7e",
+      "wait_seconds": 3.53,
       "progress": 1.0,
-      "elapsed_seconds": 3.279
+      "elapsed_seconds": 3.534
     },
     {
       "id": "sludge-line",
@@ -184,13 +184,13 @@
         "csv_rows": 1,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 4196
+        "report_bytes": 5136
       },
       "submit_http": 202,
-      "experiment_id": "9938517a-7935-4040-83b5-3ec8f13a6c59",
-      "wait_seconds": 9.069,
+      "experiment_id": "a8caa4ef-7425-4376-b4cb-54fe14841965",
+      "wait_seconds": 9.32,
       "progress": 1.0,
-      "elapsed_seconds": 9.073
+      "elapsed_seconds": 9.324
     },
     {
       "id": "scenario-high-flow",
@@ -220,10 +220,10 @@
         "report_bytes": 9825
       },
       "submit_http": 202,
-      "experiment_id": "fba28c07-7ff2-48ce-bd17-1c87a8a70471",
-      "wait_seconds": 1.266,
+      "experiment_id": "adb8c1d2-e25c-4500-bbda-b0c58da5977d",
+      "wait_seconds": 1.265,
       "progress": 1.0,
-      "elapsed_seconds": 1.274
+      "elapsed_seconds": 1.272
     },
     {
       "id": "scenario-low-do",
@@ -250,13 +250,13 @@
         "csv_rows": 121,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 9885
+        "report_bytes": 10459
       },
       "submit_http": 202,
-      "experiment_id": "4c95713b-d83c-466e-9fce-7d04cb6ca997",
-      "wait_seconds": 1.265,
+      "experiment_id": "83b92691-223b-444c-8e0a-cb11ee548a67",
+      "wait_seconds": 1.013,
       "progress": 1.0,
-      "elapsed_seconds": 1.273
+      "elapsed_seconds": 1.02
     },
     {
       "id": "scenario-winter",
@@ -286,10 +286,10 @@
         "report_bytes": 9746
       },
       "submit_http": 202,
-      "experiment_id": "07d87e75-f832-4852-be74-b699e94cffe0",
-      "wait_seconds": 1.264,
+      "experiment_id": "8fef4057-7420-48cf-9c39-91b5f49b98b1",
+      "wait_seconds": 1.265,
       "progress": 1.0,
-      "elapsed_seconds": 1.271
+      "elapsed_seconds": 1.272
     },
     {
       "id": "scenario-pac-off",
@@ -319,10 +319,10 @@
         "report_bytes": 9755
       },
       "submit_http": 202,
-      "experiment_id": "aece4c72-226d-4c04-87d0-66d1986c3f87",
-      "wait_seconds": 1.265,
+      "experiment_id": "153e5900-c1d8-4627-87c4-428628ef45b7",
+      "wait_seconds": 1.264,
       "progress": 1.0,
-      "elapsed_seconds": 1.272
+      "elapsed_seconds": 1.271
     },
     {
       "id": "scenario-tertiary-bypass",
@@ -349,16 +349,17 @@
         "csv_rows": 121,
         "csv_header": "minute,flow_m3_h,cod_mg_l,bod_mg_l,ss_mg_l,nh4_n_mg_l,tn_mg_l,tp_mg_l,po4_p_mg_l,ph,temperature_c,do_mg_l,mlss_mg_l,srt_d,energy_kw,score,blanket_depth_m",
         "report_http": 200,
-        "report_bytes": 9996
+        "report_bytes": 11086
       },
       "submit_http": 202,
-      "experiment_id": "badbc2f6-424a-43a5-8cf1-88c5497275e9",
-      "wait_seconds": 1.265,
+      "experiment_id": "444e2fd1-b69f-4077-8cd3-c40e55d1b36d",
+      "wait_seconds": 1.272,
       "progress": 1.0,
-      "elapsed_seconds": 1.273
+      "elapsed_seconds": 1.279
     }
   ],
-  "service_log": "/tmp/aquapilot-coverage-d8j75h1a/service.log",
-  "db_path": "/tmp/aquapilot-coverage-d8j75h1a/aquapilot.sqlite",
-  "note": "Representative end-to-end coverage: every service model plus A2O operating disturbances through submit → queue → worker → detail → samples.csv → report.md → mass balance. This is not a wall-clock 24 h soak; completed_24h remains false."
+  "service_log": "/tmp/aquapilot-coverage-jjz8zpva/service.log",
+  "db_path": "/tmp/aquapilot-coverage-jjz8zpva/aquapilot.sqlite",
+  "note": "Representative end-to-end coverage: every service model plus A2O operating disturbances through submit → queue → worker → detail → samples.csv → report.md → mass balance. This is not a wall-clock 24 h soak; completed_24h remains false.",
+  "service_version": "0.0.14"
 }

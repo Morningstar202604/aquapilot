@@ -120,6 +120,10 @@ ASM1 画布的工具栏有 `↶ 撤销` / `↷ 重做`。增删节点、增删�
 
 实测数据落在 `docs/alarm-explain-check.json`：同一实验的 `analysis.alarms[]` 带三段解释，`report.md` 含 `### Alarm explanations`。
 
+默认 PAC + 三级过滤 7 d 的 `MASS_BALANCE_OPEN` 也在界面验证：评分 A、6/6，但最大账本残差 6.55%，展开后给出证据、四条可能原因和四条建议动作，不把“出水达标”和“质量平衡闭合”混成一件事。
+
+![质量平衡告警解释：7 d、A 6/6、MASS_BALANCE_OPEN 6.55%，展开证据/原因/建议](screenshots/v2-ui-mass-balance-explain.png)
+
 
 ### 3.9 自定义工况
 
@@ -164,6 +168,6 @@ ASM1 画布的工具栏有 `↶ 撤销` / `↷ 重做`。增删节点、增删�
 - `+ 内回流` 新增 4→1 回流、删除恢复；厌氧池后移后校验仍为 `5 池 · 1 内回流 · 1 二沉池`，回流端点随池序重映射；
 - 7 d 实验评分卡 A、6/6 达标，但 `MASS_BALANCE_OPEN` 残差 6.55%；`daily` 7 行、`weekly` 1 行，证明边界样本不会被拆成第 8 天/第 2 周。
 - BSM1/ASM1 1 d 实测：只显示 COD/NH4-N/TN/SS 四项，评分 D、2/4 达标，`EFFLUENT_SS_HIGH` 与 `EFFLUENT_TN_HIGH` 两个告警；页面不显示 TP/PO4 假通过。
-- 代表性端到端矩阵见 `docs/coverage-matrix.json`：11/11 通过，覆盖 5 个模型 + 5 个工况，93.386 s；loop 30 天单例 72.101 s，最大三本账残差 2.85%。
-- 五条角色旅程见 `docs/journeys-v2.json`：5/5 通过，覆盖暴雨、风机故障、三级过滤开/关、7 d 周报、脏数据；仍明确 `completed_24h=false`。
+- 代表性端到端矩阵见 `docs/coverage-matrix.json`：11/11 通过，覆盖 5 个模型 + 5 个工况，93.436 s；loop 30 天单例 71.88 s，最大三本账残差 2.85%。
+- 五条角色旅程见 `docs/journeys-v2.json`：5/5 通过（3.307 s），覆盖暴雨、风机故障、三级过滤开/关、7 d 周报、脏数据；仍明确 `completed_24h=false`。
 - 自由拓扑验收旅程见 `docs/topology-journey.json`：3 个 ASM1 预设全部 200 编译；删除厌氧池并补 `in → anx` 后 4 units / 3 connections 编译成功；1 d 实验 succeeded，D、1/4，三条出水告警；`completed_24h=false`。截图见 `screenshots/v2-ui-topology.png`。 0.0.10 自由拓扑工况验收见 `docs/topology-scenario-check.json`：高流量 ×1.5 编译 200、进水/出水 1500 m³/h、1 d 实验 succeeded、D 1/4、三条出水告警；低 DO 与冬季 12°C 编译 200。截图见 `screenshots/v2-ui-topology-scenarios.png`。

@@ -240,7 +240,7 @@ python3 scripts/soak_v2.py --duration 86400 --interval 30 \
 python3 scripts/coverage_v2.py --summary docs/coverage-matrix.json
 ```
 
-结果（`docs/coverage-matrix.json`）：11/11 通过，93.386 s；覆盖 `asm1`、`asm2d`、`asm2d-adm1-loop`、`adm1`、`sludge-line` 五个模型，以及 A2O 基础、PAC + 三级过滤、高流量、低 DO、冬季、PAC 停加、过滤旁路 7 个工况组合。每个 case 都检查 `202` 入队、终态、detail、`samples.csv`、`report.md`，有 `mass_balance`/`whole_balance` 的模型还检查残差 ≤ 5%。loop 30 天单例 72.101 s，最大残差 2.85%。`completed_24h` 仍为 `false`。
+结果（`docs/coverage-matrix.json`）：11/11 通过，93.436 s；覆盖 `asm1`、`asm2d`、`asm2d-adm1-loop`、`adm1`、`sludge-line` 五个模型，以及 A2O 基础、PAC + 三级过滤、高流量、低 DO、冬季、PAC 停加、过滤旁路 7 个工况组合。每个 case 都检查 `202` 入队、终态、detail、`samples.csv`、`report.md`，有 `mass_balance`/`whole_balance` 的模型还检查残差 ≤ 5%。loop 30 天单例 71.88 s，最大残差 2.85%。`completed_24h` 仍为 `false`。
 
 ### 五条角色旅程（0.0.8）
 
@@ -248,7 +248,7 @@ python3 scripts/coverage_v2.py --summary docs/coverage-matrix.json
 python3 scripts/journeys_v2.py --summary docs/journeys-v2.json
 ```
 
-结果（`docs/journeys-v2.json`）：5/5 通过，总耗时约 3.7 s，仍明确 `completed_24h=false`。
+结果（`docs/journeys-v2.json`）：5/5 通过，总耗时约 3.3 s，仍明确 `completed_24h=false`。
 
 | 旅程 | 证据 |
 | --- | --- |

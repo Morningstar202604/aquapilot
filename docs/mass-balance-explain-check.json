@@ -1,0 +1,42 @@
+{
+  "version": "0.0.14",
+  "experiment_id": "05c51c30-8041-461a-8bbd-35f13a7e032e",
+  "model": "asm2d",
+  "duration_min": 10080.0,
+  "status": "succeeded",
+  "scorecard": {
+    "grade": "A",
+    "passed": 6,
+    "total": 6,
+    "mass_balance_closed": false,
+    "max_balance_residual_pct": 6.5500271318510705
+  },
+  "alarms": [
+    {
+      "code": "MASS_BALANCE_OPEN",
+      "evidence": [
+        "全厂 COD/N/P 账本中最大绝对残差 6.55%；闭合阈值 5.00%。"
+      ],
+      "limit": 5.0,
+      "message": "plant COD/N/P mass balance is not closed (max residual 6.55%)",
+      "metric": "mass_balance",
+      "possible_causes": [
+        "拓扑边界不完整：缺少二沉池、污泥线或弃流路径",
+        "未建模的化学沉淀、吸附或过滤路径被当成消失",
+        "自由拓扑存在未连接的支路，或有流量未进入账本",
+        "积分步长或采样间隔较粗，残差尚未收敛"
+      ],
+      "recommended_actions": [
+        "先核对拓扑是否覆盖所有进出水与污泥流，再判断是否需要调参",
+        "查看 whole_balance 中 COD/N/P 哪一本账残差最大",
+        "把时间步长减半复跑同一工况，观察残差是否下降",
+        "若残差来自已知未建模边界，应在报告中标注，不能强行改成闭合"
+      ],
+      "scope": "plant",
+      "severity": "medium",
+      "value": 6.5500271318510705
+    }
+  ],
+  "screenshot": "docs/screenshots/v2-ui-mass-balance-explain.png",
+  "completed_24h": false
+}

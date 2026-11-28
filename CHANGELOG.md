@@ -12,6 +12,7 @@
 
 - ASM1 三池 5 节点/4 连接，应用流量 ×1.5、DO 3.0、KLa 120、温度 12°C：进水与四条连接均 1500 m³/h、KLa=120、DO 设定=3、水温=12°C；1 d 实验 `succeeded`，D 1/4，三条出水告警。截图 `docs/screenshots/v2-ui-custom-scenario.png`，证据 `docs/custom-scenario-check.json`。
 - 撤销/重做实测：只改 DO=3 时撤销回到原 DO 设定，重做恢复 3；随后完整自定义工况提交成功。
+- 0.0.14 回归：五条角色旅程 5/5（3.307 s），代表性矩阵 11/11（93.436 s，loop 30 天 71.88 s），自由拓扑旅程 3 预设 + 编辑后 1 d D 1/4；默认 PAC 7 d 仍为 A 6/6、`MASS_BALANCE_OPEN` 6.55%，截图与证据见 `docs/screenshots/v2-ui-mass-balance-explain.png`、`docs/mass-balance-explain-check.json`。
 - `cargo test` 75 项、OpenAPI 13 paths；24 h soak 已用 0.0.14 二进制重启（端口 5203、workdir `soak-24h-run-014`），启动检查 1/1 提交成功、0 失败，预计 2026-11-29 22:07 完成。
 
 ## [0.0.13] — 2026-11-28
